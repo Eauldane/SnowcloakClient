@@ -15,40 +15,26 @@
   <ItemGroup>
     <PackageReference Include="Chaos.NaCl.Standard" Version="1.0.0" />
     <PackageReference Include="Downloader" Version="4.0.3" />
+    <PackageReference Include="Glamourer.Api" Version="2.6.0" />
     <PackageReference Include="K4os.Compression.LZ4.Legacy" Version="1.3.8" />
     <PackageReference Include="K4os.Compression.LZ4.Streams" Version="1.3.8" />
     <PackageReference Include="MessagePack" Version="3.1.4" />
     <PackageReference Include="MessagePack.Annotations" Version="3.1.4" />
-    <PackageReference Include="Meziantou.Analyzer" Version="2.0.213">
+    <PackageReference Include="Meziantou.Analyzer" Version="2.0.219">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.8" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="9.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
+    <PackageReference Include="Penumbra.Api" Version="5.12.0" />
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.15.0.120848">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
     <PackageReference Update="DalamudPackager" Version="13.1.0" />
-    <PackageReference Include="System.IO.Pipelines" Version="9.0.8" />
-  </ItemGroup>
-
-  <ItemGroup Condition="Exists('.\Penumbra.Api\Penumbra.Api.csproj')">
-    <ProjectReference Include=".\Penumbra.Api\Penumbra.Api.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="!Exists('.\Penumbra.Api\Penumbra.Api.csproj')">
-    <PackageReference Include="Penumbra.Api" Version="5.12.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="Exists('.\Glamourer.Api\Glamourer.Api.csproj')">
-    <ProjectReference Include=".\Glamourer.Api\Glamourer.Api.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="!Exists('.\Glamourer.Api\Glamourer.Api.csproj')">
-    <PackageReference Include="Glamourer.Api" Version="2.6.0" />
+    <PackageReference Include="System.IO.Pipelines" Version="9.0.9" />
   </ItemGroup>
 
   <PropertyGroup>
