@@ -100,6 +100,26 @@ public class CompactUi : WindowMediatorSubscriberBase
             MinimumSize = new Vector2(350, 400),
             MaximumSize = new Vector2(350, 2000),
         };
+
+        TitleBarButtons = new()
+        {
+            new TitleBarButton()
+            {
+                Icon = FontAwesomeIcon.Cog,
+                Click = (msg) =>
+                {
+                    Mediator.Publish(new UiToggleMessage(typeof(SettingsUi)));
+                },
+                IconOffset = new(2,1),
+                ShowTooltip = () =>
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.Text("Open Snowcloak's Settings");
+                    ImGui.EndTooltip();
+                }
+            }
+        };
+
     }
 
     protected override void DrawInternal()
@@ -507,47 +527,36 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private void DrawUIDHeader()
     {
+        //conf UI header
         var uidText = GetUidText();
-        var buttonSizeX = 0f;
-        Vector2 uidTextSize;
 
         using (_uiSharedService.UidFont.Push())
         {
-            uidTextSize = ImGui.CalcTextSize(uidText);
+            var uidTextSize = ImGui.CalcTextSize(uidText);
+            ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X) / 2 - (uidTextSize.X / 2));
+            ImGui.TextColored(GetUidColor(), uidText);
         }
-
-        var originalPos = ImGui.GetCursorPos();
-        ImGui.SetWindowFontScale(1.5f);
-        var buttonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Cog);
-        buttonSizeX -= buttonSize.X - ImGui.GetStyle().ItemSpacing.X * 2;
-        ImGui.SameLine(ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() - buttonSize.X);
-        ImGui.SetCursorPosY(originalPos.Y + uidTextSize.Y / 2 - buttonSize.Y / 2);
-        if (_uiSharedService.IconButton(FontAwesomeIcon.Cog))
-        {
-            Mediator.Publish(new OpenSettingsUiMessage());
-        }
-        UiSharedService.AttachToolTip("Open the Snowcloak Settings");
-
-        ImGui.SameLine(); //Important to draw the uidText consistently
-        ImGui.SetCursorPos(originalPos);
 
         if (_apiController.ServerState is ServerState.Connected)
         {
-            buttonSizeX += _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Copy).X - ImGui.GetStyle().ItemSpacing.X * 2;
-            ImGui.SetCursorPosY(originalPos.Y + uidTextSize.Y / 2 - buttonSize.Y / 2);
-            if (_uiSharedService.IconButton(FontAwesomeIcon.Copy))
+            if (ImGui.IsItemClicked())
             {
                 ImGui.SetClipboardText(_apiController.DisplayName);
             }
-            UiSharedService.AttachToolTip("Copy your UID to clipboard");
-            ImGui.SameLine();
-        }
-        ImGui.SetWindowFontScale(1f);
+            UiSharedService.AttachToolTip("Click to copy");
 
-        ImGui.SetCursorPosY(originalPos.Y + buttonSize.Y / 2 - uidTextSize.Y / 2 - ImGui.GetStyle().ItemSpacing.Y / 2);
-        ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X) / 2 + buttonSizeX - uidTextSize.X / 2);
-        using (_uiSharedService.UidFont.Push())
-            ImGui.TextColored(GetUidColor(), uidText);
+            if (!string.Equals(_apiController.DisplayName, _apiController.UID, StringComparison.Ordinal))
+            {
+                var origTextSize = ImGui.CalcTextSize(_apiController.UID);
+                ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X) / 2 - (origTextSize.X / 2));
+                ImGui.TextColored(GetUidColor(), _apiController.UID);
+                if (ImGui.IsItemClicked())
+                {
+                    ImGui.SetClipboardText(_apiController.UID);
+                }
+                UiSharedService.AttachToolTip("Click to copy");
+            }
+        }
 
         if (_apiController.ServerState is not ServerState.Connected)
         {
