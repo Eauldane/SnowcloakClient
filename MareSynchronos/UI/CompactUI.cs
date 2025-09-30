@@ -29,6 +29,17 @@ namespace MareSynchronos.UI;
 
 public class CompactUi : WindowMediatorSubscriberBase
 {
+    // selected menu for states
+    private enum Menu
+    {
+        IndividualPairs,
+        Syncshells
+    }
+
+    // currebnt selected tab and sidebar state
+    private Menu _selectedMenu = Menu.IndividualPairs;
+    private bool _sidebarCollapsed = false;
+
     public float TransferPartHeight;
     public float WindowContentWidth;
     private readonly ApiController _apiController;
@@ -54,7 +65,6 @@ public class CompactUi : WindowMediatorSubscriberBase
     private string _pairToAdd = string.Empty;
     private int _secretKeyIdx = -1;
     private bool _showModalForUserAddition;
-    private bool _showSyncShells;
     private bool _wasOpen;
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, MareConfigService configService, ApiController apiController, PairManager pairManager, ChatService chatService,
@@ -95,31 +105,12 @@ public class CompactUi : WindowMediatorSubscriberBase
 
         Flags |= ImGuiWindowFlags.NoDocking;
 
+        // changed min size
         SizeConstraints = new WindowSizeConstraints()
         {
-            MinimumSize = new Vector2(350, 400),
-            MaximumSize = new Vector2(350, 2000),
+            MinimumSize = new Vector2(300, 400),
+            MaximumSize = new Vector2(600, 2000),
         };
-
-        TitleBarButtons = new()
-        {
-            new TitleBarButton()
-            {
-                Icon = FontAwesomeIcon.Cog,
-                Click = (msg) =>
-                {
-                    Mediator.Publish(new UiToggleMessage(typeof(SettingsUi)));
-                },
-                IconOffset = new(2,1),
-                ShowTooltip = () =>
-                {
-                    ImGui.BeginTooltip();
-                    ImGui.Text("Open Snowcloak's Settings");
-                    ImGui.EndTooltip();
-                }
-            }
-        };
-
     }
 
     protected override void DrawInternal()
@@ -129,119 +120,176 @@ public class CompactUi : WindowMediatorSubscriberBase
         else
             UiSharedService.AccentColor = ImGuiColors.ParsedGreen;
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - 1f * ImGuiHelpers.GlobalScale + ImGui.GetStyle().ItemSpacing.Y);
-        WindowContentWidth = UiSharedService.GetWindowContentRegionWidth();
-        if (!_apiController.IsCurrentVersion)
+
+        DrawSidebar();
+        ImGui.SameLine();
+        DrawMainContent();
+    }
+
+    //helper for buttons
+    private void DrawSidebarButton(Menu menu, FontAwesomeIcon icon, string label)
+    {
+        bool isActive = _selectedMenu == menu;
+        using var color = ImRaii.PushColor(ImGuiCol.Button, isActive ? UiSharedService.AccentColor : new Vector4(0, 0, 0, 0));
+        using var colorHovered = ImRaii.PushColor(ImGuiCol.ButtonHovered, isActive ? UiSharedService.AccentColor : ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonHovered]);
+        using var colorActive = ImRaii.PushColor(ImGuiCol.ButtonActive, isActive ? UiSharedService.AccentColor : ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonActive]);
+
+        if (_sidebarCollapsed)
         {
-            var ver = _apiController.CurrentClientVersion;
-            var unsupported = "UNSUPPORTED VERSION";
-            using (_uiSharedService.UidFont.Push())
+            // if the tab is collapsed state only show buttons not lable
+            if (_uiSharedService.IconButton(icon))
             {
-                var uidTextSize = ImGui.CalcTextSize(unsupported);
-                ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X) / 2 - uidTextSize.X / 2);
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextColored(ImGuiColors.DalamudRed, unsupported);
+                _selectedMenu = menu;
             }
-            UiSharedService.ColorTextWrapped($"Your Snowcloak installation is out of date, the current version is {ver.Major}.{ver.Minor}.{ver.Build}. " +
-                $"It is highly recommended to keep Snowcloak up to date. Open /xlplugins and update the plugin.", ImGuiColors.DalamudRed);
+            UiSharedService.AttachToolTip(label);
         }
-
-        using (ImRaii.PushId("header")) DrawUIDHeader();
-        ImGui.Separator();
-        using (ImRaii.PushId("serverstatus")) DrawServerStatus();
-
-        if (_apiController.ServerState is ServerState.Connected)
+        else
         {
-            var hasShownSyncShells = _showSyncShells;
+            if (_uiSharedService.IconTextButton(icon, label, (150 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            {
+                _selectedMenu = menu;
+            }
+        }
+    }
+    // helper for buttons that dont cause state change
+    private void DrawSidebarAction(FontAwesomeIcon icon, string label, Action onClick)
+    {
+        if (_sidebarCollapsed)
+        {
+            // if the tab is collapsed state only show buttons not lable
+            if (_uiSharedService.IconButton(icon))
+            {
+                onClick();
+            }
+            UiSharedService.AttachToolTip(label);
+        }
+        else
+        {
+            if (_uiSharedService.IconTextButton(icon, label, (150 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            {
+                onClick();
+            }
+        }
+    }
+    private void DrawSidebar()
+    {
+        // Adjust both values below to change size, 40 seems good to fit the buttons
+        // 160 seems decent enough to fit the text into it, could be smaller
+        var sidebarWidth = (_sidebarCollapsed ? 40 : 160) * ImGuiHelpers.GlobalScale;
 
-            ImGui.PushFont(UiBuilder.IconFont);
-            if (!hasShownSyncShells)
+        using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), true))
+        {
+            var collapseIcon = _sidebarCollapsed ? FontAwesomeIcon.ArrowRight : FontAwesomeIcon.ArrowLeft;
+            if (_uiSharedService.IconButton(collapseIcon))
             {
-                ImGui.PushStyleColor(ImGuiCol.Button, ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonHovered]);
+                _sidebarCollapsed = !_sidebarCollapsed;
             }
-            if (ImGui.Button(FontAwesomeIcon.User.ToIconString(), new Vector2((UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X) / 2, 30 * ImGuiHelpers.GlobalScale)))
-            {
-                _showSyncShells = false;
-            }
-            if (!hasShownSyncShells)
-            {
-                ImGui.PopStyleColor();
-            }
-            ImGui.PopFont();
-            UiSharedService.AttachToolTip("Individual pairs");
-
-            ImGui.SameLine();
-
-            ImGui.PushFont(UiBuilder.IconFont);
-            if (hasShownSyncShells)
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonHovered]);
-            }
-            if (ImGui.Button(FontAwesomeIcon.UserFriends.ToIconString(), new Vector2((UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X) / 2, 30 * ImGuiHelpers.GlobalScale)))
-            {
-                _showSyncShells = true;
-            }
-            if (hasShownSyncShells)
-            {
-                ImGui.PopStyleColor();
-            }
-            ImGui.PopFont();
-
-            UiSharedService.AttachToolTip("Syncshells");
+            UiSharedService.AttachToolTip(_sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar");
 
             ImGui.Separator();
-            if (!hasShownSyncShells)
-            {
-                using (ImRaii.PushId("pairlist")) DrawPairList();
-            }
-            else
-            {
-                using (ImRaii.PushId("syncshells")) _groupPanel.DrawSyncshells();
-            }
+
+            // Buttons with state change
+            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Individual Pairs");
+            DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, "Syncshells");
             ImGui.Separator();
-            using (ImRaii.PushId("transfers")) DrawTransfers();
-            TransferPartHeight = ImGui.GetCursorPosY() - TransferPartHeight;
-            using (ImRaii.PushId("group-user-popup")) _selectPairsForGroupUi.Draw(_pairManager.DirectPairs);
-            using (ImRaii.PushId("grouping-popup")) _selectGroupForPairUi.Draw();
+            //buttons without state change
+            DrawSidebarAction(FontAwesomeIcon.PersonCircleQuestion, "Character Analysis",
+                       () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
+            //Abbrivated because Character Data Hub is too long and loogs ugly in the lables
+            DrawSidebarAction(FontAwesomeIcon.Running, "Character Hub",
+                () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+            DrawSidebarAction(FontAwesomeIcon.Running, "Settings",
+                () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
         }
+    }
 
-        if (_configService.Current.OpenPopupOnAdd && _pairManager.LastAddedUser != null)
+    
+    private void DrawMainContent()
+    {
+        using (var child = ImRaii.Child("MainContent", new Vector2(-1, -1), false))
         {
-            _lastAddedUser = _pairManager.LastAddedUser;
-            _pairManager.LastAddedUser = null;
-            ImGui.OpenPopup("Set Notes for New User");
-            _showModalForUserAddition = true;
-            _lastAddedUserComment = string.Empty;
-        }
+            WindowContentWidth = UiSharedService.GetWindowContentRegionWidth();
 
-        if (ImGui.BeginPopupModal("Set Notes for New User", ref _showModalForUserAddition, UiSharedService.PopupWindowFlags))
-        {
-            if (_lastAddedUser == null)
+            if (!_apiController.IsCurrentVersion)
             {
-                _showModalForUserAddition = false;
-            }
-            else
-            {
-                UiSharedService.TextWrapped($"You have successfully added {_lastAddedUser.UserData.AliasOrUID}. Set a local note for the user in the field below:");
-                ImGui.InputTextWithHint("##noteforuser", $"Note for {_lastAddedUser.UserData.AliasOrUID}", ref _lastAddedUserComment, 100);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Note"))
+                var ver = _apiController.CurrentClientVersion;
+                var unsupported = "UNSUPPORTED VERSION";
+                using (_uiSharedService.UidFont.Push())
                 {
-                    _serverManager.SetNoteForUid(_lastAddedUser.UserData.UID, _lastAddedUserComment);
-                    _lastAddedUser = null;
-                    _lastAddedUserComment = string.Empty;
+                    var uidTextSize = ImGui.CalcTextSize(unsupported);
+                    ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X) / 2 - uidTextSize.X / 2);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(ImGuiColors.DalamudRed, unsupported);
+                }
+                UiSharedService.ColorTextWrapped($"Your Snowcloak installation is out of date, the current version is {ver.Major}.{ver.Minor}.{ver.Build}. " +
+                    $"It is highly recommended to keep Snowcloak up to date. Open /xlplugins and update the plugin.", ImGuiColors.DalamudRed);
+            }
+
+            using (ImRaii.PushId("header")) DrawUIDHeader();
+            ImGui.Separator();
+            using (ImRaii.PushId("serverstatus")) DrawServerStatus();
+
+            if (_apiController.ServerState is ServerState.Connected)
+            {
+                ImGui.Separator();
+
+
+                switch (_selectedMenu)
+                {
+                    case Menu.IndividualPairs:
+                        using (ImRaii.PushId("pairlist")) DrawPairList();
+                        break;
+                    case Menu.Syncshells:
+                        using (ImRaii.PushId("syncshells")) _groupPanel.DrawSyncshells();
+                        break;
+                }
+
+                ImGui.Separator();
+                using (ImRaii.PushId("transfers")) DrawTransfers();
+                TransferPartHeight = ImGui.GetCursorPosY() - TransferPartHeight;
+                using (ImRaii.PushId("group-user-popup")) _selectPairsForGroupUi.Draw(_pairManager.DirectPairs);
+                using (ImRaii.PushId("grouping-popup")) _selectGroupForPairUi.Draw();
+            }
+
+            if (_configService.Current.OpenPopupOnAdd && _pairManager.LastAddedUser != null)
+            {
+                _lastAddedUser = _pairManager.LastAddedUser;
+                _pairManager.LastAddedUser = null;
+                ImGui.OpenPopup("Set Notes for New User");
+                _showModalForUserAddition = true;
+                _lastAddedUserComment = string.Empty;
+            }
+
+            if (ImGui.BeginPopupModal("Set Notes for New User", ref _showModalForUserAddition, UiSharedService.PopupWindowFlags))
+            {
+                if (_lastAddedUser == null)
+                {
                     _showModalForUserAddition = false;
                 }
+                else
+                {
+                    UiSharedService.TextWrapped($"You have successfully added {_lastAddedUser.UserData.AliasOrUID}. Set a local note for the user in the field below:");
+                    ImGui.InputTextWithHint("##noteforuser", $"Note for {_lastAddedUser.UserData.AliasOrUID}", ref _lastAddedUserComment, 100);
+                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Note"))
+                    {
+                        _serverManager.SetNoteForUid(_lastAddedUser.UserData.UID, _lastAddedUserComment);
+                        _lastAddedUser = null;
+                        _lastAddedUserComment = string.Empty;
+                        _showModalForUserAddition = false;
+                    }
+                }
+                UiSharedService.SetScaledWindowSize(275);
+                ImGui.EndPopup();
             }
-            UiSharedService.SetScaledWindowSize(275);
-            ImGui.EndPopup();
-        }
 
-        var pos = ImGui.GetWindowPos();
-        var size = ImGui.GetWindowSize();
-        if (_lastSize != size || _lastPosition != pos)
-        {
-            _lastSize = size;
-            _lastPosition = pos;
-            Mediator.Publish(new CompactUiChange(_lastSize, _lastPosition));
+            var pos = ImGui.GetWindowPos();
+            var size = ImGui.GetWindowSize();
+            if (_lastSize != size || _lastPosition != pos)
+            {
+                _lastSize = size;
+                _lastPosition = pos;
+                Mediator.Publish(new CompactUiChange(_lastSize, _lastPosition));
+            }
         }
     }
 
@@ -507,27 +555,10 @@ public class CompactUi : WindowMediatorSubscriberBase
             ImGui.SameLine(WindowContentWidth - textSize.X);
             ImGui.TextUnformatted(downloadText);
         }
-
-        var bottomButtonWidth = (WindowContentWidth - ImGui.GetStyle().ItemSpacing.X) / 2;
-
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.PersonCircleQuestion, "Character Analysis", bottomButtonWidth))
-        {
-            Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi)));
-        }
-
-        ImGui.SameLine();
-
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Running, "Character Data Hub", bottomButtonWidth))
-        {
-            Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi)));
-        }
-
-        ImGui.SameLine();
     }
 
     private void DrawUIDHeader()
     {
-        //conf UI header
         var uidText = GetUidText();
 
         using (_uiSharedService.UidFont.Push())
