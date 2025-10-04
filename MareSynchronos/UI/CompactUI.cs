@@ -10,6 +10,7 @@ using MareSynchronos.MareConfiguration;
 using MareSynchronos.PlayerData.Handlers;
 using MareSynchronos.PlayerData.Pairs;
 using MareSynchronos.Services;
+using MareSynchronos.Services.CharaData;
 using MareSynchronos.Services.Mediator;
 using MareSynchronos.Services.ServerConfiguration;
 using MareSynchronos.UI.Components;
@@ -174,8 +175,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     private void DrawSidebar()
     {
         // Adjust both values below to change size, 40 seems good to fit the buttons
-        // 160 seems decent enough to fit the text into it, could be smaller
-        var sidebarWidth = (_sidebarCollapsed ? 40 : 160) * ImGuiHelpers.GlobalScale;
+        // 150 seems decent enough to fit the text into it, could be smaller
+        var sidebarWidth = (_sidebarCollapsed ? 40 : 150) * ImGuiHelpers.GlobalScale;
 
         using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), true))
         {
@@ -198,8 +199,62 @@ public class CompactUi : WindowMediatorSubscriberBase
             //Abbrivated because Character Data Hub is too long and loogs ugly in the lables
             DrawSidebarAction(FontAwesomeIcon.Running, "Character Hub",
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
-            DrawSidebarAction(FontAwesomeIcon.Running, "Settings",
+            DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
+            if (_apiController.ServerState is ServerState.Connected)
+            {
+                ImGui.Separator();
+                DrawSidebarAction(FontAwesomeIcon.UserCircle, "Edit Profile",
+                    () => Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi))));
+            }
+
+            float bottomElementsHeight = ImGui.GetFrameHeightWithSpacing() * 2;
+            var availableSpace = ImGui.GetContentRegionAvail().Y;
+            if (availableSpace > bottomElementsHeight)
+            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + availableSpace - bottomElementsHeight);
+
+            //transparent button shenenigans
+            ImGui.PushStyleColor(ImGuiCol.Button, 0);
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0);
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0);
+            ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0);
+
+
+            if (_apiController.ServerState is ServerState.Connected)
+            {
+                var userCount = _apiController.OnlineUsers.ToString(CultureInfo.InvariantCulture);
+                ImGui.PushStyleColor(ImGuiCol.Text, UiSharedService.AccentColor);
+                DrawSidebarAction(FontAwesomeIcon.Users, $"{userCount} Users Online", () => { });
+                ImGui.PopStyleColor();
+            }
+            else
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudRed);
+                DrawSidebarAction(FontAwesomeIcon.ExclamationTriangle, "Not connected", () => { });
+                ImGui.PopStyleColor();
+            }
+
+            // restore normal button
+            ImGui.PopStyleVar();
+            ImGui.PopStyleColor(3);
+            var connectedIcon = _serverManager.CurrentServer!.FullPause ? FontAwesomeIcon.Unlink : FontAwesomeIcon.Link;
+            var color = UiSharedService.GetBoolColor(!_serverManager.CurrentServer!.FullPause);
+
+            if (_apiController.ServerState is not (ServerState.Reconnecting or ServerState.Disconnecting))
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, color);
+
+                DrawSidebarAction(connectedIcon, !_serverManager.CurrentServer.FullPause ? "Disconnect": "Connect",
+                () =>
+                {
+                    _serverManager.CurrentServer.FullPause = !_serverManager.CurrentServer.FullPause;
+                    _serverManager.Save();
+                    _ = _apiController.CreateConnections();
+                });
+                ImGui.PopStyleColor();
+                UiSharedService.AttachToolTip(!_serverManager.CurrentServer.FullPause ? "Disconnect from " + _serverManager.CurrentServer.ServerName : "Connect to " + _serverManager.CurrentServer.ServerName);
+            }
+
         }
     }
 
@@ -226,8 +281,6 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
 
             using (ImRaii.PushId("header")) DrawUIDHeader();
-            ImGui.Separator();
-            using (ImRaii.PushId("serverstatus")) DrawServerStatus();
 
             if (_apiController.ServerState is ServerState.Connected)
             {
@@ -440,76 +493,6 @@ public class CompactUi : WindowMediatorSubscriberBase
         _pairGroupsUi.Draw(visibleUsers, onlineUsers, pausedUsers, offlineUsers);
 
         ImGui.EndChild();
-    }
-
-    private void DrawServerStatus()
-    {
-        var buttonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Link);
-        var userCount = _apiController.OnlineUsers.ToString(CultureInfo.InvariantCulture);
-        var userSize = ImGui.CalcTextSize(userCount);
-        var textSize = ImGui.CalcTextSize("Users Online");
-        string shardConnection = string.Equals(_apiController.ServerInfo.ShardName, "Main", StringComparison.OrdinalIgnoreCase) ? string.Empty : $"Shard: {_apiController.ServerInfo.ShardName}";
-        var shardTextSize = ImGui.CalcTextSize(shardConnection);
-        var printShard = !string.IsNullOrEmpty(_apiController.ServerInfo.ShardName) && shardConnection != string.Empty;
-
-        if (_apiController.ServerState is ServerState.Connected)
-        {
-            ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth()) / 2 - (userSize.X + textSize.X) / 2 - ImGui.GetStyle().ItemSpacing.X / 2);
-            if (!printShard) ImGui.AlignTextToFramePadding();
-            ImGui.TextColored(new Vector4(0.675f, 0.985f, 1f, 1f), userCount);
-            ImGui.SameLine();
-            if (!printShard) ImGui.AlignTextToFramePadding();
-            ImGui.TextUnformatted("Users Online");
-        }
-        else
-        {
-            ImGui.AlignTextToFramePadding();
-            ImGui.TextColored(ImGuiColors.DalamudRed, "Not connected to any server");
-        }
-
-        if (printShard)
-        {
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().ItemSpacing.Y);
-            ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth()) / 2 - shardTextSize.X / 2);
-            ImGui.TextUnformatted(shardConnection);
-        }
-
-        ImGui.SameLine();
-        if (printShard)
-        {
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ((userSize.Y + textSize.Y) / 2 + shardTextSize.Y) / 2 - ImGui.GetStyle().ItemSpacing.Y + buttonSize.Y / 2);
-        }
-        var color = UiSharedService.GetBoolColor(!_serverManager.CurrentServer!.FullPause);
-        var connectedIcon = !_serverManager.CurrentServer.FullPause ? FontAwesomeIcon.Link : FontAwesomeIcon.Unlink;
-
-        if (_apiController.ServerState is ServerState.Connected)
-        {
-            ImGui.SetCursorPosX(0 + ImGui.GetStyle().ItemSpacing.X);
-            if (_uiSharedService.IconButton(FontAwesomeIcon.UserCircle))
-            {
-                Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi)));
-            }
-            UiSharedService.AttachToolTip("Edit your Profile");
-        }
-
-        ImGui.SameLine(ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() - buttonSize.X);
-        if (printShard)
-        {
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ((userSize.Y + textSize.Y) / 2 + shardTextSize.Y) / 2 - ImGui.GetStyle().ItemSpacing.Y + buttonSize.Y / 2);
-        }
-
-        if (_apiController.ServerState is not (ServerState.Reconnecting or ServerState.Disconnecting))
-        {
-            ImGui.PushStyleColor(ImGuiCol.Text, color);
-            if (_uiSharedService.IconButton(connectedIcon))
-            {
-                _serverManager.CurrentServer.FullPause = !_serverManager.CurrentServer.FullPause;
-                _serverManager.Save();
-                _ = _apiController.CreateConnections();
-            }
-            ImGui.PopStyleColor();
-            UiSharedService.AttachToolTip(!_serverManager.CurrentServer.FullPause ? "Disconnect from " + _serverManager.CurrentServer.ServerName : "Connect to " + _serverManager.CurrentServer.ServerName);
-        }
     }
 
     private void DrawTransfers()
