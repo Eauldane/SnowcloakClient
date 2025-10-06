@@ -91,11 +91,6 @@ public partial class ApiController
     {
         await _mareHub!.SendAsync(nameof(UserSetPairPermissions), userPermissions).ConfigureAwait(false);
     }
-    
-    public Task GroupSetUserPermissions(GroupPairUserPermissionDto dto)
-    {
-        return _mareHub!.InvokeAsync(nameof(GroupSetUserPermissions), dto);
-    }
 
     public async Task UserSetProfile(UserProfileDto userDescription)
     {

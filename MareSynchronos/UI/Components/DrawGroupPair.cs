@@ -306,7 +306,7 @@ public class DrawGroupPair : DrawPairBase
                 {
                     var groupPerm = _fullInfoDto.GroupUserPermissions;
                     groupPerm.SetPaused(!groupPerm.IsPaused());
-                    _ = _apiController.GroupSetUserPermissions(new GroupPairUserPermissionDto(
+                    _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
                         _group.Group,
                         _pair.UserData,
                         groupPerm
