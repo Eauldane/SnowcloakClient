@@ -332,6 +332,11 @@ public class Pair : DisposableMediatorSubscriberBase
             _logger.LogTrace("Nothing to remove");
             return data;
         }
+        if (IsPaused)
+        {
+            _logger.LogTrace("Skipping data removal for paused user {uid}", UserData.UID);
+            return data;
+        }
 
         var ActiveGroupPairs = GroupPair.Where(p => !p.Value.GroupUserPermissions.IsPaused() && !p.Key.GroupUserPermissions.IsPaused()).ToList();
 
