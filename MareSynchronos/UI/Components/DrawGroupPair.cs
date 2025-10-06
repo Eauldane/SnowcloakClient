@@ -296,10 +296,22 @@ public class DrawGroupPair : DrawPairBase
 
             if (_uiSharedService.IconButton(pauseIcon))
             {
-                var perm = _pair.UserPair!.OwnPermissions;
-                perm.SetPaused(!perm.IsPaused());
-                _ = _apiController.UserSetPairPermissions(new(_pair.UserData, perm));
-
+                if (_pair.UserPair != null)
+                {
+                    var perm = _pair.UserPair.OwnPermissions;
+                    perm.SetPaused(!perm.IsPaused());
+                    _ = _apiController.UserSetPairPermissions(new(_pair.UserData, perm));
+                }
+                else
+                {
+                    var groupPerm = _fullInfoDto.GroupUserPermissions;
+                    groupPerm.SetPaused(!groupPerm.IsPaused());
+                    _ = _apiController.GroupSetUserPermissions(new GroupPairUserPermissionDto(
+                        _group.Group,
+                        _pair.UserData,
+                        groupPerm
+                    ));
+                }
             }
 
             UiSharedService.AttachToolTip(!_fullInfoDto.GroupUserPermissions.IsPaused()

@@ -1,4 +1,5 @@
 ﻿using MareSynchronos.API.Data;
+using MareSynchronos.API.Dto.Group;
 using MareSynchronos.API.Dto.User;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
@@ -89,6 +90,11 @@ public partial class ApiController
     public async Task UserSetPairPermissions(UserPermissionsDto userPermissions)
     {
         await _mareHub!.SendAsync(nameof(UserSetPairPermissions), userPermissions).ConfigureAwait(false);
+    }
+    
+    public Task GroupSetUserPermissions(GroupPairUserPermissionDto dto)
+    {
+        return _mareHub!.InvokeAsync(nameof(GroupSetUserPermissions), dto);
     }
 
     public async Task UserSetProfile(UserProfileDto userDescription)
