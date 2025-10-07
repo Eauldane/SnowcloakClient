@@ -167,7 +167,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                                         The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.
                                         """);
             UiSharedService.TextWrapped("""
-                                        Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files will be automatically deleted.
+                                        Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.
                                         """);
             UiSharedService.TextWrapped("""
                                         Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.
@@ -263,6 +263,39 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
                 ImGui.Separator();
                 ImGui.TextUnformatted("If you have not used Snowcloak before, click below to register a new account.");
+                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (experimental)"))
+                {
+                    _registrationInProgress = true;
+                    _ = Task.Run(async () => {
+                        try
+                        {
+                            var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
+                            if (!reply.Success)
+                            {
+                                _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
+                                _registrationMessage = reply.ErrorMessage;
+                                if (_registrationMessage.IsNullOrEmpty())
+                                    _registrationMessage = "An unknown error occured. Please try again later.";
+                                return;
+                            }
+                            _registrationMessage = "Account registered. Welcome to Snowcloak!";
+                            _secretKey = reply.SecretKey ?? "";
+                            _registrationReply = reply;
+                            _registrationSuccess = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Registration failed");
+                            _registrationSuccess = false;
+                            _registrationMessage = "An unknown error occured. Please try again later.";
+                        }
+                        finally
+                        {
+                            _registrationInProgress = false;
+                        }
+                    });
+                }
+                ImGui.SameLine();
                 if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register a new Snowcloak account"))
                 {
                     _registrationInProgress = true;
@@ -298,7 +331,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
                 if (_registrationInProgress)
                 {
-                    ImGui.TextUnformatted("Sending request...");
+                    ImGui.TextUnformatted("Waiting for the server...");
                 }
                 else if (!_registrationMessage.IsNullOrEmpty())
                 {

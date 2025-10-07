@@ -25,6 +25,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using System.Reflection;
+using MareSynchronos.API.Dto.Account;
+using MareSynchronos.MareConfiguration.Models;
 
 namespace MareSynchronos.UI;
 
@@ -67,10 +69,18 @@ public class CompactUi : WindowMediatorSubscriberBase
     private int _secretKeyIdx = -1;
     private bool _showModalForUserAddition;
     private bool _wasOpen;
+    private bool _registrationInProgress = false;
+    private bool _registrationSuccess = false;
+    private string? _registrationMessage;
+    private RegisterReplyDto? _registrationReply;
+    private readonly AccountRegistrationService _registerService;
+    private string _secretKey = string.Empty;
+
+
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, MareConfigService configService, ApiController apiController, PairManager pairManager, ChatService chatService,
         ServerConfigurationManager serverManager, MareMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
-        PerformanceCollectorService performanceCollectorService)
+        PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService)
         : base(logger, mediator, "###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _uiSharedService = uiShared;
@@ -78,6 +88,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         _apiController = apiController;
         _pairManager = pairManager;
         _serverManager = serverManager;
+        _registerService = registerService;
         _fileTransferManager = fileTransferManager;
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;
@@ -109,7 +120,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         // changed min size
         SizeConstraints = new WindowSizeConstraints()
         {
-            MinimumSize = new Vector2(300, 400),
+            MinimumSize = new Vector2(500, 400),
             MaximumSize = new Vector2(600, 2000),
         };
     }
@@ -146,7 +157,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (150 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (_uiSharedService.IconTextButton(icon, label, (165 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 _selectedMenu = menu;
             }
@@ -166,7 +177,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (150 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (_uiSharedService.IconTextButton(icon, label, (165 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 onClick();
             }
@@ -176,7 +187,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         // Adjust both values below to change size, 40 seems good to fit the buttons
         // 150 seems decent enough to fit the text into it, could be smaller
-        var sidebarWidth = (_sidebarCollapsed ? 40 : 150) * ImGuiHelpers.GlobalScale;
+        // Elf note: Adjusted to 165 since "Character Analysis" hung off the end a bit
+        var sidebarWidth = (_sidebarCollapsed ? 40 : 165) * ImGuiHelpers.GlobalScale;
 
         using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), true))
         {
@@ -356,10 +368,44 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         ImGui.Dummy(new(10));
         var keys = _serverManager.CurrentServer!.SecretKeys;
+        ImGui.BeginDisabled(_registrationInProgress || _uiSharedService.ApiController.ServerState == ServerState.Connecting || _uiSharedService.ApiController.ServerState == ServerState.Reconnecting);
         if (keys.Any())
         {
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Add current character with secret key"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (experimental)"))
+            {
+                _registrationInProgress = true;
+                _ = Task.Run(async () => {
+                    try
+                    {
+                        var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
+                        if (!reply.Success)
+                        {
+                            _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
+                            _registrationMessage = reply.ErrorMessage;
+                            if (_registrationMessage.IsNullOrEmpty())
+                                _registrationMessage = "An unknown error occured. Please try again later.";
+                            return;
+                        }
+                        _registrationMessage = "Account registered. Welcome to Snowcloak!";
+                        _secretKey = reply.SecretKey ?? "";
+                        _registrationReply = reply;
+                        _registrationSuccess = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Registration failed");
+                        _registrationSuccess = false;
+                        _registrationMessage = "An unknown error occured. Please try again later.";
+                    }
+                    finally
+                    {
+                        _registrationInProgress = false;
+                    }
+                });
+            }
+
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Add character with existing key"))
             {
                 _serverManager.CurrentServer!.Authentications.Add(new MareConfiguration.Models.Authentication()
                 {
@@ -372,7 +418,43 @@ public class CompactUi : WindowMediatorSubscriberBase
 
                 _ = _apiController.CreateConnections();
             }
+            ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
+            if (_registrationInProgress)
+            {
+                ImGui.TextUnformatted("Waiting for the server...");
+            }
+            else if (!_registrationMessage.IsNullOrEmpty())
+            {
+                if (!_registrationSuccess)
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, _registrationMessage);
+                else
+                    ImGui.TextWrapped(_registrationMessage);
+            }
+            if (_secretKey.Length > 0 && _secretKey.Length != 64)
+            {
+                UiSharedService.ColorTextWrapped("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
+            }
+            else if (_secretKey.Length == 64)
+            {
+                using var saveDisabled = ImRaii.Disabled(_uiSharedService.ApiController.ServerState == ServerState.Connecting || _uiSharedService.ApiController.ServerState == ServerState.Reconnecting);
+                if (ImGui.Button("Save and Connect"))
+                {
+                    string keyName;
+                    if (_serverManager.CurrentServer == null) _serverManager.SelectServer(0);
+                    if (_registrationReply != null && _secretKey.Equals(_registrationReply.SecretKey, StringComparison.Ordinal))
+                        keyName = _registrationReply.UID + $" (registered {DateTime.Now:yyyy-MM-dd})";
+                    else
+                        keyName = $"Secret Key added on Setup ({DateTime.Now:yyyy-MM-dd})";
+                    _serverManager.CurrentServer!.SecretKeys.Add(_serverManager.CurrentServer.SecretKeys.Select(k => k.Key).LastOrDefault() + 1, new SecretKey()
+                    {
+                        FriendlyName = keyName,
+                        Key = _secretKey,
+                    });
+                    _serverManager.AddCurrentCharacterToServer(save: false);
+                    _ = Task.Run(() => _uiSharedService.ApiController.CreateConnections());
+                }
+            }
             _uiSharedService.DrawCombo("Secret Key##addCharacterSecretKey", keys, (f) => f.Value.FriendlyName, (f) => _secretKeyIdx = f.Key);
         }
         else
