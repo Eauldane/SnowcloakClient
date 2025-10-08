@@ -115,14 +115,29 @@ public class CompactUi : WindowMediatorSubscriberBase
         Mediator.Subscribe<DownloadStartedMessage>(this, (msg) => _currentDownloads[msg.DownloadId] = msg.DownloadStatus);
         Mediator.Subscribe<DownloadFinishedMessage>(this, (msg) => _currentDownloads.TryRemove(msg.DownloadId, out _));
 
-        Flags |= ImGuiWindowFlags.NoDocking;
-
-        // changed min size
-        SizeConstraints = new WindowSizeConstraints()
+        //Sneaking this in here cause i want it.
+        if (!_configService.Current.CompactUiAllowDocking)
         {
-            MinimumSize = new Vector2(500, 400),
-            MaximumSize = new Vector2(600, 2000),
-        };
+            Flags |= ImGuiWindowFlags.NoDocking;
+        }
+
+        //Leaving condition in for now with overwrite defaulting to off since it could cause issues i havent experienced yet
+        if (_configService.Current.CompactUiSizeOverwrite)
+        {
+            SizeConstraints = new WindowSizeConstraints()
+            {
+                MinimumSize = new Vector2(_configService.Current.CompactUiMinWidth, _configService.Current.CompactUiMinHeight),
+                MaximumSize = new Vector2(_configService.Current.CompactUiMaxWidth, _configService.Current.CompactUiMaxHeight),
+            };
+        }
+        else
+        {
+            SizeConstraints = new WindowSizeConstraints()
+            {
+                MinimumSize = new Vector2(350, 400),
+                MaximumSize = new Vector2(600, 2000),
+            };
+        }
     }
 
     protected override void DrawInternal()
