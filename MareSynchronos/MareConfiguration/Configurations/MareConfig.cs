@@ -76,4 +76,13 @@ public class MareConfig : IMareConfiguration
     public bool ExtraChatTags { get; set; } = false;
 
     public bool MareAPI { get; set; } = true;
+
+    public bool CompactUiAllowDocking { get; set; } = false;
+
+    public bool CompactUiSizeOverwrite { get; set; } = false;
+    //Vector2 didnt work, CBA to make it so just ignore this...
+    public int CompactUiMinWidth { get; set; } = 300;
+    public int CompactUiMinHeight { get; set; } = 400;
+    public int CompactUiMaxWidth { get; set; } = 600;
+    public int CompactUiMaxHeight { get; set; } = 2000;
 }
