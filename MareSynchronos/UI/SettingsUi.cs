@@ -1752,7 +1752,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 if (true) // Enable registration button for all servers
                 {
                     ImGui.SameLine();
-                    if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register a new Snowcloak account"))
+                    if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register a Snowcloak account (legacy method)"))
                     {
                         _registrationInProgress = true;
                         _ = Task.Run(async () => {

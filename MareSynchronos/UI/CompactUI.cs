@@ -372,7 +372,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (keys.Any())
         {
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (experimental)"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
             {
                 _registrationInProgress = true;
                 _ = Task.Run(async () => {
