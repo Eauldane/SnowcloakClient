@@ -697,11 +697,21 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private Vector4 GetUidColor()
     {
+        var uidCol = _apiController.DisplayColour;
+        Vector4 uidColour;
+        if (uidCol.IsNullOrEmpty())
+        {
+            uidColour = UiSharedService.AccentColor;
+        } else
+        {
+            uidColour = SnowcloakSync.Utils.Colours.Hex2Vector4(uidCol);
+        }
         return _apiController.ServerState switch
         {
+            
             ServerState.Connecting => ImGuiColors.DalamudYellow,
             ServerState.Reconnecting => ImGuiColors.DalamudRed,
-            ServerState.Connected => UiSharedService.AccentColor,
+            ServerState.Connected =>  uidColour,
             ServerState.Disconnected => ImGuiColors.DalamudYellow,
             ServerState.Disconnecting => ImGuiColors.DalamudYellow,
             ServerState.Unauthorized => ImGuiColors.DalamudRed,

@@ -73,6 +73,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IM
     public Version CurrentClientVersion => _connectionDto?.CurrentClientVersion ?? new Version(0, 0, 0);
 
     public string DisplayName => _connectionDto?.User.AliasOrUID ?? string.Empty;
+    public string DisplayColour => _connectionDto?.User.DisplayColour ?? string.Empty;
+
 
     public bool IsConnected => ServerState == ServerState.Connected;
 

@@ -15,6 +15,7 @@ using MareSynchronos.Services.ServerConfiguration;
 using MareSynchronos.Utils;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Numerics;
 
 namespace MareSynchronos.PlayerData.Pairs;
 
@@ -27,6 +28,7 @@ public class Pair : DisposableMediatorSubscriberBase
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private CancellationTokenSource _applicationCts = new();
     private OnlineUserIdentDto? _onlineUserIdentDto = null;
+    public Vector4 PairColour;
 
     public Pair(ILogger<Pair> logger, UserData userData, PairHandlerFactory cachedPlayerFactory,
         MareMediator mediator, MareConfigService mareConfig, ServerConfigurationManager serverConfigurationManager)
@@ -38,6 +40,7 @@ public class Pair : DisposableMediatorSubscriberBase
         _serverConfigurationManager = serverConfigurationManager;
 
         UserData = userData;
+        PairColour = SnowcloakSync.Utils.Colours.Hex2Vector4(UserData.DisplayColour);
 
         Mediator.SubscribeKeyed<HoldPairApplicationMessage>(this, UserData.UID, (msg) => HoldApplication(msg.Source));
         Mediator.SubscribeKeyed<UnholdPairApplicationMessage>(this, UserData.UID, (msg) => UnholdApplication(msg.Source));

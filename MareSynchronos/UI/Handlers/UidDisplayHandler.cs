@@ -1,11 +1,13 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
+using Lumina.Data.Parsing;
 using MareSynchronos.MareConfiguration;
 using MareSynchronos.PlayerData.Pairs;
 using MareSynchronos.Services.Mediator;
 using MareSynchronos.Services.ServerConfiguration;
 using MareSynchronos.UI.Components;
+using System.Numerics;
 
 namespace MareSynchronos.UI.Handlers;
 
@@ -63,9 +65,8 @@ public class UidDisplayHandler
         if (!string.Equals(_editNickEntry, pair.UserData.UID, StringComparison.Ordinal))
         {
             ImGui.SetCursorPosY(originalY);
-
-            using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid)) ImGui.TextUnformatted(playerText);
-
+            Vector4 pairColour = SnowcloakSync.Utils.Colours.Hex2Vector4(pair.UserData.DisplayColour);
+            using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid)) ImGui.TextColored(pairColour, playerText);
             if (ImGui.IsItemHovered())
             {
                 if (!string.Equals(_lastMouseOverUid, id))

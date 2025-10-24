@@ -250,7 +250,7 @@ internal sealed class GroupPanel
             }
             if (textIsGid) ImGui.PushFont(UiBuilder.MonoFont);
             ImGui.SameLine();
-            ImGui.TextUnformatted(groupName);
+            ImGui.TextColored(SnowcloakSync.Utils.Colours.Hex2Vector4(groupDto.Group.DisplayColour), groupName);
             if (textIsGid) ImGui.PopFont();
             UiSharedService.AttachToolTip("Left click to switch between GID display and comment" + Environment.NewLine +
                           "Right click to change comment for " + groupName + Environment.NewLine + Environment.NewLine
