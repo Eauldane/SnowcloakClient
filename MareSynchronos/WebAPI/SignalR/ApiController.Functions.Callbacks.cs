@@ -38,8 +38,12 @@ public partial class ApiController
 
     public Task Client_GroupPairChangePermissions(GroupPairUserPermissionDto dto)
     {
-        Logger.LogDebug("Client_GroupChangeUserPairPermissions: {dto}", dto);
-        ExecuteSafely(() => _pairManager.UpdateGroupPairPermissions(dto));
+        Logger.LogTrace("Client_GroupPairChangePermissions: {dto}", dto);
+        ExecuteSafely(() =>
+        {
+            if (string.Equals(dto.UID, UID, StringComparison.Ordinal)) _pairManager.SetGroupUserPermissions(dto);
+            else _pairManager.SetGroupPairUserPermissions(dto);
+        });
         return Task.CompletedTask;
     }
 
@@ -57,7 +61,6 @@ public partial class ApiController
         {
             if (string.Equals(userInfo.UID, UID, StringComparison.Ordinal)) _pairManager.SetGroupStatusInfo(userInfo);
             else _pairManager.SetGroupPairStatusInfo(userInfo);
-            
         });
         return Task.CompletedTask;
     }

@@ -325,10 +325,18 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         RecreateLazy();
     }
 
-    
-    internal void UpdateGroupPairPermissions(GroupPairUserPermissionDto dto)
+    internal void SetGroupUserPermissions(GroupPairUserPermissionDto dto)
     {
+        var prevPermissions = _allGroups[dto.Group].GroupUserPermissions;
         _allGroups[dto.Group].GroupUserPermissions = dto.GroupPairPermissions;
+        if (prevPermissions.IsDisableAnimations() != dto.GroupPairPermissions.IsDisableAnimations()
+            || prevPermissions.IsDisableSounds() != dto.GroupPairPermissions.IsDisableSounds()
+            || prevPermissions.IsDisableVFX() != dto.GroupPairPermissions.IsDisableVFX())
+        {
+            RecreateLazy();
+            var group = _allGroups[dto.Group];
+            GroupPairs[group].ForEach(p => p.ApplyLastReceivedData());
+        }
         RecreateLazy();
     }
 
