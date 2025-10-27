@@ -68,6 +68,7 @@ public sealed class CommandManagerService : IDisposable
     {
         _commandManager.RemoveHandler(_commandName);
         _commandManager.RemoveHandler(_commandName2);
+        _commandManager.RemoveHandler(_commandName3);
 
         for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
             _commandManager.RemoveHandler($"{_ssCommandPrefix}{i}");
