@@ -1130,6 +1130,41 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("Will show profiles that have the NSFW tag enabled");
 
+        _uiShared.BigText("Experimental UI Settings");
+        UiSharedService.ColorTextWrapped("Any changes in this category require a plugin restart to take effect.", ImGuiColors.DalamudYellow);
+
+        var _CompactUiSizeOverwrite = _configService.Current.CompactUiSizeOverwrite;
+        if (ImGui.Checkbox("Enable custom size constraints for the main window", ref _CompactUiSizeOverwrite))
+        {
+            _configService.Current.CompactUiSizeOverwrite = _CompactUiSizeOverwrite;
+            _configService.Save();
+        }
+
+        var compactUiMinWidth = _configService.Current.CompactUiMinWidth;
+        var compactUiMinHeight = _configService.Current.CompactUiMinHeight;
+        if (ImGui.DragIntRange2("UI Min Size (W/H)", ref compactUiMinWidth, ref compactUiMinHeight, 1f, 100, 2000))
+        {
+            _configService.Current.CompactUiMinWidth = compactUiMinWidth;
+            _configService.Current.CompactUiMinHeight = compactUiMinHeight;
+            _configService.Save();
+        }
+
+        var compactUiMaxWidth = _configService.Current.CompactUiMaxWidth;
+        var compactUiMaxHeight = _configService.Current.CompactUiMaxHeight;
+        if (ImGui.DragIntRange2("UI Max Size (W/H)", ref compactUiMaxWidth, ref compactUiMaxHeight, 1f, 100, 4000))
+        {
+            _configService.Current.CompactUiMaxWidth = compactUiMaxWidth;
+            _configService.Current.CompactUiMaxHeight = compactUiMaxHeight;
+            _configService.Save();
+        }
+
+        var _compactUiAllowDocking = _configService.Current.CompactUiAllowDocking;
+        if (ImGui.Checkbox("Enable docking", ref _compactUiAllowDocking))
+        {
+            _configService.Current.CompactUiAllowDocking = _compactUiAllowDocking;
+            _configService.Save();
+        }
+
         ImGui.Separator();
 
         var disableOptionalPluginWarnings = _configService.Current.DisableOptionalPluginWarnings;
