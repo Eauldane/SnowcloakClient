@@ -146,10 +146,10 @@ public class MarePlugin : MediatorSubscriberBase, IHostedService
                 Mediator.Publish(new SwitchToIntroUiMessage());
                 return;
             }
+            _runtimeServiceScope.ServiceProvider.GetRequiredService<NotificationService>();
             _runtimeServiceScope.ServiceProvider.GetRequiredService<CacheCreationService>();
             _runtimeServiceScope.ServiceProvider.GetRequiredService<TransientResourceManager>();
             _runtimeServiceScope.ServiceProvider.GetRequiredService<OnlinePlayerManager>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<NotificationService>();
             _runtimeServiceScope.ServiceProvider.GetRequiredService<ChatService>();
             _runtimeServiceScope.ServiceProvider.GetRequiredService<GuiHookService>();
 
@@ -165,6 +165,9 @@ public class MarePlugin : MediatorSubscriberBase, IHostedService
         catch (Exception ex)
         {
             Logger?.LogCritical(ex, "Error during launch of managers");
+            Mediator.Publish(new NotificationMessage("Error during launch of internal management services",
+                ex.ToString(),
+                MareConfiguration.Models.NotificationType.Error));
         }
     }
 }
