@@ -72,7 +72,7 @@ public sealed class AccountRegistrationService : IDisposable
         }
 
         Util.OpenLink(register.link_url);
-        const int maxAttempts = 600 / 15; // Try once every 15 seconds for 10 minutes
+        const int maxAttempts = 600 / 5; // Try once every 15 seconds for 10 minutes
         var pollUri = new Uri(register.poll_url);
         PollResponse? lastPoll = null;
         for (int i = 0; i < maxAttempts; i++)
@@ -102,7 +102,7 @@ public sealed class AccountRegistrationService : IDisposable
                 }
                 // Pending, keep polling
             }
-            await Task.Delay(TimeSpan.FromSeconds(15), token).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
         }
         // Timed out
         return new RegisterReplyDto()
