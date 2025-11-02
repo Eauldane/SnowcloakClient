@@ -202,6 +202,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         // Adjust both values below to change size, 40 seems good to fit the buttons
         // 150 seems decent enough to fit the text into it, could be smaller
         // Elf note: Adjusted to 165 since "Character Analysis" hung off the end a bit
+        // Elf note: Adjusted to 180 after that because "Account Management" is a long phrase lel
         var sidebarWidth = (_sidebarCollapsed ? 40 : 180) * ImGuiHelpers.GlobalScale;
 
         using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), true))
