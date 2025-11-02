@@ -191,7 +191,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (165 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (_uiSharedService.IconTextButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 onClick();
             }
@@ -202,7 +202,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         // Adjust both values below to change size, 40 seems good to fit the buttons
         // 150 seems decent enough to fit the text into it, could be smaller
         // Elf note: Adjusted to 165 since "Character Analysis" hung off the end a bit
-        var sidebarWidth = (_sidebarCollapsed ? 40 : 165) * ImGuiHelpers.GlobalScale;
+        var sidebarWidth = (_sidebarCollapsed ? 40 : 180) * ImGuiHelpers.GlobalScale;
 
         using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), true))
         {
@@ -227,13 +227,18 @@ public class CompactUi : WindowMediatorSubscriberBase
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
             DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
+            ImGui.Separator();
+
             if (_apiController.ServerState is ServerState.Connected)
             {
-                ImGui.Separator();
                 DrawSidebarAction(FontAwesomeIcon.UserCircle, "Edit Profile",
                     () => Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi))));
             }
 
+            {
+                DrawSidebarAction(FontAwesomeIcon.UserCog, "Account Management",
+                    () => Util.OpenLink("https://account.snowcloak-sync.com"));
+            }
             float bottomElementsHeight = ImGui.GetFrameHeightWithSpacing() * 2;
             var availableSpace = ImGui.GetContentRegionAvail().Y;
             if (availableSpace > bottomElementsHeight)
