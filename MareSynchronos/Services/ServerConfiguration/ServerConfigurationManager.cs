@@ -17,6 +17,7 @@ public class ServerConfigurationManager
     private readonly ServerBlockConfigService _blockConfig;
     private readonly ServerTagConfigService _serverTagConfig;
     private readonly SyncshellConfigService _syncshellConfig;
+    private readonly MareConfigService _mareConfigService;
 
     private HashSet<string>? _cachedWhitelistedUIDs = null;
     private HashSet<string>? _cachedBlacklistedUIDs = null;
@@ -24,7 +25,7 @@ public class ServerConfigurationManager
 
     public ServerConfigurationManager(ILogger<ServerConfigurationManager> logger, ServerConfigService configService,
         ServerTagConfigService serverTagConfig, SyncshellConfigService syncshellConfig, NotesConfigService notesConfig,
-        ServerBlockConfigService blockConfig, DalamudUtilService dalamudUtil)
+        ServerBlockConfigService blockConfig, DalamudUtilService dalamudUtil, MareConfigService mareConfigService)
     {
         _logger = logger;
         _configService = configService;
@@ -33,6 +34,8 @@ public class ServerConfigurationManager
         _notesConfig = notesConfig;
         _blockConfig = blockConfig;
         _dalamudUtil = dalamudUtil;
+        _mareConfigService = mareConfigService;
+
         EnsureMainExists();
     }
 
@@ -392,6 +395,15 @@ public class ServerConfigurationManager
             _notesConfig.Save();
     }
 
+    internal void AutofillNoteWithCharacterName(string uid, string note)
+    {
+        if (!_mareConfigService.Current.AutofillEmptyNotesFromCharaName
+            || GetNoteForUid(uid) != null)
+            return;
+
+        SetNoteForUid(uid, note, save: true);
+    }
+    
     internal void SetNoteForUid(string uid, string note, bool save = true)
     {
         if (string.IsNullOrEmpty(uid)) return;

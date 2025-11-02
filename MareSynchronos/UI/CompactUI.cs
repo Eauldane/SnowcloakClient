@@ -116,7 +116,21 @@ public class CompactUi : WindowMediatorSubscriberBase
         Mediator.Subscribe<DownloadFinishedMessage>(this, (msg) => _currentDownloads.TryRemove(msg.DownloadId, out _));
 
         Flags |= ImGuiWindowFlags.NoDocking;
-
+        this.TitleBarButtons =
+        [
+            new()
+            {
+                Icon = FontAwesomeIcon.GlobeEurope,
+                ShowTooltip = () => ImGui.SetTooltip("Discord"),
+                Click = (btn) => Util.OpenLink("https://discord.gg/snowcloak")
+            },
+            new()
+            {
+                Icon = FontAwesomeIcon.Heart,
+                ShowTooltip = () => ImGui.SetTooltip("Patreon"),
+                Click = (btn) => Util.OpenLink("https://patreon.com/snowcloak")
+            }
+        ];
         // changed min size
         SizeConstraints = new WindowSizeConstraints()
         {

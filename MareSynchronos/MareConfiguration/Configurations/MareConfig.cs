@@ -76,4 +76,5 @@ public class MareConfig : IMareConfiguration
     public bool ExtraChatTags { get; set; } = false;
 
     public bool MareAPI { get; set; } = true;
+    public bool AutofillEmptyNotesFromCharaName { get; set; } = true;
 }

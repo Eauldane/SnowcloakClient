@@ -741,6 +741,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         PlayerName = name;
         _charaHandler = _gameObjectHandlerFactory.Create(ObjectKind.Player, () => _dalamudUtil.GetPlayerCharacterFromCachedTableByIdent(Pair.Ident), isWatched: false).GetAwaiter().GetResult();
 
+        _serverConfigManager.AutofillNoteWithCharacterName(Pair.UserData.UID, name);
+
         Mediator.Subscribe<HonorificReadyMessage>(this, msg =>
         {
             if (string.IsNullOrEmpty(_cachedData?.HonorificData)) return;

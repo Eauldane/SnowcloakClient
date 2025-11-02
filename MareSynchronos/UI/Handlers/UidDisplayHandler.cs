@@ -78,8 +78,8 @@ public class UidDisplayHandler
 
                 if (_popupTime > DateTime.UtcNow || !_mareConfigService.Current.ProfilesShow)
                 {
-                    ImGui.SetTooltip("Left click to switch between UID display and nick" + Environment.NewLine
-                        + "Right click to change nick for " + pair.UserData.AliasOrUID + Environment.NewLine
+                    ImGui.SetTooltip("Left click to switch between UID display and note" + Environment.NewLine
+                        + "Right click to change note for " + pair.UserData.AliasOrUID + Environment.NewLine
                         + "Middle Mouse Button to open their profile in a separate window");
                 }
                 else if (_popupTime < DateTime.UtcNow && !_popupShown)

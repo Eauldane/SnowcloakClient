@@ -952,6 +952,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("This will open a popup that allows you to set the notes for a user after successfully adding them to your individual pairs.");
 
+        var autofillNotes = _configService.Current.AutofillEmptyNotesFromCharaName;
+        if (ImGui.Checkbox("Automatically update empty notes with player names", ref autofillNotes))
+        {
+            _configService.Current.AutofillEmptyNotesFromCharaName = autofillNotes;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("This will automatically set a user's note with their player name unless you override it");
+        
         ImGui.Separator();
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;

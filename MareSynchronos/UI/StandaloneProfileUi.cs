@@ -65,7 +65,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var headerSize = ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y;
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(Pair.UserData.AliasOrUID, UiSharedService.AccentColor);
+                UiSharedService.ColorText(Pair.UserData.AliasOrUID, SnowcloakSync.Utils.Colours.Hex2Vector4(Pair.UserData.DisplayColour));
 
             var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, "Report Profile");
             ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - reportButtonSize);
@@ -140,7 +140,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                     var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
                     var groupName = groupPair.GroupAliasOrGID;
                     var groupString = string.IsNullOrEmpty(groupNote) ? groupName : $"{groupNote} ({groupName})";
-                    ImGui.TextUnformatted("- " + groupString);
+                    ImGui.TextColored(SnowcloakSync.Utils.Colours.Hex2Vector4(groupPair.Group.DisplayColour), "- " + groupString);
                 }
             }
 
