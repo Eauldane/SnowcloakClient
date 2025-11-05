@@ -21,11 +21,26 @@ namespace MareSynchronos.WebAPI;
 #pragma warning disable MA0040
 public sealed partial class ApiController : DisposableMediatorSubscriberBase, IMareHubClient
 {
-    public const string SnowcloakServer = "Snowcloak Main Server";
-    public const string SnowcloakServiceUri = "wss://hub.snowcloak-sync.com";
-    public const string SnowcloakServiceApiUri = "wss://hub.snowcloak-sync.com/";
-    public const string SnowcloakServiceHubUri = "wss://hub.snowcloak-sync.com/mare";
-
+    // Dev builds should most likely be run against a dev server, so we define that here. 
+    // Most of the time this'll be local or at least on LAN (and if not, VPNed)
+    // so SSL isn't strictly needed. 
+    //
+    // For the sake of adding a barrier for those who don't understand the risks here, it's
+    // on a fake TLD sdo that you need to edit your host file as an affirmative "I know what
+    // I'm doing" step.
+    // 
+    // If you're testing against the live server for some reason, do a release build.
+    #if DEBUG
+        public const string SnowcloakServer = "Snowcloak Dev Server";
+        public const string SnowcloakServiceUri = "ws://hub.snow.cloak";
+        public const string SnowcloakServiceApiUri = "ws://hub.snow.cloak/";
+        public const string SnowcloakServiceHubUri = "ws://hub.snow.cloak";
+    #else 
+        public const string SnowcloakServer = "Snowcloak Main Server";
+        public const string SnowcloakServiceUri = "wss://hub.snowcloak-sync.com";
+        public const string SnowcloakServiceApiUri = "wss://hub.snowcloak-sync.com/";
+        public const string SnowcloakServiceHubUri = "wss://hub.snowcloak-sync.com/mare";
+    #endif
     private readonly DalamudUtilService _dalamudUtil;
     private readonly HubFactory _hubFactory;
     private readonly PairManager _pairManager;
