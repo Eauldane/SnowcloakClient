@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Blake3" Version="2.0.0" />
     <PackageReference Include="Chaos.NaCl.Standard" Version="1.0.0" />
     <PackageReference Include="Downloader" Version="4.0.3" />
     <PackageReference Include="Glamourer.Api" Version="2.7.0" />

@@ -2,6 +2,12 @@
   "version": 1,
   "dependencies": {
     "net9.0-windows7.0": {
+      "Blake3": {
+        "type": "Direct",
+        "requested": "[2.0.0, )",
+        "resolved": "2.0.0",
+        "contentHash": "v447kojeuNYSY5dvtVGG2bv1+M3vOWJXcrYWwXho/2uUpuwK6qPeu5WSMlqLm4VRJu96kysVO11La0zN3dLAuQ=="
+      },
       "Chaos.NaCl.Standard": {
         "type": "Direct",
         "requested": "[1.0.0, )",
@@ -531,6 +537,11 @@
         "resolved": "9.0.10",
         "contentHash": "2skUPYIRYwMyOg+BQkHaUDc3mOjHmIqT6U67+oIiRJVVtDrkCG2GZxceui6bos18kosyIE0Eg6FyJWgNsc+6og=="
       },
+      "ZstdSharp.Port": {
+        "type": "Transitive",
+        "resolved": "0.8.6",
+        "contentHash": "iP4jVLQoQmUjMU88g1WObiNr6YKZGvh4aOXn3yOJsHqZsflwRsxZPcIBvNXgjXO3vQKSLctXGLTpcBPLnWPS8A=="
+      },
       "maresynchronos.api": {
         "type": "Project",
         "dependencies": {
@@ -538,7 +549,11 @@
         }
       },
       "snowcloaksync": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Blake3": "[2.0.0, )",
+          "ZstdSharp.Port": "[0.8.6, )"
+        }
       }
     }
   }
