@@ -545,6 +545,7 @@
       "maresynchronos.api": {
         "type": "Project",
         "dependencies": {
+          "Blake3": "[2.0.0, )",
           "MessagePack.Annotations": "[2.5.129, )"
         }
       },
