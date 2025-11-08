@@ -801,6 +801,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
         {
             _configService.Current.UseCompactor = useFileCompactor;
             _configService.Save();
+            if (!isLinux)
+            {
+                _fileCompactor.CompactStorage(useFileCompactor);
+            }
         }
         _uiShared.DrawHelpText("The file compactor can massively reduce your saved files. It might incur a minor penalty on loading files on a slow CPU." + Environment.NewLine
             + "It is recommended to leave it enabled to save on space.");
