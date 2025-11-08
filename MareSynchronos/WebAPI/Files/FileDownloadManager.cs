@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using Blake3;
 
 namespace MareSynchronos.WebAPI.Files;
 
@@ -334,12 +335,12 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                     tasks.Add(Task.Run(() => {
                         try
                         {
-                            using var tmpFileStream = new HashingStream(new FileStream(tmpPath, new FileStreamOptions()
+                            using var tmpFileStream = new Blake3Stream(new FileStream(tmpPath, new FileStreamOptions()
                             {
                                 Mode = FileMode.CreateNew,
                                 Access = FileAccess.Write,
                                 Share = FileShare.None
-                            }), SHA1.Create());
+                            }));
 
                             using var fileChunkStream = new FileStream(blockFile, new FileStreamOptions()
                             {
@@ -360,7 +361,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                                 throw new EndOfStreamException();
                             }
 
-                            string calculatedHash = BitConverter.ToString(tmpFileStream.Finish()).Replace("-", "", StringComparison.Ordinal);
+                            string calculatedHash = tmpFileStream.ComputeHash().ToString().ToUpperInvariant();
 
                             if (!calculatedHash.Equals(fileHash, StringComparison.Ordinal))
                             {

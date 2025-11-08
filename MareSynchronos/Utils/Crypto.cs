@@ -1,5 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
+using System.Buffers;
+using Blake3;
 
 namespace MareSynchronos.Utils;
 
@@ -11,8 +13,25 @@ public static class Crypto
 
     public static string GetFileHash(this string filePath)
     {
-        using SHA1CryptoServiceProvider cryptoProvider = new();
-        return BitConverter.ToString(cryptoProvider.ComputeHash(File.ReadAllBytes(filePath))).Replace("-", "", StringComparison.Ordinal);
+        using var fileStream = File.OpenRead(filePath);
+
+        var hasher = Hasher.New();
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(81920);
+
+        try
+        {
+            int bytesRead;
+            while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                hasher.Update(buffer.AsSpan(0, bytesRead));
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+        return hasher.Finalize().ToString().ToUpperInvariant();
     }
 
     public static string GetHash256(this string stringToHash)
