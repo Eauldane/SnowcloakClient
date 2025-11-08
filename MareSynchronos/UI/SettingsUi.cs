@@ -808,34 +808,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("The file compactor can massively reduce your saved files. It might incur a minor penalty on loading files on a slow CPU." + Environment.NewLine
             + "It is recommended to leave it enabled to save on space.");
-
-        if (!_fileCompactor.MassCompactRunning)
-        {
-            if (_uiShared.IconTextButton(FontAwesomeIcon.FileArchive, "Compact all files in storage"))
-            {
-                _ = Task.Run(() =>
-                {
-                    _fileCompactor.CompactStorage(compress: true);
-                    _cacheMonitor.RecalculateFileCacheSize(CancellationToken.None);
-                });
-            }
-            UiSharedService.AttachToolTip("This will run compression on all files in your current storage folder." + Environment.NewLine
-                + "You do not need to run this manually if you keep the file compactor enabled.");
-            ImGui.SameLine();
-            if (_uiShared.IconTextButton(FontAwesomeIcon.File, "Decompact all files in storage"))
-            {
-                _ = Task.Run(() =>
-                {
-                    _fileCompactor.CompactStorage(compress: false);
-                    _cacheMonitor.RecalculateFileCacheSize(CancellationToken.None);
-                });
-            }
-            UiSharedService.AttachToolTip("This will run decompression on all files in your current storage folder.");
-        }
-        else
-        {
-            UiSharedService.ColorText($"File compactor currently running ({_fileCompactor.Progress})", ImGuiColors.DalamudYellow);
-        }
         if (isLinux || !_cacheMonitor.StorageisNTFS)
         {
             ImGui.EndDisabled();
