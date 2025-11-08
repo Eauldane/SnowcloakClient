@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using System.IO;
 using System.Text;
 using ZstdSharp;
 using Blake3;
@@ -7,7 +7,7 @@ namespace SnowcloakSync.Files;
 
 public enum CompressionType : byte
 {
-    Uncompressed = 0, ZSTD = 1
+    ZSTD = 0
 }
 
 public enum FileExtension : byte
@@ -45,9 +45,9 @@ public static class SCFFile
 
         }
 
-        if (hash.Length != 64 || hash.All(Uri.IsHexDigit))
+        if (hash.Length != 64 || !hash.All(Uri.IsHexDigit))
         {
-            throw new ArgumentException("SCF: Invalid hash - needs to be a SHA-256 hash represented as hexadecimal.",
+            throw new ArgumentException("SCF: Invalid hash - needs to be a Blake3 hash represented as hexadecimal (64 characters).",
                 nameof(hash));
         }
 
@@ -79,18 +79,25 @@ public static class SCFFile
         {
             scfOutput.SetLength(0); // Just in case scfOutput isn't "clean" 
         }
-        catch
+        catch (Exception ex)
         {
-            // Just carry on if SetLength isn't supported for some reason - should probably make this a returnable error tho
+            throw new IOException("SCF: Failed to truncate output stream before writing header", ex);
         }
 
         // Placeholder header. TODO: Add validation to read/write methods that the placeholders aren't still placeholders
-        SCFFileHeader placeholder = CreateHeader(new string('0', 64), CompressionType.Uncompressed, ext, 0, 0);
+        SCFFileHeader placeholder = CreateHeader(new string('0', 64), CompressionType.ZSTD, ext, 0, 0);
         WriteHeader(scfOutput, placeholder);
 
         long dataStart = scfOutput.Position; // Should be 79
         long uncompressed = 0;
         using var hasher = Blake3.Hasher.New();
+        // Level 3 is the sweetspot in benchmarks. Anything below 9 should be fine really
+        // but higher levels = more time to compress. Level 2 gives a 2.10x ratio on a
+        // mod pack I tested, so level 3 should hit that while
+        // compressing at >200MB/s on any CPU that FF14 supports
+        //
+        // As long as this is never set above 10 we should be fine. Server can recompress to level 19
+        // or 22 if it really wants to eke out that last 5% compression.
         using (var zstd = new CompressionStream(scfOutput, level: 3, leaveOpen: true))
         {
             var buffer =
@@ -98,7 +105,7 @@ public static class SCFFile
             int read;
             while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
             {
-                hasher.Update(buffer);
+                hasher.Update(buffer.AsSpan(0, read));
                 await zstd.WriteAsync(buffer.AsMemory(0, read), ct);
                 uncompressed += read;
                 progress?.Report(("Compressing", uncompressed));
@@ -112,11 +119,10 @@ public static class SCFFile
         uint compressedSize = checked((uint)(dataEnd - dataStart));
         uint uncompressedSize = checked((uint)uncompressed);
         string hash = Convert.ToHexString(hasher.Finalize().AsSpan()).ToUpperInvariant();
-        hasher.Dispose();
         // Patch header
         scfOutput.Position = 0;
         SCFFileHeader finalHeader =
-            CreateHeader(hash, CompressionType.Uncompressed, ext, uncompressedSize, compressedSize);
+            CreateHeader(hash, CompressionType.ZSTD, ext, uncompressedSize, compressedSize);
         WriteHeader(scfOutput, finalHeader); // Overwrite placeholder. Compressed data should be after the 79th byte for decoding
         scfOutput.Position = dataEnd;
         return finalHeader; // For validation
@@ -133,51 +139,51 @@ public static class SCFFile
         
         string finalPath = Path.Combine(snowcloakCacheDir, $"{hash}.{fileExtension}");
         string tempPath = finalPath + ".tmp";
-        
-        await using FileStream outFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 131072, FileOptions.SequentialScan);
-        Hasher hasher = Blake3.Hasher.New();
-        var buf = new byte[81920];
 
-        switch (header.CompressionType)
+        try
         {
-            case CompressionType.Uncompressed:
-                {
-                    int read;
-                    while ((read = await scfInput.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
+            await using FileStream outFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                131072, FileOptions.SequentialScan);
+            using var hasher = Blake3.Hasher.New();
+            var buf = new byte[81920];
+
+            switch (header.CompressionType)
+            {
+                case CompressionType.ZSTD:
                     {
-                        hasher.Update(buf);
-                        await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                        using var zstd = new DecompressionStream(scfInput, leaveOpen: true);
+                        int read;
+                        while ((read = await zstd.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
+                        {
+                            hasher.Update(buf.AsSpan(0, read));
+                            await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                        }
+
+                        break;
                     }
+                default:
+                    throw new NotSupportedException(
+                        $"SCF: Compression type {header.CompressionType} not supported yet.");
+            }
 
-                    break;
-                }
-            case CompressionType.ZSTD:
-                {
-                    using var zstd = new DecompressionStream(scfInput, leaveOpen: true);
-                    int read;
-                    while ((read = await zstd.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
-                    {
-                        hasher.Update(buf);
-                        await outFile.WriteAsync(buf.AsMemory(0, read), ct);
-                    }
-
-                    break;
-                }
-            default:
-                throw new NotSupportedException($"SCF: Compression type {header.CompressionType} not supported yet.");
-
+            await outFile.FlushAsync(ct);
+            var extractedHash = Convert.ToHexString(hasher.Finalize().AsSpan()).ToUpperInvariant();
+            if (!string.Equals(extractedHash, hash, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"SCF: Invalid hash. Expected {hash}, but extracted {extractedHash}.");
+            }
         }
-        await outFile.FlushAsync(ct);
-        var extractedHash = Convert.ToHexString(hasher!.Finalize().AsSpan()).ToUpperInvariant();
-        hasher.Dispose();
-        if (!string.Equals(extractedHash, hash, StringComparison.Ordinal))
+
+        catch
         {
-           outFile.Dispose();
-           File.Delete(tempPath);
-           throw new InvalidDataException("SCF: Invalid hash");
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+
+            throw;
         }
         
-        outFile.Dispose();
         File.Move(tempPath, finalPath, overwrite: true);
         return finalPath;
     }
