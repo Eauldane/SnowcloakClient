@@ -171,7 +171,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (165 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (_uiSharedService.IconTextButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 _selectedMenu = menu;
             }
