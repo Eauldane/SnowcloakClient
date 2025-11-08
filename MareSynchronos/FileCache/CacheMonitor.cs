@@ -383,7 +383,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                                 .Where(f =>
                                 {
                                     var val = f.Split('\\')[^1];
-                                    return val.Length == 40 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 40
+                                    return val.Length == 64 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 64
                                         || val.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
                                 });
         if (SubstWatcher != null)
@@ -414,7 +414,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                                 .Where(f =>
                                 {
                                     var val = f.Split('\\')[^1];
-                                    return val.Length == 40 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 40
+                                    return val.Length == 64 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 64
                                         || val.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
                                 });
 
@@ -675,13 +675,81 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             if (ct.IsCancellationRequested) return;
         }
 
+        var filesNeedingRehash = Directory.GetFiles(_configService.Current.CacheFolder, "*.*", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(substDir, "*.*", SearchOption.TopDirectoryOnly))
+            .AsParallel()
+            .Where(f =>
+            {
+                var val = f.Split('\\')[^1];
+                return val.Length == 40 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 40;
+            });
+
+        foreach (var legacyFile in filesNeedingRehash)
+        {
+            try
+            {
+                var legacyInfo = new FileInfo(legacyFile);
+                var newHash = Crypto.GetFileHash(legacyFile);
+                if (newHash.Length != 64)
+                {
+                    Logger.LogWarning("Skipping legacy cache file {file} due to unexpected hash length {length}",
+                        legacyFile, newHash.Length);
+                    File.Delete(legacyFile);
+                    continue;
+                }
+
+                var destPath = Path.Combine(legacyInfo.DirectoryName, newHash + legacyInfo.Extension);
+                if (string.Equals(destPath, legacyFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (File.Exists(destPath))
+                {
+                    try
+                    {
+                        var destHash = Crypto.GetFileHash(destPath);
+                        if (string.Equals(destHash, newHash, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Logger.LogInformation("Removing duplicate legacy cache artifact {file}", legacyFile);
+                            File.Delete(legacyFile);
+                        }
+                        else
+                        {
+                            Logger.LogWarning("Encountered conflicting cache artifact {dest} when migrating {legacy}",
+                                destPath, legacyFile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Failed validating existing cache artifact {dest}", destPath);
+                    }
+
+                    continue;
+                }
+
+                File.Move(legacyFile, destPath);
+                Logger.LogInformation("Migrated legacy cache artifact from {legacy} to {destination}", legacyFile,
+                    destPath);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed migrating legacy cache artifact {file}", legacyFile);
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+
         var allCacheFiles = Directory.GetFiles(_configService.Current.CacheFolder, "*.*", SearchOption.TopDirectoryOnly)
                                 .Concat(Directory.GetFiles(substDir, "*.*", SearchOption.TopDirectoryOnly))
                                 .AsParallel()
                                 .Where(f =>
                                 {
                                     var val = f.Split('\\')[^1];
-                                    return val.Length == 40 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 40;
+                                    return val.Length == 64 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 64;
                                 });
 
         if (ct.IsCancellationRequested) return;

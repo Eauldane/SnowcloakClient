@@ -36,7 +36,7 @@ public sealed class FileCacheManager : IHostedService
         _ipcManager = ipcManager;
         _configService = configService;
         _mareMediator = mareMediator;
-        _csvPath = Path.Combine(configService.ConfigurationDirectory, "FileCache.csv");
+        _csvPath = Path.Combine(configService.ConfigurationDirectory, "SnowcloakFiles.csv");
     }
 
     private string CsvBakPath => _csvPath + ".bak";
