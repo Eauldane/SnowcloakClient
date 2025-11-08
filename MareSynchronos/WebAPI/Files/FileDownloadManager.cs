@@ -1,5 +1,5 @@
 ﻿using Dalamud.Utility;
-using K4os.Compression.LZ4.Streams;
+using SnowcloakSync.Files;
 using MareSynchronos.API.Data;
 using MareSynchronos.API.Dto.Files;
 using MareSynchronos.API.Routes;
@@ -12,26 +12,23 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
-using Blake3;
 
 namespace MareSynchronos.WebAPI.Files;
 
 public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
     private readonly Dictionary<string, FileDownloadStatus> _downloadStatus;
-    private readonly FileCompactor _fileCompactor;
     private readonly FileCacheManager _fileDbManager;
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly List<ThrottledStream> _activeDownloadStreams;
 
     public FileDownloadManager(ILogger<FileDownloadManager> logger, MareMediator mediator,
         FileTransferOrchestrator orchestrator,
-        FileCacheManager fileCacheManager, FileCompactor fileCompactor) : base(logger, mediator)
+        FileCacheManager fileCacheManager) : base(logger, mediator)
     {
         _downloadStatus = new Dictionary<string, FileDownloadStatus>(StringComparer.Ordinal);
         _orchestrator = orchestrator;
         _fileDbManager = fileCacheManager;
-        _fileCompactor = fileCompactor;
         _activeDownloadStreams = [];
 
         Mediator.Subscribe<DownloadLimitChangedMessage>(this, (msg) =>
@@ -326,23 +323,12 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                     while (tasks.Count > threadCount && tasks.Where(t => !t.IsCompleted).Count() > 4)
                         await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
 
-                    var fileExtension = fileReplacement.First(f => string.Equals(f.Hash, fileHash, StringComparison.OrdinalIgnoreCase)).GamePaths[0].Split(".")[^1];
-                    var tmpPath = _fileDbManager.GetCacheFilePath(Guid.NewGuid().ToString(), "tmp");
-                    var filePath = _fileDbManager.GetCacheFilePath(fileHash, fileExtension);
+                    var expectedExtension = fileReplacement.First(f => string.Equals(f.Hash, fileHash, StringComparison.OrdinalIgnoreCase)).GamePaths[0].Split(".")[^1];
 
-                    Logger.LogDebug("{dlName}: Decompressing {file}:{le} => {dest}", fi.Name, fileHash, fileLengthBytes, filePath);
-
-                    tasks.Add(Task.Run(() => {
+                    tasks.Add(Task.Run(async () => {
                         try
                         {
-                            using var tmpFileStream = new Blake3Stream(new FileStream(tmpPath, new FileStreamOptions()
-                            {
-                                Mode = FileMode.CreateNew,
-                                Access = FileAccess.Write,
-                                Share = FileShare.None
-                            }));
-
-                            using var fileChunkStream = new FileStream(blockFile, new FileStreamOptions()
+                            await using var fileChunkStream = new FileStream(blockFile, new FileStreamOptions()
                             {
                                 BufferSize = 80000,
                                 Mode = FileMode.Open,
@@ -350,28 +336,34 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                             });
                             fileChunkStream.Position = chunkPosition;
 
-                            using var innerFileStream = new LimitedStream(fileChunkStream, fileLengthBytes);
-                            using var decoder = LZ4Frame.Decode(innerFileStream);
-                            long startPos = fileChunkStream.Position;
-                            decoder.AsStream().CopyTo(tmpFileStream);
-                            long readBytes = fileChunkStream.Position - startPos;
+                            using var innerFileStream = new LimitedStream(fileChunkStream, fileLengthBytes)
+                            {
+                                DisposeUnderlying = false
+                            };
 
+                            long startPos = fileChunkStream.Position;
+                            var extractedPath = await SCFFile.ExtractSCFFile(innerFileStream, _fileDbManager.CacheFolder, ct).ConfigureAwait(false);                            long readBytes = fileChunkStream.Position - startPos;
                             if (readBytes != fileLengthBytes)
                             {
                                 throw new EndOfStreamException();
                             }
 
-                            string calculatedHash = tmpFileStream.ComputeHash().ToString().ToUpperInvariant();
-
-                            if (!calculatedHash.Equals(fileHash, StringComparison.Ordinal))
+                            var extractedHash = Path.GetFileNameWithoutExtension(extractedPath);
+                            if (!string.Equals(extractedHash, fileHash, StringComparison.OrdinalIgnoreCase))
                             {
-                                Logger.LogError("Hash mismatch after extracting, got {hash}, expected {expectedHash}, deleting file", calculatedHash, fileHash);
+                                Logger.LogError("Hash mismatch after extracting SCF, got {hash}, expected {expectedHash}, deleting file", extractedHash, fileHash);
+                                File.Delete(extractedPath);
                                 return;
                             }
 
-                            tmpFileStream.Close();
-                            _fileCompactor.RenameAndCompact(filePath, tmpPath);
-                            PersistFileToStorage(fileHash, filePath, fileLengthBytes);
+                            var extractedExtension = Path.GetExtension(extractedPath).TrimStart('.');
+                            if (!string.Equals(extractedExtension, expectedExtension, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Logger.LogDebug("{dlName}: Extracted extension {ext} differs from expected {expectedExt} for {hash}", fi.Name, extractedExtension, expectedExtension, fileHash);
+                            }
+
+                            Logger.LogDebug("{dlName}: Extracted {file}:{le} => {dest}", fi.Name, fileHash, fileLengthBytes, extractedPath);
+                            PersistFileToStorage(fileHash, extractedPath, fileLengthBytes);
                         }
                         catch (EndOfStreamException)
                         {
@@ -383,11 +375,6 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 
                             foreach (var fr in fileReplacement)
                                 Logger.LogWarning(" - {h}: {x}", fr.Hash, fr.GamePaths[0]);
-                        }
-                        finally
-                        {
-                            if (File.Exists(tmpPath))
-                                File.Delete(tmpPath);
                         }
                     }, CancellationToken.None));
                 }

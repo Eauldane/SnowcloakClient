@@ -90,7 +90,7 @@ public static class SCFFile
 
         long dataStart = scfOutput.Position; // Should be 79
         long uncompressed = 0;
-        using var hasher = Blake3.Hasher.New();
+        using var hasher = Hasher.New();
         // Level 3 is the sweetspot in benchmarks. Anything below 9 should be fine really
         // but higher levels = more time to compress. Level 2 gives a 2.10x ratio on a
         // mod pack I tested, so level 3 should hit that while

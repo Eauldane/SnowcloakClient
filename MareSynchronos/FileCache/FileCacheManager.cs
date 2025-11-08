@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using SnowcloakSync.Files;
 
 namespace MareSynchronos.FileCache;
 
@@ -169,12 +170,14 @@ public sealed class FileCacheManager : IHostedService
     public async Task<(string, byte[])> GetCompressedFileData(string fileHash, CancellationToken uploadToken)
     {
         var fileCache = GetFileCacheByHash(fileHash)!;
-        using var fs = File.OpenRead(fileCache.ResolvedFilepath);
-        var ms = new MemoryStream(64 * 1024);
-        using var encstream = LZ4Stream.Encode(ms, new LZ4EncoderSettings(){CompressionLevel=K4os.Compression.LZ4.LZ4Level.L09_HC});
-        await fs.CopyToAsync(encstream, uploadToken).ConfigureAwait(false);
-        encstream.Close();
-        fileCache.CompressedSize = encstream.Length;
+        await using var fs = File.OpenRead(fileCache.ResolvedFilepath);
+        using var ms = new MemoryStream(64 * 1024);
+
+        var extension = Path.GetExtension(fileCache.ResolvedFilepath);
+        var fileExtension = SCFFile.GetExtensionEnum(extension);
+
+        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken).ConfigureAwait(false);
+        fileCache.CompressedSize = header.CompressedSize + 79;
         return (fileHash, ms.ToArray());
     }
 
