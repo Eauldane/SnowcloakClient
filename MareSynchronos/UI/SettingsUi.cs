@@ -50,6 +50,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private readonly AccountRegistrationService _registerService;
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly UiSharedService _uiShared;
+    private readonly CapabilityRegistry _capabilityRegistry;
     private bool _deleteAccountPopupModalShown = false;
     private string _lastTab = string.Empty;
     private bool? _notesSuccessfullyApplied = null;
@@ -76,7 +77,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         FileCacheManager fileCacheManager,
         FileCompactor fileCompactor, ApiController apiController,
         IpcManager ipcManager, IpcProvider ipcProvider, CacheMonitor cacheMonitor,
-        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService) : base(logger, mediator, "Snowcloak Settings", performanceCollector)
+        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService, CapabilityRegistry capabilityRegistry) : base(logger, mediator, "Snowcloak Settings", performanceCollector)
     {
         _configService = configService;
         _pairManager = pairManager;
@@ -97,6 +98,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _registerService = registerService;
         _fileCompactor = fileCompactor;
         _uiShared = uiShared;
+        _capabilityRegistry = capabilityRegistry;
         AllowClickthrough = false;
         AllowPinning = false;
         _validationProgress = new Progress<(int, int, FileCacheEntity)>(v => _currentProgress = v);
@@ -706,6 +708,30 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
             }
         }
+        ImGui.Separator();
+        _uiShared.BigText("Client Capability Levels");
+        ImGui.TextWrapped("This section details the current capability levels of your client. This information is " +
+                          "primarily used for debugging purposes, and will be used in future version to " +
+                          "ensure servers communicate with your client in a way it can understand.");
+        var capabilities = _capabilityRegistry.GetCapabilities();
+        if (ImGui.BeginTable("capabilities", 2))
+        {
+            ImGui.TableSetupColumn(
+                $"Function");
+            ImGui.TableSetupColumn($"Capability Level");
+
+            ImGui.TableHeadersRow();
+            foreach (var item in capabilities)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(_capabilityRegistry.GetCapabilityFullName(item.Key));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(item.Value.ToString());
+            }
+
+            ImGui.EndTable();
+        }
     }
 
     private void DrawFileStorageSettings()
@@ -814,7 +840,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
             ImGui.TextUnformatted("The file compactor is only available on Windows and NTFS drives.");
         }
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
-
         ImGui.Separator();
         UiSharedService.TextWrapped("File Storage validation can make sure that all files in your local storage folder are valid. " +
             "Run the validation before you clear the Storage for no reason. " + Environment.NewLine +

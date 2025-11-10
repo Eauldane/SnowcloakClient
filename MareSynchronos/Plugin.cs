@@ -194,6 +194,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<UiSharedService>();
             collection.AddScoped<ChatService>();
             collection.AddScoped<GuiHookService>();
+            collection.AddScoped<CapabilityRegistry>();
 
             collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
             collection.AddHostedService(p => p.GetRequiredService<ConfigurationSaveService>());

@@ -1,0 +1,58 @@
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Plugin.Services;
+using MareSynchronos.API.Data;
+using MareSynchronos.Interop;
+using MareSynchronos.MareConfiguration;
+using MareSynchronos.MareConfiguration.Models;
+using MareSynchronos.PlayerData.Pairs;
+using MareSynchronos.Services.Mediator;
+using MareSynchronos.Services.ServerConfiguration;
+using Microsoft.Extensions.Logging;
+
+namespace MareSynchronos.Services;
+
+public class CapabilityRegistry
+{
+    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ILogger<CapabilityRegistry> _logger;
+    private readonly IChatGui _chatGui;
+    private Dictionary<string, float> _capabilities = new();
+    private Dictionary<string, string> _longNames = new();
+    public CapabilityRegistry(ServerConfigurationManager serverConfigurationManager, ILogger<CapabilityRegistry> logger,
+        IChatGui chatGui)
+    {
+        _serverConfigurationManager = serverConfigurationManager;
+        _logger = logger;
+        _chatGui = chatGui;
+        _longNames.Add("SCF", "Snowcloak Cache Files");
+        _longNames.Add("Hash", "Hashing Version");
+    }
+
+    public void RegisterCapability(string capability, float version)
+    {
+        _capabilities.Add(capability, version);
+        _logger.Log(LogLevel.Information, "Added capability {capability} with level {version}", capability, version);
+        #if DEBUG
+        _chatGui.Print($"Registered capability {capability} with level {version}");
+        #endif
+    }
+
+    public bool HasCapability(string requestedCapability, float level)
+    {
+        if (!_capabilities.TryGetValue(requestedCapability, out float clientCapability)) return false;
+        return clientCapability >= level;
+    }
+
+    public Dictionary<string, float> GetCapabilities()
+    {
+        return _capabilities;
+    }
+
+    public string GetCapabilityFullName(string requestedCapability)
+    {
+        if (!_longNames.TryGetValue(requestedCapability, out string capabilityName)) return requestedCapability;
+        return capabilityName;
+    }
+}
