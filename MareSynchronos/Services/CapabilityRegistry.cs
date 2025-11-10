@@ -18,7 +18,7 @@ public class CapabilityRegistry
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly ILogger<CapabilityRegistry> _logger;
     private readonly IChatGui _chatGui;
-    private Dictionary<string, float> _capabilities = new();
+    private SortedDictionary<string, float> _capabilities = new();
     private Dictionary<string, string> _longNames = new();
     public CapabilityRegistry(ServerConfigurationManager serverConfigurationManager, ILogger<CapabilityRegistry> logger,
         IChatGui chatGui)
@@ -28,15 +28,26 @@ public class CapabilityRegistry
         _chatGui = chatGui;
         _longNames.Add("SCF", "Snowcloak Cache Files");
         _longNames.Add("Hash", "Hashing Version");
+        _longNames.Add("Compress", "File Compression");
+        _longNames.Add("ClientDB", "Client Database");
     }
 
     public void RegisterCapability(string capability, float version)
     {
-        _capabilities.Add(capability, version);
-        _logger.Log(LogLevel.Information, "Added capability {capability} with level {version}", capability, version);
-        #if DEBUG
-        _chatGui.Print($"Registered capability {capability} with level {version}");
-        #endif
+        try
+        {
+            _capabilities.Add(capability, version);
+            _logger.Log(LogLevel.Information, "Added capability {capability} with level {version}", capability, version);
+#if DEBUG
+            _chatGui.Print($"Registered capability {capability} with level {version}");
+#endif
+        }
+        catch (ArgumentException)
+        {
+            _logger.Log(LogLevel.Information, "Capability {capability} already registered with. Skipping...", capability, version);
+
+        }
+
     }
 
     public bool HasCapability(string requestedCapability, float level)
@@ -45,7 +56,7 @@ public class CapabilityRegistry
         return clientCapability >= level;
     }
 
-    public Dictionary<string, float> GetCapabilities()
+    public SortedDictionary<string, float> GetCapabilities()
     {
         return _capabilities;
     }

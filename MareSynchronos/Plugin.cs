@@ -90,6 +90,9 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton(_ => partyList);
 
             // add mare related singletons
+            collection.AddSingleton<CapabilityRegistry>();
+            collection.AddSingleton<DatabaseService>();
+
             collection.AddSingleton<MareMediator>();
             collection.AddSingleton<FileCacheManager>();
             collection.AddSingleton<ServerConfigurationManager>();
@@ -167,7 +170,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<IConfigService<IMareConfiguration>>(s => s.GetRequiredService<RemoteConfigCacheService>());
             collection.AddSingleton<ConfigurationMigrator>();
             collection.AddSingleton<ConfigurationSaveService>();
-            collection.AddSingleton<CapabilityRegistry>();
 
 
             collection.AddSingleton<HubFactory>();

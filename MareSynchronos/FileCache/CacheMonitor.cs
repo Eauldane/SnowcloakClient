@@ -18,7 +18,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     private readonly FileCacheManager _fileDbManager;
     private readonly IpcManager _ipcManager;
     private readonly CapabilityRegistry _capabilityRegistry;
-
+    private readonly DatabaseService _databaseService;
     private readonly PerformanceCollectorService _performanceCollector;
     private long _currentFileProgress = 0;
     private CancellationTokenSource _scanCancellationTokenSource = new();
@@ -27,7 +27,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
 
     public CacheMonitor(ILogger<CacheMonitor> logger, IpcManager ipcManager, MareConfigService configService,
         FileCacheManager fileDbManager, MareMediator mediator, PerformanceCollectorService performanceCollector, DalamudUtilService dalamudUtil,
-        FileCompactor fileCompactor, CapabilityRegistry capabilityRegistry) : base(logger, mediator)
+        FileCompactor fileCompactor, CapabilityRegistry capabilityRegistry, DatabaseService databaseService) : base(logger, mediator)
     {
         _ipcManager = ipcManager;
         _configService = configService;
@@ -36,6 +36,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         _dalamudUtil = dalamudUtil;
         _fileCompactor = fileCompactor;
         _capabilityRegistry = capabilityRegistry;
+        _databaseService = databaseService;
         Mediator.Subscribe<PenumbraInitializedMessage>(this, (_) =>
         {
             StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
@@ -93,7 +94,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         }, token);
         capabilityRegistry.RegisterCapability("SCF", 1.1f);
         capabilityRegistry.RegisterCapability("Hash", 2.0f);
-        capabilityRegistry.RegisterCapability("Compression", 2.0f);
+        capabilityRegistry.RegisterCapability("Compress", 2.0f);
 
     }
 
