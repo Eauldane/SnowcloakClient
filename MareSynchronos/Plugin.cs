@@ -167,6 +167,8 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<IConfigService<IMareConfiguration>>(s => s.GetRequiredService<RemoteConfigCacheService>());
             collection.AddSingleton<ConfigurationMigrator>();
             collection.AddSingleton<ConfigurationSaveService>();
+            collection.AddSingleton<CapabilityRegistry>();
+
 
             collection.AddSingleton<HubFactory>();
 
@@ -194,7 +196,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<UiSharedService>();
             collection.AddScoped<ChatService>();
             collection.AddScoped<GuiHookService>();
-            collection.AddScoped<CapabilityRegistry>();
 
             collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
             collection.AddHostedService(p => p.GetRequiredService<ConfigurationSaveService>());
