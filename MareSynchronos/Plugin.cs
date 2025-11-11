@@ -91,10 +91,11 @@ public sealed class Plugin : IDalamudPlugin
 
             // add mare related singletons
             collection.AddSingleton<CapabilityRegistry>();
-            collection.AddSingleton<DatabaseService>();
 
             collection.AddSingleton<MareMediator>();
             collection.AddSingleton<FileCacheManager>();
+            collection.AddSingleton<DatabaseService>();
+
             collection.AddSingleton<ServerConfigurationManager>();
             collection.AddSingleton<ApiController>();
             collection.AddSingleton<PerformanceCollectorService>();

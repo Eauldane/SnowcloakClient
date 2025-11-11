@@ -45,6 +45,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     private Guid _deferred = Guid.Empty;
     private Guid _penumbraCollection = Guid.Empty;
     private bool _redrawOnNextApplication = false;
+    private readonly DatabaseService _databaseService;
 
     public PairHandler(ILogger<PairHandler> logger, Pair pair, PairAnalyzer pairAnalyzer,
         GameObjectHandlerFactory gameObjectHandlerFactory,
@@ -54,7 +55,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         FileCacheManager fileDbManager, MareMediator mediator,
         PlayerPerformanceService playerPerformanceService,
         ServerConfigurationManager serverConfigManager,
-        MareConfigService configService, VisibilityService visibilityService) : base(logger, mediator)
+        MareConfigService configService, VisibilityService visibilityService, DatabaseService databaseService) : base(logger, mediator)
     {
         Pair = pair;
         PairAnalyzer = pairAnalyzer;
@@ -68,7 +69,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         _serverConfigManager = serverConfigManager;
         _configService = configService;
         _visibilityService = visibilityService;
-
+        _databaseService = databaseService;
         _visibilityService.StartTracking(Pair.Ident);
 
         Mediator.SubscribeKeyed<PlayerVisibilityMessage>(this, Pair.Ident, (msg) => UpdateVisibility(msg.IsVisible, msg.Invalidate));
@@ -852,7 +853,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                         hasMigrationChanges = true;
                         fileCache = _fileDbManager.MigrateFileHashToExtension(fileCache, item.GamePaths[0].Split(".")[^1]);
                     }
-
+                    _databaseService.RecordFileSeen(Pair.UserData.UID, item.Hash, DateTime.UtcNow);
+                    
                     foreach (var gamePath in item.GamePaths)
                     {
                         outputDict[(gamePath, item.Hash)] = fileCache.ResolvedFilepath;
