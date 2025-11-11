@@ -10,5 +10,6 @@
   ],
   "IconUrl": "https://raw.githubusercontent.com/Eauldane/SnowcloakClient/refs/heads/main/MareSynchronos/images/logo.png",
   "RepoUrl": "https://git.snowcloak-sync.com/Eauldane/SnowcloakClient",
-  "CanUnloadAsync": true
+  "CanUnloadAsync": true,
+  "MakeZip": false
 }
