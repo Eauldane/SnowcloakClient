@@ -25,20 +25,16 @@ jobs:
         run: |
           $ver = '${{ github.ref }}' -replace 'refs/tags/',''
           invoke-expression 'dotnet build --no-restore --configuration Release --nologo -p:Version=$ver -p:FileVersion=$ver -p:AssemblyVersion=$ver'
-      - name: Archive
-        run: |
-          $ver = '${{ github.ref }}' -replace 'refs/tags/',''
-          Compress-Archive -Path MareSynchronos\bin\x64\Release\* -DestinationPath SnowcloakClient.zip
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v4
         with:
           path: |
-            ./MareSynchronos/bin/x64/Release/*
+            ./MareSynchronos/bin/x64/Release/
       - name: Upload Release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.RELEASE_KEY }}
-          file: ./SnowcloakClient.zip
+          file: ./MareSynchronos/bin/x64/Release/win-x64/Snowcloak/latest.zip
           file_glob: true
           tag: ${{ github.ref }}
           overwrite: true

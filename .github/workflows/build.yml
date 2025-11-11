@@ -26,7 +26,7 @@ jobs:
         run: |
           dotnet build --no-restore --configuration Release --nologo
       - name: Archive
-        run: Compress-Archive -Path MareSynchronos/bin/x64/Release/* -DestinationPath SnowcloakClient.zip
+        run: Compress-Archive -Path MareSynchronos/bin/x64/Release/win-x64/publish -DestinationPath SnowcloakClient.zip
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v4
         with:
