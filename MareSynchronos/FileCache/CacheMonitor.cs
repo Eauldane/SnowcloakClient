@@ -7,6 +7,8 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using Dalamud.Plugin.Services;
+
 
 namespace MareSynchronos.FileCache;
 
@@ -19,6 +21,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     private readonly IpcManager _ipcManager;
     private readonly CapabilityRegistry _capabilityRegistry;
     private readonly DatabaseService _databaseService;
+    private readonly IChatGui _chatGui;
     private readonly PerformanceCollectorService _performanceCollector;
     private long _currentFileProgress = 0;
     private CancellationTokenSource _scanCancellationTokenSource = new();
@@ -27,7 +30,8 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
 
     public CacheMonitor(ILogger<CacheMonitor> logger, IpcManager ipcManager, MareConfigService configService,
         FileCacheManager fileDbManager, MareMediator mediator, PerformanceCollectorService performanceCollector, DalamudUtilService dalamudUtil,
-        FileCompactor fileCompactor, CapabilityRegistry capabilityRegistry, DatabaseService databaseService) : base(logger, mediator)
+        FileCompactor fileCompactor, CapabilityRegistry capabilityRegistry, DatabaseService databaseService,
+        IChatGui chatGui) : base(logger, mediator)
     {
         _ipcManager = ipcManager;
         _configService = configService;
@@ -37,6 +41,8 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         _fileCompactor = fileCompactor;
         _capabilityRegistry = capabilityRegistry;
         _databaseService = databaseService;
+        _chatGui = chatGui;
+
         Mediator.Subscribe<PenumbraInitializedMessage>(this, (_) =>
         {
             StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
@@ -690,8 +696,19 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             {
                 var val = f.Split('\\')[^1];
                 return val.Length == 40 || (val.Split('.').FirstOrDefault()?.Length ?? 0) == 40;
-            });
+            }).ToList();
 
+        var legacyRehashCount = filesNeedingRehash.Count;
+        var processedLegacyFiles = 0;
+        var nextProgressPercent = 5;
+        
+        if (legacyRehashCount > 0)
+        {
+            _chatGui.Print("[Snowcloak] You recently updated Snowcloak. This update changes a few things with the file system, so Snowcloak needs to re-hash your downloaded files.");
+            _chatGui.Print("This operation only needs to be performed once, but might make things slow while it works. A message will be posted in chat when it's done.");
+            _chatGui.Print($"Rehashing {legacyRehashCount} files. This may take a moment.");
+        }
+        
         foreach (var legacyFile in filesNeedingRehash)
         {
             try
@@ -744,11 +761,35 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             {
                 Logger.LogWarning(ex, "Failed migrating legacy cache artifact {file}", legacyFile);
             }
+            finally
+            {
+                if (legacyRehashCount > 0)
+                {
+                    processedLegacyFiles++;
+                    if (!ct.IsCancellationRequested && processedLegacyFiles < legacyRehashCount)
+                    {
+                        var percentComplete = (int)Math.Floor(processedLegacyFiles * 100d / legacyRehashCount);
+                        if (percentComplete >= nextProgressPercent)
+                        {
+                            var remaining = legacyRehashCount - processedLegacyFiles;
+                            var remainingSuffix = remaining == 1 ? string.Empty : "s";
+                            _chatGui.Print(
+                                $"[Snowcloak] Rehash progress: {processedLegacyFiles}/{legacyRehashCount} ({percentComplete}%) - {remaining} file{remainingSuffix} remaining.");
+                            nextProgressPercent = Math.Min(percentComplete + 5, 99);
+                        }
+                    }
+                }
+            }
 
             if (ct.IsCancellationRequested)
             {
                 return;
             }
+        }
+        if (legacyRehashCount > 0 && !ct.IsCancellationRequested)
+        {
+            var suffix = legacyRehashCount == 1 ? string.Empty : "s";
+            _chatGui.Print($"[Snowcloak] Rehash complete! You can now play the game normally. Have fun!");
         }
 
         var allCacheFiles = Directory.GetFiles(_configService.Current.CacheFolder, "*.*", SearchOption.TopDirectoryOnly)

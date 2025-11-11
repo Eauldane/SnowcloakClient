@@ -314,7 +314,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     ImGui.TextColored(ImGuiColors.DalamudRed, unsupported);
                 }
                 UiSharedService.ColorTextWrapped($"Your Snowcloak installation is out of date, the current version is {ver.Major}.{ver.Minor}.{ver.Build}. " +
-                    $"It is highly recommended to keep Snowcloak up to date. Open /xlplugins and update the plugin.", ImGuiColors.DalamudRed);
+                    $"You may not be able to sync correctly or at all until you update. Open /xlplugins and update the plugin.", ImGuiColors.DalamudRed);
             }
 
             using (ImRaii.PushId("header")) DrawUIDHeader();
