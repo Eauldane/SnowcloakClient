@@ -619,8 +619,23 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             _configService.Current.MaxLocalCacheInGiB = maxCacheSize;
             _configService.Save();
         }
-        DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity by removing the oldest unused files. You typically do not need to clear it yourself.");
-    }
+        DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");
+
+        ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
+        DrawCombo("Eviction Strategy", Enum.GetValues<CacheEvictionMode>(),
+            mode => mode switch
+            {
+                CacheEvictionMode.LeastRecentlyUsed => "Least Recently Used (LRU)",
+                CacheEvictionMode.LeastFrequentlyUsed => "Least Frequently Used (LFU)",
+                CacheEvictionMode.ExpirationDate => "30-Day Time To Live (TTL)",
+                _ => mode.ToString(),
+            },
+            mode =>
+            {
+                _configService.Current.CacheEvictionMode = mode;
+                _configService.Save();
+            }, _configService.Current.CacheEvictionMode);
+        DrawHelpText("Choose how Snowcloak removes files when the storage exceeds the configured size. TTL automatically purges files that have not been used in the last 30 days.");    }
 
     public T? DrawCombo<T>(string comboName, IEnumerable<T> comboItems, Func<T, string> toName,
         Action<T?>? onSelected = null, T? initialSelectedItem = default)

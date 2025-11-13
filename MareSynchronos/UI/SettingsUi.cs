@@ -839,6 +839,23 @@ public class SettingsUi : WindowMediatorSubscriberBase
             ImGui.EndDisabled();
             ImGui.TextUnformatted("The file compactor is only available on Windows and NTFS drives.");
         }
+        
+        bool useMultithreadedCompression = _configService.Current.UseMultithreadedCompression;
+        if (ImGui.Checkbox("Enable multithreaded compression", ref useMultithreadedCompression))
+        {
+            _configService.Current.UseMultithreadedCompression = useMultithreadedCompression;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("When enabled, Snowcloak will use multiple CPU cores while compressing uploads to decrease processing time. This may have performance impacts - turn it off if it causes issues.");
+
+        int compressionLevel = _configService.Current.CompressionLevel;
+        if (ImGui.SliderInt("Compression level", ref compressionLevel, 3, 9, "%d"))
+        {
+            compressionLevel = Math.Clamp(compressionLevel, 2, 9);
+            _configService.Current.CompressionLevel = compressionLevel;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("Higher compression levels create smaller uploads. This uses more of your CPU, but creates smaller downloads for your partners. Level 3 is the default.");
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
         ImGui.Separator();
         UiSharedService.TextWrapped("File Storage validation can make sure that all files in your local storage folder are valid. " +

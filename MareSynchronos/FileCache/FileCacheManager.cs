@@ -176,7 +176,7 @@ public sealed class FileCacheManager : IHostedService
         var extension = Path.GetExtension(fileCache.ResolvedFilepath);
         var fileExtension = SCFFile.GetExtensionEnum(extension);
 
-        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken).ConfigureAwait(false);
+        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken, _configService.Current.CompressionLevel, _configService.Current.UseMultithreadedCompression).ConfigureAwait(false);
         fileCache.CompressedSize = header.CompressedSize + 79;
         return (fileHash, ms.ToArray());
     }

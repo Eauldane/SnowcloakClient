@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using ZstdSharp;
 using Blake3;
+using ZstdSharp.Unsafe;
 
 namespace SnowcloakSync.Files;
 
@@ -57,7 +58,7 @@ public static class SCFFile
     }
 
     public static async Task<SCFFileHeader> CreateSCFFile(Stream rawInput, Stream scfOutput, FileExtension ext,
-        IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default)
+        IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default, int compressionLevel = 3, bool multithreaded = false)
     {
         if (!rawInput.CanRead)
         {
@@ -98,8 +99,13 @@ public static class SCFFile
         //
         // As long as this is never set above 10 we should be fine. Server can recompress to level 19
         // or 22 if it really wants to eke out that last 5% compression.
-        using (var zstd = new CompressionStream(scfOutput, level: 3, leaveOpen: true))
+        var level = Math.Clamp(compressionLevel, 3, 9);
+        using (var zstd = new CompressionStream(scfOutput, level: level, leaveOpen: true))
         {
+            if (multithreaded && Environment.ProcessorCount > 1)
+            {
+                zstd.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
+            }
             var buffer =
                 new byte[81920]; // Weird number, don't like it, but anything over 80KB is considered large by .NET
             int read;

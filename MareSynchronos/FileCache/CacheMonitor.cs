@@ -8,6 +8,8 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using Dalamud.Plugin.Services;
+using System.Collections.Generic;
+using System.Linq;
 
 
 namespace MareSynchronos.FileCache;
@@ -574,7 +576,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         var files = Directory.EnumerateFiles(_configService.Current.CacheFolder)
             .Concat(Directory.EnumerateFiles(_fileDbManager.SubstFolder))
             .Select(f => new FileInfo(f))
-            .OrderBy(f => f.LastAccessTime).ToList();
+            .ToList();
         FileCacheSize = files
             .Sum(f =>
             {
@@ -590,21 +592,219 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                 }
             });
 
+        Dictionary<string, DatabaseService.FileUsageStatistics> usageStats = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _databaseService.GetAggregatedFileUsage())
+        {
+            usageStats[entry.Key] = entry.Value;
+        }
+
+        var evictionMode = _configService.Current.CacheEvictionMode;
+        foreach (var candidate in files.ToList())
+        {
+            var expirationCutoff = DateTime.UtcNow - DatabaseService.UsageRetentionPeriod;
+            foreach (var expired in files.Where(f => GetUsageLastSeenUtc(usageStats, f) < expirationCutoff).ToList())
+            {
+                token.ThrowIfCancellationRequested();
+                var lastSeenUtc = GetUsageLastSeenUtc(usageStats, candidate);
+                if (lastSeenUtc >= expirationCutoff)                
+                {
+                    continue;
+                }
+
+                if (DeleteFileAndUsage(candidate, usageStats))
+                {
+                    files.Remove(candidate);                
+                }
+            }
+        }
+
+        
         var maxCacheInBytes = (long)(_configService.Current.MaxLocalCacheInGiB * 1024d * 1024d * 1024d);
 
         if (FileCacheSize < maxCacheInBytes) return;
 
-        var substDir = _fileDbManager.SubstFolder;
-
         var maxCacheBuffer = maxCacheInBytes * 0.05d;
-        while (FileCacheSize > maxCacheInBytes - (long)maxCacheBuffer)
+                List<FileInfo> orderedFiles = evictionMode switch
         {
-            var oldestFile = files[0];
-            FileCacheSize -= _fileCompactor.GetFileSizeOnDisk(oldestFile);
-            File.Delete(oldestFile.FullName);
-            files.Remove(oldestFile);
+            CacheEvictionMode.LeastFrequentlyUsed => files
+                .OrderBy(f => GetUsageCount(usageStats, f))
+                .ThenBy(f => GetUsageLastSeenUtc(usageStats, f))
+                .ThenBy(f => GetFileLastAccessUtc(f))
+                .ToList(),
+            CacheEvictionMode.ExpirationDate => files
+                .OrderBy(f => GetUsageLastSeenUtc(usageStats, f))
+                .ThenBy(f => GetFileLastAccessUtc(f))
+                .ToList(),
+            _ => files
+                .OrderBy(f => GetFileLastAccessUtc(f))
+                .ToList(),
+        };
+
+        while (FileCacheSize > maxCacheInBytes - (long)maxCacheBuffer && orderedFiles.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            var candidate = orderedFiles[0];
+            orderedFiles.RemoveAt(0);
+            if (DeleteFileAndUsage(candidate, usageStats))
+            {
+                files.Remove(candidate);
+            }
+        }
+
+        if (FileCacheSize > maxCacheInBytes - (long)maxCacheBuffer)
+        {
+            Logger.LogWarning("Unable to reduce cache usage below configured threshold. Remaining files: {count}", files.Count);
         }
     }
+
+    private bool DeleteFileAndUsage(FileInfo file, Dictionary<string, DatabaseService.FileUsageStatistics> usageStats)
+    {
+        long fileSize = 0;
+        try
+        {
+            fileSize = _fileCompactor.GetFileSizeOnDisk(file, StorageisNTFS);
+        }
+        catch
+        {
+            try
+            {
+                fileSize = file.Length;
+            }
+            catch
+            {
+                fileSize = 0;
+            }
+        }
+
+        bool removedFromDisk = true;
+        try
+        {
+            if (File.Exists(file.FullName))
+            {
+                File.Delete(file.FullName);
+            }
+        }
+        catch (Exception ex)
+        {
+            removedFromDisk = false;
+            Logger.LogWarning(ex, "Could not delete {file}", file.FullName);
+        }
+
+        if (removedFromDisk && File.Exists(file.FullName))
+        {
+            removedFromDisk = false;
+        }
+
+        if (removedFromDisk)
+        {
+            FileCacheSize = Math.Max(0, FileCacheSize - fileSize);
+            if (TryGetHashFromFile(file, out var hash))
+            {
+                _databaseService.RemoveFileUsage(hash);
+                usageStats.Remove(hash);
+            }
+        }
+
+        return removedFromDisk;
+    }
+
+    private static bool TryGetHashFromFile(FileInfo file, out string hash)
+    {
+        var fileName = file.Name.Split('.')[0];
+        if (fileName.Length == 40 && fileName.All(IsHexChar))
+        {
+            hash = fileName.ToUpperInvariant();
+            return true;
+        }
+
+        hash = string.Empty;
+        return false;
+    }
+
+    private static bool IsHexChar(char c)
+    {
+        return c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+    }
+
+    private static DateTime GetUsageLastSeenUtc(Dictionary<string, DatabaseService.FileUsageStatistics> usageStats, FileInfo file)
+    {
+        if (TryGetHashFromFile(file, out var hash) && usageStats.TryGetValue(hash, out var stats) && stats.LastSeenUtc.HasValue)
+        {
+            return stats.LastSeenUtc.Value;
+        }
+
+        var fallback = GetFileLastAccessUtc(file);
+        return fallback == DateTime.MinValue ? DateTime.UtcNow : fallback;
+        
+    }
+
+    private static int GetUsageCount(Dictionary<string, DatabaseService.FileUsageStatistics> usageStats, FileInfo file)
+    {
+        if (TryGetHashFromFile(file, out var hash) && usageStats.TryGetValue(hash, out var stats))
+        {
+            return stats.SeenCount;
+        }
+
+        return 0;
+    }
+
+    private static readonly DateTime MinimumPlausibleTimestampUtc = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    
+    private static DateTime GetFileLastAccessUtc(FileInfo file)
+    {
+        if (TryGetFileTimestamp(file, f => f.LastAccessTimeUtc, out var timestamp)) return timestamp;
+        if (TryGetFileTimestamp(file, f => f.LastWriteTimeUtc, out timestamp)) return timestamp;
+        if (TryGetFileTimestamp(file, f => f.CreationTimeUtc, out timestamp)) return timestamp;
+        return DateTime.MinValue;
+    }
+
+    private static bool TryGetFileTimestamp(FileInfo file, Func<FileInfo, DateTime> accessor, out DateTime timestamp)
+    {
+        timestamp = DateTime.MinValue;
+        DateTime candidate;
+        try
+        {
+            candidate = accessor(file);
+            
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (candidate == DateTime.MinValue || candidate == DateTime.MaxValue)
+        {
+            return false;
+        }
+
+        DateTime normalized;
+        switch (candidate.Kind)
+        {
+            case DateTimeKind.Utc:
+                normalized = candidate;
+                break;
+            case DateTimeKind.Local:
+                normalized = candidate.ToUniversalTime();
+                break;
+            default:
+                normalized = DateTime.SpecifyKind(candidate, DateTimeKind.Local).ToUniversalTime();
+                break;
+        }
+
+        if (normalized < MinimumPlausibleTimestampUtc)
+        {
+            return false;
+        }
+
+        if (normalized > DateTime.UtcNow.AddYears(1))
+        {
+            return false;
+        }
+
+        timestamp = normalized;
+        return true;        
+    }
+    
 
     public void ResetLocks()
     {

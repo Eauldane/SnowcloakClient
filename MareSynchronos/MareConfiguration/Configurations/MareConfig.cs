@@ -1,6 +1,8 @@
 ﻿using MareSynchronos.MareConfiguration.Models;
 using MareSynchronos.UI;
 using Microsoft.Extensions.Logging;
+using MareSynchronos.FileCache;
+using MareSynchronos.MareConfiguration.Models;
 
 namespace MareSynchronos.MareConfiguration.Configurations;
 
@@ -77,4 +79,7 @@ public class MareConfig : IMareConfiguration
 
     public bool MareAPI { get; set; } = true;
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;
+    public CacheEvictionMode CacheEvictionMode { get; set; } = CacheEvictionMode.LeastRecentlyUsed;
+    public bool UseMultithreadedCompression { get; set; } = false;
+    public int CompressionLevel { get; set; } = 3;
 }
