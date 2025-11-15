@@ -54,6 +54,8 @@ internal sealed class GroupPanel
     private bool _showModalEnterPassword;
     private string _syncShellPassword = string.Empty;
     private string _syncShellToJoin = string.Empty;
+    private bool _showModalCreateGroupWarning;
+    private bool _showModalJoinGroupWarning;
 
     public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager, ChatService chatServivce,
         UidDisplayHandler uidDisplayHandler, MareConfigService mareConfig, ServerConfigurationManager serverConfigurationManager,
@@ -134,16 +136,40 @@ internal sealed class GroupPanel
             }
             if (ImGui.Button("Join " + _syncShellToJoin))
             {
-                var shell = _syncShellToJoin;
-                var pw = _syncShellPassword;
-                _errorGroupJoin = !ApiController.GroupJoin(new(new GroupData(shell), pw)).Result;
-                if (!_errorGroupJoin)
-                {
-                    _syncShellToJoin = string.Empty;
-                    _showModalEnterPassword = false;
-                }
-                _syncShellPassword = string.Empty;
+                _showModalJoinGroupWarning = true;
+                ImGui.OpenPopup("Syncshell Join Warning");
             }
+            if (ImGui.BeginPopupModal("Syncshell Join Warning", ref _showModalJoinGroupWarning, UiSharedService.PopupWindowFlags))
+            {
+                UiSharedService.TextWrapped("This syncshell is a community-run space and not officially sanctioned by " +
+                                            "the Snowcloak team.");
+                UiSharedService.TextWrapped("Please be mindful of the server rules and understand that you are " +
+                                            "responsible for your own experience.");
+                UiSharedService.TextWrapped("By continuing, you acknowledge that the syncshell owner may moderate as " +
+                                            "they see fit and that the server staff are not obligated to intervene.");
+                ImGui.Separator();
+                if (ImGui.Button("Acknowledge and Join"))
+                {
+                    var shell = _syncShellToJoin;
+                    var pw = _syncShellPassword;
+                    _errorGroupJoin = !ApiController.GroupJoin(new(new GroupData(shell), pw)).Result;
+                    if (!_errorGroupJoin)
+                    {
+                        _syncShellToJoin = string.Empty;
+                        _showModalEnterPassword = false;
+                    }
+                    _syncShellPassword = string.Empty;
+                    _showModalJoinGroupWarning = false;
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Cancel"))
+                {
+                    _showModalJoinGroupWarning = false;
+                    ImGui.CloseCurrentPopup();
+                }
+                UiSharedService.SetScaledWindowSize(350);
+                ImGui.EndPopup();            }
             UiSharedService.SetScaledWindowSize(290);
             ImGui.EndPopup();
         }
@@ -154,15 +180,42 @@ internal sealed class GroupPanel
             ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
             if (ImGui.Button("Create Syncshell"))
             {
-                try
+                _showModalCreateGroupWarning = true;
+                ImGui.OpenPopup("Syncshell Creation Warning");
+            }
+
+            if (ImGui.BeginPopupModal("Syncshell Creation Warning", ref _showModalCreateGroupWarning, UiSharedService.PopupWindowFlags))
+            {
+                UiSharedService.TextWrapped("Creating a syncshell means you are responsible for ensuring proper " +
+                                            "moderation.");
+                UiSharedService.TextWrapped("Please only proceed if you are prepared to enforce community guidelines " +
+                                            "and keep your members safe.");
+                UiSharedService.TextWrapped("Unmoderated synchells are not permitted. Administrator action against " +
+                                            "unmoderated shells may be performed at staff discretion.");
+                ImGui.Separator();
+                if (ImGui.Button("I understand, create the Syncshell"))                
                 {
-                    _lastCreatedGroup = ApiController.GroupCreate().Result;
+                    try
+                    {
+                        _lastCreatedGroup = ApiController.GroupCreate().Result;
+                    }
+                    catch
+                    {
+                        _lastCreatedGroup = null;
+                        _errorGroupCreate = true;
+                    }
+                    _showModalCreateGroupWarning = false;
+                    ImGui.CloseCurrentPopup();
+                    
                 }
-                catch
+                ImGui.SameLine();
+                if (ImGui.Button("Cancel"))
                 {
-                    _lastCreatedGroup = null;
-                    _errorGroupCreate = true;
+                    _showModalCreateGroupWarning = false;
+                    ImGui.CloseCurrentPopup();
                 }
+                UiSharedService.SetScaledWindowSize(350);
+                ImGui.EndPopup();
             }
 
             if (_lastCreatedGroup != null)
