@@ -50,7 +50,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         {
             MinimumSize = new()
             {
-                X = 800,
+                X = 1100,
                 Y = 600
             },
             MaximumSize = new()

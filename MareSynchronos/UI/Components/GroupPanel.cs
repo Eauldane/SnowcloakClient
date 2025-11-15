@@ -123,8 +123,12 @@ internal sealed class GroupPanel
 
         if (ImGui.BeginPopupModal("Enter Syncshell Password", ref _showModalEnterPassword, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Before joining any Syncshells please be aware that you will be automatically paired with everyone in the Syncshell.");
-            ImGui.Separator();
+            UiSharedService.TextWrapped("This syncshell is a community-run space and not officially sanctioned by " +
+                                        "the Snowcloak team.");
+            UiSharedService.TextWrapped("Please be mindful of the server rules and understand that you are " +
+                                        "responsible for your own experience.");
+            UiSharedService.TextWrapped("By continuing, you acknowledge that the syncshell owner may moderate as " +
+                                        "they see fit and that the server staff are not obligated to intervene.");            ImGui.Separator();
             UiSharedService.TextWrapped("Enter the password for Syncshell " + _syncShellToJoin + ":");
             ImGui.SetNextItemWidth(-1);
             ImGui.InputTextWithHint("##password", _syncShellToJoin + " Password", ref _syncShellPassword, 255, ImGuiInputTextFlags.Password);
@@ -136,86 +140,42 @@ internal sealed class GroupPanel
             }
             if (ImGui.Button("Join " + _syncShellToJoin))
             {
-                _showModalJoinGroupWarning = true;
-                ImGui.OpenPopup("Syncshell Join Warning");
+                var shell = _syncShellToJoin;
+                var pw = _syncShellPassword;
+                _errorGroupJoin = !ApiController.GroupJoin(new(new GroupData(shell), pw)).Result;
+                if (!_errorGroupJoin)
+                {
+                    _syncShellToJoin = string.Empty;
+                    _showModalEnterPassword = false;
+                }
+
+                _syncShellPassword = string.Empty;
             }
-            if (ImGui.BeginPopupModal("Syncshell Join Warning", ref _showModalJoinGroupWarning, UiSharedService.PopupWindowFlags))
-            {
-                UiSharedService.TextWrapped("This syncshell is a community-run space and not officially sanctioned by " +
-                                            "the Snowcloak team.");
-                UiSharedService.TextWrapped("Please be mindful of the server rules and understand that you are " +
-                                            "responsible for your own experience.");
-                UiSharedService.TextWrapped("By continuing, you acknowledge that the syncshell owner may moderate as " +
-                                            "they see fit and that the server staff are not obligated to intervene.");
-                ImGui.Separator();
-                if (ImGui.Button("Acknowledge and Join"))
-                {
-                    var shell = _syncShellToJoin;
-                    var pw = _syncShellPassword;
-                    _errorGroupJoin = !ApiController.GroupJoin(new(new GroupData(shell), pw)).Result;
-                    if (!_errorGroupJoin)
-                    {
-                        _syncShellToJoin = string.Empty;
-                        _showModalEnterPassword = false;
-                    }
-                    _syncShellPassword = string.Empty;
-                    _showModalJoinGroupWarning = false;
-                    ImGui.CloseCurrentPopup();
-                }
-                ImGui.SameLine();
-                if (ImGui.Button("Cancel"))
-                {
-                    _showModalJoinGroupWarning = false;
-                    ImGui.CloseCurrentPopup();
-                }
-                UiSharedService.SetScaledWindowSize(350);
-                ImGui.EndPopup();            }
             UiSharedService.SetScaledWindowSize(290);
             ImGui.EndPopup();
         }
 
-        if (ImGui.BeginPopupModal("Create Syncshell", ref _showModalCreateGroup, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal("Syncshell Moderation Agreement", ref _showModalCreateGroup, UiSharedService.PopupWindowFlags))
         {
+            UiSharedService.TextWrapped("Creating a syncshell means you are responsible for ensuring proper " +
+                                        "moderation.");
+            UiSharedService.TextWrapped("Please only proceed if you are prepared to enforce community guidelines " +
+                                        "and keep your members safe.");
+            UiSharedService.TextWrapped("Unmoderated synchells are not permitted. Administrator action against " +
+                                        "unmoderated shells may be performed at staff discretion.");
             UiSharedService.TextWrapped("Press the button below to create a new Syncshell.");
             ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
             if (ImGui.Button("Create Syncshell"))
             {
-                _showModalCreateGroupWarning = true;
-                ImGui.OpenPopup("Syncshell Creation Warning");
-            }
-
-            if (ImGui.BeginPopupModal("Syncshell Creation Warning", ref _showModalCreateGroupWarning, UiSharedService.PopupWindowFlags))
-            {
-                UiSharedService.TextWrapped("Creating a syncshell means you are responsible for ensuring proper " +
-                                            "moderation.");
-                UiSharedService.TextWrapped("Please only proceed if you are prepared to enforce community guidelines " +
-                                            "and keep your members safe.");
-                UiSharedService.TextWrapped("Unmoderated synchells are not permitted. Administrator action against " +
-                                            "unmoderated shells may be performed at staff discretion.");
-                ImGui.Separator();
-                if (ImGui.Button("I understand, create the Syncshell"))                
+                try
                 {
-                    try
-                    {
-                        _lastCreatedGroup = ApiController.GroupCreate().Result;
-                    }
-                    catch
-                    {
-                        _lastCreatedGroup = null;
-                        _errorGroupCreate = true;
-                    }
-                    _showModalCreateGroupWarning = false;
-                    ImGui.CloseCurrentPopup();
-                    
+                    _lastCreatedGroup = ApiController.GroupCreate().Result;
                 }
-                ImGui.SameLine();
-                if (ImGui.Button("Cancel"))
+                catch
                 {
-                    _showModalCreateGroupWarning = false;
-                    ImGui.CloseCurrentPopup();
+                    _lastCreatedGroup = null;
+                    _errorGroupCreate = true;
                 }
-                UiSharedService.SetScaledWindowSize(350);
-                ImGui.EndPopup();
             }
 
             if (_lastCreatedGroup != null)
@@ -231,11 +191,13 @@ internal sealed class GroupPanel
                     ImGui.SetClipboardText(_lastCreatedGroup.Password);
                 }
                 UiSharedService.TextWrapped("You can change the Syncshell password later at any time.");
+                UiSharedService.TextWrapped("You may now close this window, or create another syncshell.");
+
             }
 
             if (_errorGroupCreate)
             {
-                UiSharedService.ColorTextWrapped("You are already owner of the maximum amount of Syncshells (3) or joined the maximum amount of Syncshells (6). Relinquish ownership of your own Syncshells to someone else or leave existing Syncshells.",
+                UiSharedService.ColorTextWrapped("You are already owner of the maximum amount of Syncshells or joined the maximum amount of Syncshells . Relinquish ownership of your own Syncshells to someone else or leave existing Syncshells.",
                     new Vector4(1, 0, 0, 1));
             }
 
