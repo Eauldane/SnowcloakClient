@@ -150,7 +150,7 @@ public class DrawGroupPair : DrawPairBase
         bool showInfo = (individualAnimDisabled || individualSoundsDisabled || animDisabled || soundsDisabled);
         bool showPlus = _pair.UserPair == null;
         bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !_pair.IsPaused;
-        bool showPause = false; 
+        bool showPause = true; 
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled) ? FontAwesomeIcon.ExclamationTriangle
             : ((soundsDisabled || animDisabled || vfxDisabled) ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
