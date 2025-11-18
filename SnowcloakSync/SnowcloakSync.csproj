@@ -10,7 +10,12 @@
 
   <ItemGroup>
     <PackageReference Include="Blake3" Version="2.0.0" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.0" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MareAPI\MareSynchronosAPI\MareSynchronos.API.csproj" />
   </ItemGroup>
 
 </Project>

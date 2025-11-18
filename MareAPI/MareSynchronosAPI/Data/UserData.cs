@@ -3,7 +3,7 @@
 namespace MareSynchronos.API.Data;
 
 [MessagePackObject(keyAsPropertyName: true)]
-public record UserData(string UID, string? Alias = null, string? HexString = null)
+public record UserData(string UID, string? Alias = null, string? HexString = null, Homeserver? Homeserver = null)
 {
     [IgnoreMember]
     public string AliasOrUID => string.IsNullOrWhiteSpace(Alias) ? UID : Alias;

@@ -853,7 +853,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                         hasMigrationChanges = true;
                         fileCache = _fileDbManager.MigrateFileHashToExtension(fileCache, item.GamePaths[0].Split(".")[^1]);
                     }
-                    _databaseService.RecordFileSeen(Pair.UserData.UID, item.Hash, DateTime.UtcNow);
+                    _databaseService.RecordFileSeen(Pair.UserData, item.Hash, DateTime.UtcNow);
                     
                     foreach (var gamePath in item.GamePaths)
                     {

@@ -576,6 +576,11 @@
         "resolved": "9.0.10",
         "contentHash": "Jc+az1pTMujPLDn2j5eqSfzlO7j/T1K/LB7THxdfRWOxujE4zaitUqBs7sv1t6/xmmvpU6Xx3IofCs4owYH0yQ=="
       },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "MqSp5IfX9RdWVwTED0WSRL1kZDNB7GlFj64O/NAJs4uO1beBHWEAFLlC7j8Fw/PkI+SUzooLVNvAe4aEkSwsRg=="
+      },
       "System.Memory": {
         "type": "Transitive",
         "resolved": "4.5.3",
@@ -607,6 +612,8 @@
         "type": "Project",
         "dependencies": {
           "Blake3": "[2.0.0, )",
+          "MareSynchronos.API": "[1.0.0, )",
+          "System.IO.Hashing": "[10.0.0, )",
           "ZstdSharp.Port": "[0.8.6, )"
         }
       }

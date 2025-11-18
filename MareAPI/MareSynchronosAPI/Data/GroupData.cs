@@ -3,7 +3,7 @@
 namespace MareSynchronos.API.Data;
 
 [MessagePackObject(keyAsPropertyName: true)]
-public record GroupData(string GID, string? Alias = null, string? HexString = null)
+public record GroupData(string GID, string? Alias = null, string? HexString = null, Homeserver? Homeserver = null)
 {
     [IgnoreMember]
     public string AliasOrGID => string.IsNullOrWhiteSpace(Alias) ? GID : Alias;

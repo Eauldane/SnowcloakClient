@@ -1,9 +1,11 @@
+using MareSynchronos.API.Data;
 using MareSynchronos.MareConfiguration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
+using SnowcloakSync.Federation;
 
 namespace MareSynchronos.Services;
 
@@ -89,10 +91,9 @@ public class DatabaseService
     }
 
     // Temporary Home
-    public void RecordFileSeen(string uid, string fileHash, DateTime seenAtUtc)
+    public void RecordFileSeen(UserData user, string fileHash, DateTime seenAtUtc)
     {
-        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(fileHash)) return;
-
+        if (user == null || string.IsNullOrEmpty(user.UID) || string.IsNullOrEmpty(fileHash)) return;
 
         var normalizedHash = fileHash.ToUpperInvariant();
         var nowUtc = DateTime.UtcNow;
@@ -113,7 +114,7 @@ public class DatabaseService
                 eventCommand.CommandText = @"INSERT INTO file_hash_seen_events (file_hash, uid, seen_at)
 VALUES ($hash, $uid, $seen);";
                 eventCommand.Parameters.AddWithValue("$hash", normalizedHash);
-                eventCommand.Parameters.AddWithValue("$uid", uid);
+                eventCommand.Parameters.AddWithValue("$uid", user.UID);
                 eventCommand.Parameters.AddWithValue("$seen", timestamp);
                 eventCommand.ExecuteNonQuery();
             }
@@ -135,7 +136,7 @@ ON CONFLICT(uid, file_hash) DO UPDATE SET
     first_seen_at = excluded.first_seen_at,
     last_seen_at = excluded.last_seen_at,
     seen_count = excluded.seen_count;";
-                aggregateCommand.Parameters.AddWithValue("$uid", uid);
+                aggregateCommand.Parameters.AddWithValue("$uid", user.UID);
                 aggregateCommand.Parameters.AddWithValue("$hash", normalizedHash);
                 aggregateCommand.Parameters.AddWithValue("$threshold", thresholdTimestamp);
                 aggregateCommand.ExecuteNonQuery();
@@ -151,7 +152,7 @@ ON CONFLICT(uid, file_hash) DO UPDATE SET
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to record file usage for {uid} and {hash}", uid, normalizedHash);
+            _logger.LogWarning(ex, "Failed to record file usage for {uid} and {hash}", user.UID, normalizedHash);
         }
     }
 
