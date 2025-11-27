@@ -372,7 +372,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     }
 
     private async Task ApplyCustomizationDataAsync(Guid applicationId, KeyValuePair<ObjectKind, HashSet<PlayerChanges>> changes, CharacterData charaData, CancellationToken token)
-    {
+        {
         if (PlayerCharacter == nint.Zero) return;
         var ptr = PlayerCharacter;
 
@@ -385,11 +385,19 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             _ => throw new NotSupportedException("ObjectKind not supported: " + changes.Key)
         };
 
-        async Task processApplication(IEnumerable<PlayerChanges> changeList)
+        try
         {
-            foreach (var change in changeList)
+            if (handler.Address == nint.Zero)
             {
-                Logger.LogDebug("[{applicationId}{ft}] Processing {change} for {handler}", applicationId, _dalamudUtil.IsOnFrameworkThread ? "*" : "", change, handler);
+                return;
+            }
+
+            Logger.LogDebug("[{applicationId}] Applying Customization Data for {handler}", applicationId, handler);
+            await _dalamudUtil.WaitWhileCharacterIsDrawing(Logger, handler, applicationId, 30000, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            foreach (var change in changes.Value.OrderBy(p => (int)p))
+            {
+                Logger.LogDebug("[{applicationId}] Processing {change} for {handler}", applicationId, change, handler);
                 switch (change)
                 {
                     case PlayerChanges.Customize:
@@ -415,16 +423,16 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                     case PlayerChanges.Glamourer:
                         if (charaData.GlamourerData.TryGetValue(changes.Key, out var glamourerData))
                         {
-                            await _ipcManager.Glamourer.ApplyAllAsync(Logger, handler, glamourerData, applicationId, token, allowImmediate: true).ConfigureAwait(false);
+                            await _ipcManager.Glamourer.ApplyAllAsync(Logger, handler, glamourerData, applicationId, token).ConfigureAwait(false);
                         }
-                        break;
-
-                    case PlayerChanges.PetNames:
-                        await _ipcManager.PetNames.SetPlayerData(handler.Address, charaData.PetNamesData).ConfigureAwait(false);
                         break;
 
                     case PlayerChanges.Moodles:
                         await _ipcManager.Moodles.SetStatusAsync(handler.Address, charaData.MoodlesData).ConfigureAwait(false);
+                        break;
+
+                    case PlayerChanges.PetNames:
+                        await _ipcManager.PetNames.SetPlayerData(handler.Address, charaData.PetNamesData).ConfigureAwait(false);
                         break;
 
                     case PlayerChanges.ForcedRedraw:
@@ -435,29 +443,6 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                         break;
                 }
                 token.ThrowIfCancellationRequested();
-            }
-        }
-
-        try
-        {
-            if (handler.Address == nint.Zero)
-            {
-                return;
-            }
-
-            Logger.LogDebug("[{applicationId}] Applying Customization Data for {handler}", applicationId, handler);
-            await _dalamudUtil.WaitWhileCharacterIsDrawing(Logger, handler, applicationId, 30000, token).ConfigureAwait(false);
-            token.ThrowIfCancellationRequested();
-            if (_configService.Current.SerialApplication)
-            {
-                var serialChangeList = changes.Value.Where(p => p <= PlayerChanges.ForcedRedraw).OrderBy(p => (int)p);
-                var asyncChangeList = changes.Value.Where(p => p > PlayerChanges.ForcedRedraw).OrderBy(p => (int)p);
-                await _dalamudUtil.RunOnFrameworkThread(async () => await processApplication(serialChangeList).ConfigureAwait(false)).ConfigureAwait(false);
-                await Task.Run(async () => await processApplication(asyncChangeList).ConfigureAwait(false), CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                _ = processApplication(changes.Value.OrderBy(p => (int)p));
             }
         }
         finally
@@ -480,9 +465,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         _downloadCancellationTokenSource = _downloadCancellationTokenSource?.CancelRecreate() ?? new CancellationTokenSource();
         var downloadToken = _downloadCancellationTokenSource.Token;
 
-        _ = Task.Run(async () => {
-            await DownloadAndApplyCharacterAsync(applicationBase, charaData, updatedData, updateModdedPaths, updateManip, downloadToken).ConfigureAwait(false);
-        });
+        _ = DownloadAndApplyCharacterAsync(applicationBase, charaData, updatedData, updateModdedPaths, updateManip, downloadToken).ConfigureAwait(false);
     }
 
     private Task? _pairDownloadTask;
@@ -490,12 +473,10 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     private async Task DownloadAndApplyCharacterAsync(Guid applicationBase, CharacterData charaData, Dictionary<ObjectKind, HashSet<PlayerChanges>> updatedData,
         bool updateModdedPaths, bool updateManip, CancellationToken downloadToken)
     {
-        Logger.LogTrace("[BASE-{appBase}] DownloadAndApplyCharacterAsync", applicationBase);
         Dictionary<(string GamePath, string? Hash), string> moddedPaths = [];
 
         if (updateModdedPaths)
         {
-            Logger.LogTrace("[BASE-{appBase}] DownloadAndApplyCharacterAsync > updateModdedPaths", applicationBase);
             int attempts = 0;
             List<FileReplacementData> toDownloadReplacements = TryCalculateModdedDictionary(applicationBase, charaData, out moddedPaths, downloadToken);
 
@@ -515,12 +496,11 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
 
                 if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(this, charaData, toDownloadFiles))
                 {
-                    Pair.HoldApplication("IndividualPerformanceThreshold", maxValue: 1);
                     _downloadManager.ClearDownload();
                     return;
                 }
 
-                _pairDownloadTask = Task.Run(async () => await _downloadManager.DownloadFiles(_charaHandler!, toDownloadReplacements, downloadToken).ConfigureAwait(false), downloadToken);
+                _pairDownloadTask = Task.Run(async () => await _downloadManager.DownloadFiles(_charaHandler!, toDownloadReplacements, downloadToken).ConfigureAwait(false));
 
                 await _pairDownloadTask.ConfigureAwait(false);
 
@@ -540,38 +520,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                 await Task.Delay(TimeSpan.FromSeconds(2), downloadToken).ConfigureAwait(false);
             }
 
-            try
-            {
-                Mediator.Publish(new HaltScanMessage(nameof(PlayerPerformanceService.ShrinkTextures)));
-                if (await _playerPerformanceService.ShrinkTextures(this, charaData, downloadToken).ConfigureAwait(false))
-                    _ = TryCalculateModdedDictionary(applicationBase, charaData, out moddedPaths, downloadToken);
-            }
-            finally
-            {
-                Mediator.Publish(new ResumeScanMessage(nameof(PlayerPerformanceService.ShrinkTextures)));
-            }
-
-            bool exceedsThreshold = !await _playerPerformanceService.CheckBothThresholds(this, charaData).ConfigureAwait(false);
-
-            if (exceedsThreshold)
-                Pair.HoldApplication("IndividualPerformanceThreshold", maxValue: 1);
-            else
-                Pair.UnholdApplication("IndividualPerformanceThreshold");
-
-            if (exceedsThreshold)
-            {
-                Logger.LogTrace("[BASE-{appBase}] Not applying due to performance thresholds", applicationBase);
+            if (!await _playerPerformanceService.CheckBothThresholds(this, charaData).ConfigureAwait(false))
                 return;
-            }
-        }
-
-        if (Pair.IsApplicationBlocked)
-        {
-            var reasons = string.Join(", ", Pair.HoldApplicationReasons);
-            Mediator.Publish(new EventMessage(new Event(PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Warning,
-                $"Not applying character data: {reasons}")));
-            Logger.LogTrace("[BASE-{appBase}] Not applying due to hold: {reasons}", applicationBase, reasons);
-            return;
         }
 
         downloadToken.ThrowIfCancellationRequested();

@@ -13,9 +13,9 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     private readonly GameObjectHandlerFactory _gameObjectHandlerFactory;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly IpcManager _ipcManager;
-    private readonly Dictionary<string, HandledCharaDataEntry> _handledCharaData = new(StringComparer.Ordinal);
+    private readonly HashSet<HandledCharaDataEntry> _handledCharaData = [];
 
-    public IReadOnlyDictionary<string, HandledCharaDataEntry> HandledCharaData => _handledCharaData;
+    public IEnumerable<HandledCharaDataEntry> HandledCharaData => _handledCharaData;
 
     public CharaDataCharacterHandler(ILogger<CharaDataCharacterHandler> logger, MareMediator mediator,
         GameObjectHandlerFactory gameObjectHandlerFactory, DalamudUtilService dalamudUtilService,
@@ -25,11 +25,11 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
         _gameObjectHandlerFactory = gameObjectHandlerFactory;
         _dalamudUtilService = dalamudUtilService;
         _ipcManager = ipcManager;
-        mediator.Subscribe<GposeEndMessage>(this, msg =>
+        mediator.Subscribe<GposeEndMessage>(this, (_) =>
         {
             foreach (var chara in _handledCharaData)
             {
-                _ = RevertHandledChara(chara.Value);
+                RevertHandledChara(chara);
             }
         });
 
@@ -40,13 +40,13 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     {
         if (!_dalamudUtilService.IsInGpose) return;
 
-        foreach (var entry in _handledCharaData.Values.ToList())
+        foreach (var entry in _handledCharaData.ToList())
         {
             var chara = _dalamudUtilService.GetGposeCharacterFromObjectTableByName(entry.Name, onlyGposeCharacters: true);
             if (chara is null)
             {
-                _handledCharaData.Remove(entry.Name);
-                _ = _dalamudUtilService.RunOnFrameworkThread(() => RevertChara(entry.Name, entry.CustomizePlus));
+                RevertChara(entry.Name, entry.CustomizePlus).GetAwaiter().GetResult();
+                _handledCharaData.Remove(entry);
             }
         }
     }
@@ -54,15 +54,10 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        foreach (var chara in _handledCharaData.Values)
+        foreach (var chara in _handledCharaData)
         {
-            _ = RevertHandledChara(chara);
+            RevertHandledChara(chara);
         }
-    }
-
-    public HandledCharaDataEntry? GetHandledCharacter(string name)
-    {
-        return _handledCharaData.GetValueOrDefault(name);
     }
 
     public async Task RevertChara(string name, Guid? cPlusId)
@@ -82,29 +77,28 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
 
     public async Task<bool> RevertHandledChara(string name)
     {
-        var handled = _handledCharaData.GetValueOrDefault(name);
-        return await RevertHandledChara(handled).ConfigureAwait(false);
+        var handled = _handledCharaData.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
+        if (handled == null) return false;
+        _handledCharaData.Remove(handled);
+        await _dalamudUtilService.RunOnFrameworkThread(() => RevertChara(handled.Name, handled.CustomizePlus)).ConfigureAwait(false);
+        return true;
     }
 
-    public async Task<bool> RevertHandledChara(HandledCharaDataEntry? handled)
+    public Task RevertHandledChara(HandledCharaDataEntry? handled)
     {
-        if (handled == null) return false;
-        _handledCharaData.Remove(handled.Name);
-        await _dalamudUtilService.RunOnFrameworkThread(async () =>
-        {
-            await RevertChara(handled.Name, handled.CustomizePlus).ConfigureAwait(false);
-        }).ConfigureAwait(false);
-        return true;
+        if (handled == null) return Task.CompletedTask;
+        _handledCharaData.Remove(handled);
+        return _dalamudUtilService.RunOnFrameworkThread(() => RevertChara(handled.Name, handled.CustomizePlus));
     }
 
     internal void AddHandledChara(HandledCharaDataEntry handledCharaDataEntry)
     {
-        _handledCharaData.Add(handledCharaDataEntry.Name, handledCharaDataEntry);
+        _handledCharaData.Add(handledCharaDataEntry);
     }
 
     public void UpdateHandledData(Dictionary<string, CharaDataMetaInfoExtendedDto?> newData)
     {
-        foreach (var handledData in _handledCharaData.Values)
+        foreach (var handledData in _handledCharaData)
         {
             if (newData.TryGetValue(handledData.MetaInfo.FullId, out var metaInfo) && metaInfo != null)
             {

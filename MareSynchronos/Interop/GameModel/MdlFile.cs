@@ -1,6 +1,5 @@
 using Lumina.Data;
 using Lumina.Extensions;
-using System.Runtime.InteropServices;
 using System.Text;
 using static Lumina.Data.Parsing.MdlStructs;
 
@@ -93,7 +92,7 @@ public class MdlFile
             Lods[i] = lod;
         }
 
-        ExtraLods = modelHeader.Flags2.HasFlag(ModelFlags2.ExtraLodEnabled)
+        ExtraLods = (modelHeader.Flags2 & ModelFlags2.ExtraLodEnabled) != 0
             ? r.ReadStructuresAsArray<ExtraLodStruct>(3)
             : [];
 
@@ -151,7 +150,6 @@ public class MdlFile
         return (offsets, strings);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ModelHeader
     {
         // MeshHeader

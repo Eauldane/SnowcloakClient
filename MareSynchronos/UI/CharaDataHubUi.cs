@@ -79,7 +79,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                          UiSharedService uiSharedService, ServerConfigurationManager serverConfigurationManager,
                          DalamudUtilService dalamudUtilService, FileDialogManager fileDialogManager, PairManager pairManager,
                          CharaDataGposeTogetherManager charaDataGposeTogetherManager)
-        : base(logger, mediator, "Snowcloak Character Data Hub###SnowcloakCharaDataUI", performanceCollectorService)
+        : base(logger, mediator, "Mare Synchronos Character Data Hub###MareSynchronosCharaDataUI", performanceCollectorService)
     {
         SetWindowSizeConstraints();
 
@@ -203,7 +203,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         using var tabs = ImRaii.TabBar("TabsTopLevel");
         bool smallUi = false;
 
-        _isHandlingSelf = _charaDataManager.HandledCharaData.Any(c => c.Value.IsSelf);
+        _isHandlingSelf = _charaDataManager.HandledCharaData.Any(c => c.IsSelf);
         if (_isHandlingSelf) _openMcdOnlineOnNextRun = false;
 
         using (var gposeTogetherTabItem = ImRaii.TabItem("GPose Together"))
@@ -289,7 +289,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                         flags = ImGuiTabItemFlags.SetSelected;
                         _openMcdOnlineOnNextRun = false;
                     }
-                    using (var mcdOnlineTabItem = ImRaii.TabItem("Online Data", flags))
+                    using (var mcdOnlineTabItem = ImRaii.TabItem("MCD Online", flags))
                     {
                         if (mcdOnlineTabItem)
                         {
@@ -388,7 +388,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     ImGui.TextUnformatted(CharaName(actor.Name.TextValue));
                 }
                 ImGui.SameLine(250);
-                var handled = _charaDataManager.HandledCharaData.GetValueOrDefault(actor.Name.TextValue);
+                var handled = _charaDataManager.HandledCharaData.FirstOrDefault(c => string.Equals(c.Name, actor.Name.TextValue, StringComparison.Ordinal));
                 using (ImRaii.Disabled(handled == null))
                 {
                     _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
@@ -497,7 +497,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                         using (ImRaii.PushColor(ImGuiCol.Text, UiSharedService.GetBoolColor(metaInfo != null), metaInfoDownloaded))
                             ImGui.TextUnformatted(favorite.Key);
 
-                        var iconSize = _uiSharedService.GetIconData(FontAwesomeIcon.Check);
+                        var iconSize = UiSharedService.GetIconSize(FontAwesomeIcon.Check);
                         var refreshButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowsSpin);
                         var applyButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight);
                         var addButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus);
@@ -680,7 +680,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             if (yourOwnTabItem)
             {
                 DrawHelpFoldout("You can apply character data you created yourself in this tab. If the list is not populated press on \"Download your Character Data\"." + Environment.NewLine + Environment.NewLine
-                                 + "To create new and edit your existing character data use the \"Online Data\" tab.");
+                                 + "To create new and edit your existing character data use the \"MCD Online\" tab.");
 
                 ImGuiHelpers.ScaledDummy(5);
 
@@ -863,9 +863,9 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
     private void DrawMcdfExport()
     {
-        _uiSharedService.BigText("MCDF File Export");
+        _uiSharedService.BigText("Mare Character Data File Export");
 
-        DrawHelpFoldout("This feature allows you to pack your character into a MCDF file and manually send it to other people. MCDF files be imported during GPose. " +
+        DrawHelpFoldout("This feature allows you to pack your character into a MCDF file and manually send it to other people. MCDF files can officially only be imported during GPose through Mare. " +
             "Be aware that the possibility exists that people write unofficial custom exporters to extract the containing data.");
 
         ImGuiHelpers.ScaledDummy(5);
@@ -921,10 +921,10 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             UiSharedService.ColorText(data.FullId, UiSharedService.GetBoolColor(data.CanBeDownloaded));
             if (!data.CanBeDownloaded)
             {
-                UiSharedService.AttachToolTip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the Online Data tab.");
+                UiSharedService.AttachToolTip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the MCD Online tab.");
             }
 
-            var offsetFromRight = availableWidth - _uiSharedService.GetIconData(FontAwesomeIcon.Calendar).X - _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X
+            var offsetFromRight = availableWidth - UiSharedService.GetIconSize(FontAwesomeIcon.Calendar).X - _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X
                 - _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus).X - ImGui.GetStyle().ItemSpacing.X * 2;
 
             ImGui.SameLine();
@@ -955,7 +955,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             {
                 using (ImRaii.Disabled(_isHandlingSelf))
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Edit, "Open in Online Data Editor"))
+                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Edit, "Open in MCD Online Editor"))
                     {
                         SelectedDtoId = data.Id;
                         _openMcdOnlineOnNextRun = true;
@@ -963,7 +963,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 }
                 if (_isHandlingSelf)
                 {
-                    UiSharedService.AttachToolTip("Cannot use Online Data while having Character Data applied to self.");
+                    UiSharedService.AttachToolTip("Cannot use MCD Online while having Character Data applied to self.");
                 }
             }
 
@@ -1054,14 +1054,14 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             _configService.Current.OpenMareHubOnGposeStart = openInGpose;
             _configService.Save();
         }
-        _uiSharedService.DrawHelpText("This will automatically open the import menu when loading into Gpose. If unchecked you can open the menu manually with /snow gpose");
+        _uiSharedService.DrawHelpText("This will automatically open the import menu when loading into Gpose. If unchecked you can open the menu manually with /mare gpose");
         bool downloadDataOnConnection = _configService.Current.DownloadMcdDataOnConnection;
-        if (ImGui.Checkbox("Download Online Character Data on connecting", ref downloadDataOnConnection))
+        if (ImGui.Checkbox("Download MCD Online Data on connecting", ref downloadDataOnConnection))
         {
             _configService.Current.DownloadMcdDataOnConnection = downloadDataOnConnection;
             _configService.Save();
         }
-        _uiSharedService.DrawHelpText("This will automatically download Online Character Data data (Your Own and Shared with You) once a connection is established to the server.");
+        _uiSharedService.DrawHelpText("This will automatically download MCD Online data (Your Own and Shared with You) once a connection is established to the server.");
 
         bool showHelpTexts = _configService.Current.ShowHelpTexts;
         if (ImGui.Checkbox("Show \"What is this? (Explanation / Help)\" foldouts", ref showHelpTexts))

@@ -12,8 +12,34 @@ public class CharacterData
     public string HeelsData { get; set; } = string.Empty;
     public string HonorificData { get; set; } = string.Empty;
     public string ManipulationString { get; set; } = string.Empty;
-    public string PetNamesData { get; set; } = string.Empty;
     public string MoodlesData { get; set; } = string.Empty;
+    public string PetNamesData { get; set; } = string.Empty;
+
+    public void SetFragment(ObjectKind kind, CharacterDataFragment? fragment)
+    {
+        if (kind == ObjectKind.Player)
+        {
+            var playerFragment = (fragment as CharacterDataFragmentPlayer);
+            HeelsData = playerFragment?.HeelsData ?? string.Empty;
+            HonorificData = playerFragment?.HonorificData ?? string.Empty;
+            ManipulationString = playerFragment?.ManipulationString ?? string.Empty;
+            MoodlesData = playerFragment?.MoodlesData ?? string.Empty;
+            PetNamesData = playerFragment?.PetNamesData ?? string.Empty;
+        }
+
+        if (fragment is null)
+        {
+            CustomizePlusScale.Remove(kind);
+            FileReplacements.Remove(kind);
+            GlamourerString.Remove(kind);
+        }
+        else
+        {
+            CustomizePlusScale[kind] = fragment.CustomizePlusScale;
+            FileReplacements[kind] = fragment.FileReplacements;
+            GlamourerString[kind] = fragment.GlamourerString;
+        }
+    }
 
     public API.Data.CharacterData ToAPI()
     {
@@ -43,8 +69,8 @@ public class CharacterData
             HeelsData = HeelsData,
             CustomizePlusData = CustomizePlusScale.ToDictionary(d => d.Key, d => d.Value),
             HonorificData = HonorificData,
-            PetNamesData = PetNamesData,
-            MoodlesData = MoodlesData
+            MoodlesData = MoodlesData,
+            PetNamesData = PetNamesData
         };
     }
 }

@@ -47,22 +47,16 @@ public sealed partial class IpcManager : DisposableMediatorSubscriberBase
 
     public IpcCallerBrio Brio { get; }
 
-    private int _stateCheckCounter = -1;
-
     private void PeriodicApiStateCheck()
     {
-        // Stagger API checks
-        if (++_stateCheckCounter > 8)
-            _stateCheckCounter = 0;
-        int i = _stateCheckCounter;
-        if (i == 0) Penumbra.CheckAPI();
-        if (i == 1) Penumbra.CheckModDirectory();
-        if (i == 2) Glamourer.CheckAPI();
-        if (i == 3) Heels.CheckAPI();
-        if (i == 4) CustomizePlus.CheckAPI();
-        if (i == 5) Honorific.CheckAPI();
-        if (i == 6) Moodles.CheckAPI();
-        if (i == 7) PetNames.CheckAPI();
-        if (i == 8) Brio.CheckAPI();
+        Penumbra.CheckAPI();
+        Penumbra.CheckModDirectory();
+        Glamourer.CheckAPI();
+        Heels.CheckAPI();
+        CustomizePlus.CheckAPI();
+        Honorific.CheckAPI();
+        Moodles.CheckAPI();
+        PetNames.CheckAPI();
+        Brio.CheckAPI();
     }
 }

@@ -93,7 +93,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
     public Task<List<CharaDataFullExtendedDto>>? GetAllDataTask { get; private set; }
     public Task<List<CharaDataMetaInfoDto>>? GetSharedWithYouTask { get; private set; }
     public Task? GetSharedWithYouTimeoutTask { get; private set; }
-    public IReadOnlyDictionary<string, HandledCharaDataEntry> HandledCharaData => _characterHandler.HandledCharaData;
+    public IEnumerable<HandledCharaDataEntry> HandledCharaData => _characterHandler.HandledCharaData;
     public bool Initialized { get; private set; }
     public CharaDataMetaInfoExtendedDto? LastDownloadedMetaInfo { get; private set; }
     public Task<(MareCharaFileHeader LoadedFile, long ExpectedLength)>? LoadedMcdfHeader { get; private set; }
@@ -546,7 +546,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
             await ApplyCharaData(charaDataDownloadDto, newActor.Name.TextValue).ConfigureAwait(false);
 
-            return _characterHandler.HandledCharaData.GetValueOrDefault(newActor.Name.TextValue);
+            return _characterHandler.HandledCharaData.FirstOrDefault(f => string.Equals(f.Name, newActor.Name.TextValue, StringComparison.Ordinal));
         });
         UiBlockingComputation = task;
         return task;
@@ -562,7 +562,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
             await ApplyCharaData(charaDataMetaInfoDto, newActor.Name.TextValue).ConfigureAwait(false);
 
-            return _characterHandler.HandledCharaData.GetValueOrDefault(newActor.Name.TextValue);
+            return _characterHandler.HandledCharaData.FirstOrDefault(f => string.Equals(f.Name, newActor.Name.TextValue, StringComparison.Ordinal));
         });
         UiBlockingComputation = task;
         return task;
@@ -612,6 +612,18 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
     public bool TryGetMetaInfo(string key, out CharaDataMetaInfoExtendedDto? metaInfo)
     {
         return _metaInfoCache.TryGetValue(key, out metaInfo);
+    }
+
+    public void UploadAllCharaData()
+    {
+        UiBlockingComputation = Task.Run(async () =>
+        {
+            foreach (var updateDto in _updateDtos.Values.Where(u => u.HasChanges))
+            {
+                CharaUpdateTask = CharaUpdateAsync(updateDto);
+                await CharaUpdateTask.ConfigureAwait(false);
+            }
+        });
     }
 
     public void UploadCharaData(string id)
@@ -910,7 +922,6 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
         var res = await _apiController.CharaDataUpdate(baseUpdateDto).ConfigureAwait(false);
         await AddOrUpdateDto(res).ConfigureAwait(false);
-        CharaUpdateTask = null;
     }
 
     private async Task DownloadAndAplyDataAsync(string charaName, CharaDataDownloadDto charaDataDownloadDto, CharaDataMetaInfoDto metaInfo, bool autoRevert = true)

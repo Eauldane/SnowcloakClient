@@ -13,6 +13,7 @@ namespace MareSynchronos.Interop.Ipc;
 public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcCaller
 {
     private readonly ILogger<IpcCallerGlamourer> _logger;
+    private readonly IDalamudPluginInterface _pi;
     private readonly DalamudUtilService _dalamudUtil;
     private readonly MareMediator _mareMediator;
     private readonly RedrawManager _redrawManager;
@@ -26,11 +27,8 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
     private readonly UnlockStateName _glamourerUnlockByName;
     private readonly EventSubscriber<nint>? _glamourerStateChanged;
 
-    private bool _pluginLoaded;
-    private Version _pluginVersion;
-
     private bool _shownGlamourerUnavailable = false;
-    private readonly uint LockCode = 0x626E7579;
+    private readonly uint LockCode = 0x6D617265;
 
     public IpcCallerGlamourer(ILogger<IpcCallerGlamourer> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil, MareMediator mareMediator,
         RedrawManager redrawManager) : base(logger, mareMediator)
@@ -44,22 +42,10 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
         _glamourerUnlockByName = new UnlockStateName(pi);
 
         _logger = logger;
+        _pi = pi;
         _dalamudUtil = dalamudUtil;
         _mareMediator = mareMediator;
         _redrawManager = redrawManager;
-
-        var plugin = PluginWatcherService.GetInitialPluginState(pi, "Glamourer");
-
-        _pluginLoaded = plugin?.IsLoaded ?? false;
-        _pluginVersion = plugin?.Version ?? new(0, 0, 0, 0);
-
-        Mediator.SubscribeKeyed<PluginChangeMessage>(this, "Glamourer", (msg) =>
-        {
-             _pluginLoaded = msg.IsLoaded;
-             _pluginVersion = msg.Version;
-             CheckAPI();
-        });
-
         CheckAPI();
 
         _glamourerStateChanged = StateChanged.Subscriber(pi, GlamourerChanged);
@@ -83,7 +69,9 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
         bool apiAvailable = false;
         try
         {
-            bool versionValid = _pluginLoaded && _pluginVersion >= new Version(1, 0, 6, 1);
+            bool versionValid = (_pi.InstalledPlugins
+                .FirstOrDefault(p => string.Equals(p.InternalName, "Glamourer", StringComparison.OrdinalIgnoreCase))
+                ?.Version ?? new Version(0, 0, 0, 0)) >= new Version(1, 3, 0, 10);
             try
             {
                 var version = _glamourerApiVersions.Invoke();
@@ -109,32 +97,21 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
             if (!apiAvailable && !_shownGlamourerUnavailable)
             {
                 _shownGlamourerUnavailable = true;
-                _mareMediator.Publish(new NotificationMessage("Glamourer inactive", "Your Glamourer installation is not active or out of date. Update Glamourer to continue to use Snowcloak. If you just updated Glamourer, ignore this message.",
+                _mareMediator.Publish(new NotificationMessage("Glamourer inactive", "Your Glamourer installation is not active or out of date. Update Glamourer to continue to use Mare. If you just updated Glamourer, ignore this message.",
                     NotificationType.Error));
             }
         }
     }
 
-    public async Task ApplyAllAsync(ILogger logger, GameObjectHandler handler, string? customization, Guid applicationId, CancellationToken token, bool allowImmediate = false)
+    public async Task ApplyAllAsync(ILogger logger, GameObjectHandler handler, string? customization, Guid applicationId, CancellationToken token, bool fireAndForget = false)
     {
         if (!APIAvailable || string.IsNullOrEmpty(customization) || _dalamudUtil.IsZoning) return;
-
-        // Call immediately if possible
-        if (allowImmediate && _dalamudUtil.IsOnFrameworkThread && !await handler.IsBeingDrawnRunOnFrameworkAsync().ConfigureAwait(false))
-        {
-            var gameObj = await _dalamudUtil.CreateGameObjectAsync(handler.Address).ConfigureAwait(false);
-            if (gameObj is ICharacter chara)
-            {
-                logger.LogDebug("[{appid}] Calling on IPC: GlamourerApplyAll", applicationId);
-                _glamourerApplyAll!.Invoke(customization, chara.ObjectIndex, LockCode);
-                return;
-            }
-        }
 
         await _redrawManager.RedrawSemaphore.WaitAsync(token).ConfigureAwait(false);
 
         try
         {
+
             await _redrawManager.PenumbraRedrawInternalAsync(logger, handler, applicationId, (chara) =>
             {
                 try
@@ -185,11 +162,12 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
             {
                 try
                 {
-                    logger.LogDebug("[{appid}] Calling On IPC: GlamourerUnlock", applicationId);
+                    logger.LogDebug("[{appid}] Calling On IPC: GlamourerUnlockName", applicationId);
                     _glamourerUnlock.Invoke(chara.ObjectIndex, LockCode);
                     logger.LogDebug("[{appid}] Calling On IPC: GlamourerRevert", applicationId);
                     _glamourerRevert.Invoke(chara.ObjectIndex, LockCode);
                     logger.LogDebug("[{appid}] Calling On IPC: PenumbraRedraw", applicationId);
+
                     _mareMediator.Publish(new PenumbraRedrawCharacterMessage(chara));
                 }
                 catch (Exception ex)
@@ -202,20 +180,6 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
         {
             _redrawManager.RedrawSemaphore.Release();
         }
-    }
-
-    public void RevertNow(ILogger logger, Guid applicationId, int objectIndex)
-    {
-        if ((!APIAvailable) || _dalamudUtil.IsZoning) return;
-        logger.LogTrace("[{applicationId}] Immediately reverting object index {objId}", applicationId, objectIndex);
-        _glamourerRevert.Invoke(objectIndex, LockCode);
-    }
-
-    public void RevertByNameNow(ILogger logger, Guid applicationId, string name)
-    {
-        if ((!APIAvailable) || _dalamudUtil.IsZoning) return;
-        logger.LogTrace("[{applicationId}] Immediately reverting {name}", applicationId, name);
-        _glamourerRevertByName.Invoke(name, LockCode);
     }
 
     public async Task RevertByNameAsync(ILogger logger, string name, Guid applicationId)

@@ -13,6 +13,7 @@ namespace MareSynchronos.Interop.Ipc;
 
 public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCaller
 {
+    private readonly IDalamudPluginInterface _pi;
     private readonly DalamudUtilService _dalamudUtil;
     private readonly MareMediator _mareMediator;
     private readonly RedrawManager _redrawManager;
@@ -52,12 +53,10 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     private readonly ResolvePlayerPathsAsync _penumbraResolvePaths;
     private readonly GetGameObjectResourcePaths _penumbraResourcePaths;
 
-    private bool _pluginLoaded;
-    private Version _pluginVersion;
-
     public IpcCallerPenumbra(ILogger<IpcCallerPenumbra> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil,
         MareMediator mareMediator, RedrawManager redrawManager) : base(logger, mareMediator)
     {
+        _pi = pi;
         _dalamudUtil = dalamudUtil;
         _mareMediator = mareMediator;
         _redrawManager = redrawManager;
@@ -84,18 +83,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
 
         _penumbraGameObjectResourcePathResolved = GameObjectResourcePathResolved.Subscriber(pi, ResourceLoaded);
 
-        var plugin = PluginWatcherService.GetInitialPluginState(pi, "Penumbra");
-
-        _pluginLoaded = plugin?.IsLoaded ?? false;
-        _pluginVersion = plugin?.Version ?? new(0, 0, 0, 0);
-
-        Mediator.SubscribeKeyed<PluginChangeMessage>(this, "Penumbra", (msg) =>
-        {
-             _pluginLoaded = msg.IsLoaded;
-             _pluginVersion = msg.Version;
-             CheckAPI();
-        });
-
         CheckAPI();
         CheckModDirectory();
 
@@ -114,7 +101,10 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         bool penumbraAvailable = false;
         try
         {
-            penumbraAvailable = _pluginLoaded && _pluginVersion >= new Version(1, 5, 1, 0);
+            var penumbraVersion = (_pi.InstalledPlugins
+                .FirstOrDefault(p => string.Equals(p.InternalName, "Penumbra", StringComparison.OrdinalIgnoreCase))
+                ?.Version ?? new Version(0, 0, 0, 0));
+            penumbraAvailable = penumbraVersion >= new Version(1, 2, 0, 22);
             try
             {
                 penumbraAvailable &= _penumbraEnabled.Invoke();
@@ -136,7 +126,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             {
                 _shownPenumbraUnavailable = true;
                 _mareMediator.Publish(new NotificationMessage("Penumbra inactive",
-                    "Your Penumbra installation is not active or out of date. Update Penumbra and/or the Enable Mods setting in Penumbra to continue to use Snowcloak. If you just updated Penumbra, ignore this message.",
+                    "Your Penumbra installation is not active or out of date. Update Penumbra and/or the Enable Mods setting in Penumbra to continue to use Mare. If you just updated Penumbra, ignore this message.",
                     NotificationType.Error));
             }
         }
@@ -226,13 +216,13 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         return await _dalamudUtil.RunOnFrameworkThread(() =>
         {
             Guid collId;
-            var collName = "ElfSync_" + uid;
-            PenumbraApiEc penEC = _penumbraCreateNamedTemporaryCollection.Invoke(uid, collName, out collId);
+            var random = new Random();
+            var collName = "Snowcloak_" + uid +random.Next().ToString();
+            PenumbraApiEc penEC = _penumbraCreateNamedTemporaryCollection.Invoke(uid + random.Next().ToString(), collName, out collId);
             logger.LogTrace("Creating Temp Collection {collName}, GUID: {collId}", collName, collId);
-            if (penEC != PenumbraApiEc.Success) 
+            if (penEC != PenumbraApiEc.Success)
             {
-                logger.LogError("Failed to create temporary collection for {collName} with error code {penEC}. Please include this line in any error reports", collName, penEC);
-                return Guid.Empty; 
+                logger.LogError("Failed to create temporary collection");
             }
             return collId;
 
@@ -275,13 +265,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         {
             _redrawManager.RedrawSemaphore.Release();
         }
-    }
-
-    public void RedrawNow(ILogger logger, Guid applicationId, int objectIndex)
-    {
-        if (!APIAvailable || _dalamudUtil.IsZoning) return;
-        logger.LogTrace("[{applicationId}] Immediately redrawing object index {objId}", applicationId, objectIndex);
-        _penumbraRedraw.Invoke(objectIndex);
     }
 
     public async Task RemoveTemporaryCollectionAsync(ILogger logger, Guid applicationId, Guid collId)

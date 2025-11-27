@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Blake3" Version="2.0.0" />
-    <PackageReference Include="MessagePack.Annotations" Version="2.5.129" />
+    <PackageReference Include="MessagePack.Annotations" Version="3.1.4" />
   </ItemGroup>
 
 </Project>
