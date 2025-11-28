@@ -1,7 +1,7 @@
 ﻿using Snowcloak.Configuration;
 using Snowcloak.Configuration.Configurations;
 
-namespace Snowcloak.SnowcloakConfiguration;
+namespace Snowcloak.Configuration;
 
 public class SnowcloakConfigService : ConfigurationServiceBase<SnowcloakConfig>
 {

@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.Utils;
 
 namespace Snowcloak.Services.Events;

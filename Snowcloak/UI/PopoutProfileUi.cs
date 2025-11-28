@@ -8,7 +8,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
+using Snowcloak.Configuration;
 using Snowcloak.Utils;
 using System.Numerics;
 

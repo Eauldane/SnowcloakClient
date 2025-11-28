@@ -5,7 +5,6 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
 using System.Collections.Concurrent;

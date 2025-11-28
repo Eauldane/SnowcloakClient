@@ -9,7 +9,6 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 

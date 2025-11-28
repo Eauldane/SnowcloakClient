@@ -23,6 +23,8 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
+using Snowcloak.Services.Housing;
+
 
 namespace Snowcloak.Services;
 
@@ -65,7 +67,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private bool _sentBetweenAreas = false;
     private static readonly Dictionary<uint, PlayerInfo> _playerInfoCache = new();
     private bool _isOnHousingPlot = false;
-    private HousingLocation _lastHousingLocation = default;
+    private HousingPlotLocation _lastHousingPlotLocation = default;
     
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
         IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
@@ -809,21 +811,21 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         if (_objectTable.LocalPlayer == null)
             return;
 
-        var isCurrentlyOnPlot = TryGetHousingLocation(out var currentLocation);
-
-        if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingLocation)))
+        var isCurrentlyOnPlot = TryGetHousingPlotLocation(out var currentLocation);
+        
+        if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
         {
-            _logger.LogInformation("Exited housing plot {FullId}", _lastHousingLocation.FullId);
+            _logger.LogInformation("Exited housing plot {FullId}", _lastHousingPlotLocation.FullId);
             #if DEBUG
             _chatGui.Print(new XivChatEntry
             {
-                Message = $"Exited housing plot {_lastHousingLocation.DisplayName}",
+                Message = $"Exited housing plot {_lastHousingPlotLocation.DisplayName}",
                 Type = XivChatType.SystemMessage
             });
             #endif
         }
 
-        if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingLocation)))
+        if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
         {
             _logger.LogInformation("Entered housing plot {FullId}", currentLocation.FullId);
             #if DEBUG
@@ -833,32 +835,18 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                 Type = XivChatType.SystemMessage
             });
             #endif
+            Mediator.Publish(new HousingPlotEnteredMessage(currentLocation));
         }
 
         _isOnHousingPlot = isCurrentlyOnPlot;
-        _lastHousingLocation = currentLocation;
+        _lastHousingPlotLocation = currentLocation;
         
     }
     
     
-    private readonly record struct HousingLocation(uint WorldId, uint TerritoryId, uint DivisionId, uint WardId, uint PlotId, uint RoomId, bool IsApartment)
-    {
-        public string FullId => $"{WorldId}:{TerritoryId}:{DivisionId}:{WardId}:{PlotId}:{RoomId}";
-        public string DisplayName
-        {
-            get
-            {
-                if (IsApartment)
-                {
-                    return $"Apartment (Ward {WardId}, Room {RoomId}, {FullId})";
-                }
+    
 
-                return $"Ward {WardId} Plot {PlotId} ({FullId})";
-            }
-        }
-    }
-
-    private unsafe bool TryGetHousingLocation(out HousingLocation housingLocation)
+    private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation)
     {
         housingLocation = default;
 
@@ -877,21 +865,21 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             var worldId = locationInfo.ServerId;
             if (currentPlot > 0)
             {
-                housingLocation = new HousingLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
+                housingLocation = new HousingPlotLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
                 return true;
             }
 
             if (currentPlot < -1)
             {
                 uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
-                housingLocation = new HousingLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);                return true;
+                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);                return true;
             }
         }
 
         if (locationInfo.HouseId > 0)
         {
             var isApartment = locationInfo.HouseId == 100 || locationInfo.DivisionId == 2;
-            housingLocation = new HousingLocation(locationInfo.ServerId, locationInfo.TerritoryId, locationInfo.DivisionId, locationInfo.WardId, locationInfo.HouseId, locationInfo.RoomId, isApartment);
+            housingLocation = new HousingPlotLocation(locationInfo.ServerId, locationInfo.TerritoryId, locationInfo.DivisionId, locationInfo.WardId, locationInfo.HouseId, locationInfo.RoomId, isApartment);
             return true;
         }
 

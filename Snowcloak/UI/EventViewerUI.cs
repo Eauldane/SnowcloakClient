@@ -8,7 +8,6 @@ using Snowcloak.Configuration;
 using Snowcloak.Services;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;

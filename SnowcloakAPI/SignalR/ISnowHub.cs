@@ -5,6 +5,7 @@ using Snowcloak.API.Dto.CharaData;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Venue;
 
 namespace Snowcloak.API.SignalR;
 
@@ -141,4 +142,5 @@ public interface ISnowHub
     Task GposeLobbyPushCharacterData(CharaDataDownloadDto charaDownloadDto);
     Task GposeLobbyPushPoseData(PoseData poseData);
     Task GposeLobbyPushWorldData(WorldData worldData);
+    Task<VenueInfoResponseDto> VenueGetInfoForPlot(VenueInfoRequestDto request);
 }

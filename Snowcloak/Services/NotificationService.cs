@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using NotificationType = Snowcloak.Configuration.Models.NotificationType;
 
 namespace Snowcloak.Services;

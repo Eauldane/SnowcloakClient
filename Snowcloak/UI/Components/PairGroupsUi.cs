@@ -3,7 +3,6 @@ using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
 

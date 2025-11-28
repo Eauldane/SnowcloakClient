@@ -4,7 +4,6 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 
 namespace Snowcloak.PlayerData.Factories;
 

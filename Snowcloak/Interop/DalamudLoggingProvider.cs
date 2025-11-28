@@ -1,6 +1,6 @@
 ﻿using Dalamud.Plugin.Services;
 using Microsoft.Extensions.Logging;
-using Snowcloak.SnowcloakConfiguration;
+using Snowcloak.Configuration;
 using System.Collections.Concurrent;
 
 namespace Snowcloak.Interop;

@@ -6,7 +6,6 @@ using Snowcloak.FileCache;
 using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI;
 using Snowcloak.WebAPI.Files.Models;
 using System.Net.Http.Headers;

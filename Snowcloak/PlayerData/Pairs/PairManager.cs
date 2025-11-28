@@ -10,7 +10,6 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using System.Collections.Concurrent;
 
 namespace Snowcloak.PlayerData.Pairs;

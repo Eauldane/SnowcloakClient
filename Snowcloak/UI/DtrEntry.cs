@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.WebAPI;
 using System.Runtime.InteropServices;
 

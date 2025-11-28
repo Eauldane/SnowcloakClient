@@ -4,7 +4,6 @@ using Dalamud.Interface.Windowing;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI;
 
 namespace Snowcloak.Services;

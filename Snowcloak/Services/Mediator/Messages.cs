@@ -3,12 +3,15 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
 using Snowcloak.API.Dto.Group;
+using Snowcloak.API.Dto.Venue;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Events;
 using Snowcloak.WebAPI.Files.Models;
 using System.Numerics;
+using Snowcloak.Services.Housing;
+using Snowcloak.Services.Venue;
 
 namespace Snowcloak.Services.Mediator;
 
@@ -25,6 +28,8 @@ public record ClassJobChangedMessage(GameObjectHandler GameObjectHandler) : Mess
 public record DelayedFrameworkUpdateMessage : SameThreadMessage;
 public record ZoneSwitchStartMessage : MessageBase;
 public record ZoneSwitchEndMessage : MessageBase;
+public record HousingPlotEnteredMessage(HousingPlotLocation Location) : MessageBase;
+public record HousingPlotLeftMessage(HousingPlotLocation Location) : MessageBase;
 public record CutsceneStartMessage : MessageBase;
 public record GposeStartMessage : SameThreadMessage;
 public record GposeEndMessage : MessageBase;
@@ -78,6 +83,7 @@ public record PairHandlerVisibleMessage(PairHandler Player) : MessageBase;
 public record OpenReportPopupMessage(Pair PairToReport) : MessageBase;
 public record OpenBanUserPopupMessage(Pair PairToBan, GroupFullInfoDto GroupFullInfoDto) : MessageBase;
 public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : MessageBase;
+public record OpenVenueSyncshellPopupMessage(VenueSyncshellPrompt Prompt) : MessageBase;
 public record OpenPermissionWindow(Pair Pair) : MessageBase;
 public record OpenPairAnalysisWindow(Pair Pair) : MessageBase;
 public record DownloadLimitChangedMessage() : SameThreadMessage;
@@ -107,6 +113,7 @@ public record GPoseLobbyUserLeave(UserData UserData) : MessageBase;
 public record GPoseLobbyReceiveCharaData(CharaDataDownloadDto CharaDataDownloadDto) : MessageBase;
 public record GPoseLobbyReceivePoseData(UserData UserData, PoseData PoseData) : MessageBase;
 public record GPoseLobbyReceiveWorldData(UserData UserData, WorldData WorldData) : MessageBase;
+public record VenueSyncshellJoinAcceptedMessage(VenueSyncshellDto Venue, VenueLocationDto Location) : MessageBase;
 
 public record PluginChangeMessage(string InternalName, Version Version, bool IsLoaded) : KeyedMessage(InternalName);
 #pragma warning restore S2094

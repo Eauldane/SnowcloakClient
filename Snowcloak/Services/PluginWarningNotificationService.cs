@@ -6,7 +6,6 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using System.Collections.Concurrent;
 
 namespace Snowcloak.Services;

@@ -17,7 +17,6 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;

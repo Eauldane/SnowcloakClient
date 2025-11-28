@@ -16,7 +16,6 @@ using Snowcloak.Services;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI.Components;
 using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;

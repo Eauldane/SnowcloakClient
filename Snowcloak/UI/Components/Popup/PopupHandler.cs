@@ -49,6 +49,13 @@ public class PopupHandler : WindowMediatorSubscriberBase
             ((BanUserPopupHandler)_currentHandler).Open(msg);
             IsOpen = true;
         });
+        Mediator.Subscribe<OpenVenueSyncshellPopupMessage>(this, (msg) =>
+        {
+            _openPopup = true;
+            _currentHandler = _handlers.OfType<VenueSyncshellPopupHandler>().Single();
+            ((VenueSyncshellPopupHandler)_currentHandler).Open(msg.Prompt);
+            IsOpen = true;
+        });
         _uiSharedService = uiSharedService;
         DisableWindowSounds = true;
     }

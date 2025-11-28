@@ -2,7 +2,6 @@
 using Microsoft.Win32.SafeHandles;
 using Snowcloak.Configuration;
 using Snowcloak.Services;
-using Snowcloak.SnowcloakConfiguration;
 using System.Runtime.InteropServices;
 
 namespace Snowcloak.FileCache;

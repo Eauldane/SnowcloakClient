@@ -8,7 +8,6 @@ using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.Utils;
 
 namespace Snowcloak.Interop.Ipc;

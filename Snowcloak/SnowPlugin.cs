@@ -8,7 +8,6 @@ using Snowcloak.PlayerData.Services;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using System.Reflection;
 
 namespace Snowcloak;

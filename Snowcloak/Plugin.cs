@@ -19,8 +19,8 @@ using Snowcloak.Services;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.Venue;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI.Components.Popup;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
@@ -147,6 +147,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<IpcCallerSnow>();
             collection.AddSingleton<IpcManager>();
             collection.AddSingleton<NotificationService>();
+            collection.AddSingleton<VenueSyncshellService>();
 
             collection.AddSingleton((s) => new SnowcloakConfigService(pluginInterface.ConfigDirectory.FullName));
             collection.AddSingleton((s) => new ServerConfigService(pluginInterface.ConfigDirectory.FullName));
@@ -200,6 +201,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<UiSharedService>();
             collection.AddScoped<ChatService>();
             collection.AddScoped<GuiHookService>();
+            collection.AddScoped<IPopupHandler, VenueSyncshellPopupHandler>();
 
             collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
             collection.AddHostedService(p => p.GetRequiredService<ConfigurationSaveService>());
@@ -213,6 +215,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddHostedService(p => p.GetRequiredService<EventAggregator>());
             collection.AddHostedService(p => p.GetRequiredService<SnowPlugin>());
             collection.AddHostedService(p => p.GetRequiredService<IpcProvider>());
+            collection.AddHostedService(p => p.GetRequiredService<VenueSyncshellService>());
         })
         .Build();
 

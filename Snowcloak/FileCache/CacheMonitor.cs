@@ -4,7 +4,6 @@ using Snowcloak.Interop.Ipc;
 using Snowcloak.Configuration;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
-using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.Utils;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;

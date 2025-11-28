@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
-using Snowcloak.SnowcloakConfiguration;
 
 namespace Snowcloak.Interop;
 
