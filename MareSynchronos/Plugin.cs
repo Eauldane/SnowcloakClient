@@ -47,7 +47,7 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     public Plugin(IDalamudPluginInterface pluginInterface, ICommandManager commandManager, IDataManager gameData,
-        IFramework framework, IObjectTable objectTable, IClientState clientState, ICondition condition, IChatGui chatGui,
+        IFramework framework, IObjectTable objectTable, IPlayerState playerState, IClientState clientState, ICondition condition, IChatGui chatGui,
         IGameGui gameGui, IDtrBar dtrBar, IToastGui toastGui, IPluginLog pluginLog, ITargetManager targetManager, INotificationManager notificationManager,
         ITextureProvider textureProvider, IContextMenu contextMenu, IGameInteropProvider gameInteropProvider,
         INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList)
@@ -74,6 +74,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton(_ => framework);
             collection.AddSingleton(_ => objectTable);
             collection.AddSingleton(_ => clientState);
+            collection.AddSingleton(_ => playerState);
             collection.AddSingleton(_ => condition);
             collection.AddSingleton(_ => chatGui);
             collection.AddSingleton(_ => gameGui);
