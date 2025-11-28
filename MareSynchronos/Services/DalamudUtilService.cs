@@ -865,7 +865,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         
         if (houseMan != null)
         {
-            var currentPlot = houseMan->GetCurrentPlot();
+            var currentPlot = houseMan->GetCurrentPlot() + 1;
             var ward = (uint)(houseMan->GetCurrentWard() + 1);
             var division = (uint)houseMan->GetCurrentDivision();
             var room = (uint)houseMan->GetCurrentRoom();
