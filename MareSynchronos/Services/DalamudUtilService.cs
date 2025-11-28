@@ -20,6 +20,7 @@ using Microsoft.Extensions.Logging;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Dalamud.Game.Text;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 
@@ -48,6 +49,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private readonly BlockedCharacterHandler _blockedCharacterHandler;
     private readonly IFramework _framework;
     private readonly IGameGui _gameGui;
+    private readonly IChatGui _chatGui;
     private readonly IToastGui _toastGui;
     private readonly ILogger<DalamudUtilService> _logger;
     private readonly IObjectTable _objectTable;
@@ -61,10 +63,11 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private readonly List<string> _notUpdatedCharas = [];
     private bool _sentBetweenAreas = false;
     private static readonly Dictionary<uint, PlayerInfo> _playerInfoCache = new();
-
-
+    private bool _isOnHousingPlot = false;
+    private HousingLocation _lastHousingLocation = default;
+    
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
-        IGameGui gameGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
+        IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
         BlockedCharacterHandler blockedCharacterHandler, MareMediator mediator, PerformanceCollectorService performanceCollector)
     {
         _logger = logger;
@@ -73,6 +76,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _framework = framework;
         _gameGui = gameGui;
         _toastGui = toastGui;
+        _chatGui = chatGui;
         _condition = condition;
         _gameData = gameData;
         _blockedCharacterHandler = blockedCharacterHandler;
@@ -760,6 +764,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             {
                 _classJobId = localPlayer.ClassJob.RowId;
             }
+            
+            HandleHousingPlotState();
 
             Mediator.Publish(new PriorityFrameworkUpdateMessage());
 
@@ -790,5 +796,95 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
             _delayedFrameworkUpdateCheck = DateTime.UtcNow;
         });
+    }
+    
+    private unsafe void HandleHousingPlotState()
+    {
+        if (_clientState.LocalPlayer == null)
+            return;
+
+        var isCurrentlyOnPlot = TryGetHousingLocation(out var currentLocation);
+
+        if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingLocation)))
+        {
+            _logger.LogInformation("Exited housing plot {FullId}", _lastHousingLocation.FullId);
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = $"Exited housing plot {_lastHousingLocation.DisplayName}",
+                Type = XivChatType.SystemMessage
+            });
+        }
+
+        if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingLocation)))
+        {
+            _logger.LogInformation("Entered housing plot {FullId}", currentLocation.FullId);
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = $"Entered housing plot {currentLocation.DisplayName}",
+                Type = XivChatType.SystemMessage
+            });
+        }
+
+        _isOnHousingPlot = isCurrentlyOnPlot;
+        _lastHousingLocation = currentLocation;
+        
+    }
+    
+    
+    private readonly record struct HousingLocation(uint WorldId, uint TerritoryId, uint DivisionId, uint WardId, uint PlotId, uint RoomId, bool IsApartment)
+    {
+        public string FullId => $"{WorldId}:{TerritoryId}:{DivisionId}:{WardId}:{PlotId}:{RoomId}";
+        public string DisplayName
+        {
+            get
+            {
+                if (IsApartment)
+                {
+                    return $"Apartment (Ward {WardId}, Room {RoomId}, {FullId})";
+                }
+
+                return $"Ward {WardId} Plot {PlotId} ({FullId})";
+            }
+        }
+    }
+
+    private unsafe bool TryGetHousingLocation(out HousingLocation housingLocation)
+    {
+        housingLocation = default;
+
+        var houseMan = HousingManager.Instance();
+        var agentMap = AgentMap.Instance();
+
+        var locationInfo = GetMapData();
+        
+        if (houseMan != null)
+        {
+            var currentPlot = houseMan->GetCurrentPlot();
+            var ward = (uint)(houseMan->GetCurrentWard() + 1);
+            var division = (uint)houseMan->GetCurrentDivision();
+            var room = (uint)houseMan->GetCurrentRoom();
+            var territoryId = agentMap == null ? 0 : agentMap->CurrentTerritoryId;
+            var worldId = locationInfo.ServerId;
+            if (currentPlot > 0)
+            {
+                housingLocation = new HousingLocation(worldId, territoryId, division, ward, (uint)currentPlot, room, false);
+                return true;
+            }
+
+            if (currentPlot < -1)
+            {
+                uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
+                housingLocation = new HousingLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);                return true;
+            }
+        }
+
+        if (locationInfo.HouseId > 0)
+        {
+            var isApartment = locationInfo.HouseId == 100 || locationInfo.DivisionId == 2;
+            housingLocation = new HousingLocation(locationInfo.ServerId, locationInfo.TerritoryId, locationInfo.DivisionId, locationInfo.WardId, locationInfo.HouseId, locationInfo.RoomId, isApartment);
+            return true;
+        }
+
+        return false;
     }
 }
