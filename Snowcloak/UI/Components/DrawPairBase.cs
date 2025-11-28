@@ -2,7 +2,7 @@
 using Dalamud.Interface;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.UI.Handlers;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components;
 

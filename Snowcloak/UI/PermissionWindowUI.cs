@@ -8,7 +8,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI;
 

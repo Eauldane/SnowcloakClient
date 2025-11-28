@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using System.Text;
 
-namespace Snowcloak.WebAPI.SignalR;
+namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {

@@ -6,7 +6,7 @@ using Snowcloak.Interop;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Services.CharaData.Models;
 using Snowcloak.Services.Mediator;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Numerics;
 using System.Text.Json.Nodes;

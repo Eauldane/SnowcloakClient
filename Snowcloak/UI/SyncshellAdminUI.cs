@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Globalization;
 
 namespace Snowcloak.UI;

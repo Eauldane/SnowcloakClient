@@ -2,7 +2,7 @@
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.SnowcloakConfiguration;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Diagnostics;
 
 namespace Snowcloak.Services.ServerConfiguration;

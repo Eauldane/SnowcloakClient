@@ -4,7 +4,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.Services;
 

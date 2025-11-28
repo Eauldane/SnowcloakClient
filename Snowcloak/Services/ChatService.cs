@@ -11,7 +11,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.Utils;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.Services;
 

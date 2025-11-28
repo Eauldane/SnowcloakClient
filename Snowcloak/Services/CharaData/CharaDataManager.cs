@@ -11,7 +11,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.CharaData.Models;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Collections.Concurrent;
 using System.Text;
 

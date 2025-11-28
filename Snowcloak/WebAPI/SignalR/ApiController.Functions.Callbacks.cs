@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
 
-namespace Snowcloak.WebAPI.SignalR;
+namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {

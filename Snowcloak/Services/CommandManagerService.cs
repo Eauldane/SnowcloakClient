@@ -7,7 +7,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Text;
 

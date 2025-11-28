@@ -1,5 +1,5 @@
 ﻿using Snowcloak.Configuration.Models;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.Configuration.Configurations;
 

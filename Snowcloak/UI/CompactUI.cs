@@ -23,7 +23,7 @@ using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Collections.Concurrent;
 using System.Diagnostics;

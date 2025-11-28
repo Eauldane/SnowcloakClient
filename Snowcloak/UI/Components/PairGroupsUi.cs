@@ -5,7 +5,7 @@ using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
 using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI.Handlers;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components;
 

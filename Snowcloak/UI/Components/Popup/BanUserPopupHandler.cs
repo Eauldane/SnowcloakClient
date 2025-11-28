@@ -3,7 +3,7 @@ using Dalamud.Interface;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Numerics;
 
 namespace Snowcloak.UI.Components.Popup;

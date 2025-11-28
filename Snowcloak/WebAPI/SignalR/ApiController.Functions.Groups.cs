@@ -3,7 +3,7 @@ using Snowcloak.API.Dto.Group;
 using Microsoft.AspNetCore.SignalR.Client;
 using Snowcloak.WebAPI.SignalR.Utils;
 
-namespace Snowcloak.WebAPI.SignalR;
+namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {

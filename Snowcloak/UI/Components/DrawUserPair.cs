@@ -10,7 +10,7 @@ using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Numerics;
 
 namespace Snowcloak.UI.Components;

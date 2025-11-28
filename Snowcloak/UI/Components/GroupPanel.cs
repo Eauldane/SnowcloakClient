@@ -18,7 +18,7 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.SnowcloakConfiguration;
 using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Numerics;
 

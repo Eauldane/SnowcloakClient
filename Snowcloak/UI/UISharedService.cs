@@ -20,7 +20,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.SnowcloakConfiguration;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;

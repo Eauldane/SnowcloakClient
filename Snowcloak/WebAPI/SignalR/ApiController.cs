@@ -12,8 +12,9 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Reflection;
+using Snowcloak.WebAPI.SignalR;
 
-namespace Snowcloak.WebAPI.SignalR;
+namespace Snowcloak.WebAPI;
 
 #pragma warning disable MA0040
 public sealed partial class ApiController : DisposableMediatorSubscriberBase, ISnowHubClient

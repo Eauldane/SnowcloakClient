@@ -5,7 +5,7 @@ using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.SnowcloakConfiguration;
-using Snowcloak.WebAPI.SignalR;
+using Snowcloak.WebAPI;
 using System.Collections.Concurrent;
 
 namespace Snowcloak.Services;

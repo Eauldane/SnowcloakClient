@@ -3,7 +3,7 @@ using Snowcloak.API.Dto.CharaData;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 
-namespace Snowcloak.WebAPI.SignalR;
+namespace Snowcloak.WebAPI;
 public partial class ApiController
 {
     public async Task<CharaDataFullDto?> CharaDataCreate()
