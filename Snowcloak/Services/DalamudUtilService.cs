@@ -814,21 +814,25 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingLocation)))
         {
             _logger.LogInformation("Exited housing plot {FullId}", _lastHousingLocation.FullId);
+            #if DEBUG
             _chatGui.Print(new XivChatEntry
             {
                 Message = $"Exited housing plot {_lastHousingLocation.DisplayName}",
                 Type = XivChatType.SystemMessage
             });
+            #endif
         }
 
         if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingLocation)))
         {
             _logger.LogInformation("Entered housing plot {FullId}", currentLocation.FullId);
+            #if DEBUG
             _chatGui.Print(new XivChatEntry
             {
                 Message = $"Entered housing plot {currentLocation.DisplayName}",
                 Type = XivChatType.SystemMessage
             });
+            #endif
         }
 
         _isOnHousingPlot = isCurrentlyOnPlot;
@@ -865,7 +869,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         
         if (houseMan != null)
         {
-            var currentPlot = houseMan->GetCurrentPlot() + 1;
+            var currentPlot = (uint)(houseMan->GetCurrentPlot() + 1); // Pass this as the actual number instead of index
             var ward = (uint)(houseMan->GetCurrentWard() + 1);
             var division = (uint)houseMan->GetCurrentDivision();
             var room = (uint)houseMan->GetCurrentRoom();
@@ -873,7 +877,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             var worldId = locationInfo.ServerId;
             if (currentPlot > 0)
             {
-                housingLocation = new HousingLocation(worldId, territoryId, division, ward, (uint)currentPlot, room, false);
+                housingLocation = new HousingLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
                 return true;
             }
 

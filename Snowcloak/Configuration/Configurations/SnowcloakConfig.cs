@@ -81,4 +81,5 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public CacheEvictionMode CacheEvictionMode { get; set; } = CacheEvictionMode.LeastRecentlyUsed;
     public bool UseMultithreadedCompression { get; set; } = false;
     public int CompressionLevel { get; set; } = 3;
+    public bool AutoJoinVenueSyncshells { get; set; } = false;
 }

@@ -951,6 +951,16 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _uiShared.DrawHelpText("This will automatically set a user's note with their player name unless you override it");
         
         ImGui.Separator();
+        _uiShared.BigText("Venues");
+        var autoJoinVenues = _configService.Current.AutoJoinVenueSyncshells;
+        if (ImGui.Checkbox("Auto join venue syncshells", ref autoJoinVenues))
+        {
+            _configService.Current.AutoJoinVenueSyncshells = autoJoinVenues;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("Automatically detects venue housing plots and uses them for venue syncshell features.");
+
+        ImGui.Separator();
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;
         var showVisibleSeparate = _configService.Current.ShowVisibleUsersSeparately;
