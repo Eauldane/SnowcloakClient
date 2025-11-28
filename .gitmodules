@@ -1,9 +1,0 @@
-[submodule "MareAPI"]
-	path = MareAPI
-	url = https://github.com/Eauldane/SnowcloakAPI.git
-[submodule "Penumbra.Api"]
-	path = Penumbra.Api
-	url = https://github.com/Eauldane/Penumbra.Api.git
-[submodule "Glamourer.Api"]
-	path = Glamourer.Api
-	url = https://github.com/Eauldane/Glamourer.Api.git
