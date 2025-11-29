@@ -952,12 +952,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
         ImGui.Separator();
         _uiShared.BigText("Venues");
         var autoJoinVenues = _configService.Current.AutoJoinVenueSyncshells;
-        if (ImGui.Checkbox("Auto join venue syncshells", ref autoJoinVenues))
+        if (ImGui.Checkbox("Show prompts to join venue syncshells when on their grounds", ref autoJoinVenues))
         {
             _configService.Current.AutoJoinVenueSyncshells = autoJoinVenues;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Automatically detects venue housing plots and uses them for venue syncshell features.");
+        _uiShared.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
 
         ImGui.Separator();
         _uiShared.BigText("UI");
