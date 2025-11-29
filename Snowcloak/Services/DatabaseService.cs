@@ -2,10 +2,14 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Channels;
+
 
 namespace Snowcloak.Services;
 
-public class DatabaseService
+public class DatabaseService : IAsyncDisposable
 {
     private readonly CapabilityRegistry _capabilityRegistry;
     private readonly SnowcloakConfigService _configService;
@@ -15,11 +19,27 @@ public class DatabaseService
     private float _clientDBVersion;
     private readonly object _cleanupLock = new();
     private DateTime _lastCleanupUtc = DateTime.MinValue;
+    private readonly CancellationTokenSource _cleanupCts = new();
+    private readonly Task _cleanupTask;
     public static readonly TimeSpan UsageRetentionPeriod = TimeSpan.FromDays(30);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan FileSeenFlushInterval = TimeSpan.FromSeconds(2);
+    private const int FileSeenFlushThreshold = 50;
     private const string BucketDateFormat = "yyyy-MM-dd";
 
     public readonly record struct FileUsageStatistics(int SeenCount, DateTime? LastSeenUtc);
+    
+    private readonly record struct FileSeenEntry(string Uid, string FileHash, DateTime SeenAtUtc);
+
+    private readonly Channel<FileSeenEntry> _fileSeenChannel = Channel.CreateUnbounded<FileSeenEntry>(new()
+    {
+        SingleReader = true,
+        SingleWriter = false,
+    });
+
+    private readonly CancellationTokenSource _queueCts = new();
+    private readonly Task _queueWorker;
+
 
     public DatabaseService(CapabilityRegistry capabilityRegistry, SnowcloakConfigService configService,
         ILogger<DatabaseService> logger)
@@ -36,6 +56,7 @@ public class DatabaseService
 
         InitDB();
         _capabilityRegistry.RegisterCapability("ClientDB", _clientDBVersion);
+        _cleanupTask = Task.Run(() => PeriodicCleanupAsync(_cleanupCts.Token));
     }
 
     private void InitDB()
@@ -90,57 +111,15 @@ public class DatabaseService
     // Temporary Home
     public void RecordFileSeen(string uid, string fileHash, DateTime seenAtUtc)
     {
-        if (string.IsNullOrEmpty(fileHash)) return;
+        _ = EnqueueFileSeen(uid, fileHash, seenAtUtc);
+    }
 
+        public ValueTask EnqueueFileSeen(string uid, string fileHash, DateTime seenAtUtc)
+    {
+        if (string.IsNullOrEmpty(fileHash)) return ValueTask.CompletedTask;
         var normalizedHash = fileHash.ToUpperInvariant();
-        var nowUtc = DateTime.UtcNow;
-        var timestamp = seenAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-        var bucketDate = seenAtUtc.ToUniversalTime().Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            using var transaction = connection.BeginTransaction();
-
-            bool shouldVacuum = PerformRetentionCleanup(connection, transaction, nowUtc, force: false);
-
-            using (var bucketCommand = connection.CreateCommand())
-            {
-                bucketCommand.Transaction = transaction;
-                bucketCommand.CommandText = @"INSERT INTO file_hash_seen_buckets (file_hash, bucket_date, count)
-VALUES ($hash, $bucket, 1)
-ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = count + 1;";
-                bucketCommand.Parameters.AddWithValue("$hash", normalizedHash);
-                bucketCommand.Parameters.AddWithValue("$bucket", bucketDate);
-                bucketCommand.ExecuteNonQuery();
-            }
-
-            using (var aggregateCommand = connection.CreateCommand())
-            {
-                aggregateCommand.Transaction = transaction;
-                aggregateCommand.CommandText = @"INSERT INTO file_hash_uid (file_hash, first_seen_at, last_seen_at, seen_count)
-VALUES ($hash, $seen, $seen, 1)
-ON CONFLICT(file_hash) DO UPDATE SET
-    first_seen_at = MIN(file_hash_uid.first_seen_at, excluded.first_seen_at),
-    last_seen_at = MAX(file_hash_uid.last_seen_at, excluded.last_seen_at),
-    seen_count = file_hash_uid.seen_count + 1;";
-                aggregateCommand.Parameters.AddWithValue("$hash", normalizedHash);
-                aggregateCommand.Parameters.AddWithValue("$seen", timestamp);
-                aggregateCommand.ExecuteNonQuery();
-            }
-
-            transaction.Commit();
-
-            if (shouldVacuum)
-            {
-                ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
-                ExecuteNonQuery(connection, "VACUUM;");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to record file usage for {uid} and {hash}", uid, normalizedHash);
-        }
+        var normalizedTimestamp = seenAtUtc.ToUniversalTime();
+        return _fileSeenChannel.Writer.WriteAsync(new(uid, normalizedHash, normalizedTimestamp), _queueCts.Token);
     }
 
     public IReadOnlyDictionary<string, FileUsageStatistics> GetAggregatedFileUsage()
@@ -151,12 +130,6 @@ ON CONFLICT(file_hash) DO UPDATE SET
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-
-            if (PerformRetentionCleanup(connection, null, DateTime.UtcNow, force: false))
-            {
-                ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
-                ExecuteNonQuery(connection, "VACUUM;");
-            }
 
             using var command = connection.CreateCommand();
             command.CommandText = @"SELECT file_hash, seen_count, last_seen_at
@@ -456,5 +429,211 @@ GROUP BY file_hash;");
             $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnDefinition};");
         existingColumns.Add(columnName);
     }
+    
+    
+    private async Task PeriodicCleanupAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(CleanupInterval, token).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
+
+            try
+            {
+                RunMaintenance();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Background database maintenance failed");
+            }
+        }
+    }
+    
+       private async Task ProcessFileSeenQueueAsync(CancellationToken cancellationToken)
+    {
+        List<FileSeenEntry> buffer = new(FileSeenFlushThreshold);
+        using PeriodicTimer timer = new(FileSeenFlushInterval);
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var readTask = _fileSeenChannel.Reader.ReadAsync(cancellationToken).AsTask();
+                    var timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                    var completed = await Task.WhenAny(readTask, timerTask).ConfigureAwait(false);
+
+                    if (completed == readTask)
+                    {
+                        buffer.Add(await readTask.ConfigureAwait(false));
+                        while (buffer.Count < FileSeenFlushThreshold &&
+                               _fileSeenChannel.Reader.TryRead(out var nextItem))
+                        {
+                            buffer.Add(nextItem);
+                        }
+
+                        if (buffer.Count >= FileSeenFlushThreshold)
+                        {
+                            await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    else if (buffer.Count > 0)
+                    {
+                        await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed processing file seen queue");
+                }
+            }
+        }
+        finally
+        {
+            while (_fileSeenChannel.Reader.TryRead(out var remaining))
+            {
+                buffer.Add(remaining);
+            }
+
+            if (buffer.Count > 0)
+            {
+                try
+                {
+                    await FlushFileSeenBufferAsync(buffer, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed flushing remaining file seen entries");
+                }
+            }
+        }
+    }
+
+    private async Task FlushFileSeenBufferAsync(List<FileSeenEntry> buffer, CancellationToken cancellationToken)
+    {
+        if (buffer.Count == 0) return;
+
+        try
+        {
+            await using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            var nowUtc = DateTime.UtcNow;
+            bool shouldVacuum = PerformRetentionCleanup(connection, transaction, nowUtc, force: false);
+
+            await using var bucketCommand = connection.CreateCommand();
+            bucketCommand.Transaction = transaction;
+            bucketCommand.CommandText = @"INSERT INTO file_hash_seen_buckets (file_hash, bucket_date, count)
+VALUES ($hash, $bucket, 1)
+ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = count + 1;";
+            var bucketHashParam = bucketCommand.CreateParameter();
+            bucketHashParam.ParameterName = "$hash";
+            bucketCommand.Parameters.Add(bucketHashParam);
+            var bucketDateParam = bucketCommand.CreateParameter();
+            bucketDateParam.ParameterName = "$bucket";
+            bucketCommand.Parameters.Add(bucketDateParam);
+
+            await using var aggregateCommand = connection.CreateCommand();
+            aggregateCommand.Transaction = transaction;
+            aggregateCommand.CommandText = @"INSERT INTO file_hash_uid (file_hash, first_seen_at, last_seen_at, seen_count)
+VALUES ($hash, $seen, $seen, 1)
+ON CONFLICT(file_hash) DO UPDATE SET
+    first_seen_at = MIN(file_hash_uid.first_seen_at, excluded.first_seen_at),
+    last_seen_at = MAX(file_hash_uid.last_seen_at, excluded.last_seen_at),
+    seen_count = file_hash_uid.seen_count + 1;";
+            var aggregateHashParam = aggregateCommand.CreateParameter();
+            aggregateHashParam.ParameterName = "$hash";
+            aggregateCommand.Parameters.Add(aggregateHashParam);
+            var aggregateSeenParam = aggregateCommand.CreateParameter();
+            aggregateSeenParam.ParameterName = "$seen";
+            aggregateCommand.Parameters.Add(aggregateSeenParam);
+
+            foreach (var entry in buffer)
+            {
+                var timestamp = entry.SeenAtUtc.ToUniversalTime();
+                bucketHashParam.Value = entry.FileHash;
+                bucketDateParam.Value = timestamp.Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
+                bucketCommand.ExecuteNonQuery();
+
+                aggregateHashParam.Value = entry.FileHash;
+                aggregateSeenParam.Value = timestamp.ToString("o", CultureInfo.InvariantCulture);
+                aggregateCommand.ExecuteNonQuery();
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            if (shouldVacuum)
+            {
+                ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
+                ExecuteNonQuery(connection, "VACUUM;");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to flush file usage buffer");
+        }
+        finally
+        {
+            buffer.Clear();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _queueCts.Cancel();
+        _fileSeenChannel.Writer.TryComplete();
+        try
+        {
+            await _queueWorker.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore cancellation during disposal
+        }
+        _queueCts.Dispose();
+    }
+
+    private void RunMaintenance()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        if (PerformRetentionCleanup(connection, null, DateTime.UtcNow, force: true))
+        {
+            ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
+            ExecuteNonQuery(connection, "VACUUM;");
+        }
+    }
+
+    public void Dispose()
+    {
+        _cleanupCts.Cancel();
+        try
+        {
+            _cleanupTask.Wait();
+        }
+        catch (AggregateException ex) when (ex.InnerException is TaskCanceledException)
+        {
+        }
+        catch (TaskCanceledException)
+        {
+        }
+
+        _cleanupCts.Dispose();
+    }
+    
+    
 }
 
