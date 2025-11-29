@@ -17,6 +17,7 @@ public class DatabaseService
     private DateTime _lastCleanupUtc = DateTime.MinValue;
     public static readonly TimeSpan UsageRetentionPeriod = TimeSpan.FromDays(30);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(6);
+    private const string BucketDateFormat = "yyyy-MM-dd";
 
     public readonly record struct FileUsageStatistics(int SeenCount, DateTime? LastSeenUtc);
 
@@ -89,14 +90,12 @@ public class DatabaseService
     // Temporary Home
     public void RecordFileSeen(string uid, string fileHash, DateTime seenAtUtc)
     {
-        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(fileHash)) return;
-
+        if (string.IsNullOrEmpty(fileHash)) return;
 
         var normalizedHash = fileHash.ToUpperInvariant();
         var nowUtc = DateTime.UtcNow;
-        var retentionThreshold = nowUtc - UsageRetentionPeriod;
         var timestamp = seenAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-        var thresholdTimestamp = retentionThreshold.ToString("o", CultureInfo.InvariantCulture);
+        var bucketDate = seenAtUtc.ToUniversalTime().Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
         try
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -105,37 +104,28 @@ public class DatabaseService
 
             bool shouldVacuum = PerformRetentionCleanup(connection, transaction, nowUtc, force: false);
 
-            using (var eventCommand = connection.CreateCommand())
+            using (var bucketCommand = connection.CreateCommand())
             {
-                eventCommand.Transaction = transaction;
-                eventCommand.CommandText = @"INSERT INTO file_hash_seen_events (file_hash, uid, seen_at)
-VALUES ($hash, $uid, $seen);";
-                eventCommand.Parameters.AddWithValue("$hash", normalizedHash);
-                eventCommand.Parameters.AddWithValue("$uid", uid);
-                eventCommand.Parameters.AddWithValue("$seen", timestamp);
-                eventCommand.ExecuteNonQuery();
+                bucketCommand.Transaction = transaction;
+                bucketCommand.CommandText = @"INSERT INTO file_hash_seen_buckets (file_hash, bucket_date, count)
+VALUES ($hash, $bucket, 1)
+ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = count + 1;";
+                bucketCommand.Parameters.AddWithValue("$hash", normalizedHash);
+                bucketCommand.Parameters.AddWithValue("$bucket", bucketDate);
+                bucketCommand.ExecuteNonQuery();
             }
 
             using (var aggregateCommand = connection.CreateCommand())
             {
                 aggregateCommand.Transaction = transaction;
-                aggregateCommand.CommandText = @"WITH stats AS (
-    SELECT MIN(seen_at) AS first_seen_at,
-           MAX(seen_at) AS last_seen_at,
-           COUNT(*) AS seen_count
-    FROM file_hash_seen_events
-    WHERE file_hash = $hash AND uid = $uid AND seen_at >= $threshold)
-INSERT INTO file_hash_uid (uid, file_hash, first_seen_at, last_seen_at, seen_count)
-SELECT $uid, $hash, stats.first_seen_at, stats.last_seen_at, stats.seen_count
-FROM stats
-WHERE stats.seen_count > 0
-ON CONFLICT(uid, file_hash) DO UPDATE SET
-    first_seen_at = excluded.first_seen_at,
-    last_seen_at = excluded.last_seen_at,
-    seen_count = excluded.seen_count;";
-                aggregateCommand.Parameters.AddWithValue("$uid", uid);
+                aggregateCommand.CommandText = @"INSERT INTO file_hash_uid (file_hash, first_seen_at, last_seen_at, seen_count)
+VALUES ($hash, $seen, $seen, 1)
+ON CONFLICT(file_hash) DO UPDATE SET
+    first_seen_at = MIN(file_hash_uid.first_seen_at, excluded.first_seen_at),
+    last_seen_at = MAX(file_hash_uid.last_seen_at, excluded.last_seen_at),
+    seen_count = file_hash_uid.seen_count + 1;";
                 aggregateCommand.Parameters.AddWithValue("$hash", normalizedHash);
-                aggregateCommand.Parameters.AddWithValue("$threshold", thresholdTimestamp);
+                aggregateCommand.Parameters.AddWithValue("$seen", timestamp);
                 aggregateCommand.ExecuteNonQuery();
             }
 
@@ -169,9 +159,8 @@ ON CONFLICT(uid, file_hash) DO UPDATE SET
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = @"SELECT file_hash, SUM(seen_count) AS total_count, MAX(last_seen_at) AS last_seen
-FROM file_hash_uid
-GROUP BY file_hash;";
+            command.CommandText = @"SELECT file_hash, seen_count, last_seen_at
+            FROM file_hash_uid;";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -212,14 +201,6 @@ GROUP BY file_hash;";
             connection.Open();
             using var transaction = connection.BeginTransaction();
 
-            using (var deleteEvents = connection.CreateCommand())
-            {
-                deleteEvents.Transaction = transaction;
-                deleteEvents.CommandText = @"DELETE FROM file_hash_seen_events WHERE file_hash = $hash;";
-                deleteEvents.Parameters.AddWithValue("$hash", normalizedHash);
-                deleteEvents.ExecuteNonQuery();
-            }
-
             using (var deleteUsage = connection.CreateCommand())
             {
                 deleteUsage.Transaction = transaction;
@@ -228,6 +209,14 @@ GROUP BY file_hash;";
                 deleteUsage.ExecuteNonQuery();
             }
 
+            
+            using (var deleteBuckets = connection.CreateCommand())
+            {
+                deleteBuckets.Transaction = transaction;
+                deleteBuckets.CommandText = @"DELETE FROM file_hash_seen_buckets WHERE file_hash = $hash;";
+                deleteBuckets.Parameters.AddWithValue("$hash", normalizedHash);
+                deleteBuckets.ExecuteNonQuery();
+            }
             transaction.Commit();
         }
         catch (Exception ex)
@@ -251,15 +240,16 @@ GROUP BY file_hash;";
             try
             {
                 var threshold = nowUtc - UsageRetentionPeriod;
-                var thresholdTimestamp = threshold.ToString("o", CultureInfo.InvariantCulture);
-
-                int deletedEvents;
-                using (var deleteEvents = connection.CreateCommand())
+                var thresholdDate = threshold.Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
+                
+                int deletedBuckets;
+                using (var deleteBuckets = connection.CreateCommand())
                 {
-                    deleteEvents.Transaction = workingTransaction;
-                    deleteEvents.CommandText = @"DELETE FROM file_hash_seen_events WHERE seen_at < $threshold;";
-                    deleteEvents.Parameters.AddWithValue("$threshold", thresholdTimestamp);
-                    deletedEvents = deleteEvents.ExecuteNonQuery();
+                    deleteBuckets.Transaction = workingTransaction;
+                    deleteBuckets.CommandText =
+                        @"DELETE FROM file_hash_seen_buckets WHERE bucket_date < $threshold;";
+                    deleteBuckets.Parameters.AddWithValue("$threshold", thresholdDate);
+                    deletedBuckets = deleteBuckets.ExecuteNonQuery();
                 }
 
                 ExecuteNonQuery(connection, workingTransaction, "DELETE FROM file_hash_uid;");
@@ -268,10 +258,10 @@ GROUP BY file_hash;";
                 {
                     rebuildCommand.Transaction = workingTransaction;
                     rebuildCommand.CommandText =
-                        @"INSERT INTO file_hash_uid (uid, file_hash, first_seen_at, last_seen_at, seen_count)
-SELECT uid, file_hash, MIN(seen_at), MAX(seen_at), COUNT(*)
-FROM file_hash_seen_events
-GROUP BY uid, file_hash;";
+                        @"INSERT INTO file_hash_uid (file_hash, first_seen_at, last_seen_at, seen_count)
+SELECT file_hash, MIN(bucket_date || 'T00:00:00Z'), MAX(bucket_date || 'T00:00:00Z'), SUM(count)
+FROM file_hash_seen_buckets
+GROUP BY file_hash;";
                     rebuildCommand.ExecuteNonQuery();
                 }
 
@@ -281,7 +271,8 @@ GROUP BY uid, file_hash;";
                 }
 
                 _lastCleanupUtc = nowUtc;
-                return deletedEvents > 0;
+                return deletedBuckets > 0;
+                
             }
             catch
             {
@@ -305,48 +296,137 @@ GROUP BY uid, file_hash;";
     public void ApplyMigrations(SqliteConnection connection)
     {
         int schemaVersion = GetUserVersion(connection);
+        var vacuumAfterMigration = false;
         using var transaction = connection.BeginTransaction();
         if (schemaVersion == 0)
         {
             ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_uid (
-    uid TEXT NOT NULL,
     file_hash TEXT NOT NULL,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
-    seen_count INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (uid, file_hash));");
+    seen_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (file_hash));");
 
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets (
     file_hash TEXT NOT NULL,
-    uid TEXT,
-    seen_at TEXT NOT NULL);");
+    bucket_date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (file_hash, bucket_date));");
 
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_events ON file_hash_seen_events(file_hash, seen_at DESC);");
+
             ExecuteNonQuery(connection, transaction,
                 @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_last_seen ON file_hash_uid(last_seen_at DESC);");
-            SetUserVersion(connection, transaction, 1);
-            schemaVersion = 1;
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
+
+            SetUserVersion(connection, transaction, 4);
+            schemaVersion = 4;
         }
 
         if (schemaVersion == 1)
         {
-                ExecuteNonQuery(connection, transaction,
-                    @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_hash ON file_hash_uid(file_hash);");
-                ExecuteNonQuery(connection, transaction,
-                    @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_events_hash_uid ON file_hash_seen_events(file_hash, uid, seen_at DESC);");
-                var fileHashUidColumns = GetTableColumns(connection, transaction, "file_hash_uid");
-                EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "first_seen_at", "TEXT");
-                EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "last_seen_at", "TEXT");
-                EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "seen_count", "INTEGER");
-                ExecuteNonQuery(connection, transaction, @"UPDATE file_hash_uid SET seen_count = 1 WHERE seen_count IS NULL;");
+                           ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_hash ON file_hash_uid(file_hash);");
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_events_hash_uid ON file_hash_seen_events(file_hash, uid, seen_at DESC);");
+            var fileHashUidColumns = GetTableColumns(connection, transaction, "file_hash_uid");
+            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "first_seen_at", "TEXT");
+            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "last_seen_at", "TEXT");
+            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "seen_count", "INTEGER");
+            ExecuteNonQuery(connection, transaction, @"UPDATE file_hash_uid SET seen_count = 1 WHERE seen_count IS NULL;");
 
-                SetUserVersion(connection, transaction, 2);
+            SetUserVersion(connection, transaction, 2);
+            schemaVersion = 2;
         }
+
+        if (schemaVersion <= 2)
+        {
+            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets (
+    file_hash TEXT NOT NULL,
+    uid TEXT,
+    bucket_date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (file_hash, uid, bucket_date));");
+
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
+
+            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_seen_buckets (file_hash, uid, bucket_date, count)
+SELECT file_hash, uid, strftime('%Y-%m-%d', seen_at) AS bucket_date, COUNT(*)
+FROM file_hash_seen_events
+GROUP BY file_hash, uid, bucket_date
+ON CONFLICT(file_hash, uid, bucket_date) DO UPDATE SET count = file_hash_seen_buckets.count + excluded.count;");
+
+            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_seen_events;");
+
+            ExecuteNonQuery(connection, transaction, "DELETE FROM file_hash_uid;");
+            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_uid (uid, file_hash, first_seen_at, last_seen_at, seen_count)
+SELECT uid, file_hash, MIN(bucket_date || 'T00:00:00Z'), MAX(bucket_date || 'T00:00:00Z'), SUM(count)
+FROM file_hash_seen_buckets
+GROUP BY uid, file_hash;");
+
+            SetUserVersion(connection, transaction, 3);
+            schemaVersion = 3;
+        }
+        
+                if (schemaVersion <= 3)
+        {
+            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets_new (
+    file_hash TEXT NOT NULL,
+    bucket_date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (file_hash, bucket_date));");
+
+            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_seen_buckets_new (file_hash, bucket_date, count)
+SELECT file_hash, bucket_date, SUM(count)
+FROM file_hash_seen_buckets
+GROUP BY file_hash, bucket_date
+ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = file_hash_seen_buckets_new.count + excluded.count;");
+
+            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_seen_buckets;");
+            ExecuteNonQuery(connection, transaction, @"ALTER TABLE file_hash_seen_buckets_new RENAME TO file_hash_seen_buckets;");
+
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
+
+            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_uid_new (
+    file_hash TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    seen_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (file_hash));");
+
+            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_uid_new (file_hash, first_seen_at, last_seen_at, seen_count)
+SELECT file_hash, MIN(bucket_date || 'T00:00:00Z'), MAX(bucket_date || 'T00:00:00Z'), SUM(count)
+FROM file_hash_seen_buckets
+GROUP BY file_hash;");
+
+            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_uid;");
+            ExecuteNonQuery(connection, transaction, @"ALTER TABLE file_hash_uid_new RENAME TO file_hash_uid;");
+
+            ExecuteNonQuery(connection, transaction,
+                @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_last_seen ON file_hash_uid(last_seen_at DESC);");
+
+            SetUserVersion(connection, transaction, 4);
+            schemaVersion = 4;
+            vacuumAfterMigration = true;
+        }
+
 
         transaction.Commit();
         _clientDBVersion = GetUserVersion(connection);
+
+        if (vacuumAfterMigration)
+        {
+            ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
+            ExecuteNonQuery(connection, "VACUUM;");
+        }
 
     }
     
