@@ -1,4 +1,5 @@
 ﻿using Dalamud.Game.Command;
+using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Snowcloak.FileCache;
 using Snowcloak.Configuration;
@@ -17,7 +18,7 @@ public sealed class CommandManagerService : IDisposable
     private const string _commandName = "/snow";
     private const string _commandName2 = "/snowcloak";
     private const string _commandName3 = "/sync";
-
+    private const string _venueFinder = "/snowvenueplot";
     private const string _ssCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
@@ -28,12 +29,17 @@ public sealed class CommandManagerService : IDisposable
     private readonly CacheMonitor _cacheMonitor;
     private readonly ChatService _chatService;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly IChatGui _chatGui;
+    private readonly DalamudUtilService _dalamudUtilService;
 
-    public CommandManagerService(ICommandManager commandManager, PerformanceCollectorService performanceCollectorService,
+
+    public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
         ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService)
     {
         _commandManager = commandManager;
+        _chatGui = chatGui;
+        _dalamudUtilService = dalamudService;
         _performanceCollectorService = performanceCollectorService;
         _serverConfigurationManager = serverConfigurationManager;
         _cacheMonitor = periodicFileScanner;
@@ -53,6 +59,8 @@ public sealed class CommandManagerService : IDisposable
         {
             HelpMessage = "Opens the Snowcloak UI"
         });
+
+        _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
 
         // Lazy registration of all possible /ss# commands which tbf is what the game does for linkshells anyway
         for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
@@ -140,6 +148,14 @@ public sealed class CommandManagerService : IDisposable
         }
     }
 
+    private void OnVenueFindCommand(string command, string args)
+    {
+        _chatGui.Print(new XivChatEntry
+        {
+            Message = $"Housing plot identifier: {_dalamudUtilService.GetHousingString()}",
+            Type = XivChatType.SystemMessage
+        });
+    }
     private void OnChatCommand(string command, string args)
     {
         if (_snowcloakConfigService.Current.DisableSyncshellChat)

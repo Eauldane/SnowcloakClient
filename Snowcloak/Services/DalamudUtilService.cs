@@ -850,6 +850,11 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _lastHousingPlotLocation = currentLocation;
         
     }
+
+    public string GetHousingString()
+    {
+        return _lastHousingPlotLocation.FullId;
+    }
     
     private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
     {
