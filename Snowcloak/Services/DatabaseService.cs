@@ -528,8 +528,9 @@ GROUP BY file_hash;");
         {
             await using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection
+                .BeginTransactionAsync(cancellationToken)
+                .ConfigureAwait(false);
             var nowUtc = DateTime.UtcNow;
             bool shouldVacuum = PerformRetentionCleanup(connection, transaction, nowUtc, force: false);
 
