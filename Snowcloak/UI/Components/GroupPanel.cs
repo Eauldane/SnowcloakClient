@@ -208,6 +208,9 @@ internal sealed class GroupPanel
     private void DrawSyncshell(GroupFullInfoDto groupDto, List<Pair> pairsInGroup)
     {
         int shellNumber = _serverConfigurationManager.GetShellNumberForGid(groupDto.GID);
+        var validPairsInGroup = pairsInGroup
+            .Where(p => p.GroupPair.ContainsKey(groupDto))
+            .ToList();
 
         var name = groupDto.Group.Alias ?? groupDto.GID;
         if (!_expandedGroupState.TryGetValue(groupDto.GID, out bool isExpanded))
@@ -266,7 +269,7 @@ internal sealed class GroupPanel
             if (textIsGid) ImGui.PopFont();
             UiSharedService.AttachToolTip("Left click to switch between GID display and comment" + Environment.NewLine +
                           "Right click to change comment for " + groupName + Environment.NewLine + Environment.NewLine
-                          + "Users: " + (pairsInGroup.Count + 1) + ", Owner: " + groupDto.OwnerAliasOrUID);
+                          + "Users: " + (validPairsInGroup.Count + 1) + ", Owner: " + groupDto.OwnerAliasOrUID);
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
                 var prevState = textIsGid;
@@ -305,8 +308,8 @@ internal sealed class GroupPanel
         }
 
 
-        using (ImRaii.PushId(groupDto.GID + "settings")) DrawSyncShellButtons(groupDto, pairsInGroup);
-
+        using (ImRaii.PushId(groupDto.GID + "settings")) DrawSyncShellButtons(groupDto, validPairsInGroup);
+        
         if (_showModalBanList && !_modalBanListOpened)
         {
             _modalBanListOpened = true;
@@ -425,15 +428,15 @@ internal sealed class GroupPanel
             ImGui.EndPopup();
         }
 
-        bool hideOfflineUsers = pairsInGroup.Count > 1000;
-
+        bool hideOfflineUsers = validPairsInGroup.Count > 1000;
+        
         ImGui.Indent(20);
         if (_expandedGroupState[groupDto.GID])
         {
             IOrderedEnumerable<Pair> sortedPairs;
             if (!_snowcloakConfig.Current.SortSyncshellsByVRAM)
             {
-                sortedPairs = pairsInGroup
+                sortedPairs = validPairsInGroup
                     .OrderByDescending(u => string.Equals(u.UserData.UID, groupDto.OwnerUID, StringComparison.Ordinal))
                     .ThenByDescending(u => u.GroupPair[groupDto].GroupPairStatusInfo.IsModerator())
                     .ThenByDescending(u => u.GroupPair[groupDto].GroupPairStatusInfo.IsPinned())
@@ -441,7 +444,7 @@ internal sealed class GroupPanel
             }
             else
             {
-                sortedPairs = pairsInGroup
+                sortedPairs = validPairsInGroup
                     .OrderByDescending(u => string.Equals(u.UserData.UID, groupDto.OwnerUID, StringComparison.Ordinal))
                     .ThenByDescending(u => u.GroupPair[groupDto].GroupPairStatusInfo.IsModerator())
                     .ThenByDescending(u => u.GroupPair[groupDto].GroupPairStatusInfo.IsPinned())
@@ -455,12 +458,15 @@ internal sealed class GroupPanel
             
             foreach (var pair in sortedPairs)
             {
+                if (!pair.GroupPair.TryGetValue(groupDto, out var groupPairInfo))
+                {
+                    continue;
+                }
+
                 var drawPair = new DrawGroupPair(
                     groupDto.GID + pair.UserData.UID, pair,
-                    ApiController, _mainUi.Mediator, groupDto, 
-                    pair.GroupPair.Single(
-                        g => GroupDataComparer.Instance.Equals(g.Key.Group, groupDto.Group)
-                    ).Value,
+                    ApiController, _mainUi.Mediator, groupDto,
+                    groupPairInfo,
                     _uidDisplayHandler,
                     _uiShared,
                     _charaDataManager);
