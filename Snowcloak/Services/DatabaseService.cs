@@ -57,6 +57,7 @@ public class DatabaseService : IAsyncDisposable
         InitDB();
         _capabilityRegistry.RegisterCapability("ClientDB", _clientDBVersion);
         _cleanupTask = Task.Run(() => PeriodicCleanupAsync(_cleanupCts.Token));
+        _queueWorker = Task.Run(() => ProcessFileSeenQueueAsync(_queueCts.Token));
     }
 
     private void InitDB()

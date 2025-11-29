@@ -137,7 +137,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public IFontHandle UidFont { get; init; }
     public Dictionary<ushort, string> WorldData => _dalamudUtil.WorldData.Value;
-
+    public Dictionary<uint, string> TerritoryData => _dalamudUtil.TerritoryData.Value;
     public uint WorldId => _dalamudUtil.GetHomeWorldId();
 
     public static void AttachToolTip(string text)

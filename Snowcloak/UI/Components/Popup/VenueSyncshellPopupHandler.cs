@@ -6,6 +6,10 @@ using Dalamud.Interface.Utility.Raii;
 using System.Numerics;
 using System.Threading.Tasks;
 using Snowcloak.Services.Venue;
+using Dalamud.Utility;
+using Snowcloak.Utils;
+using Snowcloak.Services.Housing;
+using System.Text;
 
 namespace Snowcloak.UI.Components.Popup;
 
@@ -24,9 +28,8 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         _venueSyncshellService = venueSyncshellService;
     }
 
-    public Vector2 PopupSize => new(480, 320);
-
-    public bool ShowClose => true;
+    public Vector2 PopupSize => new(550, 450);
+    public bool ShowClose => false;
 
     public void DrawContent()
     {
@@ -38,32 +41,38 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
             _closeOnSuccess = false;
         }
 
+        var venue = _prompt.Venue;
+
         using (_uiSharedService.UidFont.Push())
-            UiSharedService.TextWrapped(_prompt.Venue.VenueName);
+            UiSharedService.ColorText(venue.VenueName, Colours.Hex2Vector4(venue.JoinInfo.Group.DisplayColour));
 
-        UiSharedService.TextWrapped($"Syncshell: {_prompt.Venue.JoinInfo.Group.AliasOrGID}");
-        UiSharedService.TextWrapped($"Location: {_prompt.Venue.LocationDisplay}");
+        ImGuiHelpers.ScaledDummy(5f);
 
-        if (!string.IsNullOrWhiteSpace(_prompt.Venue.VenueHost))
+        if (ImGui.BeginTable("venue_info_table", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.PadOuterX))
         {
-            UiSharedService.TextWrapped($"Host: {_prompt.Venue.VenueHost}");
+            AddInfoRow(FontAwesomeIcon.MapMarkedAlt, "Venue location", GetHousingPlotName(_prompt.Location));
+            AddInfoRow(FontAwesomeIcon.User, "Host", venue.VenueHost);
+            AddInfoRow(FontAwesomeIcon.Globe, "Website", venue.VenueWebsite, isLink: true);
+            ImGui.EndTable();        
         }
 
-        if (!string.IsNullOrWhiteSpace(_prompt.Venue.VenueWebsite))
+        if (!string.IsNullOrWhiteSpace(venue.VenueDescription))
         {
-            UiSharedService.TextWrapped($"Website: {_prompt.Venue.VenueWebsite}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(_prompt.Venue.VenueDescription))
-        {
-            using var child = ImRaii.Child("##venue_description", new Vector2(-1, 120 * ImGuiHelpers.GlobalScale), true);
+            ImGuiHelpers.ScaledDummy(8f);
+            UiSharedService.TextWrapped("About this venue");
+            using var child = ImRaii.Child("##venue_description",
+                new Vector2(-1, MathF.Max(100f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().Y - ImGui.GetFrameHeightWithSpacing() * 3.75f)),
+                true,
+                ImGuiWindowFlags.AlwaysVerticalScrollbar);
             if (child)
             {
-                UiSharedService.TextWrapped(_prompt.Venue.VenueDescription);
+                UiSharedService.TextWrapped(venue.VenueDescription);
             }
         }
+        UiSharedService.TextWrapped("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");
+        UiSharedService.TextWrapped("Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff " +
+                                    "are not responsible for the content of this venue.");
 
-        UiSharedService.TextWrapped("If you leave the venue, you will be removed from this syncshell after a two minute grace period.");
 
         if (_joinFailed)
         {
@@ -86,6 +95,11 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 });
             }
         }
+        ImGui.SameLine();
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
+        {
+            ImGui.CloseCurrentPopup();
+        }
     }
 
     public void Open(VenueSyncshellPrompt prompt)
@@ -94,5 +108,63 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         _joinFailed = false;
         _isJoining = false;
         _closeOnSuccess = false;
+    }
+    
+    
+    private static void AddInfoRow(FontAwesomeIcon icon, string label, string? value, Vector4? valueColor = null, bool isLink = false)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.TextUnformatted(icon.ToIconString());
+        ImGui.PopFont();
+        ImGui.SameLine();
+        ImGui.TextColored(ImGuiColors.DalamudGrey2, label + ":");
+
+        ImGui.TableNextColumn();
+        if (valueColor.HasValue)
+        {
+            ImGui.TextColored(valueColor.Value, value);
+        }
+        else
+        {
+            ImGui.TextUnformatted(value);
+        }
+
+        if (isLink && ImGui.IsItemHovered())
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            if (ImGui.IsItemClicked())
+            {
+                Util.OpenLink(value);
+            }
+        }
+    }
+    
+    private string GetHousingPlotName(HousingPlotLocation location)
+    {
+        var worldName = _uiSharedService.WorldData.GetValueOrDefault((ushort)location.WorldId, location.WorldId.ToString());
+        var territoryName = _uiSharedService.TerritoryData.GetValueOrDefault(location.TerritoryId, $"Territory {location.TerritoryId}");
+
+        StringBuilder builder = new();
+        builder.Append(worldName);
+        builder.Append(" - ");
+        builder.Append(territoryName);
+        builder.Append(" - Ward ");
+        builder.Append(location.WardId);
+        if (location.IsApartment)
+        {
+            builder.Append(" Apartments");
+            if (location.RoomId > 0)
+                builder.Append($" Room {location.RoomId}");
+        }
+        else
+        {
+            builder.Append($" Plot {location.PlotId}");
+        }
+
+        return builder.ToString();
     }
 }
