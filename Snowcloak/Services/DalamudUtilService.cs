@@ -811,7 +811,14 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         if (_objectTable.LocalPlayer == null)
             return;
 
-        var isCurrentlyOnPlot = TryGetHousingPlotLocation(out var currentLocation);
+        var isCurrentlyOnPlot = TryGetHousingPlotLocation(out var currentLocation, out var isInsideHousing);
+
+        if (_isOnHousingPlot && isCurrentlyOnPlot && isInsideHousing
+            && !currentLocation.Equals(_lastHousingPlotLocation)
+            && IsSameHousingStructure(currentLocation, _lastHousingPlotLocation))
+        {
+            currentLocation = _lastHousingPlotLocation;
+        }
         
         if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
         {
@@ -823,6 +830,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                 Type = XivChatType.SystemMessage
             });
             #endif
+            Mediator.Publish(new HousingPlotLeftMessage(_lastHousingPlotLocation));
         }
 
         if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
@@ -843,12 +851,19 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         
     }
     
-    
-    
+    private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
+    {
+        return left.WorldId == right.WorldId
+               && left.WardId == right.WardId
+               && left.PlotId == right.PlotId
+               && left.IsApartment == right.IsApartment;
+    }
 
-    private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation)
+    
+    private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation, out bool isInsideHousing)
     {
         housingLocation = default;
+        isInsideHousing = false;
 
         var houseMan = HousingManager.Instance();
         var agentMap = AgentMap.Instance();
@@ -857,11 +872,12 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         
         if (houseMan != null)
         {
+            isInsideHousing = houseMan->IsInside();
             var currentPlot = (uint)(houseMan->GetCurrentPlot() + 1); // Pass this as the actual number instead of index
             var ward = (uint)(houseMan->GetCurrentWard() + 1);
             var division = (uint)houseMan->GetCurrentDivision();
             var room = (uint)houseMan->GetCurrentRoom();
-            var territoryId = agentMap == null ? 0 : agentMap->CurrentTerritoryId;
+            var territoryId = locationInfo.TerritoryId;
             var worldId = locationInfo.ServerId;
             if (currentPlot > 0)
             {
@@ -872,8 +888,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             if (currentPlot < -1)
             {
                 uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
-                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);                return true;
-            }
+                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);
+                return true;            }
         }
 
         if (locationInfo.HouseId > 0)

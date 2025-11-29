@@ -11,6 +11,7 @@ using Snowcloak.WebAPI;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace Snowcloak.Services.Venue;
 
@@ -121,7 +122,8 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         List<string> groupIds;
         lock (_syncRoot)
         {
-            groupIds = _autoJoinedVenues.Where(kvp => kvp.Value.Location.Equals(location)).Select(kvp => kvp.Key).ToList();
+            groupIds = _autoJoinedVenues.Where(kvp => IsSamePlot(kvp.Value.Location, location)).Select(kvp => kvp.Key).ToList();
+            
         }
 
         foreach (var groupId in groupIds)
@@ -133,6 +135,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
     private async Task HandleHousingPlotEntered(HousingPlotLocation location)
     {
         CancelPendingRemovalForLocation(location);
+        RemoveStaleAutoJoinedVenues();
 
         if (!_configService.Current.AutoJoinVenueSyncshells)
         {
@@ -187,7 +190,8 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         List<AutoJoinedVenue> venuesToLeave;
         lock (_syncRoot)
         {
-            venuesToLeave = _autoJoinedVenues.Values.Where(v => v.Location.Equals(location)).ToList();
+            venuesToLeave = _autoJoinedVenues.Values.Where(v => IsSamePlot(v.Location, location)).ToList();
+            
         }
 
         foreach (var venue in venuesToLeave)
@@ -244,6 +248,37 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             }
         }, tokenSource.Token);
     }
+    
+    private static bool IsSamePlot(HousingPlotLocation left, HousingPlotLocation right)
+    {
+        return left.WorldId == right.WorldId
+               && left.TerritoryId == right.TerritoryId
+               && left.DivisionId == right.DivisionId
+               && left.WardId == right.WardId
+               && left.PlotId == right.PlotId
+               && left.IsApartment == right.IsApartment;
+    }
+
+    private void RemoveStaleAutoJoinedVenues()
+    {
+        List<string> staleGroupIds;
+        lock (_syncRoot)
+        {
+            var memberGids = new HashSet<string>(_pairManager.Groups.Keys.Select(g => g.GID), StringComparer.Ordinal);
+            staleGroupIds = _autoJoinedVenues.Keys.Where(gid => !memberGids.Contains(gid)).ToList();
+
+            foreach (var staleGroupId in staleGroupIds)
+            {
+                _autoJoinedVenues.Remove(staleGroupId);
+                if (_pendingRemovalTokens.TryGetValue(staleGroupId, out var pending))
+                {
+                    pending.Cancel();
+                    _pendingRemovalTokens.Remove(staleGroupId);
+                }
+            }
+        }
+    }
+
 
     private readonly record struct AutoJoinedVenue(GroupData Group, HousingPlotLocation Location);
 }
