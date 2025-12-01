@@ -155,7 +155,7 @@ public static class SCFFile
         try
         {
             await using FileStream outFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                131072, FileOptions.SequentialScan);
+                131072, FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var hasher = Blake3.Hasher.New();
             var buf = ArrayPool<byte>.Shared.Rent(81920);
             
