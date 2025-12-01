@@ -2,6 +2,7 @@ using Blake3;
 using System.Text;
 using ZstdSharp;
 using ZstdSharp.Unsafe;
+using System.Buffers;
 
 namespace Snowcloak.Files;
 
@@ -105,15 +106,21 @@ public static class SCFFile
             {
                 zstd.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
             }
-            var buffer =
-                new byte[81920]; // Weird number, don't like it, but anything over 80KB is considered large by .NET
-            int read;
-            while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+            var buffer = ArrayPool<byte>.Shared.Rent(81920);
+            try
             {
-                hasher.Update(buffer.AsSpan(0, read));
-                await zstd.WriteAsync(buffer.AsMemory(0, read), ct);
-                uncompressed += read;
-                progress?.Report(("Compressing", uncompressed));
+                int read;
+                while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                {
+                    hasher.Update(buffer.AsSpan(0, read));
+                    await zstd.WriteAsync(buffer.AsMemory(0, read), ct);
+                    uncompressed += read;
+                    progress?.Report(("Compressing", uncompressed));
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
 
             }
 
@@ -150,25 +157,32 @@ public static class SCFFile
             await using FileStream outFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 131072, FileOptions.SequentialScan);
             using var hasher = Blake3.Hasher.New();
-            var buf = new byte[81920];
-
-            switch (header.CompressionType)
+            var buf = ArrayPool<byte>.Shared.Rent(81920);
+            
+            try
             {
-                case CompressionType.ZSTD:
-                    {
-                        using var zstd = new DecompressionStream(scfInput, leaveOpen: true);
-                        int read;
-                        while ((read = await zstd.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
+                switch (header.CompressionType)
+                {
+                    case CompressionType.ZSTD:
                         {
-                            hasher.Update(buf.AsSpan(0, read));
-                            await outFile.WriteAsync(buf.AsMemory(0, read), ct);
-                        }
+                            using var zstd = new DecompressionStream(scfInput, leaveOpen: true);
+                            int read;
+                            while ((read = await zstd.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
+                            {
+                                hasher.Update(buf.AsSpan(0, read));
+                                await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                            }
 
-                        break;
-                    }
-                default:
-                    throw new NotSupportedException(
-                        $"SCF: Compression type {header.CompressionType} not supported yet.");
+                            break;
+                        }
+                    default:
+                        throw new NotSupportedException(
+                            $"SCF: Compression type {header.CompressionType} not supported yet.");
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
             }
 
             await outFile.FlushAsync(ct);
