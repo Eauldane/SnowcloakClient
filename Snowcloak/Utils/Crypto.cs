@@ -11,7 +11,7 @@ public static class Crypto
 
     private static readonly SHA256CryptoServiceProvider _sha256CryptoProvider = new();
 
-    public static string GetFileHash(this string filePath)
+    public static async Task<string> GetFileHashAsync(this string filePath)
     {
         using var fileStream = File.OpenRead(filePath);
 
@@ -21,7 +21,7 @@ public static class Crypto
         try
         {
             int bytesRead;
-            while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
+            while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
             {
                 hasher.Update(buffer.AsSpan(0, bytesRead));
             }
@@ -33,6 +33,12 @@ public static class Crypto
 
         return hasher.Finalize().ToString().ToUpperInvariant();
     }
+    
+    public static string GetFileHash(this string filePath)
+    {
+        return GetFileHashAsync(filePath).GetAwaiter().GetResult();
+    }
+
 
     public static string GetHash256(this string stringToHash)
     {

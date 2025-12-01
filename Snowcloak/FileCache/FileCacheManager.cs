@@ -100,7 +100,7 @@ public sealed class FileCacheManager : IHostedService
         return output;
     }
 
-    public Task<List<FileCacheEntity>> ValidateLocalIntegrity(IProgress<(int, int, FileCacheEntity)> progress, CancellationToken cancellationToken)
+    public async Task<List<FileCacheEntity>> ValidateLocalIntegrity(IProgress<(int, int, FileCacheEntity)> progress, CancellationToken cancellationToken)
     {
         _snowMediator.Publish(new HaltScanMessage(nameof(ValidateLocalIntegrity)));
         _logger.LogInformation("Validating local storage");
@@ -124,7 +124,7 @@ public sealed class FileCacheManager : IHostedService
 
             try
             {
-                var computedHash = Crypto.GetFileHash(fileCache.ResolvedFilepath);
+                var computedHash = await Crypto.GetFileHashAsync(fileCache.ResolvedFilepath).ConfigureAwait(false);
                 if (!string.Equals(computedHash, fileCache.Hash, StringComparison.Ordinal))
                 {
                     _logger.LogInformation("Failed to validate {file}, got hash {hash}, expected hash {expectedHash}", fileCache.ResolvedFilepath, computedHash, fileCache.Hash);
@@ -153,7 +153,7 @@ public sealed class FileCacheManager : IHostedService
         }
 
         _snowMediator.Publish(new ResumeScanMessage(nameof(ValidateLocalIntegrity)));
-        return Task.FromResult(brokenEntities);
+        return brokenEntities;
     }
 
     public string GetCacheFilePath(string hash, string extension)
@@ -288,7 +288,7 @@ public sealed class FileCacheManager : IHostedService
             var fi = new FileInfo(fileCache.ResolvedFilepath);
             fileCache.Size = fi.Length;
             fileCache.CompressedSize = null;
-            fileCache.Hash = Crypto.GetFileHash(fileCache.ResolvedFilepath);
+            fileCache.Hash = Crypto.GetFileHashAsync(fileCache.ResolvedFilepath).GetAwaiter().GetResult();
             fileCache.LastModifiedDateTicks = fi.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);
         }
         RemoveHashedFile(oldHash, prefixedPath);
@@ -375,7 +375,7 @@ public sealed class FileCacheManager : IHostedService
 
     private FileCacheEntity? CreateFileCacheEntity(FileInfo fileInfo, string prefixedPath, string? hash = null)
     {
-        hash ??= Crypto.GetFileHash(fileInfo.FullName);
+        hash ??= Crypto.GetFileHashAsync(fileInfo.FullName).GetAwaiter().GetResult();
         var entity = new FileCacheEntity(hash, prefixedPath, fileInfo.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture), fileInfo.Length);
         entity = ReplacePathPrefixes(entity);
         AddHashedFile(entity);

@@ -530,8 +530,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             {
                 try
                 {
-                    _performanceCollector.LogPerformance(this, $"FullFileScan", () => FullFileScan(token));
-                }
+                    _performanceCollector.LogPerformance(this, $"FullFileScan", () => FullFileScanAsync(token).GetAwaiter().GetResult());                }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Error during Full File Scan");
@@ -827,7 +826,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         _periodicCalculationTokenSource?.CancelDispose();
     }
 
-    private void FullFileScan(CancellationToken ct)
+    private async Task FullFileScanAsync(CancellationToken ct)
     {
         TotalFiles = 1;
         var penumbraDir = _ipcManager.Penumbra.ModDirectory;
@@ -911,7 +910,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             try
             {
                 var legacyInfo = new FileInfo(legacyFile);
-                var newHash = Crypto.GetFileHash(legacyFile);
+                var newHash = await Crypto.GetFileHashAsync(legacyFile).ConfigureAwait(false);
                 if (newHash.Length != 64)
                 {
                     Logger.LogWarning("Skipping legacy cache file {file} due to unexpected hash length {length}",
@@ -930,7 +929,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                 {
                     try
                     {
-                        var destHash = Crypto.GetFileHash(destPath);
+                        var destHash = await Crypto.GetFileHashAsync(destPath).ConfigureAwait(false);
                         if (string.Equals(destHash, newHash, StringComparison.OrdinalIgnoreCase))
                         {
                             Logger.LogInformation("Removing duplicate legacy cache artifact {file}", legacyFile);
