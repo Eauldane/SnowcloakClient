@@ -13,13 +13,24 @@ public static class Crypto
 
     public static async Task<string> GetFileHashAsync(this string filePath)
     {
-        using var fileStream = File.OpenRead(filePath);
 
         var hasher = Hasher.New();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(81920);
-
+        FileStream? fileStream = null;
+        
         try
         {
+            fileStream = new FileStream(
+                filePath,
+                new FileStreamOptions
+                {
+                    Access = FileAccess.Read,
+                    Mode = FileMode.Open,
+                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+                    Share = FileShare.Read,
+                    BufferSize = buffer.Length
+                });
+
             int bytesRead;
             while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
             {
@@ -28,6 +39,7 @@ public static class Crypto
         }
         finally
         {
+            fileStream?.Dispose();
             ArrayPool<byte>.Shared.Return(buffer);
         }
 
