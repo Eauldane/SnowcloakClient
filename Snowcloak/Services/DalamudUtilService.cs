@@ -24,6 +24,7 @@ using System.Text;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using Snowcloak.Services.Housing;
+using Dalamud.Game.ClientState.Party;
 
 
 namespace Snowcloak.Services;
@@ -52,6 +53,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private readonly IFramework _framework;
     private readonly IGameGui _gameGui;
     private readonly IChatGui _chatGui;
+    private readonly ITargetManager _targetManager;
+    private readonly IPartyList _partyList;
     private readonly IToastGui _toastGui;
     private readonly ILogger<DalamudUtilService> _logger;
     private readonly IObjectTable _objectTable;
@@ -71,7 +74,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
         IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
-        IPlayerState playerState, BlockedCharacterHandler blockedCharacterHandler, SnowMediator mediator, PerformanceCollectorService performanceCollector)
+        IPlayerState playerState, BlockedCharacterHandler blockedCharacterHandler, SnowMediator mediator, PerformanceCollectorService performanceCollector,
+        IPartyList partyList)
     {
         _logger = logger;
         _clientState = clientState;
@@ -82,6 +86,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _chatGui = chatGui;
         _condition = condition;
         _playerState = playerState;
+        _targetManager = targetManager;
+        _partyList = partyList;
         _gameData = gameData;
         _blockedCharacterHandler = blockedCharacterHandler;
         Mediator = mediator;
@@ -906,4 +912,40 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
         return false;
     }
+    
+
+    public uint? GetTargetObjectId()
+    {
+        if (_targetManager.Target is IPlayerCharacter playerCharacter)
+            return playerCharacter.EntityId;
+
+        return null;
+    }
+
+    public IPlayerCharacter? GetTargetPlayerCharacter()
+    {
+        EnsureIsOnFramework();
+        if (_targetManager.Target is IPlayerCharacter playerCharacter)
+            return playerCharacter;
+
+        return null;
+    }
+
+    public async Task<IPlayerCharacter?> GetTargetPlayerCharacterAsync()
+    {
+        return await RunOnFrameworkThread(GetTargetPlayerCharacter).ConfigureAwait(false);
+    }
+
+    public IEnumerable<IPlayerCharacter> GetPartyPlayerCharacters()
+    {
+        EnsureIsOnFramework();
+        for (int i = 0; i < _partyList.Count; i++)
+        {
+            if (_partyList[i]?.GameObject is IPlayerCharacter partyMember)
+                yield return partyMember;
+        }
+    }
+
+    
+    
 }

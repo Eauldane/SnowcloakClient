@@ -10,6 +10,9 @@ using Snowcloak.UI;
 using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Text;
+using Snowcloak.PlayerData.Pairs;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace Snowcloak.Services;
 
@@ -18,6 +21,7 @@ public sealed class CommandManagerService : IDisposable
     private const string _commandName = "/snow";
     private const string _commandName2 = "/snowcloak";
     private const string _commandName3 = "/sync";
+    private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
     private const string _ssCommandPrefix = "/ss";
 
@@ -31,11 +35,12 @@ public sealed class CommandManagerService : IDisposable
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly IChatGui _chatGui;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly PairManager _pairManager;
 
 
     public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
-        ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService)
+        ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager)
     {
         _commandManager = commandManager;
         _chatGui = chatGui;
@@ -47,17 +52,22 @@ public sealed class CommandManagerService : IDisposable
         _apiController = apiController;
         _mediator = mediator;
         _snowcloakConfigService = snowcloakConfigService;
+        _pairManager = pairManager;
         _commandManager.AddHandler(_commandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the Snowcloak UI"
+            HelpMessage = "Opens the Snowcloak UI. Aliases include /snowcloak and /sync."
         });
         _commandManager.AddHandler(_commandName2, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the Snowcloak UI"
+            ShowInHelp = false
         });
         _commandManager.AddHandler(_commandName3, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the Snowcloak UI"
+            ShowInHelp = false
+        });
+        _commandManager.AddHandler(_animSyncCommand, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Resets animation state of yourself, your target, and party members so that they all line up. Local only, does not affect unsynced players."
         });
 
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
@@ -72,11 +82,15 @@ public sealed class CommandManagerService : IDisposable
         }
     }
 
+        
+    
     public void Dispose()
     {
         _commandManager.RemoveHandler(_commandName);
         _commandManager.RemoveHandler(_commandName2);
         _commandManager.RemoveHandler(_commandName3);
+        _commandManager.RemoveHandler(_animSyncCommand);
+        _commandManager.RemoveHandler(_venueFinder);
 
         for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
             _commandManager.RemoveHandler($"{_ssCommandPrefix}{i}");
@@ -84,6 +98,11 @@ public sealed class CommandManagerService : IDisposable
 
     private void OnCommand(string command, string args)
     {
+        if (string.Equals(command, _animSyncCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = AttemptAnimationSyncAsync();
+            return;
+        }
         var splitArgs = args.ToLowerInvariant().Trim().Split(" ", StringSplitOptions.RemoveEmptyEntries);
 
         if (splitArgs.Length == 0)
@@ -156,6 +175,88 @@ public sealed class CommandManagerService : IDisposable
             Type = XivChatType.SystemMessage
         });
     }
+    
+     private async Task AttemptAnimationSyncAsync()
+    {
+        var pairsToRefresh = new HashSet<Pair>();
+
+        var targetId = _dalamudUtilService.GetTargetObjectId();
+        if (targetId != null)
+        {
+            var targetPair = _pairManager.GetPairByObjectId(targetId.Value);
+            if (targetPair != null)
+                pairsToRefresh.Add(targetPair);
+            
+            else
+            {
+                //_chatGui.PrintError("Target is not a synced player; attempting party sync instead.");
+            }
+        }
+        
+
+        var partyMemberIds = await _dalamudUtilService.RunOnFrameworkThread(() =>
+        {
+            return _dalamudUtilService.GetPartyPlayerCharacters()
+                .Select(member => member.EntityId)
+                .ToList();
+        }).ConfigureAwait(false);
+
+        foreach (var partyMemberId in partyMemberIds)
+        {
+            var partyPair = _pairManager.GetPairByObjectId(partyMemberId);
+            if (partyPair != null && pairsToRefresh.Add(partyPair))
+                if (partyPair != null)
+                    pairsToRefresh.Add(partyPair);
+        }
+        
+        if (pairsToRefresh.Count == 0)
+        {
+            //_chatGui.PrintError("No synced targets or party members found for animation sync.");
+            return;
+        }
+        var refreshedObjectIds = pairsToRefresh
+            .Select(pair => pair.PlayerCharacterId)
+            .Where(id => id != uint.MaxValue)
+            .ToHashSet();
+
+        await _dalamudUtilService.RunOnFrameworkThread(() =>
+        {
+
+            var processedIds = new HashSet<uint>();
+            if (_dalamudUtilService.GetIsPlayerPresent())
+            {
+                var playerCharacter = _dalamudUtilService.GetPlayerCharacter();
+                if (playerCharacter != null && processedIds.Add(playerCharacter.EntityId))
+                {
+                    _mediator.Publish(new PenumbraRedrawCharacterMessage(playerCharacter));
+                }
+            }
+
+            var targetCharacter = _dalamudUtilService.GetTargetPlayerCharacter();
+            if (targetCharacter != null && refreshedObjectIds.Contains(targetCharacter.EntityId)
+                                        && processedIds.Add(targetCharacter.EntityId))
+            {
+                _mediator.Publish(new PenumbraRedrawCharacterMessage(targetCharacter));
+            }
+
+            foreach (var partyMember in _dalamudUtilService.GetPartyPlayerCharacters())
+            {
+                if (refreshedObjectIds.Contains(partyMember.EntityId) && processedIds.Add(partyMember.EntityId))
+                {
+                    _mediator.Publish(new PenumbraRedrawCharacterMessage(partyMember));
+                }            }
+        }).ConfigureAwait(false);
+        var refreshedNames = string.Join(", ", pairsToRefresh.Select(p => p.UserData.AliasOrUID));
+        #if DEBUG
+        _chatGui.Print(new XivChatEntry
+        {
+            Message = $"Requested animation sync with {refreshedNames}.",
+            Type = XivChatType.SystemMessage
+        });
+        #endif
+    }
+
+    
     private void OnChatCommand(string command, string args)
     {
         if (_snowcloakConfigService.Current.DisableSyncshellChat)
