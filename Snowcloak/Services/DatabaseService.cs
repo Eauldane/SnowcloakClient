@@ -456,11 +456,12 @@ GROUP BY file_hash;");
         }
     }
     
-       private async Task ProcessFileSeenQueueAsync(CancellationToken cancellationToken)
+    private async Task ProcessFileSeenQueueAsync(CancellationToken cancellationToken)
     {
         List<FileSeenEntry> buffer = new(FileSeenFlushThreshold);
         using PeriodicTimer timer = new(FileSeenFlushInterval);
-
+        Task<bool> timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+        
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -468,7 +469,6 @@ GROUP BY file_hash;");
                 try
                 {
                     var readTask = _fileSeenChannel.Reader.ReadAsync(cancellationToken).AsTask();
-                    var timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
                     var completed = await Task.WhenAny(readTask, timerTask).ConfigureAwait(false);
 
                     if (completed == readTask)
@@ -484,10 +484,21 @@ GROUP BY file_hash;");
                         {
                             await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
                         }
+
+                        if (timerTask.IsCompleted)
+                        {
+                            timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                        }
                     }
-                    else if (buffer.Count > 0)
+                    else
                     {
-                        await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
+                        if (await timerTask.ConfigureAwait(false) && buffer.Count > 0)
+                        {
+                            await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                        
                     }
                 }
                 catch (OperationCanceledException)
