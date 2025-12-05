@@ -13,6 +13,8 @@ using System.Text;
 using Snowcloak.PlayerData.Pairs;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Snowcloak.Services.Venue;
+
 
 namespace Snowcloak.Services;
 
@@ -23,6 +25,7 @@ public sealed class CommandManagerService : IDisposable
     private const string _commandName3 = "/sync";
     private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
+    private const string _venueRegistration = "/snowvenuereg";
     private const string _ssCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
@@ -36,11 +39,12 @@ public sealed class CommandManagerService : IDisposable
     private readonly IChatGui _chatGui;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly PairManager _pairManager;
-
+    private readonly VenueRegistrationService _venueRegistrationService;
 
     public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
-        ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager)
+        ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager,
+        VenueRegistrationService venueRegistrationService)
     {
         _commandManager = commandManager;
         _chatGui = chatGui;
@@ -53,6 +57,7 @@ public sealed class CommandManagerService : IDisposable
         _mediator = mediator;
         _snowcloakConfigService = snowcloakConfigService;
         _pairManager = pairManager;
+        _venueRegistrationService = venueRegistrationService;
         _commandManager.AddHandler(_commandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Opens the Snowcloak UI. Aliases include /snowcloak and /sync."
@@ -69,7 +74,10 @@ public sealed class CommandManagerService : IDisposable
         {
             HelpMessage = "Resets animation state of yourself, your target, and party members so that they all line up. Local only, does not affect unsynced players."
         });
-
+        _commandManager.AddHandler(_venueRegistration, new CommandInfo(OnVenueRegistrationCommand)
+        {
+            HelpMessage = "Begin registering the current housing plot for a venue syncshell."
+        });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
 
         // Lazy registration of all possible /ss# commands which tbf is what the game does for linkshells anyway
@@ -91,6 +99,7 @@ public sealed class CommandManagerService : IDisposable
         _commandManager.RemoveHandler(_commandName3);
         _commandManager.RemoveHandler(_animSyncCommand);
         _commandManager.RemoveHandler(_venueFinder);
+        _commandManager.RemoveHandler(_venueRegistration);
 
         for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
             _commandManager.RemoveHandler($"{_ssCommandPrefix}{i}");
@@ -255,7 +264,11 @@ public sealed class CommandManagerService : IDisposable
         });
         #endif
     }
-
+     
+    private void OnVenueRegistrationCommand(string command, string args)
+    {
+        _venueRegistrationService.BeginRegistrationFromCommand();
+    }
     
     private void OnChatCommand(string command, string args)
     {

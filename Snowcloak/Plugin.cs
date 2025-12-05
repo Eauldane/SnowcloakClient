@@ -148,6 +148,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<IpcManager>();
             collection.AddSingleton<NotificationService>();
             collection.AddSingleton<VenueSyncshellService>();
+            collection.AddSingleton<VenueRegistrationService>();
 
             collection.AddSingleton((s) => new SnowcloakConfigService(pluginInterface.ConfigDirectory.FullName));
             collection.AddSingleton((s) => new ServerConfigService(pluginInterface.ConfigDirectory.FullName));
@@ -216,6 +217,8 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddHostedService(p => p.GetRequiredService<SnowPlugin>());
             collection.AddHostedService(p => p.GetRequiredService<IpcProvider>());
             collection.AddHostedService(p => p.GetRequiredService<VenueSyncshellService>());
+            collection.AddHostedService(p => p.GetRequiredService<VenueRegistrationService>());
+            
         })
         .Build();
 

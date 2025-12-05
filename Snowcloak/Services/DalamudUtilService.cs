@@ -871,6 +871,12 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     }
 
     
+    public bool TryGetLastHousingPlot(out HousingPlotLocation location)
+    {
+        location = _lastHousingPlotLocation;
+        return _isOnHousingPlot;
+    }
+    
     private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation, out bool isInsideHousing)
     {
         housingLocation = default;
