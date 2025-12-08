@@ -106,7 +106,8 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             };
             if (ImGui.BeginChildFrame(101, childFrame))
             {
-                UiSharedService.TextWrapped(profile.Description);
+                _uiSharedService.RenderBbCode(profile.Description, ImGui.GetContentRegionAvail().X);
+                
             }
             ImGui.EndChildFrame();
         }
@@ -196,7 +197,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             };
             if (ImGui.BeginChildFrame(102, childFrameLocal))
             {
-                UiSharedService.TextWrapped(_descriptionText);
+                _uiSharedService.RenderBbCode(_descriptionText, ImGui.GetContentRegionAvail().X);
             }
             ImGui.EndChildFrame();
         }

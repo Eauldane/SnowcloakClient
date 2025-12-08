@@ -114,7 +114,8 @@ public record GPoseLobbyReceiveCharaData(CharaDataDownloadDto CharaDataDownloadD
 public record GPoseLobbyReceivePoseData(UserData UserData, PoseData PoseData) : MessageBase;
 public record GPoseLobbyReceiveWorldData(UserData UserData, WorldData WorldData) : MessageBase;
 public record VenueSyncshellJoinAcceptedMessage(VenueSyncshellDto Venue, VenueLocationDto Location) : MessageBase;
-
+public record OpenBbCodeLinkPopupMessage(string Url) : MessageBase;
+public record OpenVenueRegistrationWindowMessage(VenueRegistrationContext Context) : MessageBase;
 public record PluginChangeMessage(string InternalName, Version Version, bool IsLoaded) : KeyedMessage(InternalName);
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name

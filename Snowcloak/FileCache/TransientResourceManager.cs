@@ -13,7 +13,7 @@ namespace Snowcloak.FileCache;
 
 public sealed class TransientResourceManager : DisposableMediatorSubscriberBase
 {
-    private readonly object _cacheAdditionLock = new();
+    private readonly Lock _cacheAdditionLock = new();
     private readonly HashSet<string> _cachedHandledPaths = new(StringComparer.Ordinal);
     private readonly TransientConfigService _configurationService;
     private readonly DalamudUtilService _dalamudUtil;

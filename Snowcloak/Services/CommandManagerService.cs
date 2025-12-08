@@ -174,6 +174,11 @@ public sealed class CommandManagerService : IDisposable
         {
             _mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi)));
         }
+        else if (string.Equals(splitArgs[0], "bbtest", StringComparison.OrdinalIgnoreCase))
+        {
+            _mediator.Publish(new UiToggleMessage(typeof(BbCodeTestUi)));
+        }
+        
     }
 
     private void OnVenueFindCommand(string command, string args)

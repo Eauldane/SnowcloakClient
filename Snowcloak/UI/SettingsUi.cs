@@ -975,6 +975,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         var preferNoteInDtrTooltip = _configService.Current.PreferNoteInDtrTooltip;
         var useColorsInDtr = _configService.Current.UseColorsInDtr;
         var dtrColorsDefault = _configService.Current.DtrColorsDefault;
+        var allowBbCodeImages = _configService.Current.AllowBbCodeImages;
         var dtrColorsNotConnected = _configService.Current.DtrColorsNotConnected;
         var dtrColorsPairsInRange = _configService.Current.DtrColorsPairsInRange;
 
@@ -1137,6 +1138,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("Will show profiles that have the NSFW tag enabled");
 
+        if (ImGui.Checkbox("Render BBCode images", ref allowBbCodeImages))
+        {
+            _configService.Current.AllowBbCodeImages = allowBbCodeImages;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("Disable this to show [img] tags as text instead of loading external images.");
+        
         ImGui.Separator();
 
         var disableOptionalPluginWarnings = _configService.Current.DisableOptionalPluginWarnings;

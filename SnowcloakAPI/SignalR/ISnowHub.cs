@@ -143,4 +143,5 @@ public interface ISnowHub
     Task GposeLobbyPushPoseData(PoseData poseData);
     Task GposeLobbyPushWorldData(WorldData worldData);
     Task<VenueInfoResponseDto> VenueGetInfoForPlot(VenueInfoRequestDto request);
+    Task<VenueRegistrationResponseDto> VenueRegister(VenueRegistrationRequestDto request);
 }

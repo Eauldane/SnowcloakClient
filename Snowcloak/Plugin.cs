@@ -28,6 +28,7 @@ using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.SignalR;
 using IntroUi = Snowcloak.UI.IntroUi;
 using UiSharedService = Snowcloak.UI.UiSharedService;
+using Snowcloak.UI.Components.BbCode;
 
 namespace Snowcloak;
 
@@ -120,6 +121,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<UidDisplayHandler>();
             collection.AddSingleton<PluginWatcherService>();
             collection.AddSingleton<PlayerPerformanceService>();
+            collection.AddSingleton<BbCodeRenderer>();
 
             collection.AddSingleton<CharaDataManager>();
             collection.AddSingleton<CharaDataFileHandler>();
@@ -190,9 +192,12 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<WindowMediatorSubscriberBase, EventViewerUI>();
             collection.AddScoped<WindowMediatorSubscriberBase, CharaDataHubUi>();
             collection.AddScoped<WindowMediatorSubscriberBase, EditProfileUi>();
+            collection.AddScoped<WindowMediatorSubscriberBase, VenueRegistrationUi>();
             collection.AddScoped<WindowMediatorSubscriberBase, PopupHandler>();
+            collection.AddScoped<WindowMediatorSubscriberBase, BbCodeTestUi>();
             collection.AddScoped<IPopupHandler, ReportPopupHandler>();
             collection.AddScoped<IPopupHandler, BanUserPopupHandler>();
+            collection.AddScoped<IPopupHandler, BbCodeLinkPopupHandler>();
             collection.AddScoped<CacheCreationService>();
             collection.AddScoped<TransientResourceManager>();
             collection.AddScoped<PlayerDataFactory>();

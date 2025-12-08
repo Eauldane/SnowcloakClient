@@ -13,6 +13,11 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services.Housing;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Snowcloak.Services.Housing;
+using Snowcloak.Services.Mediator;
+
 
 namespace Snowcloak.Services.Venue;
 
@@ -27,6 +32,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
     private readonly IObjectTable _objectTable;
     private readonly IPlayerState _playerState;
     private readonly ILogger<VenueRegistrationService> _logger;
+    private readonly SnowMediator _mediator;
 
     private HousingPlotLocation? _pendingPlot;
     private bool _wasPlacardOpen;
@@ -34,7 +40,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
     private string? _activePlacardAddonKey;
 
     public VenueRegistrationService(ILogger<VenueRegistrationService> logger, DalamudUtilService dalamudUtilService,
-        IChatGui chatGui, IGameGui gameGui, IFramework framework, IObjectTable objectTable, IPlayerState playerState)
+        IChatGui chatGui, IGameGui gameGui, IFramework framework, IObjectTable objectTable, IPlayerState playerState,
+        SnowMediator mediator)
     {
         _logger = logger;
         _dalamudUtilService = dalamudUtilService;
@@ -43,6 +50,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _framework = framework;
         _objectTable = objectTable;
         _playerState = _playerState;
+        _mediator = mediator;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -204,19 +212,32 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 Type = XivChatType.SystemMessage
             });
             var (ward, plot) = ExtractWardAndPlot(evaluation.Lines);
-            var plotMatches = ward == _pendingPlot.Value.WardId && plot == _pendingPlot.Value.PlotId;
-            var (_, ownerValue) = ExtractLabelAndValue(evaluation.Lines, "owner");
-            var (_, freeCompanyValue) = ExtractLabelAndValue(evaluation.Lines, "company");
+            var plotMatches = plot == _pendingPlot.Value.PlotId;
+            var ownerResult = ExtractLabelAndValue(evaluation.Lines, "owner");
+            var ownerValue = ownerResult.Value;
+            var (_, freeCompanyValue, _, _) = ExtractLabelAndValue(evaluation.Lines, "company");
 
-            var matchesOwner = !string.IsNullOrWhiteSpace(evaluation.PlayerName)
-                               && !string.IsNullOrWhiteSpace(ownerValue)
-                               && ownerValue.Contains(evaluation.PlayerName, StringComparison.OrdinalIgnoreCase);
+            
+            var matchesOwnerName = !string.IsNullOrWhiteSpace(evaluation.PlayerName)
+                                   && !string.IsNullOrWhiteSpace(ownerValue)
+                                   && ownerValue.Contains(evaluation.PlayerName, StringComparison.OrdinalIgnoreCase);
 
+            var matchesOwnerCompanyTag = !string.IsNullOrWhiteSpace(evaluation.PlayerCompanyTag)
+                                         && !string.IsNullOrWhiteSpace(ownerValue)
+                                         && MatchesFreeCompanyTag(ownerValue!, evaluation.PlayerCompanyTag!);
+            
+            var ownerTagLine = !matchesOwnerName && ownerResult.ValueIndex >= 0
+                ? FindFirstValue(evaluation.Lines, ownerResult.ValueIndex + 1, out _)
+                : null;
+
+
+            var companySource = freeCompanyValue ?? ownerTagLine ?? ownerValue;
 
             var matchesFreeCompany = !string.IsNullOrWhiteSpace(evaluation.PlayerCompanyTag)
-                                     && !string.IsNullOrWhiteSpace(freeCompanyValue)
-                                     && freeCompanyValue.Contains(evaluation.PlayerCompanyTag,
-                                         StringComparison.OrdinalIgnoreCase);
+                                     && !string.IsNullOrWhiteSpace(companySource)
+                                     && MatchesFreeCompanyTag(companySource!, evaluation.PlayerCompanyTag!);
+
+            var matchesOwner = matchesOwnerName || matchesOwnerCompanyTag;
 
             if (ward != null || plot != null)
             {
@@ -228,28 +249,44 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 });
             }
 
-            var authorized = matchesOwner || matchesFreeCompany;
+            var authorised = matchesOwner || matchesFreeCompany;
             _chatGui.Print(new XivChatEntry
             {
                 Message =
-                    $"[Snowcloak] Authority check -> Owner match: {matchesOwner}, Free Company match: {matchesFreeCompany}. {(authorized ? "Registration can proceed." : "Registration blocked: no authority detected.")}",
+                    $"[Snowcloak] Authority check -> Owner match: {matchesOwner}, Free Company match: {matchesFreeCompany}. {(authorised ? "Registration can proceed." : "Registration blocked: no authority detected.")}",
                 Type = XivChatType.SystemMessage
             });
 
             _chatGui.Print(new XivChatEntry
             {
-                Message = authorized
+                Message = authorised
                     ? "[Snowcloak] Ownership verification passed."
-                    : "[Snowcloak] Ownership verification failed; no authorized owner detected.",
+                    : "[Snowcloak] Ownership verification failed; no authorised owner detected.",
                 Type = XivChatType.SystemMessage
             });
 
-            if (!authorized && !plotMatches)
+            if (!authorised && !plotMatches)
             {
                 _chatGui.Print(new XivChatEntry
                 {
                     Message =
                         "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location.",
+                    Type = XivChatType.SystemMessage
+                });
+            }
+
+            if (authorised)
+            {
+                var freeCompanyTag = matchesFreeCompany
+                    ? ExtractFreeCompanyTag(companySource ?? freeCompanyValue, evaluation.PlayerCompanyTag)
+                    : ExtractFreeCompanyTag(freeCompanyValue, null);
+                var context = new VenueRegistrationContext(_pendingPlot.Value, ownerValue, freeCompanyTag, matchesFreeCompany);
+
+                _mediator.Publish(new OpenVenueRegistrationWindowMessage(context));
+
+                _chatGui.Print(new XivChatEntry
+                {
+                    Message = "[Snowcloak] Opening venue registration window.",
                     Type = XivChatType.SystemMessage
                 });
             }
@@ -344,6 +381,12 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             PushNode(node->NextSiblingNode);
         }
 
+        //if (_logger.IsEnabled(LogLevel.Debug))
+        //{
+            for (var i = 0; i < lines.Count; i++)
+                _logger.LogInformation("Placard extracted line {LineIndex}: {Text}", i, lines[i]);
+        //}
+
         return lines;
     }
 
@@ -372,6 +415,21 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         return string.Empty;
     }
 
+    private unsafe void LogPlacardNode(AtkResNode* node, string? text = null)
+    {
+
+        var address = ((nint)node).ToString("X");
+        var typeName = node->Type.ToString();
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            _logger.LogInformation("Placard node {NodeType} @0x{NodeAddress} text: {Text}", typeName, address, text);
+            return;
+        }
+
+        _logger.LogInformation("Placard node {NodeType} @0x{NodeAddress} visited", typeName, address);
+    }
+
     private static (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines)
     {
         uint? ward = null;
@@ -391,23 +449,62 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         return (ward, plot);
     }
     
-    private static (string? Label, string? Value) ExtractLabelAndValue(IReadOnlyList<string> lines, string keyword)
+    private static (string? Label, string? Value, int LabelIndex, int ValueIndex) ExtractLabelAndValue(
+        IReadOnlyList<string> lines, string keyword)
     {
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
             if (!line.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var value = FindFirstValue(lines, i + 1);
-            return (line, value);
+            continue;
+                
+            var value = FindFirstValue(lines, i + 1, out var valueIndex);
+            return (line, value, i, valueIndex);
         }
-
-        return (null, null);
+        
+        return (null, null, -1, -1);
     }
 
-    private static string? FindFirstValue(IReadOnlyList<string> lines, int startIndex)
+    private static bool MatchesFreeCompanyTag(string placardValue, string playerTag)
     {
+        var normalizedPlayer = NormalizeFreeCompanyTag(playerTag);
+        if (string.IsNullOrEmpty(normalizedPlayer))
+            return false;
+
+        placardValue = StripFormattingCharacters(placardValue);
+
+        var placardTagMatch = Regex.Match(placardValue, "<<\\s*([^<>]+?)\\s*>>|«\\s*([^«»]+?)\\s*»",
+            RegexOptions.CultureInvariant);
+
+        if (placardTagMatch.Success)
+        {
+            var captured = placardTagMatch.Groups[1].Success ? placardTagMatch.Groups[1].Value : placardTagMatch.Groups[2].Value;
+            var normalizedPlacardTag = NormalizeFreeCompanyTag(captured);
+            if (!string.IsNullOrEmpty(normalizedPlacardTag))
+                return normalizedPlayer.Equals(normalizedPlacardTag, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return placardValue.Contains(playerTag, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string StripFormattingCharacters(string value)
+    {
+        var filtered = value.Where(c => !char.IsControl(c) && c != '\u2028' && c != '\u2029'
+                                        && (c < '\uE000' || c > '\uF8FF'));
+
+        return new string(filtered.ToArray());
+    }
+
+    private static string NormalizeFreeCompanyTag(string value)
+    {
+        var filtered = value.Where(char.IsLetterOrDigit);
+        return new string(filtered.ToArray());
+    }
+
+    private static string? FindFirstValue(IReadOnlyList<string> lines, int startIndex, out int foundIndex)
+    {
+        foundIndex = -1;
+
         for (var i = startIndex; i < lines.Count; i++)
         {
             var candidate = lines[i];
@@ -417,6 +514,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             if (IsLikelyLabel(candidate))
                 continue;
 
+            foundIndex = i;
             return candidate;
         }
 
@@ -440,5 +538,31 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         };
 
         return templateKeywords.Any(k => lowered.Contains(k));
+    }
+    
+    
+    private static string? ExtractFreeCompanyTag(string? source, string? fallbackTag)
+    {
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            var stripped = StripFormattingCharacters(source);
+            var match = Regex.Match(stripped, "<<\\s*([^<>]+?)\\s*>>|«\\s*([^«»]+?)\\s*»", RegexOptions.CultureInvariant);
+            if (match.Success)
+            {
+                var captured = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+                var normalized = NormalizeFreeCompanyTag(captured);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    return normalized;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackTag))
+        {
+            var normalized = NormalizeFreeCompanyTag(fallbackTag);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                return normalized;
+        }
+
+        return null;
     }
 }

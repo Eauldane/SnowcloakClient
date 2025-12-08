@@ -16,4 +16,17 @@ public readonly record struct HousingPlotLocation(uint WorldId, uint TerritoryId
             return $"Ward {WardId} Plot {PlotId} ({FullId})";
         }
     }
+    
+    public string FriendlyName
+    {
+        get
+        {
+            if (IsApartment)
+            {
+                return $"Apartment (Ward {WardId}, Room {RoomId}";
+            }
+
+            return $"Ward {WardId} Plot {PlotId}";
+        }
+    }
 }

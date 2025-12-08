@@ -22,7 +22,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
     private readonly PairManager _pairManager;
     private readonly Dictionary<string, AutoJoinedVenue> _autoJoinedVenues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _pendingRemovalTokens = new(StringComparer.Ordinal);
-    private readonly object _syncRoot = new();
+    private readonly Lock _syncRoot = new();
     private VenueSyncshellPrompt? _activePrompt;
 
     public VenueSyncshellService(ILogger<VenueSyncshellService> logger, SnowMediator mediator, ApiController apiController,

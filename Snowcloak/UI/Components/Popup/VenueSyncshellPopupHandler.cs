@@ -66,7 +66,8 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 ImGuiWindowFlags.AlwaysVerticalScrollbar);
             if (child)
             {
-                UiSharedService.TextWrapped(venue.VenueDescription);
+                _uiSharedService.RenderBbCode(venue.VenueDescription, ImGui.GetContentRegionAvail().X);
+                
             }
         }
         UiSharedService.TextWrapped("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");

@@ -24,6 +24,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using Snowcloak.UI.Components.BbCode;
 
 namespace Snowcloak.UI;
 
@@ -49,7 +50,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     private readonly CacheMonitor _cacheMonitor;
 
     private readonly SnowcloakConfigService _configService;
-
+    private readonly BbCodeRenderer _bbCodeRenderer;
     private readonly DalamudUtilService _dalamudUtil;
     private readonly IpcManager _ipcManager;
     private readonly IDalamudPluginInterface _pluginInterface;
@@ -84,7 +85,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     public UiSharedService(ILogger<UiSharedService> logger, IpcManager ipcManager, ApiController apiController,
         CacheMonitor cacheMonitor, FileDialogManager fileDialogManager,
         SnowcloakConfigService configService, DalamudUtilService dalamudUtil, IDalamudPluginInterface pluginInterface,
-        ITextureProvider textureProvider,
+        ITextureProvider textureProvider, BbCodeRenderer bbCodeRenderer,
         ServerConfigurationManager serverManager, SnowMediator mediator) : base(logger, mediator)
     {
         _ipcManager = ipcManager;
@@ -95,6 +96,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         _dalamudUtil = dalamudUtil;
         _pluginInterface = pluginInterface;
         _textureProvider = textureProvider;
+        _bbCodeRenderer = bbCodeRenderer;
         _serverConfigurationManager = serverManager;
 
         _isDirectoryWritable = IsDirectoryWritable(_configService.Current.CacheFolder);
@@ -110,7 +112,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             _moodlesExists = _ipcManager.Moodles.APIAvailable;
             _brioExists = _ipcManager.Brio.APIAvailable;
         });
-
+        
         UidFont = _pluginInterface.UiBuilder.FontAtlas.NewDelegateFontHandle(e =>
         {
             e.OnPreBuild(tk => tk.AddDalamudAssetFont(Dalamud.DalamudAsset.NotoSansJpMedium, new()
@@ -122,11 +124,12 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         GameFont = _pluginInterface.UiBuilder.FontAtlas.NewGameFontHandle(new(GameFontFamilyAndSize.Axis12));
         IconFont = _pluginInterface.UiBuilder.IconFontFixedWidthHandle;
     }
-
+    
+   
     public ApiController ApiController => _apiController;
 
     public bool EditTrackerPosition { get; set; }
-
+    public BbCodeRenderer BbCodeRenderer => _bbCodeRenderer;
     public IFontHandle GameFont { get; init; }
     public bool HasValidPenumbraModPath => !(_ipcManager.Penumbra.ModDirectory ?? string.Empty).IsNullOrEmpty() && Directory.Exists(_ipcManager.Penumbra.ModDirectory);
 
@@ -1017,6 +1020,24 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     }
 
     public sealed record IconScaleData(Vector2 IconSize, Vector2 NormalizedIconScale, float OffsetX, float IconScaling);
+    public void RenderBbCode(string text, float wrapWidth, BbCodeRenderOptions? options = null)
+    {
+        var renderOptions = options ?? new BbCodeRenderOptions();
+
+        if (!_configService.Current.AllowBbCodeImages)
+        {
+            renderOptions = renderOptions with { AllowImages = false };
+        }
+        if (renderOptions.OnLinkClicked == null)
+        {
+            renderOptions = renderOptions with
+            {
+                OnLinkClicked = url => Mediator.Publish(new OpenBbCodeLinkPopupMessage(url)),
+            };
+        }
+
+        _bbCodeRenderer.Render(text, wrapWidth, renderOptions);
+    }
 
     protected override void Dispose(bool disposing)
     {

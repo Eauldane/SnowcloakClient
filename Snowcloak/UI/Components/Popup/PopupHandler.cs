@@ -56,6 +56,13 @@ public class PopupHandler : WindowMediatorSubscriberBase
             ((VenueSyncshellPopupHandler)_currentHandler).Open(msg.Prompt);
             IsOpen = true;
         });
+        Mediator.Subscribe<OpenBbCodeLinkPopupMessage>(this, (msg) =>
+        {
+            _openPopup = true;
+            _currentHandler = _handlers.OfType<BbCodeLinkPopupHandler>().Single();
+            ((BbCodeLinkPopupHandler)_currentHandler).Open(msg.Url);
+            IsOpen = true;
+        });
         _uiSharedService = uiSharedService;
         DisableWindowSounds = true;
     }

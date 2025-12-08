@@ -82,4 +82,5 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool UseMultithreadedCompression { get; set; } = false;
     public int CompressionLevel { get; set; } = 3;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
+    public bool AllowBbCodeImages { get; set; } = true;
 }

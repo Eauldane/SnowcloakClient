@@ -6,7 +6,7 @@ public sealed record VenueRegistrationContext(
     HousingPlotLocation Location,
     string? OwnerName,
     string? FreeCompanyTag,
-    bool AuthorizedByFreeCompany)
+    bool AuthorisedByFreeCompany)
 {
     public bool IsFreeCompanyPlot => !string.IsNullOrWhiteSpace(FreeCompanyTag);
 }

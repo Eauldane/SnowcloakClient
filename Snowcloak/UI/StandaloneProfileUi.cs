@@ -101,7 +101,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             if (ImGui.BeginChildFrame(1000, childFrame))
             {
                 using var _ = _uiSharedService.GameFont.Push();
-                ImGui.TextWrapped(snowProfile.Description);
+                _uiSharedService.RenderBbCode(snowProfile.Description, ImGui.GetContentRegionAvail().X);
             }
             ImGui.EndChildFrame();
 

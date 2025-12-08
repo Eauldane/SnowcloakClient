@@ -10,4 +10,10 @@ public partial class ApiController
         CheckConnection();
         return await _snowHub!.InvokeAsync<VenueInfoResponseDto>(nameof(VenueGetInfoForPlot), request).ConfigureAwait(false);
     }
+    
+    public async Task<VenueRegistrationResponseDto> VenueRegister(VenueRegistrationRequestDto request)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<VenueRegistrationResponseDto>(nameof(VenueRegister), request).ConfigureAwait(false);
+    }
 }

@@ -17,7 +17,7 @@ public class DatabaseService : IAsyncDisposable
     private readonly string _databasePath;
     private readonly string _connectionString;
     private float _clientDBVersion;
-    private readonly object _cleanupLock = new();
+    private readonly Lock _cleanupLock = new();
     private DateTime _lastCleanupUtc = DateTime.MinValue;
     private readonly CancellationTokenSource _cleanupCts = new();
     private readonly Task _cleanupTask;

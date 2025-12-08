@@ -149,16 +149,13 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             ImGui.Separator();
             _uiSharedService.GameFont.Push();
             var remaining = ImGui.GetWindowContentRegionMax().Y - ImGui.GetCursorPosY();
-            var descText = snowProfile.Description;
-            var textSize = ImGui.CalcTextSize(descText, hideTextAfterDoubleHash: false, 256f * ImGuiHelpers.GlobalScale);
-            bool trimmed = textSize.Y > remaining;
-            while (textSize.Y > remaining && descText.Contains(' '))
+            var descriptionHeight = Math.Max(remaining, 120f);
+            if (ImGui.BeginChild("##popout-description", new Vector2(ImGui.GetContentRegionAvail().X, descriptionHeight), true))
             {
-                descText = descText[..descText.LastIndexOf(' ')].TrimEnd();
-                textSize = ImGui.CalcTextSize(descText + $"...{Environment.NewLine}[Open Full Profile for complete description]", hideTextAfterDoubleHash: false, 256f * ImGuiHelpers.GlobalScale);
+                _uiSharedService.RenderBbCode(snowProfile.Description, ImGui.GetContentRegionAvail().X);
             }
-            UiSharedService.TextWrapped(trimmed ? descText + $"...{Environment.NewLine}[Open Full Profile for complete description]" : snowProfile.Description);
-
+            ImGui.EndChild();
+            
             _uiSharedService.GameFont.Pop();
 
             var padding = ImGui.GetStyle().WindowPadding.X / 2;
