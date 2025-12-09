@@ -16,6 +16,7 @@ using System.Text.RegularExpressions;
 using System.Linq;
 using System.IO;
 using System.Text.Json;
+using Snowcloak.Services.ServerConfiguration;
 
 namespace Snowcloak.Services;
 
@@ -30,11 +31,13 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly ConcurrentDictionary<Guid, PairingRequestDto> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
     private readonly IContextMenu _contextMenu;
+    private readonly ServerConfigurationManager _serverConfigurationManager;
     private bool _advertisingPairing;
 
     public PairRequestService(ILogger<PairRequestService> logger, SnowcloakConfigService configService,
         SnowMediator mediator, DalamudUtilService dalamudUtilService,
-        IpcManager ipcManager, IToastGui toastGui, IContextMenu contextMenu, IServiceProvider serviceProvider)
+        IpcManager ipcManager, IToastGui toastGui, IContextMenu contextMenu, IServiceProvider serviceProvider,
+        ServerConfigurationManager serverConfigurationManager)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -44,6 +47,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _ipcManager = ipcManager;
         _toastGui = toastGui;
         _contextMenu = contextMenu;
+        _serverConfigurationManager = serverConfigurationManager;
         _contextMenu.OnMenuOpened += ContextMenuOnMenuOpened;
         Mediator.Subscribe<TargetPlayerChangedMessage>(this, OnTargetPlayerChanged);
 
@@ -51,9 +55,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         Mediator.Subscribe<HubReconnectedMessage>(this, OnHubReconnected);
     }
 
-    private void OnConnected(ConnectedMessage message) => _ = SyncAdvertisingAsync();
-
-    private void OnHubReconnected(HubReconnectedMessage message) => _ = SyncAdvertisingAsync();
+    private void OnConnected(ConnectedMessage message) => _ = SyncAdvertisingAsync(force: true);
+    
+    private void OnHubReconnected(HubReconnectedMessage message) => _ = SyncAdvertisingAsync(force: true);
     
     protected override void Dispose(bool disposing)
     {
@@ -90,11 +94,11 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         Add("View Snowcloak Profile", _ => Mediator.Publish(new NotificationMessage("Profile request", "Requesting profile from nearby player", NotificationType.Info, TimeSpan.FromSeconds(4))));
     }
 
-    public async Task SyncAdvertisingAsync()
+    public async Task SyncAdvertisingAsync(bool force = false)
     {
         var advertise = _configService.Current.PairingSystemEnabled;
 
-        if (_advertisingPairing == advertise) return;
+        if (!force && _advertisingPairing == advertise) return;
         
         _advertisingPairing = advertise;
 
@@ -144,21 +148,35 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
 
-    public async Task RespondAsync(Guid requestId, bool accepted, string? reason = null)
+    public async Task RespondAsync(PairingRequestDto request, bool accepted, string? reason = null)
     {
+        var note = GetRequesterDisplayName(request);
         try
         {
-            await _apiController.Value.UserRespondToPairRequest(new PairingRequestDecisionDto(requestId, accepted, reason)).ConfigureAwait(false);
+            await _apiController.Value.UserRespondToPairRequest(new PairingRequestDecisionDto(request.RequestId, accepted, reason)).ConfigureAwait(false);
+            if (accepted)
+            {
+                ApplyAutoNote(request, note);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to respond to request {requestId}", requestId);
+            _logger.LogWarning(ex, "Failed to respond to request {requestId}", request.RequestId);
         }
         finally
         {
-            _pendingRequests.TryRemove(requestId, out _);
+            _pendingRequests.TryRemove(request.RequestId, out _);
             Mediator.Publish(new PairingRequestListChangedMessage());
         }
+    }
+    
+    public Task RespondAsync(Guid requestId, bool accepted, string? reason = null)
+    {
+        if (_pendingRequests.TryGetValue(requestId, out var request))
+            return RespondAsync(request, accepted, reason);
+
+        _logger.LogWarning("Failed to respond to request {requestId}: not found", requestId);
+        return Task.CompletedTask;
     }
 
     public void ReceiveRequest(PairingRequestDto dto)
@@ -178,7 +196,49 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _pendingRequests[dto.RequestId] = dto;
         Mediator.Publish(new PairingRequestReceivedMessage(dto));
         Mediator.Publish(new PairingRequestListChangedMessage());
-        _toastGui.ShowQuest(dto.Requester.AliasOrUID + " sent a pairing request.");
+        var requesterName = GetRequesterDisplayName(dto, setNoteFromNearby: true);
+        _toastGui.ShowQuest(requesterName + " sent a pairing request.");
+    }
+
+    public RequesterDisplay GetRequesterDisplay(PairingRequestDto dto, bool setNoteFromNearby = false)
+    {
+        var resolved = TryResolveRequester(dto, setNoteFromNearby);
+        return new RequesterDisplay(resolved.Name ?? dto.Requester.UID, resolved.WorldId);
+    }
+    
+    public string GetRequesterDisplayName(PairingRequestDto dto, bool setNoteFromNearby = false)
+    {
+        return GetRequesterDisplay(dto, setNoteFromNearby).NameOrUid;
+    }
+
+    private RequesterDisplay TryResolveRequester(PairingRequestDto dto, bool setNoteFromNearby)
+    {
+        var pc = _dalamudUtilService.FindPlayerByNameHash(dto.RequesterIdent);
+        if (pc.ObjectId != 0 && pc.Address != IntPtr.Zero && !string.IsNullOrWhiteSpace(pc.Name))
+        {
+            var name = pc.Name;
+            var world = (ushort?)pc.HomeWorldId;
+            _serverConfigurationManager.SetNameForUid(dto.Requester.UID, name);
+            if (setNoteFromNearby && string.IsNullOrWhiteSpace(_serverConfigurationManager.GetNoteForUid(dto.Requester.UID)))
+            {
+                _serverConfigurationManager.SetNoteForUid(dto.Requester.UID, name);
+            }
+
+            return new RequesterDisplay(name, world);
+        }
+
+        return new RequesterDisplay(null, null);
+        
+    }
+
+    private void ApplyAutoNote(PairingRequestDto request, string note)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return;
+
+        if (_serverConfigurationManager.GetNoteForUid(request.Requester.UID) != null)
+            return;
+
+        _serverConfigurationManager.SetNoteForUid(request.Requester.UID, note);
     }
 
     private async Task<(bool ShouldReject, string Reason)> ShouldAutoRejectAsync(string ident)
@@ -362,4 +422,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _logger.LogDebug(
             $"Targeted {name}@{worldId}: detected gender={genderDisplay}, race={raceDisplay}, clan={clanDisplay}, rawBase64={appearance.RawBase64}, decodedJson={appearance.DecodedJson ?? "(decode failed)"}, notes={decodeNote}");
     }
+}
+
+public readonly record struct RequesterDisplay(string? Name, ushort? WorldId)
+{
+    public string NameOrUid => Name ?? string.Empty;
 }

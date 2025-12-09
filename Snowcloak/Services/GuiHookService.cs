@@ -7,6 +7,8 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Snowcloak.Services;
 
@@ -42,11 +44,12 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         Mediator.Subscribe<DelayedFrameworkUpdateMessage>(this, (_) => GameSettingsCheck());
         Mediator.Subscribe<PairHandlerVisibleMessage>(this, (_) => RequestRedraw());
         Mediator.Subscribe<NameplateRedrawMessage>(this, (_) => RequestRedraw());
+        Mediator.Subscribe<PairingAvailabilityChangedMessage>(this, (_) => RequestRedraw(force: true));
     }
 
     public void RequestRedraw(bool force = false)
     {
-        if (!_configService.Current.UseNameColors)
+        if (!_configService.Current.UseNameColors && !_configService.Current.PairingSystemEnabled)
         {
             if (!_isModified && !force)
                 return;
@@ -70,15 +73,24 @@ public class GuiHookService : DisposableMediatorSubscriberBase
 
     private void OnNamePlateUpdate(INamePlateUpdateContext context, IReadOnlyList<INamePlateUpdateHandler> handlers)
     {
-        if (!_configService.Current.UseNameColors)
+        var useNameColors = _configService.Current.UseNameColors;
+        var usePairingHighlights = _configService.Current.PairingSystemEnabled;
+
+        if (!useNameColors && !usePairingHighlights)
             return;
 
-        var visibleUsers = _pairManager.GetOnlineUserPairs().Where(u => u.IsVisible && u.PlayerCharacterId != uint.MaxValue);
-        var visibleUsersIds = visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet();
+        var visibleUsers = useNameColors
+            ? _pairManager.GetOnlineUserPairs().Where(u => u.IsVisible && u.PlayerCharacterId != uint.MaxValue)
+            : Enumerable.Empty<Pair>();
+        var visibleUsersIds = useNameColors
+            ? visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet()
+            : new HashSet<ulong>();
 
-        var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
+        var visibleUsersDict = useNameColors
+            ? visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId)
+            : new Dictionary<ulong, Pair>();
 
-        var availableForPairing = _configService.Current.PairingSystemEnabled
+        var availableForPairing = usePairingHighlights
             ? _pairRequestService.AvailableIdents
                 .Select(id => (pc: _dalamudUtil.FindPlayerByNameHash(id), ident: id))
                 .Where(tuple => tuple.pc.ObjectId != 0)
@@ -92,7 +104,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
 
         foreach (var handler in handlers)
         {
-            if (handler != null && visibleUsersIds.Contains(handler.GameObjectId))
+            if (useNameColors && handler != null && visibleUsersIds.Contains(handler.GameObjectId))
             {
                 if (_namePlateRoleColorsEnabled && partyMembers.Contains(handler.GameObject?.Address ?? nint.MaxValue))
                     continue;
@@ -104,7 +116,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
                 );
                 _isModified = true;
             }
-            else if (handler != null && availableForPairing.ContainsKey(handler.GameObjectId))
+            else if (usePairingHighlights && handler != null && availableForPairing.ContainsKey(handler.GameObjectId))
             {
                 var colors = _configService.Current.PairRequestNameColors;
                 handler.NameParts.TextWrap = (

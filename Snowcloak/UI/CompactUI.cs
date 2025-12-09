@@ -22,7 +22,6 @@ using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
-using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -64,6 +63,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     private readonly UidDisplayHandler _uidDisplayHandler;
     private readonly UiSharedService _uiSharedService;
     private bool _buttonState;
+    private readonly TagHandler _tagHandler;
     private string _characterOrCommentFilter = string.Empty;
     private Pair? _lastAddedUser;
     private string _lastAddedUserComment = string.Empty;
@@ -99,12 +99,12 @@ public class CompactUi : WindowMediatorSubscriberBase
         _fileTransferManager = fileTransferManager;
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;
-        var tagHandler = new TagHandler(_serverManager);
-
+        _tagHandler = new TagHandler(_serverManager);
+        
         _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager);
-        _selectGroupForPairUi = new(tagHandler, uidDisplayHandler, _uiSharedService);
-        _selectPairsForGroupUi = new(tagHandler, uidDisplayHandler);
-        _pairGroupsUi = new(configService, tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService);
+        _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService);
+        _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler);
+        _pairGroupsUi = new(configService, _tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService);
 
 #if DEBUG
         string dev = "Dev Build";
@@ -335,10 +335,6 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 ImGui.Separator();
 
-                DrawPendingPairRequests();
-
-                ImGui.Separator();
-
                 switch (_selectedMenu)
                 {
                     case Menu.IndividualPairs:
@@ -398,31 +394,109 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawPendingPairRequests()
+    private void DrawPendingPairRequestsSection()
     {
         if (!_configService.Current.PairingSystemEnabled)
             return;
 
-        var pending = _pairRequestService.PendingRequests.OrderBy(r => r.RequestedAt).ToList();
+        var pending = _pairRequestService.PendingRequests
+            .OrderBy(r => r.RequestedAt)
+            .Select(BuildPendingRequestDisplay)
+            .ToList();
         if (pending.Count == 0)
             return;
+        
+        using var id = ImRaii.PushId("pending-requests");
 
-        _uiSharedService.BigText("Pending pairing requests");
+        var tag = TagHandler.CustomPairRequestsTag;
+        var isOpen = _tagHandler.IsTagOpen(tag);
+        var icon = isOpen ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
 
-        foreach (var request in pending)
+        _uiSharedService.IconText(icon);
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
-            ImGui.TextUnformatted($"{request.Requester.AliasOrUID} ({request.RequesterIdent})");
-            ImGui.SameLine();
-            if (ImGui.SmallButton($"Accept##{request.RequestId}"))
-            {
-                _ = _pairRequestService.RespondAsync(request.RequestId, true);
-            }
-            ImGui.SameLine();
-            if (ImGui.SmallButton($"Reject##{request.RequestId}"))
-            {
-                _ = _pairRequestService.RespondAsync(request.RequestId, false, "Rejected by user");
-            }
+            isOpen = !isOpen;
+            _tagHandler.SetTagOpen(tag, isOpen);
         }
+
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Pair Requests ({pending.Count})");
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+        {
+            isOpen = !isOpen;
+            _tagHandler.SetTagOpen(tag, isOpen);
+        }
+
+        if (!isOpen)
+        {
+            ImGui.Separator();
+            return;
+        }
+
+        ImGui.Indent(20);
+        ImGui.TextUnformatted("Notes will be auto-filled with the sender's name when you accept.");
+
+        if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
+        {
+            foreach (var request in pending)
+            {
+                using var requestId = ImRaii.PushId(request.Request.RequestId.ToString());
+                ImGui.TableNextRow();
+
+                ImGui.TableSetColumnIndex(0);
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextUnformatted(request.DisplayName);
+                if (request.ShowAlias)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled($"({request.AliasOrUid})");
+                }
+                UiSharedService.AttachToolTip($"Requested at {request.Request.RequestedAt:HH:mm:ss}");
+                ImGui.TableSetColumnIndex(1);
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, "Add"))
+                {
+                    _ = _pairRequestService.RespondAsync(request.Request, true);
+                }
+                ImGui.SameLine();
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Reject"))
+                {
+                    _ = _pairRequestService.RespondAsync(request.Request, false, "Rejected by user");
+                }            }
+            ImGui.EndTable();
+            
+        }
+        
+        
+        ImGui.Unindent();
+        ImGui.Separator();
+    }
+
+    private PendingPairRequestDisplay BuildPendingRequestDisplay(PairingRequestDto dto)
+    {
+        var requester = _pairRequestService.GetRequesterDisplay(dto);
+        string? worldName = null;
+        var hasWorld = requester.WorldId.HasValue && _uiSharedService.WorldData.TryGetValue(requester.WorldId.Value, out worldName);
+
+        var hasIdentName = !string.IsNullOrWhiteSpace(requester.Name)
+                           && !string.Equals(requester.Name, dto.Requester.UID, StringComparison.Ordinal);
+        var requesterName = hasIdentName ? requester.Name : null;
+
+        if (hasIdentName && hasWorld && !string.IsNullOrWhiteSpace(worldName))
+        {
+            requesterName += $" @ {worldName}";
+        }
+
+        var note = _serverManager.GetNoteForUid(dto.Requester.UID);
+        var displayName = !string.IsNullOrWhiteSpace(note)
+            ? note!
+            : requesterName ?? dto.Requester.AliasOrUID;
+
+        var showAlias = string.IsNullOrWhiteSpace(note)
+                        && requesterName != null
+                        && !string.Equals(dto.Requester.AliasOrUID, displayName, StringComparison.Ordinal);
+
+        return new PendingPairRequestDisplay(dto, displayName, dto.Requester.AliasOrUID, showAlias);
+        
     }
 
     public override void OnClose()
@@ -630,17 +704,46 @@ public class CompactUi : WindowMediatorSubscriberBase
         var ySize = TransferPartHeight == 0
             ? 1
             : (ImGui.GetWindowContentRegionMax().Y - ImGui.GetWindowContentRegionMin().Y) - TransferPartHeight - ImGui.GetCursorPosY();
-        var users = GetFilteredUsers().OrderBy(u => u.GetPairSortKey(), StringComparer.Ordinal);
+        var users = GetFilteredUsers()
+            .Where(u => u.UserPair != null)
+            .OrderBy(u => u.GetPairSortKey(), StringComparer.Ordinal);
+        
+        var onlineUsers = users.Where(u =>
+        {
+            var pair = u.UserPair;
+            var isPaired = pair?.OtherPermissions.IsPaired() ?? false;
+            var otherPaused = pair?.OtherPermissions.IsPaused() ?? false;
+            var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
-        var onlineUsers = users.Where(u => u.UserPair!.OtherPermissions.IsPaired() && (u.IsOnline && !u.IsVisible && (!u.UserPair!.OtherPermissions.IsPaused() && !u.UserPair!.OwnPermissions.IsPaused()))).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
-        var pausedUsers = users.Where(u => u.UserPair!.OtherPermissions.IsPaired() && (u.UserPair!.OtherPermissions.IsPaused() || u.UserPair!.OwnPermissions.IsPaused())).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+            return isPaired && u.IsOnline && !u.IsVisible && !otherPaused && !ownPaused;
+        }).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+
+        var pausedUsers = users.Where(u =>
+        {
+            var pair = u.UserPair;
+            var isPaired = pair?.OtherPermissions.IsPaired() ?? false;
+            var otherPaused = pair?.OtherPermissions.IsPaused() ?? false;
+            var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
+
+            return isPaired && (otherPaused || ownPaused);
+        }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
         var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
-        var offlineUsers = users.Where(u => !u.UserPair!.OtherPermissions.IsPaired() || !u.IsOnline && (!u.UserPair!.OwnPermissions.IsPaused() && !u.UserPair.OtherPermissions.IsPaused())).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
 
+        var offlineUsers = users.Where(u =>
+        {
+            var pair = u.UserPair;
+            var isPaired = pair?.OtherPermissions.IsPaired() ?? false;
+            var otherPaused = pair?.OtherPermissions.IsPaused() ?? false;
+            var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
+
+            return !isPaired || (!u.IsOnline && !(ownPaused || otherPaused));
+        }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
         ImGui.BeginChild("list", new Vector2(WindowContentWidth, ySize), border: false);
 
         _pairGroupsUi.Draw(visibleUsers, onlineUsers, pausedUsers, offlineUsers);
 
+        DrawPendingPairRequestsSection();
+        
         ImGui.EndChild();
     }
 
@@ -733,13 +836,16 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private List<Pair> GetFilteredUsers()
     {
-        return _pairManager.DirectPairs.Where(p =>
-        {
-            if (_characterOrCommentFilter.IsNullOrEmpty()) return true;
-            return p.UserData.AliasOrUID.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ||
-                   (p.GetNote()?.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                   (p.PlayerName?.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ?? false);
-        }).ToList();
+        return _pairManager.DirectPairs
+            .Where(p => p.UserPair != null)
+            .Where(p =>
+            {
+                if (_characterOrCommentFilter.IsNullOrEmpty()) return true;
+                return p.UserData.AliasOrUID.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ||
+                       (p.GetNote()?.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                       (p.PlayerName?.Contains(_characterOrCommentFilter, StringComparison.OrdinalIgnoreCase) ?? false);
+            })
+            .ToList();
     }
 
     private string GetServerError()
@@ -821,3 +927,8 @@ public class CompactUi : WindowMediatorSubscriberBase
         IsOpen = false;
     }
 }
+public readonly record struct PendingPairRequestDisplay(
+    PairingRequestDto Request,
+    string DisplayName,
+    string AliasOrUid,
+    bool ShowAlias);

@@ -13,9 +13,6 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services.Housing;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
 
 

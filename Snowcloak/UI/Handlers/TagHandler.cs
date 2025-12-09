@@ -10,6 +10,7 @@ public class TagHandler
     public const string CustomUnpairedTag = "Snow_Unpaired";
     public const string CustomVisibleTag = "Snow_Visible";
     public const string CustomPausedTag = "Snow_Paused";
+    public const string CustomPairRequestsTag = "Snow_PairRequests";
     private readonly ServerConfigurationManager _serverConfigurationManager;
 
     public TagHandler(ServerConfigurationManager serverConfigurationManager)
