@@ -1,7 +1,7 @@
 {
   "version": 1,
   "dependencies": {
-    "net9.0-windows7.0": {
+    "net10.0-windows7.0": {
       "Blake3": {
         "type": "Direct",
         "requested": "[2.0.0, )",
@@ -57,8 +57,7 @@
         "contentHash": "P15qr8dZAeo9GvYbUIPEYFQ0MEJ0i5iqr37wsYeRC3la2uCldOoeCa6to0CZ1taiwxIV+Mk8NGuZi+4iWivK9w==",
         "dependencies": {
           "K4os.Compression.LZ4": "1.3.8",
-          "K4os.Hash.xxHash": "1.0.8",
-          "System.IO.Pipelines": "6.0.3"
+          "K4os.Hash.xxHash": "1.0.8"
         }
       },
       "MessagePack": {
@@ -209,8 +208,7 @@
         "dependencies": {
           "Microsoft.AspNetCore.Http.Connections.Common": "9.0.11",
           "Microsoft.Extensions.Logging.Abstractions": "9.0.11",
-          "Microsoft.Extensions.Options": "9.0.11",
-          "System.Net.ServerSentEvents": "9.0.11"
+          "Microsoft.Extensions.Options": "9.0.11"
         }
       },
       "Microsoft.AspNetCore.Http.Connections.Common": {
@@ -229,8 +227,7 @@
           "Microsoft.AspNetCore.SignalR.Common": "9.0.11",
           "Microsoft.AspNetCore.SignalR.Protocols.Json": "9.0.11",
           "Microsoft.Extensions.DependencyInjection": "9.0.11",
-          "Microsoft.Extensions.Logging": "9.0.11",
-          "System.Threading.Channels": "9.0.11"
+          "Microsoft.Extensions.Logging": "9.0.11"
         }
       },
       "Microsoft.AspNetCore.SignalR.Common": {
@@ -345,8 +342,8 @@
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
-        "resolved": "9.0.11",
-        "contentHash": "+ZxxZzcVU+IEzq12GItUzf/V3mEc5nSLiXijwvDc4zyhbjvSZZ043giSZqGnhakrjwRWjkerIHPrRwm9okEIpw=="
+        "resolved": "10.0.0",
+        "contentHash": "L3AdmZ1WOK4XXT5YFPEwyt0ep6l8lGIPs7F5OOBZc77Zqeo01Of7XXICy47628sdVl0v/owxYJTe86DTgFwKCA=="
       },
       "Microsoft.Extensions.Diagnostics": {
         "type": "Transitive",
@@ -419,10 +416,10 @@
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "Transitive",
-        "resolved": "9.0.11",
-        "contentHash": "UKWFTDwtZQIoypyt1YPVsxTnDK+0sKn26+UeSGeNlkRQddrkt9EC6kP4g94rgO/WOZkz94bKNlF1dVZN3QfPFQ==",
+        "resolved": "10.0.0",
+        "contentHash": "FU/IfjDfwaMuKr414SSQNTIti/69bHEMb+QKrskRb26oVqpx3lNFXMjs/RC9ZUuhBhcwDM2BwOgoMw+PZ+beqQ==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.11"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0"
         }
       },
       "Microsoft.Extensions.Logging.Configuration": {
@@ -538,7 +535,7 @@
         "resolved": "8.15.0",
         "contentHash": "zUE9ysJXBtXlHHRtcRK3Sp8NzdCI1z/BRDTXJQ2TvBoI0ENRtnufYIep0O5TSCJRJGDwwuLTUx+l/bEYZUxpCA==",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.0",
           "Microsoft.IdentityModel.Logging": "8.15.0"
         }
       },
@@ -559,10 +556,7 @@
       "SQLitePCLRaw.core": {
         "type": "Transitive",
         "resolved": "2.1.10",
-        "contentHash": "Ii8JCbC7oiVclaE/mbDEK000EFIJ+ShRPwAvvV89GOZhQ+ZLtlnSWl6ksCNMKu/VGXA4Nfi2B7LhN/QFN9oBcw==",
-        "dependencies": {
-          "System.Memory": "4.5.3"
-        }
+        "contentHash": "Ii8JCbC7oiVclaE/mbDEK000EFIJ+ShRPwAvvV89GOZhQ+ZLtlnSWl6ksCNMKu/VGXA4Nfi2B7LhN/QFN9oBcw=="
       },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Transitive",
@@ -582,21 +576,6 @@
         "resolved": "9.0.11",
         "contentHash": "2Us/NchH6SM69NYWzf8NRyeftdv3ILso8LMiMdAjT7ECTiZKzddiXWhAyQj6ZzbddoAOHS9GdlPbAAkwCPID3Q=="
       },
-      "System.Memory": {
-        "type": "Transitive",
-        "resolved": "4.5.3",
-        "contentHash": "3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA=="
-      },
-      "System.Net.ServerSentEvents": {
-        "type": "Transitive",
-        "resolved": "9.0.11",
-        "contentHash": "qQ1jJSl3IdhayjgFcGxo4/c1mUP4QvpiOVhm8zxk3wdiHkwKwdPk2sINzrBdJLn6GsOMi4w5o31A7aMxa28oow=="
-      },
-      "System.Threading.Channels": {
-        "type": "Transitive",
-        "resolved": "9.0.11",
-        "contentHash": "I/l6+ntgnHCu2WXop2NFMb3qSFFiB6LMau5244nKrD9RPoutn+Sp7ZGId7fbzAs2aMLvYErV1ilDAh35BKWKQg=="
-      },
       "snowcloak.api": {
         "type": "Project",
         "dependencies": {
@@ -605,7 +584,7 @@
         }
       }
     },
-    "net9.0-windows7.0/win-x64": {
+    "net10.0-windows7.0/win-x64": {
       "Blake3": {
         "type": "Direct",
         "requested": "[2.0.0, )",

@@ -130,6 +130,20 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability)
+    {
+        Logger.LogTrace("Client_UserPairingAvailability: {count}", availability.Count);
+        ExecuteSafely(() => _pairRequestService.UpdateAvailability(availability));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_UserPairingRequest(PairingRequestDto dto)
+    {
+        Logger.LogDebug("Client_UserPairingRequest: {uid}", dto.Requester.UID);
+        ExecuteSafely(() => _pairRequestService.ReceiveRequest(dto));
+        return Task.CompletedTask;
+    }
+
     public Task Client_UserChatMsg(UserChatMsgDto chatMsgDto)
     {
         Logger.LogDebug("Client_UserChatMsg: {msg}", chatMsgDto.Message);
@@ -322,6 +336,18 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_UserReceiveUploadStatus), act);
+    }
+
+    public void OnUserPairingAvailability(Action<List<PairingAvailabilityDto>> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_UserPairingAvailability), act);
+    }
+
+    public void OnUserPairingRequest(Action<PairingRequestDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_UserPairingRequest), act);
     }
 
     public void OnUserRemoveClientPair(Action<UserDto> act)

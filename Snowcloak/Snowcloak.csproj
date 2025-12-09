@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/13.1.0">
   <PropertyGroup>
-    <AssemblyName>Snowcloak</AssemblyName>
+      <TargetFramework>net10.0-windows</TargetFramework>
+      <AssemblyName>Snowcloak</AssemblyName>
     <Version>1.0.2</Version>
     <PackageProjectUrl>https://git.snowcloak-sync.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
       <RuntimeIdentifier>win-x64</RuntimeIdentifier>

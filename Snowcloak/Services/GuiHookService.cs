@@ -19,12 +19,13 @@ public class GuiHookService : DisposableMediatorSubscriberBase
     private readonly IGameConfig _gameConfig;
     private readonly IPartyList _partyList;
     private readonly PairManager _pairManager;
+    private readonly PairRequestService _pairRequestService;
 
     private bool _isModified = false;
     private bool _namePlateRoleColorsEnabled = false;
 
     public GuiHookService(ILogger<GuiHookService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, SnowcloakConfigService configService,
-        INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList, PairManager pairManager)
+        INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList, PairManager pairManager, PairRequestService pairRequestService)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -77,6 +78,13 @@ public class GuiHookService : DisposableMediatorSubscriberBase
 
         var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
 
+        var availableForPairing = _configService.Current.PairingSystemEnabled
+            ? _pairRequestService.AvailableIdents
+                .Select(id => (pc: _dalamudUtil.FindPlayerByNameHash(id), ident: id))
+                .Where(tuple => tuple.pc.ObjectId != 0)
+                .ToDictionary(tuple => (ulong)tuple.pc.ObjectId, tuple => tuple.ident)
+            : new Dictionary<ulong, string>();
+
         var partyMembers = new nint[_partyList.Count];
 
         for (int i = 0; i < _partyList.Count; ++i)
@@ -90,6 +98,15 @@ public class GuiHookService : DisposableMediatorSubscriberBase
                     continue;
                 var pair = visibleUsersDict[handler.GameObjectId];
                 var colors = !pair.IsApplicationBlocked ? _configService.Current.NameColors : _configService.Current.BlockedNameColors;
+                handler.NameParts.TextWrap = (
+                    BuildColorStartSeString(colors),
+                    BuildColorEndSeString(colors)
+                );
+                _isModified = true;
+            }
+            else if (handler != null && availableForPairing.ContainsKey(handler.GameObjectId))
+            {
+                var colors = _configService.Current.PairRequestNameColors;
                 handler.NameParts.TextWrap = (
                     BuildColorStartSeString(colors),
                     BuildColorEndSeString(colors)

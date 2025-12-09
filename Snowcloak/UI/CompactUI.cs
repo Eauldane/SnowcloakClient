@@ -54,6 +54,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     private readonly GroupPanel _groupPanel;
     private readonly PairGroupsUi _pairGroupsUi;
     private readonly PairManager _pairManager;
+    private readonly PairRequestService _pairRequestService;
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly SelectPairForGroupUi _selectPairsForGroupUi;
     private readonly ServerConfigurationManager _serverManager;
@@ -80,7 +81,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
 
 
-    public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, ChatService chatService,
+    public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService)
         : base(logger, mediator, "###SnowcloakSyncMainUI", performanceCollectorService)
@@ -89,6 +90,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         _configService = configService;
         _apiController = apiController;
         _pairManager = pairManager;
+        _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _registerService = registerService;
         _fileTransferManager = fileTransferManager;
@@ -116,7 +118,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         Mediator.Subscribe<CutsceneEndMessage>(this, (_) => UiSharedService_GposeEnd());
         Mediator.Subscribe<DownloadStartedMessage>(this, (msg) => _currentDownloads[msg.DownloadId] = msg.DownloadStatus);
         Mediator.Subscribe<DownloadFinishedMessage>(this, (msg) => _currentDownloads.TryRemove(msg.DownloadId, out _));
-
+        
         Flags |= ImGuiWindowFlags.NoDocking;
         this.TitleBarButtons =
         [
@@ -325,6 +327,9 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 ImGui.Separator();
 
+                DrawPendingPairRequests();
+
+                ImGui.Separator();
 
                 switch (_selectedMenu)
                 {
@@ -381,6 +386,33 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _lastSize = size;
                 _lastPosition = pos;
                 Mediator.Publish(new CompactUiChange(_lastSize, _lastPosition));
+            }
+        }
+    }
+
+    private void DrawPendingPairRequests()
+    {
+        if (!_configService.Current.PairingSystemEnabled)
+            return;
+
+        var pending = _pairRequestService.PendingRequests.OrderBy(r => r.RequestedAt).ToList();
+        if (pending.Count == 0)
+            return;
+
+        _uiSharedService.BigText("Pending pairing requests");
+
+        foreach (var request in pending)
+        {
+            ImGui.TextUnformatted($"{request.Requester.AliasOrUID} ({request.RequesterIdent})");
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"Accept##{request.RequestId}"))
+            {
+                _ = _pairRequestService.RespondAsync(request.RequestId, true);
+            }
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"Reject##{request.RequestId}"))
+            {
+                _ = _pairRequestService.RespondAsync(request.RequestId, false, "Rejected by user");
             }
         }
     }

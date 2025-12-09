@@ -42,6 +42,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly DalamudUtilService _dalamudUtil;
     private readonly HubFactory _hubFactory;
     private readonly PairManager _pairManager;
+    private readonly PairRequestService _pairRequestService;
     private readonly ServerConfigurationManager _serverManager;
     private readonly TokenProvider _tokenProvider;
     private CancellationTokenSource _connectionCancellationTokenSource;
@@ -54,12 +55,13 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private CensusUpdateMessage? _lastCensus;
 
     public ApiController(ILogger<ApiController> logger, HubFactory hubFactory, DalamudUtilService dalamudUtil,
-        PairManager pairManager, ServerConfigurationManager serverManager, SnowMediator mediator,
+        PairManager pairManager, PairRequestService pairRequestService, ServerConfigurationManager serverManager, SnowMediator mediator,
         TokenProvider tokenProvider) : base(logger, mediator)
     {
         _hubFactory = hubFactory;
         _dalamudUtil = dalamudUtil;
         _pairManager = pairManager;
+        _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _tokenProvider = tokenProvider;
         _connectionCancellationTokenSource = new CancellationTokenSource();
@@ -242,9 +244,17 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 await LoadIninitialPairs().ConfigureAwait(false);
                 await LoadOnlinePairs().ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                Logger.LogWarning("Connection attempt cancelled");
+                if (token.IsCancellationRequested)
+                {
+                    Logger.LogWarning("Connection attempt cancelled");
+                    return;
+                }
+
+                Logger.LogWarning(ex, "Connection attempt timed out, retrying");
+                ServerState = ServerState.Reconnecting;
+                await Task.Delay(TimeSpan.FromSeconds(new Random().Next(5, 20)), token).ConfigureAwait(false);
                 return;
             }
             catch (HttpRequestException ex)

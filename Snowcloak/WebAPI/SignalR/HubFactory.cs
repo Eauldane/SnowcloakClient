@@ -117,7 +117,7 @@ public class HubFactory : MediatorSubscriberBase
                 httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
 
                 var response = await httpClient.GetAsync(wellKnownUrl).ConfigureAwait(false);
-
+                
                 if (!response.IsSuccessStatusCode)
                     return defaultConfig;
 
@@ -152,6 +152,7 @@ public class HubFactory : MediatorSubscriberBase
 
             return config;
         }
+
         catch (JsonException ex)
         {
             Logger.LogWarning(ex, "Invalid JSON in .well-known response");

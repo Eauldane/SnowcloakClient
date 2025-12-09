@@ -25,6 +25,8 @@ using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using Snowcloak.Services.Housing;
 using Dalamud.Game.ClientState.Party;
+using Dalamud.Game.Gui.ContextMenu;
+using Dalamud.Game.ClientState.Objects.Types;
 
 
 namespace Snowcloak.Services;
@@ -37,6 +39,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         public string Name;
         public uint HomeWorldId;
         public nint Address;
+        public byte Level;
     };
 
     private struct PlayerInfo
@@ -71,6 +74,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private static readonly Dictionary<uint, PlayerInfo> _playerInfoCache = new();
     private bool _isOnHousingPlot = false;
     private HousingPlotLocation _lastHousingPlotLocation = default;
+    private uint _lastTargetEntityId = 0;
     
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
         IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
@@ -331,6 +335,19 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     {
         return await RunOnFrameworkThread(() => (GetPlayerName() + GetHomeWorldId()).GetHash256()).ConfigureAwait(false);
     }
+    
+    public bool TryGetIdentFromMenuTarget(IMenuOpenedArgs args, out string ident)
+    {
+        ident = string.Empty;
+        if (args.Target is not MenuTargetDefault target || target.TargetHomeWorld.RowId == 0)
+            return false;
+
+        var name = target.TargetName ?? string.Empty;
+        if (string.IsNullOrEmpty(name)) return false;
+
+        ident = (name + target.TargetHomeWorld.RowId).GetHash256();
+        return true;
+    }
 
     public IntPtr GetPlayerPointer()
     {
@@ -574,10 +591,14 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             info.Character.HomeWorldId = ((BattleChara*)chara.Address)->Character.HomeWorld;
             info.Character.Address = chara.Address;
             info.Hash = Crypto.GetHash256(info.Character.Name + info.Character.HomeWorldId.ToString());
+            if (chara is IPlayerCharacter player)
+                info.Character.Level = player.Level;
             _playerInfoCache[id] = info;
         }
 
         info.Character.Address = chara.Address;
+        if (chara is IPlayerCharacter updatedPlayer)
+            info.Character.Level = updatedPlayer.Level;
 
         return info;
     }
@@ -779,6 +800,14 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                 _classJobId = localPlayer.ClassJob.RowId;
             }
             
+            var target = _targetManager.Target as IPlayerCharacter;
+            var targetEntityId = target?.EntityId ?? 0;
+            if (targetEntityId != _lastTargetEntityId)
+            {
+                _lastTargetEntityId = targetEntityId;
+                Mediator.Publish(new TargetPlayerChangedMessage(target));
+            }
+
             HandleHousingPlotState();
 
             Mediator.Publish(new PriorityFrameworkUpdateMessage());

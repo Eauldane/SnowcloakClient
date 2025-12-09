@@ -43,6 +43,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private readonly FileTransferOrchestrator _fileTransferOrchestrator;
     private readonly FileCacheManager _fileCacheManager;
     private readonly PairManager _pairManager;
+    private readonly PairRequestService _pairRequestService;
     private readonly ChatService _chatService;
     private readonly GuiHookService _guiHookService;
     private readonly PerformanceCollectorService _performanceCollector;
@@ -67,9 +68,21 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _registrationSuccess = false;
     private string? _registrationMessage;
 
+    private static readonly (byte RaceId, string RaceLabel, (byte ClanId, string ClanLabel)[] Clans)[] _raceClanOptions =
+    [
+        (1, "Hyur", new (byte, string)[] { (1, "Midlander"), (2, "Highlander") }),
+        (2, "Elezen", new (byte, string)[] { (3, "Wildwood"), (4, "Duskwight") }),
+        (3, "Lalafell", new (byte, string)[] { (5, "Plainsfolk"), (6, "Dunesfolk") }),
+        (4, "Miqo'te", new (byte, string)[] { (7, "Seeker of the Sun"), (8, "Keeper of the Moon") }),
+        (5, "Roegadyn", new (byte, string)[] { (9, "Sea Wolf"), (10, "Hellsguard") }),
+        (6, "Au Ra", new (byte, string)[] { (11, "Raen"), (12, "Xaela") }),
+        (7, "Hrothgar", new (byte, string)[] { (13, "Helions"), (14, "The Lost") }),
+        (8, "Viera", new (byte, string)[] { (15, "Rava"), (16, "Veena") }),
+    ];
+    
     public SettingsUi(ILogger<SettingsUi> logger,
         UiSharedService uiShared, SnowcloakConfigService configService,
-        PairManager pairManager, ChatService chatService, GuiHookService guiHookService,
+        PairManager pairManager, PairRequestService pairRequestService, ChatService chatService, GuiHookService guiHookService,
         ServerConfigurationManager serverConfigurationManager,
         PlayerPerformanceConfigService playerPerformanceConfigService, PlayerPerformanceService playerPerformanceService,
         SnowMediator mediator, PerformanceCollectorService performanceCollector,
@@ -82,6 +95,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     {
         _configService = configService;
         _pairManager = pairManager;
+        _pairRequestService = pairRequestService;
         _chatService = chatService;
         _guiHookService = guiHookService;
         _serverConfigurationManager = serverConfigurationManager;
@@ -106,7 +120,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
         SizeConstraints = new WindowSizeConstraints()
         {
-            MinimumSize = new Vector2(600, 400),
+            MinimumSize = new Vector2(650, 400),
             MaximumSize = new Vector2(600, 2000),
         };
 
@@ -1076,7 +1090,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _guiHookService.RequestRedraw();
             }
         }
-
+        
         if (ImGui.Checkbox("Show separate Visible group", ref showVisibleSeparate))
         {
             _configService.Current.ShowVisibleUsersSeparately = showVisibleSeparate;
@@ -1515,6 +1529,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
         static uint ConvertBackColor(Vector3 color)
             => byte.CreateSaturating(color.X * 255.0f) | ((uint)byte.CreateSaturating(color.Y * 255.0f) << 8) | ((uint)byte.CreateSaturating(color.Z * 255.0f) << 16);
     }
+    
+    private static Vector4 ConvertColorToVec4(uint color)
+        => new(
+            (byte)color / 255.0f,
+            (byte)(color >> 8) / 255.0f,
+            (byte)(color >> 16) / 255.0f,
+            1.0f);
+
 
     private void DrawServerConfiguration()
     {
@@ -1865,6 +1887,120 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private string _uidToAddForIgnoreBlacklist = string.Empty;
     private int _selectedEntryBlacklist = -1;
 
+    private void DrawSnowplow()
+    {
+        _lastTab = "Snowplow";
+
+        _uiShared.BigText("Snowplow Pairing");
+
+        var pairingEnabled = _configService.Current.PairingSystemEnabled;
+        if (ImGui.Checkbox("Enable Snowplow pairing features", ref pairingEnabled))
+        {
+            _configService.Current.PairingSystemEnabled = pairingEnabled;
+            _configService.Save();
+
+            _ = _pairRequestService.SyncAdvertisingAsync();
+            
+            _guiHookService.RequestRedraw();
+        }
+        _uiShared.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
+
+        using (ImRaii.Disabled(!pairingEnabled))
+        {
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+            ImGui.Separator();
+
+            _uiShared.BigText("Highlighting");
+
+            var pairRequestColor = _configService.Current.PairRequestNameColors;
+            if (InputDtrColors("Highlight color", ref pairRequestColor))
+            {
+                _configService.Current.PairRequestNameColors = pairRequestColor;
+                _configService.Save();
+                _guiHookService.RequestRedraw();
+            }
+            _uiShared.DrawHelpText("Opted-in Snowplow users are shown to you in this color while Snowplow is enabled.");
+
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+            ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Opted-in user preview");
+
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 6));
+            ImGui.Separator();
+
+            _uiShared.BigText("Auto-reject filters");
+            ImGui.TextWrapped("Snowcloak will automatically filter pair requests from the following characters if they're within" +
+                              " inspection range.\n\n Please note: If the sender is out of examine range, the request will not be filtered.");
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
+
+            var minimumLevel = _configService.Current.PairRequestMinimumLevel;
+            ImGui.TextUnformatted("Reject requests below level");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("##SnowplowMinLevel", ref minimumLevel))
+            {
+                minimumLevel = Math.Clamp(minimumLevel, 0, 90);
+                _configService.Current.PairRequestMinimumLevel = minimumLevel;
+                _configService.Save();
+            }
+            _uiShared.DrawHelpText("Set to 0 to disable level-based rejection.");
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+            ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box" +
+                              " below. Requests from matching characters will be rejected.");
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+
+            ImGui.TextWrapped("Please note: Snowcloak can only make determinations for this feature based on their unpaired, unglamoured state. For your safety," +
+                              " the client does not attempt to automatically load adventurer plates.");
+            foreach (var (raceId, raceLabel, clans) in _raceClanOptions)
+            {
+                ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
+                var raceLabelSize = ImGui.CalcTextSize(raceLabel);
+                var availableWidth = ImGui.GetContentRegionAvail().X;
+                var centeredStart = Math.Max(0, (availableWidth - raceLabelSize.X) / 2);
+                var cursorX = ImGui.GetCursorPosX();
+                ImGui.SetCursorPosX(cursorX + centeredStart);
+                ImGui.TextUnformatted(raceLabel);
+                ImGui.SetCursorPosX(cursorX);
+                
+                if (ImGui.BeginTable($"SnowplowRaceRow_{raceId}", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
+                {
+                    ImGui.TableSetupColumn("Clan");
+                    ImGui.TableSetupColumn("Male", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+                    ImGui.TableSetupColumn("Female", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+                    ImGui.TableHeadersRow();
+
+                    foreach (var (clanId, clanLabel) in clans)
+                    {
+                        ImGui.TableNextRow();
+
+                        ImGui.TableNextColumn();
+                        ImGui.TextUnformatted(clanLabel);
+                        ImGui.TableNextColumn();
+                        using (ImRaii.PushId($"{raceId}_{clanId}_M"))
+                        {
+                            var rejectMale = HasAutoRejectCombo(raceId, clanId, 0);
+                            if (ImGui.Checkbox("M", ref rejectMale))
+                            {
+                                UpdateComboRejection(rejectMale, raceId, clanId, 0);
+                            }
+                        }
+
+                        ImGui.TableNextColumn();
+                        using (ImRaii.PushId($"{raceId}_{clanId}_F"))
+                        {
+                            var rejectFemale = HasAutoRejectCombo(raceId, clanId, 1);
+                            if (ImGui.Checkbox("F", ref rejectFemale))
+                            {
+                                UpdateComboRejection(rejectFemale, raceId, clanId, 1);
+                            }
+                        }
+                    }
+
+                    ImGui.EndTable();
+                }
+            }
+        }
+    }
+        
     private void DrawSettingsContent()
     {
         if (_apiController.ServerState is ServerState.Connected)
@@ -1907,6 +2043,11 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 DrawCurrentTransfers();
                 ImGui.EndTabItem();
             }
+            if (ImGui.BeginTabItem("Snowplow"))
+            {
+                DrawSnowplow();
+                ImGui.EndTabItem();
+            }
 
             if (ImGui.BeginTabItem("Service Settings"))
             {
@@ -1941,5 +2082,18 @@ public class SettingsUi : WindowMediatorSubscriberBase
     {
         _wasOpen = IsOpen;
         IsOpen = false;
+    }
+    
+    private bool HasAutoRejectCombo(byte race, byte clan, byte gender)
+        => _configService.Current.AutoRejectCombos.Contains(new AutoRejectCombo(race, clan, gender));
+    private void UpdateComboRejection(bool enabled, byte race, byte clan, byte gender)
+    {
+        var key = new AutoRejectCombo(race, clan, gender);
+        if (enabled)
+            _configService.Current.AutoRejectCombos.Add(key);
+        else
+            _configService.Current.AutoRejectCombos.Remove(key);
+        
+        _configService.Save();
     }
 }

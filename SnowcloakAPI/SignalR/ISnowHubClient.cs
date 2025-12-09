@@ -59,4 +59,7 @@ public interface ISnowHubClient : ISnowHub
     void OnGposeLobbyPushCharacterData(Action<CharaDataDownloadDto> act);
     void OnGposeLobbyPushPoseData(Action<UserData, PoseData> act);
     void OnGposeLobbyPushWorldData(Action<UserData, WorldData> act);
+    void OnUserPairingAvailability(Action<List<PairingAvailabilityDto>> act);
+    void OnUserPairingRequest(Action<PairingRequestDto> act);
+
 }

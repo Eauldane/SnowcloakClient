@@ -1,4 +1,5 @@
-﻿using Dalamud.Game.ClientState.Objects.Types;
+﻿using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.Types;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
@@ -12,6 +13,7 @@ using Snowcloak.WebAPI.Files.Models;
 using System.Numerics;
 using Snowcloak.Services.Housing;
 using Snowcloak.Services.Venue;
+using Snowcloak.API.Dto.User;
 
 namespace Snowcloak.Services.Mediator;
 
@@ -89,6 +91,7 @@ public record OpenPairAnalysisWindow(Pair Pair) : MessageBase;
 public record DownloadLimitChangedMessage() : SameThreadMessage;
 public record CensusUpdateMessage(byte Gender, byte RaceId, byte TribeId) : MessageBase;
 public record TargetPairMessage(Pair Pair) : MessageBase;
+public record TargetPlayerChangedMessage(IPlayerCharacter? Character) : MessageBase;
 public record CombatOrPerformanceStartMessage : MessageBase;
 public record CombatOrPerformanceEndMessage : MessageBase;
 public record EventMessage(Event Event) : MessageBase;
@@ -117,5 +120,8 @@ public record VenueSyncshellJoinAcceptedMessage(VenueSyncshellDto Venue, VenueLo
 public record OpenBbCodeLinkPopupMessage(string Url) : MessageBase;
 public record OpenVenueRegistrationWindowMessage(VenueRegistrationContext Context) : MessageBase;
 public record PluginChangeMessage(string InternalName, Version Version, bool IsLoaded) : KeyedMessage(InternalName);
+public record PairingAvailabilityChangedMessage : MessageBase;
+public record PairingRequestReceivedMessage(PairingRequestDto Request) : MessageBase;
+public record PairingRequestListChangedMessage : MessageBase;
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name

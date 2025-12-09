@@ -96,6 +96,24 @@ public partial class ApiController
         if (!IsConnected) return;
         await _snowHub!.InvokeAsync(nameof(UserSetProfile), userDescription).ConfigureAwait(false);
     }
+    
+    public async Task UserSetPairingOptIn(PairingOptInDto optInDto)
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(UserSetPairingOptIn), optInDto).ConfigureAwait(false);
+    }
+
+    public async Task UserSendPairRequest(PairingRequestTargetDto targetDto)
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(UserSendPairRequest), targetDto).ConfigureAwait(false);
+    }
+
+    public async Task UserRespondToPairRequest(PairingRequestDecisionDto decisionDto)
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(UserRespondToPairRequest), decisionDto).ConfigureAwait(false);
+    }
 
     private async Task PushCharacterDataInternal(CharacterData character, List<UserData> visibleCharacters)
     {
