@@ -31,6 +31,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
     private readonly IFramework _framework;
     private readonly IObjectTable _objectTable;
     private readonly IPlayerState _playerState;
+    private readonly IClientState _clientState;
     private readonly ILogger<VenueRegistrationService> _logger;
     private readonly SnowMediator _mediator;
 
@@ -41,7 +42,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
     public VenueRegistrationService(ILogger<VenueRegistrationService> logger, DalamudUtilService dalamudUtilService,
         IChatGui chatGui, IGameGui gameGui, IFramework framework, IObjectTable objectTable, IPlayerState playerState,
-        SnowMediator mediator)
+        IClientState clientState, SnowMediator mediator)
     {
         _logger = logger;
         _dalamudUtilService = dalamudUtilService;
@@ -49,7 +50,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _gameGui = gameGui;
         _framework = framework;
         _objectTable = objectTable;
-        _playerState = _playerState;
+        _playerState = playerState;
+        _clientState = clientState;
         _mediator = mediator;
     }
 
@@ -211,11 +213,13 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 Message = "[Snowcloak] Placard details detected; evaluating ownership.",
                 Type = XivChatType.SystemMessage
             });
-            var (ward, plot) = ExtractWardAndPlot(evaluation.Lines);
+            var placardKeywords = GetPlacardKeywords();
+
+            var (ward, plot) = ExtractWardAndPlot(evaluation.Lines, placardKeywords);
             var plotMatches = plot == _pendingPlot.Value.PlotId;
-            var ownerResult = ExtractLabelAndValue(evaluation.Lines, "owner");
+            var ownerResult = ExtractLabelAndValue(evaluation.Lines, placardKeywords.OwnerKeywords);
             var ownerValue = ownerResult.Value;
-            var (_, freeCompanyValue, _, _) = ExtractLabelAndValue(evaluation.Lines, "company");
+            var (_, freeCompanyValue, _, _) = ExtractLabelAndValue(evaluation.Lines, placardKeywords.CompanyKeywords);
 
             
             var matchesOwnerName = !string.IsNullOrWhiteSpace(evaluation.PlayerName)
@@ -430,38 +434,104 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _logger.LogInformation("Placard node {NodeType} @0x{NodeAddress} visited", typeName, address);
     }
 
-    private static (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines)
+      private PlacardKeywords GetPlacardKeywords()
+    {
+        return _clientState.ClientLanguage switch
+        {
+            ClientLanguage.German => new PlacardKeywords(
+                new[] { "Bezirk" },
+                new[] { "Grundstück" },
+                new[] { "Besitzer", "Eigentümer" },
+                new[] { "Freie Gesellschaft" }),
+            ClientLanguage.French => new PlacardKeywords(
+                new[] { "Secteur" },
+                new[] { "Parcelle", "Terrain" },
+                new[] { "Propriétaire" },
+                new[] { "Compagnie libre" }),
+            ClientLanguage.Japanese => new PlacardKeywords(
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Owner" },
+                new[] { "フリーカンパニー" },
+                "第?\\s*([0-9０-９]+)\\s*区",
+                "第?\\s*([0-9０-９]+)\\s*番地"),
+            _ => new PlacardKeywords(
+                new[] { "Ward" },
+                new[] { "Plot" },
+                new[] { "Owner" },
+                new[] { "Company" })
+        };
+    }
+
+    private static uint? TryParseLocalizedNumber(string value)
+    {
+        Span<char> normalized = stackalloc char[value.Length];
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            normalized[i] = ch switch
+            {
+                >= '０' and <= '９' => (char)('0' + (ch - '０')),
+                _ => ch
+            };
+        }
+
+        return uint.TryParse(normalized, out var result) ? result : null;
+    }
+
+    private static uint? TryMatchNumber(string line, IReadOnlyList<string> keywords, string? customPattern = null)
+    {
+        const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
+        if (!string.IsNullOrWhiteSpace(customPattern))
+        {
+            var match = Regex.Match(line, customPattern, Options);
+            if (match.Success)
+                return TryParseLocalizedNumber(match.Groups[1].Value);
+        }
+
+        foreach (var keyword in keywords)
+        {
+            var match = Regex.Match(line, $"{keyword}\\s*([0-9０-９]+)", Options);
+            if (match.Success)
+                return TryParseLocalizedNumber(match.Groups[1].Value);
+        }
+
+        return null;
+    }
+
+    private (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines, PlacardKeywords placardKeywords)
     {
         uint? ward = null;
         uint? plot = null;
 
         foreach (var line in lines)
         {
-            var wardMatch = Regex.Match(line, "Ward\\s*(\\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (wardMatch.Success && uint.TryParse(wardMatch.Groups[1].Value, out var wardValue))
+            var wardValue = TryMatchNumber(line, placardKeywords.WardKeywords, placardKeywords.WardPattern);
+            if (wardValue != null)
                 ward ??= wardValue;
 
-            var plotMatch = Regex.Match(line, "Plot\\s*(\\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (plotMatch.Success && uint.TryParse(plotMatch.Groups[1].Value, out var plotValue))
+            var plotValue = TryMatchNumber(line, placardKeywords.PlotKeywords, placardKeywords.PlotPattern);
+            if (plotValue != null)
                 plot ??= plotValue;
         }
 
         return (ward, plot);
     }
-    
+
     private static (string? Label, string? Value, int LabelIndex, int ValueIndex) ExtractLabelAndValue(
-        IReadOnlyList<string> lines, string keyword)
+        IReadOnlyList<string> lines, IReadOnlyList<string> keywords)
     {
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
-            if (!line.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            continue;
-                
+            if (!keywords.Any(keyword => line.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
             var value = FindFirstValue(lines, i + 1, out var valueIndex);
             return (line, value, i, valueIndex);
         }
-        
+
         return (null, null, -1, -1);
     }
 
@@ -565,4 +635,12 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
         return null;
     }
+
+    private sealed record PlacardKeywords(
+        IReadOnlyList<string> WardKeywords,
+        IReadOnlyList<string> PlotKeywords,
+        IReadOnlyList<string> OwnerKeywords,
+        IReadOnlyList<string> CompanyKeywords,
+        string? WardPattern = null,
+        string? PlotPattern = null);
 }
