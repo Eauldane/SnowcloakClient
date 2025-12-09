@@ -29,6 +29,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using System.Reflection;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -77,13 +78,14 @@ public class CompactUi : WindowMediatorSubscriberBase
     private string? _registrationMessage;
     private RegisterReplyDto? _registrationReply;
     private readonly AccountRegistrationService _registerService;
+    private readonly LocalisationService _localisationService;
     private string _secretKey = string.Empty;
 
 
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
-        PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService)
+        PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, LocalisationService localisationService)
         : base(logger, mediator, "###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _uiSharedService = uiShared;
@@ -93,6 +95,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _registerService = registerService;
+        _localisationService = localisationService;
         _fileTransferManager = fileTransferManager;
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;
@@ -141,6 +144,11 @@ public class CompactUi : WindowMediatorSubscriberBase
             MinimumSize = new Vector2(500, 400),
             MaximumSize = new Vector2(600, 2000),
         };
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"CompactUI.{key}", fallback);
     }
 
     protected override void DrawInternal()
@@ -221,7 +229,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             ImGui.Separator();
 
             // Buttons with state change
-            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Individual Pairs");
+            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, L("Sidebar.IndividualPairs", "Individual Pairs"));
             DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, "Syncshells");
             ImGui.Separator();
             //buttons without state change
