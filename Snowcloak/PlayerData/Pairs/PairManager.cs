@@ -105,6 +105,8 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
     public List<UserData> GetVisibleUsers() => _allClientPairs.Where(p => p.Value.IsVisible).Select(p => p.Key).ToList();
     
+    public List<Pair> GetVisiblePairs() => _allClientPairs.Values.Where(p => p.IsVisible).ToList();
+    
     public Pair? GetPairByObjectId(uint objectId)
     {
         return _allClientPairs.Values.FirstOrDefault(pair => pair.PlayerCharacterId == objectId);

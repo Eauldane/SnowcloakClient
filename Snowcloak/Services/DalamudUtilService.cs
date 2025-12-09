@@ -336,6 +336,19 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         return await RunOnFrameworkThread(() => (GetPlayerName() + GetHomeWorldId()).GetHash256()).ConfigureAwait(false);
     }
     
+    public async Task<IReadOnlyList<string>> GetNearbyPlayerNameHashesAsync(int maxPlayers = 0)
+    {
+        return await RunOnFrameworkThread(() =>
+        {
+            var hashes = _playerCharas.Keys;
+
+            if (maxPlayers > 0)
+                return (IReadOnlyList<string>)hashes.Take(maxPlayers).ToList();
+
+            return hashes.ToList();
+        }).ConfigureAwait(false);
+    }
+    
     public bool TryGetIdentFromMenuTarget(IMenuOpenedArgs args, out string ident)
     {
         ident = string.Empty;

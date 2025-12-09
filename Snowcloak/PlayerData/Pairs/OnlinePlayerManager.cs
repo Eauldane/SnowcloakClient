@@ -1,4 +1,7 @@
-﻿using Snowcloak.API.Data;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
@@ -63,13 +66,18 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
 
     private void PushCharacterData(List<UserData> visiblePlayers)
     {
-        if (visiblePlayers.Any() && _lastSentData != null)
+        if (_lastSentData == null)
+            return;
+
+        if (!visiblePlayers.Any())
+            return;
+
+        _ = Task.Run(async () =>
         {
-            _ = Task.Run(async () =>
-            {
-                var dataToSend = await _fileTransferManager.UploadFiles(_lastSentData.DeepClone(), visiblePlayers).ConfigureAwait(false);
-                await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
-            });
-        }
+            var dataToSend = await _fileTransferManager.UploadFiles(_lastSentData.DeepClone(), visiblePlayers).ConfigureAwait(false);
+
+            if (visiblePlayers.Any())
+                await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false); 
+        });
     }
 }

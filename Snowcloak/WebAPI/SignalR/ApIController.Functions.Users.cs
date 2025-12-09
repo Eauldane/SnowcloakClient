@@ -102,6 +102,16 @@ public partial class ApiController
         if (!IsConnected) return;
         await _snowHub!.InvokeAsync(nameof(UserSetPairingOptIn), optInDto).ConfigureAwait(false);
     }
+    
+    public async Task<List<PairingAvailabilityDto>> UserQueryPairingAvailability(PairingAvailabilityQueryDto query)
+    {
+        Logger.LogDebug("Querying pairing availability for {count} nearby idents: {idents}",
+            query.NearbyIdents?.Count ?? 0,
+            string.Join(", ", query.NearbyIdents ?? Array.Empty<string>()));
+
+        if (!IsConnected) return [];
+        return await _snowHub!.InvokeAsync<List<PairingAvailabilityDto>>(nameof(UserQueryPairingAvailability), query).ConfigureAwait(false);
+    }
 
     public async Task UserSendPairRequest(PairingRequestTargetDto targetDto)
     {

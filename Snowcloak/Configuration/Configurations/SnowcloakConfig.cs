@@ -83,8 +83,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int CompressionLevel { get; set; } = 3;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
     public bool AllowBbCodeImages { get; set; } = true;
-    public bool OptInToPairRequests { get; set; } = false;
-    public DtrEntry.Colors PairRequestNameColors { get; set; } = new(Foreground: 0x6EE7EEu, Glow: 0x0E6E7Au);
+    public DtrEntry.Colors PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = true;
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;

@@ -37,6 +37,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         _gameConfig = gameConfig;
         _partyList = partyList;
         _pairManager = pairManager;
+        _pairRequestService = pairRequestService;
 
         _namePlateGui.OnNamePlateUpdate += OnNamePlateUpdate;
         _namePlateGui.RequestRedraw();

@@ -17,6 +17,7 @@ using System.Linq;
 using System.IO;
 using System.Text.Json;
 using Snowcloak.Services.ServerConfiguration;
+using System.Threading;
 
 namespace Snowcloak.Services;
 
@@ -30,8 +31,17 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly IToastGui _toastGui;
     private readonly ConcurrentDictionary<Guid, PairingRequestDto> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
+    private readonly object _availabilityLock = new();
+    private HashSet<string> _stagedAvailability = new(StringComparer.Ordinal);
+    private CancellationTokenSource? _availabilityDebounceCts;
     private readonly IContextMenu _contextMenu;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly HashSet<string> _lastNearbyIdentSnapshot = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _nearbyAvailabilityCts = new();
+    private readonly Task _nearbyAvailabilityLoop;
+    private static readonly TimeSpan AvailabilityApplyDebounce = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(5);
+    private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
 
     public PairRequestService(ILogger<PairRequestService> logger, SnowcloakConfigService configService,
@@ -53,16 +63,34 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
         Mediator.Subscribe<ConnectedMessage>(this, OnConnected);
         Mediator.Subscribe<HubReconnectedMessage>(this, OnHubReconnected);
+        _nearbyAvailabilityLoop = Task.Run(() => PollNearbyAvailabilityAsync(_nearbyAvailabilityCts.Token));
     }
 
-    private void OnConnected(ConnectedMessage message) => _ = SyncAdvertisingAsync(force: true);
-    
-    private void OnHubReconnected(HubReconnectedMessage message) => _ = SyncAdvertisingAsync(force: true);
+    private void OnConnected(ConnectedMessage message) => _ = OnConnectedAsync();
+
+    private void OnHubReconnected(HubReconnectedMessage message) => _ = OnConnectedAsync();
+
+    private async Task OnConnectedAsync()
+    {
+        await SyncAdvertisingAsync(force: true).ConfigureAwait(false);
+        await RefreshNearbyAvailabilityAsync(force: true).ConfigureAwait(false);
+    }
     
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
         _contextMenu.OnMenuOpened -= ContextMenuOnMenuOpened;
+        
+        _nearbyAvailabilityCts.Cancel();
+        try
+        {
+            _availabilityDebounceCts?.Cancel();
+            _nearbyAvailabilityLoop.Wait(TimeSpan.FromSeconds(1));
+        }
+        catch (AggregateException)
+        {
+            // ignored
+        }
     }
 
     public IReadOnlyCollection<string> AvailableIdents
@@ -114,22 +142,154 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     public void UpdateAvailability(IEnumerable<PairingAvailabilityDto> available)
     {
-        _availableIdents.Clear();
+        var incoming = available?.Select(dto => dto.Ident)
+            .Where(ident => !string.IsNullOrWhiteSpace(ident))
+            .ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+
+        // Keep availability limited to players we still see locally so nameplate highlights
+        // only persist while the player remains in range (or until the server tells us they
+        // opted out).
+        if (_lastNearbyIdentSnapshot.Count > 0)
+            incoming.IntersectWith(_lastNearbyIdentSnapshot);
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Pairing availability from server: {count} -> [{idents}]", incoming.Count,
+                string.Join(", ", incoming));
         
+        StageAvailability(incoming);
+    }
+
+    private void StageAvailability(HashSet<string> incoming)
+    {
+        lock (_availabilityLock)
+        {
+            if (_stagedAvailability.Count == 0)
+                _stagedAvailability = new HashSet<string>(incoming, StringComparer.Ordinal);
+            else
+                _stagedAvailability.UnionWith(incoming);
+
+            _availabilityDebounceCts?.Cancel();
+            _availabilityDebounceCts = new CancellationTokenSource();
+            var token = _availabilityDebounceCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AvailabilityApplyDebounce, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                HashSet<string> staged;
+                lock (_availabilityLock)
+                {
+                    staged = new HashSet<string>(_stagedAvailability, StringComparer.Ordinal);
+                    _stagedAvailability.Clear();
+                }
+
+                ApplyAvailability(staged);
+            });
+        }
+    }
+
+    private void ApplyAvailability(HashSet<string> incoming)
+    {
+
         if (!_configService.Current.PairingSystemEnabled)
         {
+            _availableIdents.Clear();
             Mediator.Publish(new PairingAvailabilityChangedMessage());
             return;
         }
         
-        foreach (var dto in available)
+        if (_availableIdents.SetEquals(incoming))
+            return;
+
+        _availableIdents.Clear();
+
+        foreach (var ident in incoming)
         {
-            _availableIdents.Add(dto.Ident);
+            _availableIdents.Add(ident);
         }
 
         Mediator.Publish(new PairingAvailabilityChangedMessage());
     }
 
+       private async Task PollNearbyAvailabilityAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await RefreshNearbyAvailabilityAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // ignored
+            }
+            catch (Exception ex)
+            {
+                _logger.LogTrace(ex, "Failed to refresh nearby pairing availability");
+            }
+
+            try
+            {
+                await Task.Delay(NearbyAvailabilityPollInterval, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // ignored
+            }
+        }
+    }
+
+    private async Task RefreshNearbyAvailabilityAsync(bool force = false)
+    {
+        if (!_configService.Current.PairingSystemEnabled)
+        {
+            if (_availableIdents.Count > 0)
+            {
+                _availableIdents.Clear();
+                Mediator.Publish(new PairingAvailabilityChangedMessage());
+            }
+
+            return;
+        }
+
+        if (!_apiController.Value.IsConnected)
+            return;
+
+        var nearby = await _dalamudUtilService.GetNearbyPlayerNameHashesAsync(MaxNearbySnapshot).ConfigureAwait(false);
+        var nearbySet = new HashSet<string>(nearby, StringComparer.Ordinal);
+
+        _lastNearbyIdentSnapshot.Clear();
+        foreach (var ident in nearbySet)
+        {
+            _lastNearbyIdentSnapshot.Add(ident);
+        }
+
+        try
+        {
+            var availability = await _apiController.Value
+                .UserQueryPairingAvailability(new PairingAvailabilityQueryDto([.. nearbySet]))
+                .ConfigureAwait(false);
+
+            UpdateAvailability(availability);
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Failed to query nearby pairing availability");
+        }
+    }
+
+    
     public async Task SendPairRequestAsync(string ident)
     {
         if (!_configService.Current.PairingSystemEnabled)
@@ -151,23 +311,15 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public async Task RespondAsync(PairingRequestDto request, bool accepted, string? reason = null)
     {
         var note = GetRequesterDisplayName(request);
-        try
+        await RespondWithDecisionAsync(request.RequestId, accepted, reason).ConfigureAwait(false);
+
+        if (accepted)
         {
-            await _apiController.Value.UserRespondToPairRequest(new PairingRequestDecisionDto(request.RequestId, accepted, reason)).ConfigureAwait(false);
-            if (accepted)
-            {
-                ApplyAutoNote(request, note);
-            }
+            ApplyAutoNote(request, note);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to respond to request {requestId}", request.RequestId);
-        }
-        finally
-        {
-            _pendingRequests.TryRemove(request.RequestId, out _);
-            Mediator.Publish(new PairingRequestListChangedMessage());
-        }
+        
+        _pendingRequests.TryRemove(request.RequestId, out _);
+        Mediator.Publish(new PairingRequestListChangedMessage());
     }
     
     public Task RespondAsync(Guid requestId, bool accepted, string? reason = null)
@@ -175,8 +327,21 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (_pendingRequests.TryGetValue(requestId, out var request))
             return RespondAsync(request, accepted, reason);
 
-        _logger.LogWarning("Failed to respond to request {requestId}: not found", requestId);
-        return Task.CompletedTask;
+        return RespondWithDecisionAsync(requestId, accepted, reason);
+    }
+
+    private async Task RespondWithDecisionAsync(Guid requestId, bool accepted, string? reason)
+    {
+        try
+        {
+            await _apiController.Value
+                .UserRespondToPairRequest(new PairingRequestDecisionDto(requestId, accepted, reason))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to respond to request {requestId}", requestId);
+        }
     }
 
     public void ReceiveRequest(PairingRequestDto dto)
@@ -246,30 +411,40 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!_configService.Current.PairingSystemEnabled)
             return (false, string.Empty);
         
-        var hasFilters = _configService.Current.AutoRejectCombos.Count > 0;
+        var hasAppearanceFilters = _configService.Current.AutoRejectCombos.Count > 0;
         var minimumLevel = Math.Max(0, _configService.Current.PairRequestMinimumLevel);
-        if (!hasFilters && minimumLevel == 0)
+        if (!hasAppearanceFilters && minimumLevel == 0)
             return (false, string.Empty);
 
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
         if (pc.ObjectId == 0 || pc.Address == IntPtr.Zero)
-            return (false, string.Empty);
-        
-        if (minimumLevel > 0 && pc.Level > 0 && pc.Level < minimumLevel)
-            return (true, $"Auto rejected: requester below level {minimumLevel}");
+            return (true, "Auto rejected: requester unavailable for filtering");
+
+        if (minimumLevel > 0)
+        {
+            if (pc.Level <= 0)
+                return (true, "Auto rejected: requester level unavailable");
+
+            if (pc.Level < minimumLevel)
+                return (true, $"Auto rejected: requester below level {minimumLevel}");
+        }
 
         var appearance = await ExtractAppearanceAsync(pc.Address).ConfigureAwait(false);
         if (appearance == null)
-            return hasFilters ? (true, "Auto rejected: appearance unavailable") : (false, string.Empty);
-
+            return hasAppearanceFilters ? (true, "Auto rejected: appearance unavailable") : (false, string.Empty);
+        
         if (appearance.Gender.HasValue && appearance.Race.HasValue && appearance.Clan.HasValue)
         {
             var key = new AutoRejectCombo(appearance.Race.Value, appearance.Clan.Value, appearance.Gender.Value);
             if (_configService.Current.AutoRejectCombos.Contains(key))
-                return (true, "Auto rejected by filters");
+                return (true, "Auto rejected: This user isn't interested in your apparent gender/clan combination.");
         }
         
-        return (false, string.Empty);
+
+        return hasAppearanceFilters
+            ? (true, "Auto rejected: appearance unavailable")
+            : (false, string.Empty);
+
         
     }
 
