@@ -43,37 +43,25 @@ public class DrawUserPair : DrawPairBase
         FontAwesomeIcon connectionIcon;
         Vector4 connectionColor;
         string connectionText;
-        if (!(_pair.UserPair!.OwnPermissions.IsPaired() && _pair.UserPair!.OtherPermissions.IsPaired()))
-        {
-            connectionIcon = FontAwesomeIcon.ArrowUp;
-            connectionText = _pair.UserData.AliasOrUID + " has not added you back";
-            connectionColor = ImGuiColors.DalamudRed;
-        }
-        else if (_pair.UserPair!.OwnPermissions.IsPaused() || _pair.UserPair!.OtherPermissions.IsPaused())
-        {
-            connectionIcon = FontAwesomeIcon.PauseCircle;
-            connectionText = "Pairing status with " + _pair.UserData.AliasOrUID + " is paused";
-            connectionColor = ImGuiColors.DalamudGrey;
-        }
-        else
+        bool isPaused = _pair.IsAutoPaused || _pair.UserPair!.OwnPermissions.IsPaused() || _pair.UserPair!.OtherPermissions.IsPaused();
+
+        if (_pair.UserPair!.OwnPermissions.IsPaired() && _pair.UserPair!.OtherPermissions.IsPaired())
         {
             connectionIcon = FontAwesomeIcon.Snowflake;
             connectionText = "You are paired with " + _pair.UserData.AliasOrUID;
             connectionColor = _pair.IsOnline ? Colours._snowcloakOnline : ImGuiColors.DalamudGrey;
         }
-        if (!_pair.IsVisible)
+        else
         {
-            ImGui.SetCursorPosY(textPosY);
-            ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(connectionIcon.ToIconString(), connectionColor);
-            ImGui.PopFont();
-            UiSharedService.AttachToolTip(connectionText);
+            connectionIcon = FontAwesomeIcon.ArrowUp;
+            connectionText = _pair.UserData.AliasOrUID + " has not added you back";
+            connectionColor = ImGuiColors.DalamudRed;
         }
         if (_pair is { IsOnline: true, IsVisible: true })
         {
             ImGui.SetCursorPosY(textPosY);
             ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(FontAwesomeIcon.Eye.ToIconString(), Colours._snowcloakOnline);
+            UiSharedService.ColorText(FontAwesomeIcon.Eye.ToIconString(), isPaused ? ImGuiColors.DalamudGrey : Colours._snowcloakOnline);
             if (ImGui.IsItemClicked())
             {
                 _mediator.Publish(new TargetPairMessage(_pair));
@@ -97,8 +85,17 @@ public class DrawUserPair : DrawPairBase
                 }
             }
 
-            UiSharedService.AttachToolTip(visibleTooltip);
+            UiSharedService.AttachToolTip(string.IsNullOrEmpty(connectionText)
+                ? visibleTooltip
+                : connectionText + UiSharedService.TooltipSeparator + visibleTooltip);
+            return;
         }
+        
+        ImGui.SetCursorPosY(textPosY);
+        ImGui.PushFont(UiBuilder.IconFont);
+        UiSharedService.ColorText(connectionIcon.ToIconString(), connectionColor);
+        ImGui.PopFont();
+        UiSharedService.AttachToolTip(connectionText);
     }
 
 

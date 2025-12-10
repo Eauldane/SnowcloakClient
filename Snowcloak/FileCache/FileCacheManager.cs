@@ -9,6 +9,7 @@ using Snowcloak.Files;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using Snowcloak.Interop.GameModel;
 
 namespace Snowcloak.FileCache;
 
@@ -174,10 +175,85 @@ public sealed class FileCacheManager : IHostedService
 
         var extension = Path.GetExtension(fileCache.ResolvedFilepath);
         var fileExtension = SCFFile.GetExtensionEnum(extension);
-
-        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken, _configService.Current.CompressionLevel, _configService.Current.UseMultithreadedCompression).ConfigureAwait(false);
-        fileCache.CompressedSize = header.CompressedSize + 79;
+        var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
+        
+        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken, _configService.Current.CompressionLevel, _configService.Current.UseMultithreadedCompression, metadata.TriangleCount, metadata.VramUsage).ConfigureAwait(false);
+        fileCache.CompressedSize = header.CompressedSize + SCFFile.GetHeaderLength();
         return (fileHash, ms.ToArray());
+    }
+    
+    private (long TriangleCount, long VramUsage) CalculateFileMetadata(string filePath, FileExtension fileExtension)
+    {
+        long triangleCount = -1;
+        long vramUsage = -1;
+
+        try
+        {
+            switch (fileExtension)
+            {
+                case FileExtension.MDL:
+                    triangleCount = CalculateTriangleCount(filePath);
+                    break;
+                case FileExtension.TEX:
+                    vramUsage = CalculateTextureVramUsage(filePath);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to calculate metadata for {file}", filePath);
+        }
+
+        return (triangleCount, vramUsage);
+    }
+
+    private long CalculateTriangleCount(string filePath)
+    {
+        try
+        {
+            var file = new MdlFile(filePath);
+            if (file.LodCount <= 0)
+                return -1;
+
+            for (int i = 0; i < file.LodCount; i++)
+            {
+                try
+                {
+                    var meshIdx = file.Lods[i].MeshIndex;
+                    var meshCnt = file.Lods[i].MeshCount;
+                    var tris = file.Meshes.Skip(meshIdx).Take(meshCnt).Sum(p => p.IndexCount) / 3;
+
+                    if (tris > 0)
+                        return tris;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not load lod mesh {mesh} from path {path}", i, filePath);
+                    continue;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not parse model file {file} for triangle calculation", filePath);
+        }
+
+        return -1;
+    }
+
+    private long CalculateTextureVramUsage(string filePath)
+    {
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            return fileInfo.Exists ? fileInfo.Length : -1;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not calculate texture VRAM usage for {file}", filePath);
+        }
+
+        return -1;
     }
 
     public FileCacheEntity? GetFileCacheByHash(string hash, bool preferSubst = false)

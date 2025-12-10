@@ -524,7 +524,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             var key = new AutoRejectCombo(appearance.Race.Value, appearance.Clan.Value, appearance.Gender.Value);
             if (_configService.Current.AutoRejectCombos.Contains(key))
-                return (true, "Auto rejected: This user isn't interested in your apparent gender/clan combination.");
+                return (true, "Auto rejected: This user isn't interested in your vanilla gender/clan combination.");
         }
         
 

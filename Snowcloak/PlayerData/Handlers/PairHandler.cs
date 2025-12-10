@@ -121,6 +121,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         {
             if (msg.UID != null && !msg.UID.Equals(Pair.UserData.UID, StringComparison.Ordinal)) return;
             Logger.LogDebug("Recalculating performance for {uid}", Pair.UserData.UID);
+            _playerPerformanceService.ReevaluateAutoPause(this);
             pair.ApplyLastReceivedData(forced: true);
         });
 
@@ -197,6 +198,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
 
         SetUploading(isUploading: false);
 
+        _playerPerformanceService.CheckReportedThresholds(this, Pair.LastReportedTriangles, Pair.LastReportedApproximateVRAMBytes);
+        
         if (Pair.IsDownloadBlocked)
         {
             var reasons = string.Join(", ", Pair.HoldDownloadReasons);
@@ -496,7 +499,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                     $"Starting download for {toDownloadReplacements.Count} files")));
                 var toDownloadFiles = await _downloadManager.InitiateDownloadList(_charaHandler!, toDownloadReplacements, downloadToken).ConfigureAwait(false);
 
-                if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(this, charaData, toDownloadFiles))
+                if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(this, charaData, toDownloadFiles, affect: true))
                 {
                     _downloadManager.ClearDownload();
                     return;
@@ -643,6 +646,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             _charaHandler?.Invalidate();
             _downloadCancellationTokenSource?.CancelDispose();
             _downloadCancellationTokenSource = null;
+            Pair.ClearAutoPaused();
             if (wasVisible)
                 Logger.LogTrace("{this} visibility changed, now: {visi}", this, IsVisible);
             Logger.LogDebug("Invalidating {this}", this);
@@ -685,6 +689,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             _charaHandler?.Invalidate();
             _downloadCancellationTokenSource?.CancelDispose();
             _downloadCancellationTokenSource = null;
+            Pair.ClearAutoPaused();
             Logger.LogTrace("{this} visibility changed, now: {visi}", this, IsVisible);
         }
     }

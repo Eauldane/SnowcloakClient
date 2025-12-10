@@ -154,6 +154,13 @@ public partial class ApiController
     public Task Client_UserReceiveCharacterData(OnlineUserCharaDataDto dataDto)
     {
         Logger.LogTrace("Client_UserReceiveCharacterData: {user}", dataDto.User);
+        Logger.LogDebug(
+            "Client_UserReceiveCharacterData for {user}: reportedTriangles={triangles}, reportedVramBytes={vramBytes}, fileCount={fileCount}",
+            dataDto.User,
+            dataDto.ReportedTriangles?.ToString() ?? "<null>",
+            dataDto.ReportedVramBytes?.ToString() ?? "<null>",
+            dataDto.CharaData?.FileReplacements.Count ?? 0);
+
         ExecuteSafely(() => _pairManager.ReceiveCharaData(dataDto));
         return Task.CompletedTask;
     }

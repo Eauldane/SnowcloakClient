@@ -14,16 +14,26 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
 using System.Collections.Concurrent;
 using System.Numerics;
+using System.Collections.Generic;
 
 namespace Snowcloak.PlayerData.Pairs;
 
 public class Pair : DisposableMediatorSubscriberBase
 {
+    public enum AutoPauseReason
+    {
+        Vram,
+        Triangles
+    }
+    
     private readonly PairHandlerFactory _cachedPlayerFactory;
     private readonly SemaphoreSlim _creationSemaphore = new(1);
     private readonly ILogger<Pair> _logger;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private const string AutoPauseVramReason = "AutoPause-VRAM";
+    private const string AutoPauseTriangleReason = "AutoPause-Triangles";
+    private readonly Dictionary<AutoPauseReason, string> _autoPauseReasons = new();
     private CancellationTokenSource _applicationCts = new();
     private OnlineUserIdentDto? _onlineUserIdentDto = null;
     public Vector4 PairColour;
@@ -57,6 +67,9 @@ public class Pair : DisposableMediatorSubscriberBase
 
     public bool IsDownloadBlocked => HoldDownloadLocks.Any(f => f.Value > 0);
     public bool IsApplicationBlocked => HoldApplicationLocks.Any(f => f.Value > 0) || IsDownloadBlocked;
+    public bool IsAutoPaused => HoldDownloadLocks.ContainsKey(AutoPauseVramReason) || HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason);
+    public IEnumerable<string> AutoPauseReasons => _autoPauseReasons.Values;
+
 
     public IEnumerable<string> HoldDownloadReasons => HoldDownloadLocks.Keys;
     public IEnumerable<string> HoldApplicationReasons => Enumerable.Concat(HoldDownloadLocks.Keys, HoldApplicationLocks.Keys);
@@ -68,6 +81,9 @@ public class Pair : DisposableMediatorSubscriberBase
     public long LastAppliedDataBytes => CachedPlayer?.LastAppliedDataBytes ?? -1;
     public long LastAppliedDataTris { get; set; } = -1;
     public long LastAppliedApproximateVRAMBytes { get; set; } = -1;
+    public long? LastReportedTriangles { get; private set; }
+    public long? LastReportedApproximateVRAMBytes { get; private set; }
+    public string? AutoPauseTooltip => _autoPauseReasons.Count == 0 ? null : string.Join(Environment.NewLine, _autoPauseReasons.Values);
     public string Ident => _onlineUserIdentDto?.Ident ?? string.Empty;
     public PairAnalyzer? PairAnalyzer => CachedPlayer?.PairAnalyzer;
 
@@ -136,7 +152,10 @@ public class Pair : DisposableMediatorSubscriberBase
     {
         _applicationCts = _applicationCts.CancelRecreate();
         LastReceivedCharacterData = data.CharaData;
+        LastReportedApproximateVRAMBytes = data.ReportedVramBytes;
+        LastReportedTriangles = data.ReportedTriangles;
 
+        ClearAutoPaused();
         if (CachedPlayer == null)
         {
             _logger.LogDebug("Received Data for {uid} but CachedPlayer does not exist, waiting", data.User.UID);
@@ -323,6 +342,53 @@ public class Pair : DisposableMediatorSubscriberBase
         HoldDownloadLocks.TryRemove(new(source, 0));
         if (!skipApplication && wasHeld && !IsApplicationBlocked)
             ApplyLastReceivedData(forced: true);
+    }
+
+    public bool HasAutoPauseReason(AutoPauseReason reason)
+    {
+        return reason switch
+        {
+            AutoPauseReason.Vram => HoldDownloadLocks.ContainsKey(AutoPauseVramReason),
+            AutoPauseReason.Triangles => HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason),
+            _ => false
+        };
+    }
+
+    public void SetAutoPaused(AutoPauseReason reason, string tooltip)
+    {
+        var wasAutoPaused = HasAutoPauseReason(reason);
+        switch (reason)
+        {
+            case AutoPauseReason.Vram:
+                HoldDownloads(AutoPauseVramReason, maxValue: 1);
+                break;
+            case AutoPauseReason.Triangles:
+                HoldDownloads(AutoPauseTriangleReason, maxValue: 1);
+                break;
+        }
+
+        _autoPauseReasons[reason] = tooltip;
+
+        if (!wasAutoPaused)
+            _logger.LogDebug("Auto-paused {uid} for {reason}", UserData.UID, reason);
+    }
+
+    public void ClearAutoPaused(AutoPauseReason? reason = null)
+    {
+        if (reason == null || reason == AutoPauseReason.Vram)
+        {
+            _autoPauseReasons.Remove(AutoPauseReason.Vram);
+            UnholdDownloads(AutoPauseVramReason, skipApplication: true);
+        }
+
+        if (reason == null || reason == AutoPauseReason.Triangles)
+        {
+            _autoPauseReasons.Remove(AutoPauseReason.Triangles);
+            UnholdDownloads(AutoPauseTriangleReason, skipApplication: true);
+        }
+
+        if (!IsAutoPaused)
+            _autoPauseReasons.Clear();
     }
 
     private CharacterData? RemoveNotSyncedFiles(CharacterData? data)

@@ -69,9 +69,6 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
         if (_lastSentData == null)
             return;
 
-        if (!visiblePlayers.Any())
-            return;
-
         _ = Task.Run(async () =>
         {
             var dataToSend = await _fileTransferManager.UploadFiles(_lastSentData.DeepClone(), visiblePlayers).ConfigureAwait(false);

@@ -25,7 +25,10 @@ public static class SCFFile
 {
 
     public static ReadOnlySpan<byte> Magic => "SNOW"u8; // Forces UTF-8 for easier cross-compat with Go libs
-    public const byte SCFVersion = 1;
+    public const byte SCFVersion = 2;
+    public const byte MinimumSupportedVersion = 1;
+    public const int HeaderLengthV1 = 79;
+    public const int HeaderLengthV2 = 95;
 
     // Feels icky not having this as a struct but that might be C brain talking
     // This is apparently "the C# way" because every wheel needs reinventing
@@ -34,11 +37,13 @@ public static class SCFFile
         CompressionType CompressionType,
         FileExtension FileExtension,
         uint UncompressedSize,
-        uint CompressedSize
+        uint CompressedSize,
+        long TriangleCount = -1,
+        long VramUsage = -1
     );
 
     public static SCFFileHeader CreateHeader(string hash, CompressionType compressionType, FileExtension fileExtension,
-        uint uncompressedSize, uint compressedSize)
+        uint uncompressedSize, uint compressedSize, long triangleCount = -1, long vramUsage = -1)
     {
         if (hash is null)
         {
@@ -54,11 +59,12 @@ public static class SCFFile
 
         // Old mare standardised on uppercase hashes, we may as well too
         return new SCFFileHeader(hash.ToUpperInvariant(), compressionType, fileExtension, uncompressedSize,
-            compressedSize);
+            compressedSize, triangleCount, vramUsage);
     }
 
     public static async Task<SCFFileHeader> CreateSCFFile(Stream rawInput, Stream scfOutput, FileExtension ext,
-        IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default, int compressionLevel = 3, bool multithreaded = false)
+        IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default, int compressionLevel = 3,
+        bool multithreaded = false, long triangleCount = -1, long vramUsage = -1)
     {
         if (!rawInput.CanRead)
         {
@@ -86,10 +92,11 @@ public static class SCFFile
         }
 
         // Placeholder header. TODO: Add validation to read/write methods that the placeholders aren't still placeholders
-        SCFFileHeader placeholder = CreateHeader(new string('0', 64), CompressionType.ZSTD, ext, 0, 0);
+        SCFFileHeader placeholder = CreateHeader(new string('0', 64), CompressionType.ZSTD, ext, 0, 0, triangleCount,
+            vramUsage);
         WriteHeader(scfOutput, placeholder);
 
-        long dataStart = scfOutput.Position; // Should be 79
+        long dataStart = scfOutput.Position; // Should be header length
         long uncompressed = 0;
         using var hasher = Hasher.New();
         // Level 3 is the sweetspot in benchmarks. Anything below 9 should be fine really
@@ -134,8 +141,8 @@ public static class SCFFile
         // Patch header
         scfOutput.Position = 0;
         SCFFileHeader finalHeader =
-            CreateHeader(hash, CompressionType.ZSTD, ext, uncompressedSize, compressedSize);
-        WriteHeader(scfOutput, finalHeader); // Overwrite placeholder. Compressed data should be after the 79th byte for decoding
+            CreateHeader(hash, CompressionType.ZSTD, ext, uncompressedSize, compressedSize, triangleCount, vramUsage);
+        WriteHeader(scfOutput, finalHeader); // Overwrite placeholder. Compressed data should be after the header for decoding
         scfOutput.Position = dataEnd;
         return finalHeader; // For validation
     }
@@ -220,6 +227,8 @@ public static class SCFFile
         bw.Write((byte)header.FileExtension);
         bw.Write(header.UncompressedSize);
         bw.Write(header.CompressedSize);
+        bw.Write(header.TriangleCount);
+        bw.Write(header.VramUsage);
     }
     
     public static SCFFileHeader ReadHeader(Stream input)
@@ -231,7 +240,7 @@ public static class SCFFile
             throw new InvalidDataException("SCF: bad magic (expected 'SNOW').");
 
         var version = br.ReadByte();
-        if (version != SCFVersion)
+        if (version is < MinimumSupportedVersion or > SCFVersion)
             throw new InvalidDataException($"SCF: unsupported version {version}.");
 
         string hash = Encoding.ASCII.GetString(br.ReadBytes(64));
@@ -239,8 +248,14 @@ public static class SCFFile
         FileExtension ext = (FileExtension)br.ReadByte();
         uint uncompressedSize = br.ReadUInt32();
         uint compressedSize= br.ReadUInt32();
-
-        return CreateHeader(hash, comp, ext, uncompressedSize, compressedSize);
+        long triangleCount = -1;
+        long vramUsage = -1;
+        if (version >= 2)
+        {
+            triangleCount = br.ReadInt64();
+            vramUsage = br.ReadInt64();
+        }
+        return CreateHeader(hash, comp, ext, uncompressedSize, compressedSize, triangleCount, vramUsage);
     }
     
     private static string GetExtensionString(FileExtension ext) => ext.ToString().ToLowerInvariant();
@@ -275,6 +290,14 @@ public static class SCFFile
         };
     }
 
-    
+    public static int GetHeaderLength(byte version = SCFVersion)
+    {
+        return version switch
+        {
+            1 => HeaderLengthV1,
+            2 => HeaderLengthV2,
+            _ => throw new InvalidDataException($"SCF: unsupported version {version}.")
+        };
+    }
 }
 

@@ -97,7 +97,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                 await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
             }
         }, token);
-        capabilityRegistry.RegisterCapability("SCF", 1.1f);
+        capabilityRegistry.RegisterCapability("SCF", 2.0f);
         capabilityRegistry.RegisterCapability("Hash", 2.0f);
         capabilityRegistry.RegisterCapability("Compress", 2.0f);
 
