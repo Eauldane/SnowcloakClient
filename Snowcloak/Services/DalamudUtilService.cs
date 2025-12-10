@@ -1,5 +1,6 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.Text;
@@ -40,6 +41,9 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         public uint HomeWorldId;
         public nint Address;
         public byte Level;
+        public byte ClassJob;
+        public byte Gender;
+        public byte Clan;
     };
 
     private struct PlayerInfo
@@ -101,6 +105,18 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             return gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)!
                 .Where(w => w.Name.ByteLength > 0 && w.DataCenter.RowId != 0 && (w.IsPublic || char.IsUpper((char)w.Name.Data.Span[0])))
                 .ToDictionary(w => (ushort)w.RowId, w => w.Name.ToString());
+        });
+        ClassJobAbbreviations = new(() =>
+        {
+            return gameData.GetExcelSheet<ClassJob>(Dalamud.Game.ClientLanguage.English)!
+                .Where(cj => cj.RowId != 0)
+                .ToDictionary(cj => (byte)cj.RowId, cj => cj.Abbreviation.ToString());
+        });
+        TribeNames = new(() =>
+        {
+            return gameData.GetExcelSheet<Tribe>(Dalamud.Game.ClientLanguage.English)!
+                .Where(t => t.RowId != 0)
+                .ToDictionary(t => (byte)t.RowId, t => t.Masculine.ToString());
         });
         UiColors = new(() =>
         {
@@ -194,6 +210,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public Lazy<Dictionary<ushort, string>> WorldData { get; private set; }
     public Lazy<Dictionary<int, Lumina.Excel.Sheets.UIColor>> UiColors { get; private set; }
     public Lazy<Dictionary<uint, string>> TerritoryData { get; private set; }
+    public Lazy<Dictionary<byte, string>> ClassJobAbbreviations { get; private set; }
+    public Lazy<Dictionary<byte, string>> TribeNames { get; private set; }
     public Lazy<Dictionary<uint, (Lumina.Excel.Sheets.Map Map, string MapName)>> MapData { get; private set; }
 
     public SnowMediator Mediator { get; }
@@ -297,6 +315,63 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         return await RunOnFrameworkThread(GetPlayerCharacter).ConfigureAwait(false);
     }
 
+    public async Task<bool> TargetPlayerByIdentAsync(string ident)
+    {
+        return await RunOnFrameworkThread(() =>
+        {
+            var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
+            if (addr == IntPtr.Zero)
+                return false;
+
+            var obj = _objectTable.CreateObjectReference(addr);
+            if (obj == null)
+                return false;
+
+            _targetManager.Target = obj;
+            return true;
+        }).ConfigureAwait(false);
+    }
+    
+    public async Task<bool> ExaminePlayerByIdentAsync(string ident)
+    {
+        return await RunOnFrameworkThread(() =>
+        {
+            unsafe
+            {
+                var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
+                if (addr == IntPtr.Zero)
+                    return false;
+
+                var obj = _objectTable.CreateObjectReference(addr);
+                if (obj is not IPlayerCharacter pc)
+                    return false;
+
+                AgentInspect.Instance()->ExamineCharacter(pc.EntityId);
+                return true;
+            }
+        }).ConfigureAwait(false);
+    }
+
+    public async Task<bool> OpenAdventurerPlateByIdentAsync(string ident)
+    {
+        return await RunOnFrameworkThread(() =>
+        {
+            unsafe
+            {
+                var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
+                if (addr == IntPtr.Zero)
+                    return false;
+
+                var obj = _objectTable.CreateObjectReference(addr);
+                if (obj is not IPlayerCharacter pc)
+                    return false;
+
+                AgentCharaCard.Instance()->OpenCharaCard((GameObject*)pc.Address);
+                return true;
+            }
+        }).ConfigureAwait(false);
+    }
+    
     public IPlayerCharacter GetPlayerCharacter()
     {
         EnsureIsOnFramework();
@@ -603,6 +678,9 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             info.Character.Name = chara.Name.TextValue; // ?
             info.Character.HomeWorldId = ((BattleChara*)chara.Address)->Character.HomeWorld;
             info.Character.Address = chara.Address;
+            info.Character.ClassJob = ((BattleChara*)chara.Address)->Character.ClassJob;
+            info.Character.Gender = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Gender];
+            info.Character.Clan = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Tribe];
             info.Hash = Crypto.GetHash256(info.Character.Name + info.Character.HomeWorldId.ToString());
             if (chara is IPlayerCharacter player)
                 info.Character.Level = player.Level;
@@ -610,6 +688,9 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         }
 
         info.Character.Address = chara.Address;
+        info.Character.ClassJob = ((BattleChara*)chara.Address)->Character.ClassJob;
+        info.Character.Gender = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Gender];
+        info.Character.Clan = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Tribe];
         if (chara is IPlayerCharacter updatedPlayer)
             info.Character.Level = updatedPlayer.Level;
 

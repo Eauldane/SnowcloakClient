@@ -140,6 +140,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<DtrEntry>();
             collection.AddSingleton<PairManager>();
             collection.AddSingleton<PairRequestService>();
+            collection.AddSingleton<PairingAvailabilityDtrEntry>();
             collection.AddSingleton<RedrawManager>();
             collection.AddSingleton<IpcCallerPenumbra>();
             collection.AddSingleton<IpcCallerGlamourer>();
@@ -210,6 +211,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<UiSharedService>();
             collection.AddScoped<ChatService>();
             collection.AddScoped<GuiHookService>();
+            collection.AddScoped<WindowMediatorSubscriberBase, PairingAvailabilityWindow>();
             collection.AddScoped<IPopupHandler, VenueSyncshellPopupHandler>();
 
             collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
@@ -221,6 +223,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddHostedService(p => p.GetRequiredService<DalamudUtilService>());
             collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
             collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());
+            collection.AddHostedService(p => p.GetRequiredService<PairingAvailabilityDtrEntry>());
             collection.AddHostedService(p => p.GetRequiredService<EventAggregator>());
             collection.AddHostedService(p => p.GetRequiredService<SnowPlugin>());
             collection.AddHostedService(p => p.GetRequiredService<IpcProvider>());

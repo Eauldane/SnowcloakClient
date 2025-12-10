@@ -18,6 +18,7 @@ using System.IO;
 using System.Text.Json;
 using Snowcloak.Services.ServerConfiguration;
 using System.Threading;
+using Snowcloak.PlayerData.Pairs;
 
 namespace Snowcloak.Services;
 
@@ -29,6 +30,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly IpcManager _ipcManager;
     private readonly IToastGui _toastGui;
+    private readonly PairManager _pairManager;
     private readonly ConcurrentDictionary<Guid, PairingRequestDto> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
     private readonly object _availabilityLock = new();
@@ -40,6 +42,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly CancellationTokenSource _nearbyAvailabilityCts = new();
     private readonly Task _nearbyAvailabilityLoop;
     private static readonly TimeSpan AvailabilityApplyDebounce = TimeSpan.FromMilliseconds(150);
+    private readonly SemaphoreSlim _nearbyAvailabilitySemaphore = new(1, 1);
+    private DateTime _lastNearbyAvailabilityCheck = DateTime.MinValue;
+    private string _localPlayerIdent = string.Empty;
     private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(5);
     private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
@@ -47,7 +52,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public PairRequestService(ILogger<PairRequestService> logger, SnowcloakConfigService configService,
         SnowMediator mediator, DalamudUtilService dalamudUtilService,
         IpcManager ipcManager, IToastGui toastGui, IContextMenu contextMenu, IServiceProvider serviceProvider,
-        ServerConfigurationManager serverConfigurationManager)
+        ServerConfigurationManager serverConfigurationManager, PairManager pairManager)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -57,6 +62,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _ipcManager = ipcManager;
         _toastGui = toastGui;
         _contextMenu = contextMenu;
+        _pairManager = pairManager;
         _serverConfigurationManager = serverConfigurationManager;
         _contextMenu.OnMenuOpened += ContextMenuOnMenuOpened;
         Mediator.Subscribe<TargetPlayerChangedMessage>(this, OnTargetPlayerChanged);
@@ -145,16 +151,22 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         var incoming = available?.Select(dto => dto.Ident)
             .Where(ident => !string.IsNullOrWhiteSpace(ident))
             .ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+        
+        if (!string.IsNullOrEmpty(_localPlayerIdent))
+            incoming.Remove(_localPlayerIdent);
+        
+        var pairedIdents = _pairManager.GetOnlineUserPairs()
+            .Select(p => p.Ident)
+            .Where(ident => !string.IsNullOrEmpty(ident))
+            .ToHashSet(StringComparer.Ordinal);
 
+        incoming.ExceptWith(pairedIdents);
+            
         // Keep availability limited to players we still see locally so nameplate highlights
         // only persist while the player remains in range (or until the server tells us they
         // opted out).
         if (_lastNearbyIdentSnapshot.Count > 0)
             incoming.IntersectWith(_lastNearbyIdentSnapshot);
-
-        if (_logger.IsEnabled(LogLevel.Debug))
-            _logger.LogDebug("Pairing availability from server: {count} -> [{idents}]", incoming.Count,
-                string.Join(", ", incoming));
         
         StageAvailability(incoming);
     }
@@ -207,6 +219,10 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         
         if (_availableIdents.SetEquals(incoming))
             return;
+        
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Pairing availability from server: {count} -> [{idents}]", incoming.Count,
+                string.Join(", ", incoming));
 
         _availableIdents.Clear();
 
@@ -246,49 +262,87 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
 
-    private async Task RefreshNearbyAvailabilityAsync(bool force = false)
+    public async Task RefreshNearbyAvailabilityAsync(bool force = false)
     {
-        if (!_configService.Current.PairingSystemEnabled)
-        {
-            if (_availableIdents.Count > 0)
-            {
-                _availableIdents.Clear();
-                Mediator.Publish(new PairingAvailabilityChangedMessage());
-            }
-
-            return;
-        }
-
-        if (!_apiController.Value.IsConnected)
+        if (!force && DateTime.UtcNow - _lastNearbyAvailabilityCheck < NearbyAvailabilityPollInterval)
             return;
 
-        var nearby = await _dalamudUtilService.GetNearbyPlayerNameHashesAsync(MaxNearbySnapshot).ConfigureAwait(false);
-        var nearbySet = new HashSet<string>(nearby, StringComparer.Ordinal);
-
-        _lastNearbyIdentSnapshot.Clear();
-        foreach (var ident in nearbySet)
-        {
-            _lastNearbyIdentSnapshot.Add(ident);
-        }
+        if (!await _nearbyAvailabilitySemaphore.WaitAsync(0).ConfigureAwait(false))
+            return;
 
         try
         {
-            var availability = await _apiController.Value
-                .UserQueryPairingAvailability(new PairingAvailabilityQueryDto([.. nearbySet]))
-                .ConfigureAwait(false);
+            _lastNearbyAvailabilityCheck = DateTime.UtcNow;
 
-            UpdateAvailability(availability);
+            if (!_configService.Current.PairingSystemEnabled)
+            {
+                if (_availableIdents.Count > 0)
+                {
+                    _availableIdents.Clear();
+                    Mediator.Publish(new PairingAvailabilityChangedMessage());
+                }
+
+                return;
+            }
+
+            if (!_apiController.Value.IsConnected)
+                return;
+
+            HashSet<string> nearbySet = new(StringComparer.Ordinal);
+
+            try
+            {
+                _localPlayerIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+
+                var nearby = await _dalamudUtilService.GetNearbyPlayerNameHashesAsync(MaxNearbySnapshot)
+                    .ConfigureAwait(false);
+
+                nearbySet = new HashSet<string>(nearby, StringComparer.Ordinal);
+
+                nearbySet.Remove(_localPlayerIdent);
+
+                nearbySet.ExceptWith(_pairManager.GetOnlineUserPairs()
+                    .Select(p => p.Ident)
+                    .Where(ident => !string.IsNullOrEmpty(ident)));
+
+                _lastNearbyIdentSnapshot.Clear();
+                foreach (var ident in nearbySet)
+                {
+                    _lastNearbyIdentSnapshot.Add(ident);
+                }
+
+                if (nearbySet.Count == 0)
+                {
+                    if (_availableIdents.Count > 0)
+                    {
+                        _availableIdents.Clear();
+                        Mediator.Publish(new PairingAvailabilityChangedMessage());
+                    }
+
+                    return;
+                }
+
+                var availability = await _apiController.Value
+                    .UserQueryPairingAvailability(new PairingAvailabilityQueryDto([.. nearbySet]))
+                    .ConfigureAwait(false);
+
+                UpdateAvailability(availability);
+            }
+            catch (OperationCanceledException)
+            {
+                // ignored
+            }
+            catch (Exception ex)
+            {
+                _logger.LogTrace(ex, "Failed to query nearby pairing availability");
+            }
+
+            await EvaluatePendingRequestsAsync(nearbySet).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        finally        
         {
-            // ignored
+            _nearbyAvailabilitySemaphore.Release();
         }
-        catch (Exception ex)
-        {
-            _logger.LogTrace(ex, "Failed to query nearby pairing availability");
-        }
-        
-        await EvaluatePendingRequestsAsync(nearbySet).ConfigureAwait(false);
     }
 
     
