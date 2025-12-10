@@ -287,6 +287,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             _logger.LogTrace(ex, "Failed to query nearby pairing availability");
         }
+        
+        await EvaluatePendingRequestsAsync(nearbySet).ConfigureAwait(false);
     }
 
     
@@ -406,7 +408,29 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _serverConfigurationManager.SetNoteForUid(request.Requester.UID, note);
     }
 
-    private async Task<(bool ShouldReject, string Reason)> ShouldAutoRejectAsync(string ident)
+    private async Task EvaluatePendingRequestsAsync(HashSet<string> nearbySet)
+    {
+        foreach (var request in _pendingRequests.Values)
+        {
+            if (!nearbySet.Contains(request.RequesterIdent))
+                continue;
+
+            var autoRejectResult = await ShouldAutoRejectAsync(request.RequesterIdent, deferIfUnavailable: false)
+                .ConfigureAwait(false);
+
+            if (!autoRejectResult.ShouldReject)
+                continue;
+
+            await RespondAsync(request, false, autoRejectResult.Reason).ConfigureAwait(false);
+
+            var requesterName = GetRequesterDisplayName(request);
+            var message = $"{requesterName}'s pending pairing request was auto-rejected after they came into range and were found to match your filters.";
+
+            _toastGui.ShowNormal(message);
+        }
+    }
+
+    private async Task<(bool ShouldReject, string Reason)> ShouldAutoRejectAsync(string ident, bool deferIfUnavailable = true)
     {
         if (!_configService.Current.PairingSystemEnabled)
             return (false, string.Empty);
@@ -418,21 +442,28 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
         if (pc.ObjectId == 0 || pc.Address == IntPtr.Zero)
-            return (true, "Auto rejected: requester unavailable for filtering");
-
+            return deferIfUnavailable
+                ? (false, string.Empty)
+                : (true, "Auto rejected: requester unavailable for filtering");
+        
         if (minimumLevel > 0)
         {
             if (pc.Level <= 0)
-                return (true, "Auto rejected: requester level unavailable");
-
+                return deferIfUnavailable
+                    ? (false, string.Empty)
+                    : (true, "Auto rejected: requester level unavailable");
+            
             if (pc.Level < minimumLevel)
-                return (true, $"Auto rejected: requester below level {minimumLevel}");
+                return (true, $"Auto rejected: This user isn't interested in pairing with users below level {minimumLevel}.");
         }
 
         var appearance = await ExtractAppearanceAsync(pc.Address).ConfigureAwait(false);
         if (appearance == null)
-            return hasAppearanceFilters ? (true, "Auto rejected: appearance unavailable") : (false, string.Empty);
-        
+            return hasAppearanceFilters
+                ? deferIfUnavailable
+                    ? (false, string.Empty)
+                    : (true, "Auto rejected: appearance unavailable")
+                : (false, string.Empty);        
         if (appearance.Gender.HasValue && appearance.Race.HasValue && appearance.Clan.HasValue)
         {
             var key = new AutoRejectCombo(appearance.Race.Value, appearance.Clan.Value, appearance.Gender.Value);

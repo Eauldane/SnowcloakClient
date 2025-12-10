@@ -1928,7 +1928,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
             _uiShared.BigText("Auto-reject filters");
             ImGui.TextWrapped("Snowcloak will automatically filter pair requests from the following characters if they're within" +
-                              " inspection range.\n\n Please note: If the sender is out of examine range, the request will not be filtered.");
+                              " inspection range.\n\n Note: If the sender is not within visible range, the request will show as pending and will" +
+                              " be checked when they're next in range.");
             ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
 
             var minimumLevel = _configService.Current.PairRequestMinimumLevel;
