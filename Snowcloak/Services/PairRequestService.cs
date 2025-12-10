@@ -19,6 +19,8 @@ using System.Text.Json;
 using Snowcloak.Services.ServerConfiguration;
 using System.Threading;
 using Snowcloak.PlayerData.Pairs;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using System.Runtime.InteropServices;
 
 namespace Snowcloak.Services;
 
@@ -534,9 +536,23 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     }
 
     private record DecodedAppearance(byte? Gender, byte? Race, byte? Clan, string RawBase64, string? DecodedJson, string? DecodeNotes);
+    private const int CustomizeDataLength = 0x1A;
+    private enum CustomizeIndex : byte
+    {
+        Race = 0,
+        Gender = 1,
+        Tribe = 4,
+    }
     
     private async Task<DecodedAppearance?> ExtractAppearanceAsync(IntPtr characterAddress)
     {
+        if (TryExtractAppearanceFromGameData(characterAddress, out var appearance))
+        {
+            _logger.LogInformation("Extracted appearance from game.");
+            return appearance;
+
+        }
+        // If for some reason that fails, try Glamourer
         try
         {
             var glamourerState = await _ipcManager.Glamourer.GetCharacterCustomizationAsync(characterAddress).ConfigureAwait(false);
@@ -553,6 +569,44 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             _logger.LogTrace(ex, "Failed to extract appearance data");
             return null;
         }
+    }
+    
+    private unsafe bool TryExtractAppearanceFromGameData(IntPtr characterAddress, out DecodedAppearance? appearance)
+    {
+        appearance = null;
+
+        try
+        {
+            if (characterAddress == IntPtr.Zero)
+                return false;
+
+            var chara = (BattleChara*)characterAddress;
+            if (chara == null)
+                return false;
+
+            var customizeData = MemoryMarshal.CreateReadOnlySpan(ref chara->DrawData.CustomizeData.Data[0], CustomizeDataLength);
+
+            byte? gender = GetCustomizeValue(customizeData, CustomizeIndex.Gender);
+            byte? race = GetCustomizeValue(customizeData, CustomizeIndex.Race);
+            byte? tribe = GetCustomizeValue(customizeData, CustomizeIndex.Tribe);
+
+            if (gender == null && race == null && tribe == null)
+                return false;
+
+            appearance = new DecodedAppearance(gender, race, tribe, string.Empty, null, "read-from-game");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Failed to read appearance from game data");
+            return false;
+        }
+    }
+
+    private static byte? GetCustomizeValue(ReadOnlySpan<byte> customizeData, CustomizeIndex index)
+    {
+        var idx = (int)index;
+        return idx < customizeData.Length ? customizeData[idx] : null;
     }
 
     private string? TryDecodeGlamourerState(string glamourerStateBase64, out byte? gender, out byte? race, out byte? clan, out string? decodeNotes)
@@ -593,7 +647,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
     
-        private void TryParseAppearanceFromJson(string decoded, out byte? gender, out byte? race, out byte? clan, ref string? decodeNotes)
+    private void TryParseAppearanceFromJson(string decoded, out byte? gender, out byte? race, out byte? clan, ref string? decodeNotes)
     {
         gender = null;
         race = null;
