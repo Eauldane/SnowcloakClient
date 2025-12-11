@@ -33,7 +33,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly IpcManager _ipcManager;
     private readonly IToastGui _toastGui;
     private readonly PairManager _pairManager;
-    private readonly ConcurrentDictionary<Guid, PairingRequestDto> _pendingRequests = new();
+    private readonly ConcurrentDictionary<Guid, PendingRequest> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
     private readonly object _availabilityFilterLock = new();
     private HashSet<string> _filteredAvailableIdents = new(StringComparer.Ordinal);
@@ -54,6 +54,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(5);
     private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
+    private readonly record struct PendingRequest(PairingRequestDto Request, bool DeferredAutoFilter);
+    private readonly record struct AutoRejectResult(bool ShouldReject, string Reason, bool WasDeferred);
 
     public PairRequestService(ILogger<PairRequestService> logger, SnowcloakConfigService configService,
         SnowMediator mediator, DalamudUtilService dalamudUtilService,
@@ -121,8 +123,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     }
 
     public IReadOnlyCollection<PairingRequestDto> PendingRequests
-        => _pendingRequests.Values.ToList();
-
+        => _pendingRequests.Values.Select(p => p.Request).ToList();
+    
     private void ContextMenuOnMenuOpened(IMenuOpenedArgs args)
     {
         if (!_configService.Current.EnableRightClickMenus) return;
@@ -406,8 +408,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public Task RespondAsync(Guid requestId, bool accepted, string? reason = null)
     {
         if (_pendingRequests.TryGetValue(requestId, out var request))
-            return RespondAsync(request, accepted, reason);
-
+            return RespondAsync(request.Request, accepted, reason);
+        
         return RespondWithDecisionAsync(requestId, accepted, reason);
     }
 
@@ -439,7 +441,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             return;
         }
 
-        _pendingRequests[dto.RequestId] = dto;
+        _pendingRequests[dto.RequestId] = new PendingRequest(dto, autoRejectResult.WasDeferred);
         Mediator.Publish(new PairingRequestReceivedMessage(dto));
         Mediator.Publish(new PairingRequestListChangedMessage());
         var requesterName = GetRequesterDisplayName(dto, setNoteFromNearby: true);
@@ -532,8 +534,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     private async Task EvaluatePendingRequestsAsync(HashSet<string> nearbySet)
     {
-        foreach (var request in _pendingRequests.Values)
+        foreach (var pending in _pendingRequests.Values)
         {
+            var request = pending.Request;
             if (!nearbySet.Contains(request.RequesterIdent))
                 continue;
 
@@ -543,8 +546,14 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             if (!autoRejectResult.ShouldReject)
                 continue;
 
-            await RespondAsync(request, false, autoRejectResult.Reason).ConfigureAwait(false);
+            var reason = autoRejectResult.Reason;
+            if (pending.DeferredAutoFilter)
+            {
+                await RespondAsync(request, false, reason: null).ConfigureAwait(false);
+                continue;
+            }
 
+            await RespondAsync(request, false, reason).ConfigureAwait(false);
             var requesterName = GetRequesterDisplayName(request);
             var message = $"{requesterName}'s pending pairing request was auto-rejected after they came into range and were found to match your filters.";
 
@@ -552,51 +561,53 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
 
-    private async Task<(bool ShouldReject, string Reason)> ShouldAutoRejectAsync(string ident, bool deferIfUnavailable = true)
+    private async Task<AutoRejectResult> ShouldAutoRejectAsync(string ident, bool deferIfUnavailable = true)
     {
         if (!_configService.Current.PairingSystemEnabled)
-            return (false, string.Empty);
+            return new AutoRejectResult(false, string.Empty, false);
         
         var hasAppearanceFilters = _configService.Current.AutoRejectCombos.Count > 0;
         var minimumLevel = Math.Max(0, _configService.Current.PairRequestMinimumLevel);
         if (!hasAppearanceFilters && minimumLevel == 0)
-            return (false, string.Empty);
-
+            return new AutoRejectResult(false, string.Empty, false);
+        
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
         if (pc.ObjectId == 0 || pc.Address == IntPtr.Zero)
             return deferIfUnavailable
-                ? (false, string.Empty)
-                : (true, "Auto rejected: requester unavailable for filtering");
+                ? new AutoRejectResult(false, string.Empty, true)
+                : new AutoRejectResult(true, "Auto rejected: requester unavailable for filtering", false);
         
         if (minimumLevel > 0)
         {
             if (pc.Level <= 0)
                 return deferIfUnavailable
-                    ? (false, string.Empty)
-                    : (true, "Auto rejected: requester level unavailable");
+                    ? new AutoRejectResult(false, string.Empty, true)
+                    : new AutoRejectResult(true, "Auto rejected: requester level unavailable", false);
+
             
             if (pc.Level < minimumLevel)
-                return (true, $"Auto rejected: This user isn't interested in pairing with users below level {minimumLevel}.");
+                return new AutoRejectResult(true, $"Auto rejected: This user isn't interested in pairing with users below level {minimumLevel}.", false);
         }
 
         var appearance = await ExtractAppearanceAsync(pc.Address).ConfigureAwait(false);
         if (appearance == null)
             return hasAppearanceFilters
                 ? deferIfUnavailable
-                    ? (false, string.Empty)
-                    : (true, "Auto rejected: appearance unavailable")
-                : (false, string.Empty);        
+                    ? new AutoRejectResult(false, string.Empty, true)
+                    : new AutoRejectResult(true, "Auto rejected: appearance unavailable", false)
+                : new AutoRejectResult(false, string.Empty, false);
+     
         if (appearance.Gender.HasValue && appearance.Race.HasValue && appearance.Clan.HasValue)
         {
             var key = new AutoRejectCombo(appearance.Race.Value, appearance.Clan.Value, appearance.Gender.Value);
             if (_configService.Current.AutoRejectCombos.Contains(key))
-                return (true, "Auto rejected: This user isn't interested in your vanilla gender/clan combination.");
+                return new AutoRejectResult(true, "Auto rejected: This user isn't interested in your vanilla gender/clan combination.", false);
         }
         
 
         return hasAppearanceFilters
-            ? (true, "Auto rejected: appearance unavailable")
-            : (false, string.Empty);
+            ? new AutoRejectResult(true, "Auto rejected: appearance unavailable", false)
+            : new AutoRejectResult(false, string.Empty, false);
 
         
     }
