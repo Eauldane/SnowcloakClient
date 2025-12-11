@@ -51,7 +51,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             MinimumSize = new()
             {
                 X = 1100,
-                Y = 600
+                Y = 700
             },
             MaximumSize = new()
             {
@@ -341,6 +341,20 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
             }
+            
+            if (string.Equals(item.FileType, "tex", StringComparison.OrdinalIgnoreCase) && item.TextureTraits != null)
+            {
+                var traits = item.TextureTraits;
+                ImGui.TextUnformatted("Texture traits:");
+                ImGui.SameLine();
+                UiSharedService.TextWrapped(traits.FormatSummary);
+                UiSharedService.TextWrapped($"Channel variance (RGB): {traits.RedVariance:0.0}/{traits.GreenVariance:0.0}/{traits.BlueVariance:0.0}");
+                UiSharedService.TextWrapped($"Alpha transitions: {traits.AlphaTransitionDensity:P1}");
+                if (traits.IsRisky)
+                {
+                    UiSharedService.ColorTextWrapped("Flagged as risky for BC7 conversion (colorset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
+                }
+            }
         }
     }
 
@@ -478,6 +492,13 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         {
                             _texturesToConvert.Remove(filePath);
                         }
+                    }
+                    if (item.IsRiskyTexture)
+                    {
+                        ImGui.SameLine();
+                        _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
+                        UiSharedService.AttachToolTip("Texture flagged as risky (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");
+                        _texturesToConvert.Remove(filePath);
                     }
                 }
             }

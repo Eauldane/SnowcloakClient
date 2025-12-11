@@ -1,4 +1,5 @@
-﻿using Lumina.Data.Files;
+﻿using Lumina.Data;
+using Lumina.Data.Files;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
@@ -6,6 +7,7 @@ using Snowcloak.FileCache;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
 using Snowcloak.Utils;
+using Lumina.Data.Parsing.Tex.Buffers;
 
 namespace Snowcloak.Services;
 
@@ -193,8 +195,36 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
         Logger.LogInformation("IMPORTANT NOTES:\n\r- For uploads and downloads only the compressed size is relevant.\n\r- An unusually high total files count beyond 200 and up will also increase your download time to others significantly.");
     }
 
-    internal sealed record FileDataEntry(string Hash, string FileType, List<string> GamePaths, List<string> FilePaths, long OriginalSize, long CompressedSize, long Triangles)
+    internal sealed record FileDataEntry
     {
+        private readonly Lazy<TextureTraits?> _textureTraits;
+
+        public FileDataEntry(string hash, string fileType, List<string> gamePaths, List<string> filePaths, long originalSize, long compressedSize, long triangles)
+        {
+            Hash = hash;
+            FileType = fileType;
+            GamePaths = gamePaths;
+            FilePaths = filePaths;
+            OriginalSize = originalSize;
+            CompressedSize = compressedSize;
+            Triangles = triangles;
+            _textureTraits = string.Equals(fileType, "tex", StringComparison.OrdinalIgnoreCase)
+                ? new Lazy<TextureTraits?>(AnalyzeTexture)
+                : new Lazy<TextureTraits?>(() => null);
+            Format = new Lazy<string>(() =>
+            {
+                if (!string.Equals(FileType, "tex", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+
+                var traits = TextureTraits;
+                return traits != null ? traits.FormatSummary : "Unknown";
+            });
+        }
+
+        public string Hash { get; }
+        public string FileType { get; }
+        public List<string> GamePaths { get; }
+        public List<string> FilePaths { get; }
+
         public bool IsComputed => OriginalSize > 0 && CompressedSize > 0;
         public async Task ComputeSizes(FileCacheManager fileCacheManager, CancellationToken token, bool ignoreCacheEntries = true)
         {
@@ -209,34 +239,152 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
             OriginalSize = normalSize;
             CompressedSize = compressedsize.Item2.LongLength;
         }
-        public long OriginalSize { get; private set; } = OriginalSize;
-        public long CompressedSize { get; private set; } = CompressedSize;
-        public long Triangles { get; private set; } = Triangles;
+        public long OriginalSize { get; private set; }
+        public long CompressedSize { get; private set; }
+        public long Triangles { get; private set; }
+        public Lazy<string> Format { get; }
+        public TextureTraits? TextureTraits => _textureTraits.Value;
+        public bool IsRiskyTexture => TextureTraits?.IsRisky ?? false;
 
-        public Lazy<string> Format = new(() =>
+        private TextureTraits? AnalyzeTexture()
         {
-            switch (FileType)
+            try
             {
-                case "tex":
-                    {
-                        try
-                        {
-                            using var stream = new FileStream(FilePaths[0], FileMode.Open, FileAccess.Read, FileShare.Read);
-                            using var reader = new BinaryReader(stream);
-                            reader.BaseStream.Position = 4;
-                            var format = (TexFile.TextureFormat)reader.ReadInt32();
-                            var width = reader.ReadInt16();
-                            var height = reader.ReadInt16();
-                            return $"{format} ({width}x{height})";
-                        }
-                        catch
-                        {
-                            return "Unknown";
-                        }
-                    }
-                default:
-                    return string.Empty;
+                using var stream = new FileStream(FilePaths[0], FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var reader = new LuminaBinaryReader(stream);
+
+                var header = reader.ReadStructure<TexFile.TexHeader>();
+                var buffer = TextureBuffer.FromStream(header, reader);
+
+                var rawData = buffer.RawData;
+                var mipAllocations = buffer.MipmapAllocations;
+                var mip0Length = mipAllocations != null && mipAllocations.Length > 0 ? mipAllocations[0] : rawData.Length;
+                mip0Length = Math.Min(mip0Length, rawData.Length);
+
+                var mip0Span = rawData.AsSpan(0, mip0Length);
+                return TextureTraits.Create(header.Format, header.Width, header.Height, mip0Span, GamePaths);
             }
-        });
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    internal sealed record TextureTraits(
+        TexFile.TextureFormat Format,
+        ushort Width,
+        ushort Height,
+        bool HasAlpha,
+        double RedVariance,
+        double GreenVariance,
+        double BlueVariance,
+        double AverageChannelSpread,
+        float AlphaTransitionDensity,
+        bool ColorsetPath)
+    {
+        public string FormatSummary => $"{Format} ({Width}x{Height})";
+        public bool IsGreyscale => AverageChannelSpread < 2 && Math.Max(RedVariance, Math.Max(GreenVariance, BlueVariance)) < 150;
+        public bool HasHighFrequencyAlpha => AlphaTransitionDensity > 0.25f && HasAlpha;
+        public bool IsRisky => HasHighFrequencyAlpha || IsGreyscale || ColorsetPath;
+
+        public static TextureTraits Create(TexFile.TextureFormat format, ushort width, ushort height, ReadOnlySpan<byte> data, IEnumerable<string> gamePaths)
+        {
+            var stats = TextureChannelStatistics.Create(data);
+            var alphaStats = TextureAlphaStatistics.Create(data);
+            var colorsetPath = gamePaths.Any(IsColorsetOrDyePath);
+
+            return new TextureTraits(format, width, height, alphaStats.HasAlpha, stats.RedVariance, stats.GreenVariance, stats.BlueVariance,
+                stats.AverageChannelSpread, alphaStats.TransitionDensity, colorsetPath);
+        }
+
+        private static bool IsColorsetOrDyePath(string path)
+        {
+            static bool Contains(string source, string value) => source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+
+            return Contains(path, "colorset")
+                   || Contains(path, "col")
+                   || Contains(path, "_c")
+                   || Contains(path, "/c")
+                   || Contains(path, "dye");
+        }
+    }
+
+    internal readonly record struct TextureChannelStatistics(double RedVariance, double GreenVariance, double BlueVariance, double AverageChannelSpread)
+    {
+        public static TextureChannelStatistics Create(ReadOnlySpan<byte> data)
+        {
+            if (data.Length < 4) return new TextureChannelStatistics(0, 0, 0, 0);
+
+            long sampleCount = data.Length / 4;
+            int step = sampleCount > 250_000 ? (int)(sampleCount / 250_000) : 1;
+
+            double rMean = 0, gMean = 0, bMean = 0;
+            double rM2 = 0, gM2 = 0, bM2 = 0;
+            double spreadSum = 0;
+            long processed = 0;
+
+            for (long i = 0; i < sampleCount; i += step)
+            {
+                int index = (int)(i * 4);
+                byte r = data[index];
+                byte g = data[index + 1];
+                byte b = data[index + 2];
+
+                processed++;
+                double deltaR = r - rMean;
+                rMean += deltaR / processed;
+                rM2 += deltaR * (r - rMean);
+
+                double deltaG = g - gMean;
+                gMean += deltaG / processed;
+                gM2 += deltaG * (g - gMean);
+
+                double deltaB = b - bMean;
+                bMean += deltaB / processed;
+                bM2 += deltaB * (b - bMean);
+
+                int spread = Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b));
+                spreadSum += spread;
+            }
+            double varianceDivisor = Math.Max(1, processed - 1);
+            return new TextureChannelStatistics(rM2 / varianceDivisor, gM2 / varianceDivisor, bM2 / varianceDivisor, spreadSum / processed);
+        }
+    }
+
+    internal readonly record struct TextureAlphaStatistics(bool HasAlpha, float TransitionDensity)
+    {
+        public static TextureAlphaStatistics Create(ReadOnlySpan<byte> data)
+        {
+            if (data.Length < 4) return new TextureAlphaStatistics(false, 0);
+
+            long pixelCount = data.Length / 4;
+            int step = pixelCount > 500_000 ? (int)(pixelCount / 500_000) : 1;
+
+            byte? prevAlpha = null;
+            long transitions = 0;
+            long processed = 0;
+            byte minAlpha = byte.MaxValue;
+            byte maxAlpha = byte.MinValue;
+
+            for (long i = 0; i < pixelCount; i += step)
+            {
+                int alphaIndex = (int)(i * 4 + 3);
+                byte alpha = data[alphaIndex];
+                processed++;
+                minAlpha = Math.Min(minAlpha, alpha);
+                maxAlpha = Math.Max(maxAlpha, alpha);
+
+                if (prevAlpha.HasValue && Math.Abs(alpha - prevAlpha.Value) > 32)
+                {
+                    transitions++;
+                }
+                prevAlpha = alpha;
+            }
+
+            bool hasAlpha = minAlpha < 250 && maxAlpha > 0;
+            float density = processed > 0 ? transitions / (float)processed : 0f;
+            return new TextureAlphaStatistics(hasAlpha, density);
+        }
     }
 }
