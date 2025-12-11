@@ -126,7 +126,11 @@ public partial class ApiController
     public Task Client_UserAddClientPair(UserPairDto dto)
     {
         Logger.LogDebug("Client_UserAddClientPair: {dto}", dto);
-        ExecuteSafely(() => _pairManager.AddUserPair(dto, addToLastAddedUser: true));
+        ExecuteSafely(() =>
+        {
+            _pairManager.SuppressNextNotePopupForUid(dto.User.UID);
+            _pairManager.AddUserPair(dto, addToLastAddedUser: true);
+        });
         return Task.CompletedTask;
     }
 

@@ -35,6 +35,10 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly PairManager _pairManager;
     private readonly ConcurrentDictionary<Guid, PairingRequestDto> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
+    private readonly object _availabilityFilterLock = new();
+    private HashSet<string> _filteredAvailableIdents = new(StringComparer.Ordinal);
+    private HashSet<string> _unfilteredAvailableIdents = new(StringComparer.Ordinal);
+    private CancellationTokenSource? _availabilityFilterCts;
     private readonly object _availabilityLock = new();
     private HashSet<string> _stagedAvailability = new(StringComparer.Ordinal);
     private CancellationTokenSource? _availabilityDebounceCts;
@@ -68,7 +72,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _serverConfigurationManager = serverConfigurationManager;
         _contextMenu.OnMenuOpened += ContextMenuOnMenuOpened;
         Mediator.Subscribe<TargetPlayerChangedMessage>(this, OnTargetPlayerChanged);
-
+        _configService.ConfigSave += OnConfigSave;
+        
         Mediator.Subscribe<ConnectedMessage>(this, OnConnected);
         Mediator.Subscribe<HubReconnectedMessage>(this, OnHubReconnected);
         _nearbyAvailabilityLoop = Task.Run(() => PollNearbyAvailabilityAsync(_nearbyAvailabilityCts.Token));
@@ -88,6 +93,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     {
         base.Dispose(disposing);
         _contextMenu.OnMenuOpened -= ContextMenuOnMenuOpened;
+        _configService.ConfigSave -= OnConfigSave;
         
         _nearbyAvailabilityCts.Cancel();
         try
@@ -103,6 +109,16 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     public IReadOnlyCollection<string> AvailableIdents
         => _availableIdents.ToArray();
+    
+    public AvailabilityFilterSnapshot GetAvailabilityFilterSnapshot()
+    {
+        lock (_availabilityFilterLock)
+        {
+            return new AvailabilityFilterSnapshot(
+                new List<string>(_unfilteredAvailableIdents),
+                _filteredAvailableIdents.Count);
+        }
+    }
 
     public IReadOnlyCollection<PairingRequestDto> PendingRequests
         => _pendingRequests.Values.ToList();
@@ -215,6 +231,11 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!_configService.Current.PairingSystemEnabled)
         {
             _availableIdents.Clear();
+            lock (_availabilityFilterLock)
+            {
+                _filteredAvailableIdents.Clear();
+                _unfilteredAvailableIdents.Clear();
+            }
             Mediator.Publish(new PairingAvailabilityChangedMessage());
             return;
         }
@@ -232,6 +253,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             _availableIdents.Add(ident);
         }
+        
+        _ = RebuildAvailabilityFiltersAsync();
 
         Mediator.Publish(new PairingAvailabilityChangedMessage());
     }
@@ -452,8 +475,51 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
         return new RequesterDisplay(null, null);
         
+        
     }
 
+    private Task RebuildAvailabilityFiltersAsync()
+    {
+        var existing = _availableIdents.ToArray();
+        _availabilityFilterCts?.Cancel();
+        _availabilityFilterCts = new CancellationTokenSource();
+        var token = _availabilityFilterCts.Token;
+
+        return Task.Run(async () =>
+        {
+            var filtered = new HashSet<string>(StringComparer.Ordinal);
+            var accepted = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var ident in existing)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+
+                var autoRejectResult = await ShouldAutoRejectAsync(ident, deferIfUnavailable: false).ConfigureAwait(false);
+                if (autoRejectResult.ShouldReject)
+                    filtered.Add(ident);
+                else
+                    accepted.Add(ident);
+            }
+
+            lock (_availabilityFilterLock)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+
+                _filteredAvailableIdents = filtered;
+                _unfilteredAvailableIdents = accepted;
+            }
+
+            Mediator.Publish(new PairingAvailabilityChangedMessage());
+        });
+    }
+
+    private void OnConfigSave(object? sender, EventArgs e)
+    {
+        _ = RebuildAvailabilityFiltersAsync();
+    }
+    
     private void ApplyAutoNote(PairingRequestDto request, string note)
     {
         if (string.IsNullOrWhiteSpace(note)) return;
@@ -741,4 +807,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 public readonly record struct RequesterDisplay(string? Name, ushort? WorldId)
 {
     public string NameOrUid => Name ?? string.Empty;
+}
+
+public readonly record struct AvailabilityFilterSnapshot(IReadOnlyCollection<string> Accepted, int FilteredCount)
+{
+    public int AcceptedCount => Accepted.Count;
 }

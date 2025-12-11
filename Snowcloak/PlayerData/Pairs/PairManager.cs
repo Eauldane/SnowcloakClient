@@ -44,6 +44,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     public Dictionary<GroupFullInfoDto, List<Pair>> GroupPairs => _groupPairsInternal.Value;
     public Dictionary<GroupData, GroupFullInfoDto> Groups => _allGroups.ToDictionary(k => k.Key, k => k.Value);
     public Pair? LastAddedUser { get; internal set; }
+    private readonly ConcurrentDictionary<string, byte> _suppressedNotePairs =
+        new(StringComparer.Ordinal);
+    
 
     public void AddGroup(GroupFullInfoDto dto)
     {
@@ -71,6 +74,14 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
         return null;
     }
+    
+    public void SuppressNextNotePopupForUid(string uid)
+    {
+        if (!string.IsNullOrEmpty(uid))
+        {
+            _suppressedNotePairs[uid] = 0;
+        }
+    }
 
     public void AddUserPair(UserPairDto dto, bool addToLastAddedUser = true)
     {
@@ -84,6 +95,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         }
 
         _allClientPairs[dto.User].UserPair = dto;
+        var suppressNotePopup = _suppressedNotePairs.TryRemove(dto.User.UID, out _);
+
+        if (addToLastAddedUser && !suppressNotePopup)
         if (addToLastAddedUser)
             LastAddedUser = _allClientPairs[dto.User];
         _allClientPairs[dto.User].ApplyLastReceivedData();

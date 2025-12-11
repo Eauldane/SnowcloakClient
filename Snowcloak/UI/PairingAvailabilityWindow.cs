@@ -40,7 +40,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         TitleBarButtons.Add(new TitleBarButton()
         {
             ShowTooltip = () => ImGui.SetTooltip("Refresh list of nearby players"),
-            Click = (btn) => _ = _pairRequestService.RefreshNearbyAvailabilityAsync(force: true),
+            Click = (btn) => _ = RefreshAndUpdateLockAsync(),
             Icon = FontAwesomeIcon.SyncAlt
         });
         
@@ -59,6 +59,8 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
     protected override void DrawInternal()
     {
+        var availabilitySnapshot = _pairRequestService.GetAvailabilityFilterSnapshot();
+        var filteredCount = availabilitySnapshot.FilteredCount;
         var available = _locked
             ? _lockedEntries
             : BuildAvailabilityEntries();
@@ -66,6 +68,8 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         if (available.Count == 0)
         {
             ImGui.TextColored(ImGuiColors.DalamudGrey, "No nearby users are currently open to pairing.");
+            if (filteredCount > 0)
+                ImGui.TextColored(ImGuiColors.DalamudGrey, $"({filteredCount} nearby players filtered by auto-reject settings)");
             return;
         }
 
@@ -188,7 +192,9 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
     private List<AvailabilityEntry> BuildAvailabilityEntries()
     {
-        return _pairRequestService.AvailableIdents
+        var availability = _pairRequestService.GetAvailabilityFilterSnapshot();
+
+        return availability.Accepted
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
             .Where(tuple => tuple.pc.ObjectId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => new AvailabilityEntry(
@@ -201,6 +207,14 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 tuple.pc.Clan))
             .OrderBy(entry => entry.DisplayName)
             .ToList();
+    }
+
+    private async Task RefreshAndUpdateLockAsync()
+    {
+        await _pairRequestService.RefreshNearbyAvailabilityAsync(force: true).ConfigureAwait(false);
+
+        if (_locked)
+            _lockedEntries = BuildAvailabilityEntries();
     }
 
     private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, byte ClassJobId, byte Level, byte Gender, byte Tribe);

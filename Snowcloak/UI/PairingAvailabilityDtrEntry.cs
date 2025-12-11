@@ -118,9 +118,10 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
         var hoverPlayers = ResolveHoverPlayers();
         var availableCount = hoverPlayers.Total;
+        var filteredCount = hoverPlayers.FilteredCount;
         
         var iconText = "\uE044";
-        var valueText = availableCount.ToString();
+        var valueText = availableCount > 0 ? availableCount.ToString() : string.Empty;
         var hoverText = hoverPlayers.Count > 0
             ? string.Join(Environment.NewLine, hoverPlayers.Names)
             : "No nearby players open to pairing";
@@ -128,14 +129,15 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
         if (remaining > 0)
             hoverText += $"{Environment.NewLine}... and {remaining} more";
-
+        if (filteredCount > 0)
+            hoverText += $"{Environment.NewLine}({filteredCount} filtered players)";
         var tooltip = availableCount > 0
             ? $"Users nearby open to pairing:{Environment.NewLine}{hoverText}"
             : hoverText;
         var colors = availableCount > 0
             ? _configService.Current.DtrColorsPairsInRange
             : _configService.Current.DtrColorsDefault;
-        var fullText = iconText + ' ' + availableCount;
+        var fullText = availableCount > 0 ? iconText + ' ' + availableCount : iconText;
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 
@@ -170,7 +172,8 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     private HoverPlayers ResolveHoverPlayers()
     {
-        var resolved = _pairRequestService.AvailableIdents
+        var availability = _pairRequestService.GetAvailabilityFilterSnapshot();
+        var resolved = availability.Accepted
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
             .Where(tuple => tuple.pc.ObjectId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name)
@@ -178,7 +181,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             .ToList();
 
         var visible = resolved.Take(20).ToList();
-        return new HoverPlayers(visible, resolved.Count);
+        return new HoverPlayers(visible, resolved.Count, availability.FilteredCount);
     }
     
     private const byte _colorTypeForeground = 0x13;
@@ -191,7 +194,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         => new([0x02, colorType, 0x02, 0xEC, 0x03]);
     
     
-    private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total)
+    private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total, int FilteredCount)
     {
         public int Count => Names.Count;
     }

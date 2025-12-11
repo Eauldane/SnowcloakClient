@@ -90,9 +90,14 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var visibleUsersDict = useNameColors
             ? visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId)
             : new Dictionary<ulong, Pair>();
+        
+        var availabilitySnapshot = usePairingHighlights
+            ? _pairRequestService.GetAvailabilityFilterSnapshot()
+            : default;
+
 
         var availableForPairing = usePairingHighlights
-            ? _pairRequestService.AvailableIdents
+            ? availabilitySnapshot.Accepted
                 .Select(id => (pc: _dalamudUtil.FindPlayerByNameHash(id), ident: id))
                 .Where(tuple => tuple.pc.ObjectId != 0)
                 .ToDictionary(tuple => (ulong)tuple.pc.ObjectId, tuple => tuple.ident)
