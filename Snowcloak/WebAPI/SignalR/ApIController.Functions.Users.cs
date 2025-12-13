@@ -45,7 +45,14 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(UserDelete)).ConfigureAwait(false);
         await CreateConnections().ConfigureAwait(false);
     }
-
+    
+    public async Task<List<OnlineUserIdentDto>> UserGetPairsInRange(List<string> idents)
+    {
+        if (!IsConnected) return [];
+        return await _snowHub!.InvokeAsync<List<OnlineUserIdentDto>>(nameof(UserGetPairsInRange), idents)
+            .ConfigureAwait(false);
+    }
+    
     public async Task<List<OnlineUserIdentDto>> UserGetOnlinePairs()
     {
         return await _snowHub!.InvokeAsync<List<OnlineUserIdentDto>>(nameof(UserGetOnlinePairs)).ConfigureAwait(false);
@@ -65,7 +72,8 @@ public partial class ApiController
         }
         return await _snowHub!.InvokeAsync<UserProfileDto>(nameof(UserGetProfile), dto).ConfigureAwait(false);
     }
-
+    
+    
     public async Task UserPushData(UserCharaDataMessageDto dto)
     {
         try
@@ -107,14 +115,32 @@ public partial class ApiController
         await _snowHub!.InvokeAsync(nameof(UserSetPairingOptIn), optInDto).ConfigureAwait(false);
     }
     
-    public async Task<List<PairingAvailabilityDto>> UserQueryPairingAvailability(PairingAvailabilityQueryDto query)
+    public async Task UserQueryPairingAvailability(PairingAvailabilityQueryDto query)
     {
         Logger.LogDebug("Querying pairing availability for {count} nearby idents: {idents}",
             query.NearbyIdents?.Count ?? 0,
             string.Join(", ", query.NearbyIdents ?? Array.Empty<string>()));
 
-        if (!IsConnected) return [];
-        return await _snowHub!.InvokeAsync<List<PairingAvailabilityDto>>(nameof(UserQueryPairingAvailability), query).ConfigureAwait(false);
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(UserQueryPairingAvailability), query).ConfigureAwait(false);
+    }
+
+    public async Task<bool> UserSubscribePairingAvailability(PairingAvailabilitySubscriptionDto subscription)
+    {
+        Logger.LogDebug("Updating pairing availability subscription for world {world} territory {territory}: +{added}/-{removed}",
+            subscription.WorldId,
+            subscription.TerritoryId,
+            subscription.AddedNearbyIdents?.Count ?? 0,
+            subscription.RemovedNearbyIdents?.Count ?? 0);
+
+        if (!IsConnected) return false;
+        return await _snowHub!.InvokeAsync<bool>(nameof(UserSubscribePairingAvailability), subscription).ConfigureAwait(false);
+    }
+
+    public async Task UserUnsubscribePairingAvailability()
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(UserUnsubscribePairingAvailability)).ConfigureAwait(false);
     }
 
     public async Task UserSendPairRequest(PairingRequestTargetDto targetDto)

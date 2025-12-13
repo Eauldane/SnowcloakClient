@@ -137,7 +137,18 @@ public partial class ApiController
     public Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability)
     {
         Logger.LogTrace("Client_UserPairingAvailability: {count}", availability.Count);
-        ExecuteSafely(() => _pairRequestService.UpdateAvailability(availability));
+        ExecuteSafely(() => _pairRequestService.UpdateAvailability(availability, publishImmediately: true));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_UserPairingAvailabilityDelta(PairingAvailabilityDeltaDto delta)
+    {
+        Logger.LogTrace("Client_UserPairingAvailabilityDelta: +{added}/-{removed}",
+            delta.AddedIdents?.Count ?? 0,
+            delta.RemovedIdents?.Count ?? 0);
+        ExecuteSafely(() => _pairRequestService.ApplyAvailabilityDelta(
+            delta.AddedIdents ?? Array.Empty<string>(),
+            delta.RemovedIdents ?? Array.Empty<string>()));
         return Task.CompletedTask;
     }
 
@@ -354,7 +365,12 @@ public partial class ApiController
         if (_initialized) return;
         _snowHub!.On(nameof(Client_UserPairingAvailability), act);
     }
-
+    public void OnUserPairingAvailabilityDelta(Action<PairingAvailabilityDeltaDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_UserPairingAvailabilityDelta), act);
+    }
+    
     public void OnUserPairingRequest(Action<PairingRequestDto> act)
     {
         if (_initialized) return;

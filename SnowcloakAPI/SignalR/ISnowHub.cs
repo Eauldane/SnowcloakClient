@@ -59,6 +59,7 @@ public interface ISnowHub
     Task Client_UserUpdateProfile(UserDto dto);
 
     Task Client_UserUpdateSelfPairPermissions(UserPermissionsDto dto);
+    Task Client_UserPairingAvailabilityDelta(PairingAvailabilityDeltaDto delta);
 
     Task Client_GposeLobbyJoin(UserData userData);
     Task Client_GposeLobbyLeave(UserData userData);
@@ -125,6 +126,10 @@ public interface ISnowHub
     Task UserSetPairPermissions(UserPermissionsDto userPermissions);
 
     Task UserSetProfile(UserProfileDto userDescription);
+    Task<bool> UserSubscribePairingAvailability(PairingAvailabilitySubscriptionDto request);
+
+    Task UserUnsubscribePairingAvailability();
+
 
     Task<CharaDataFullDto?> CharaDataCreate();
     Task<CharaDataFullDto?> CharaDataUpdate(CharaDataUpdateDto updateDto);
@@ -141,6 +146,17 @@ public interface ISnowHub
     Task GposeLobbyPushCharacterData(CharaDataDownloadDto charaDownloadDto);
     Task GposeLobbyPushPoseData(PoseData poseData);
     Task GposeLobbyPushWorldData(WorldData worldData);
+    
     Task<VenueInfoResponseDto> VenueGetInfoForPlot(VenueInfoRequestDto request);
     Task<VenueRegistrationResponseDto> VenueRegister(VenueRegistrationRequestDto request);
+    Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability);
+
+    Task Client_UserPairingRequest(PairingRequestDto dto);
+    Task UserSetPairingOptIn(PairingOptInDto dto);
+    Task UserQueryPairingAvailability(PairingAvailabilityQueryDto query);
+    Task UserSendPairRequest(PairingRequestTargetDto dto);
+
+    Task UserRespondToPairRequest(PairingRequestDecisionDto dto);
+    
+    Task<List<OnlineUserIdentDto>> UserGetPairsInRange(List<string> idents);
 }

@@ -260,31 +260,32 @@ public sealed partial class BbCodeRenderer : IDisposable
 
         using var styleContext = PushStyleContext(segment.Style, options);
         using var colorPush = color.HasValue ? ImRaii.PushColor(ImGuiCol.Text, color.Value) : null;
-
+        using var transparentText = segment.Style.Italic ? ImRaii.PushColor(ImGuiCol.Text, Vector4.Zero) : null;
+        
         ImGui.TextUnformatted(text);
         
         var rectMin = ImGui.GetItemRectMin();
         var rectMax = ImGui.GetItemRectMax();
 
-        if (segment.Style.Bold)
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            var baseColor = ImGui.GetColorU32(ImGuiCol.Text);
-            drawList.AddText(rectMin + new Vector2(1f, 0f), baseColor, text);
-        }
+        var drawList = ImGui.GetWindowDrawList();
+        var baseColor = color.HasValue ? ImGui.GetColorU32(color.Value) : ImGui.GetColorU32(ImGuiCol.Text);
 
         if (segment.Style.Italic)
         {
-            var drawList = ImGui.GetWindowDrawList();
-            var italicColor = ImGui.GetColorU32(ImGuiCol.Text);
-            drawList.AddText(rectMin + new Vector2(0.75f * ImGuiHelpers.GlobalScale, 0f), italicColor, text);
+            RenderItalicText(drawList, rectMin, baseColor, text);
         }
 
-        if (segment.Style.Underline)
+        if (segment.Style.Bold)
         {
-            var drawList = ImGui.GetWindowDrawList();
-            var underlineColor = ImGui.GetColorU32(ImGuiCol.Text);
-            drawList.AddLine(new(rectMin.X, rectMax.Y), new(rectMax.X, rectMax.Y), underlineColor, 1.1f * ImGuiHelpers.GlobalScale);
+            var boldOffset = new Vector2(1f * ImGuiHelpers.GlobalScale, 0f);
+            if (segment.Style.Italic)
+            {
+                RenderItalicText(drawList, rectMin + boldOffset, baseColor, text);
+            }
+            else
+            {
+                drawList.AddText(rectMin + boldOffset, baseColor, text);
+            }
         }
 
         if (options.AllowLinks && (segment.Style.Url != null || segment.Style.UseTextAsUrl))
@@ -441,6 +442,23 @@ public sealed partial class BbCodeRenderer : IDisposable
             }
 
             _fontPush?.Dispose();
+        }
+    }
+    
+    
+    private static void RenderItalicText(ImDrawListPtr drawList, Vector2 position, uint color, string text)
+    {
+        var startVertIndex = drawList.VtxBuffer.Size;
+        drawList.AddText(position, color, text);
+        var endVertIndex = drawList.VtxBuffer.Size;
+
+        const float shearFactor = 0.2f;
+        for (var i = startVertIndex; i < endVertIndex; i++)
+        {
+            var vertex = drawList.VtxBuffer[i];
+            var yOffset = vertex.Pos.Y - position.Y;
+            vertex.Pos.X += yOffset * shearFactor;
+            drawList.VtxBuffer[i] = vertex;
         }
     }
     
