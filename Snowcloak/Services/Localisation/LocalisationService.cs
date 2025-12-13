@@ -16,6 +16,7 @@ namespace Snowcloak.Services.Localisation;
 //}
 //
 // Change the key by window.
+// Yes, I did forget resx existed when I wrote this but I like JSON better anyway 
 
 public sealed class LocalisationService : IDisposable
 {

@@ -103,6 +103,9 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             using (_uiSharedService.UidFont.Push())
                 UiSharedService.ColorText(_pair.UserData.AliasOrUID, Colours.Hex2Vector4(_pair.UserData.DisplayColour));
 
+            ImGui.SameLine();
+            UiSharedService.ColorText($"[{snowProfile.Visibility} profile]", ImGuiColors.DalamudGrey);
+            
             ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
             var textPos = ImGui.GetCursorPosY();
             ImGui.Separator();

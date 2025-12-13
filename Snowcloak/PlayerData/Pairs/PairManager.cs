@@ -75,6 +75,11 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         return null;
     }
     
+    public Pair GetOrCreateTransientPair(UserData userData)
+    {
+        return GetPairByUID(userData.UID) ?? _pairFactory.Create(userData);
+    }
+    
     public void SuppressNextNotePopupForUid(string uid)
     {
         if (!string.IsNullOrEmpty(uid))

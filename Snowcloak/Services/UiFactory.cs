@@ -1,4 +1,6 @@
-﻿using Snowcloak.API.Dto.Group;
+﻿using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.Group;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
@@ -39,10 +41,11 @@ public class UiFactory
             _apiController, _uiSharedService, _pairManager, dto, _performanceCollectorService);
     }
 
-    public StandaloneProfileUi CreateStandaloneProfileUi(Pair pair)
+    public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null)
     {
+        pair ??= _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, _performanceCollectorService);
+            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

@@ -115,8 +115,7 @@ public interface ISnowHub
 
     Task<List<UserPairDto>> UserGetPairedClients();
 
-    Task<UserProfileDto> UserGetProfile(UserDto dto);
-
+    Task<UserProfileDto> UserGetProfile(UserProfileRequestDto dto);
     Task UserPushData(UserCharaDataMessageDto dto);
 
     Task UserRemovePair(UserDto userDto);

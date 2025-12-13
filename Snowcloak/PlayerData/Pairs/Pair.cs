@@ -112,7 +112,7 @@ public class Pair : DisposableMediatorSubscriberBase
         bool isBlacklisted = _serverConfigurationManager.IsUidBlacklisted(UserData.UID);
         bool isWhitelisted = _serverConfigurationManager.IsUidWhitelisted(UserData.UID);
 
-        Add("Open Profile", _ => Mediator.Publish(new ProfileOpenStandaloneMessage(this)));
+        Add("Open Profile", _ => Mediator.Publish(new ProfileOpenStandaloneMessage(UserData, this)));
 
         if (!isBlocked && !isBlacklisted)
             Add("Always Block Modded Appearance", _ => {

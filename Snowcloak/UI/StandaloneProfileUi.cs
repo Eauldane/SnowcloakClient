@@ -11,6 +11,8 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
 using System.Numerics;
+using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.UI;
 
@@ -18,6 +20,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
 {
     private readonly SnowProfileManager _snowProfileManager;
     private readonly PairManager _pairManager;
+    private readonly ProfileVisibility? _requestedVisibility;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
     private bool _adjustedForScrollBars = false;
@@ -25,15 +28,17 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
     private IDalamudTextureWrap? _textureWrap;
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiBuilder,
-        ServerConfigurationManager serverManager, SnowProfileManager snowProfileManager, PairManager pairManager, Pair pair,
-        PerformanceCollectorService performanceCollector)
-        : base(logger, mediator, "Profile of " + pair.UserData.AliasOrUID + "##SnowcloakSyncStandaloneProfileUI" + pair.UserData.AliasOrUID, performanceCollector)
+        ServerConfigurationManager serverManager, SnowProfileManager snowProfileManager, PairManager pairManager, Pair? pair,
+        UserData userData, ProfileVisibility? requestedVisibility, PerformanceCollectorService performanceCollector)
+        : base(logger, mediator, "Profile of " + userData.AliasOrUID + "##SnowcloakSyncStandaloneProfileUI" + userData.AliasOrUID + requestedVisibility, performanceCollector)
     {
         _uiSharedService = uiBuilder;
         _serverManager = serverManager;
         _snowProfileManager = snowProfileManager;
+        pair ??= pairManager.GetPairByUID(userData.UID);
         Pair = pair;
-        _pairManager = pairManager;
+        UserData = userData;
+        _requestedVisibility = requestedVisibility;
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.AlwaysAutoResize;
 
         var spacing = ImGui.GetStyle().ItemSpacing;
@@ -43,16 +48,18 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
         IsOpen = true;
     }
 
-    public Pair Pair { get; init; }
-
+    public Pair? Pair { get; }
+    public UserData UserData { get; }
+    public ProfileVisibility? RequestedVisibility => _requestedVisibility;
+    
     protected override void DrawInternal()
     {
         try
         {
             var spacing = ImGui.GetStyle().ItemSpacing;
 
-            var snowProfile = _snowProfileManager.GetSnowProfile(Pair.UserData);
-
+            var snowProfile = _snowProfileManager.GetSnowProfile(UserData, _requestedVisibility);
+            
             if (_textureWrap == null || !snowProfile.ImageData.Value.SequenceEqual(_lastProfilePicture))
             {
                 _textureWrap?.Dispose();
@@ -66,15 +73,20 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var headerSize = ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y;
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(Pair.UserData.AliasOrUID, Colours.Hex2Vector4(Pair.UserData.DisplayColour));
+                UiSharedService.ColorText(UserData.AliasOrUID, Colours.Hex2Vector4(UserData.DisplayColour));
 
+            ImGui.SameLine();
+            UiSharedService.ColorText($"[{snowProfile.Visibility} profile]", ImGuiColors.DalamudGrey);
+            
             var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, "Report Profile");
             ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - reportButtonSize);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile"))
+            var canReport = Pair != null;
+            if (!canReport) ImGui.BeginDisabled();
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile") && Pair != null)
                 Mediator.Publish(new OpenReportPopupMessage(Pair));
-
+            if (!canReport) ImGui.EndDisabled();
+            
             ImGuiHelpers.ScaledDummy(new Vector2(spacing.Y, spacing.Y));
-            var textPos = ImGui.GetCursorPosY() - headerSize;
             ImGui.Separator();
             var pos = ImGui.GetCursorPos() with { Y = ImGui.GetCursorPosY() - headerSize };
             ImGuiHelpers.ScaledDummy(new Vector2(256, 256 + spacing.Y));
@@ -106,54 +118,66 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             ImGui.EndChildFrame();
 
             ImGui.SetCursorPosY(postDummy);
-            var note = _serverManager.GetNoteForUid(Pair.UserData.UID);
+            var note = _serverManager.GetNoteForUid(UserData.UID);
             if (!string.IsNullOrEmpty(note))
             {
                 UiSharedService.ColorText(note, ImGuiColors.DalamudGrey);
             }
-            string status = Pair.IsVisible ? "Visible" : (Pair.IsOnline ? "Online" : "Offline");
-            UiSharedService.ColorText(status, (Pair.IsVisible || Pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
-            if (Pair.IsVisible)
+            
+            if (Pair != null)
             {
-                ImGui.SameLine();
-                ImGui.TextUnformatted($"({Pair.PlayerName})");
-            }
-            if (Pair.UserPair != null)
-            {
-                ImGui.TextUnformatted("Directly paired");
-                if (Pair.UserPair.OwnPermissions.IsPaused())
+                string status = Pair.IsVisible ? "Visible" : (Pair.IsOnline ? "Online" : "Offline");
+                UiSharedService.ColorText(status, (Pair.IsVisible || Pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
+                if (Pair.IsVisible)
                 {
                     ImGui.SameLine();
-                    UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                    ImGui.TextUnformatted($"({Pair.PlayerName})");
                 }
-                if (Pair.UserPair.OtherPermissions.IsPaused())
+                if (Pair.UserPair != null)
                 {
-                    ImGui.SameLine();
-                    UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                    ImGui.TextUnformatted("Directly paired");
+                    if (Pair.UserPair.OwnPermissions.IsPaused())
+                    {
+                        ImGui.SameLine();
+                        UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                    }
+                    if (Pair.UserPair.OtherPermissions.IsPaused())
+                    {
+                        ImGui.SameLine();
+                        UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                    }
+                }
+            
+
+                if (Pair.GroupPair.Any())
+                {
+                    ImGui.TextUnformatted("Paired through Syncshells:");
+                    foreach (var groupPair in Pair.GroupPair.Select(k => k.Key))
+                    {
+                        var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
+                        var groupName = groupPair.GroupAliasOrGID;
+                        var groupString = string.IsNullOrEmpty(groupNote) ? groupName : $"{groupNote} ({groupName})";
+                        ImGui.TextColored(Colours.Hex2Vector4(groupPair.Group.DisplayColour), "- " + groupString);
+                    }
                 }
             }
-
-            if (Pair.GroupPair.Any())
+            else
             {
-                ImGui.TextUnformatted("Paired through Syncshells:");
-                foreach (var groupPair in Pair.GroupPair.Select(k => k.Key))
-                {
-                    var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
-                    var groupName = groupPair.GroupAliasOrGID;
-                    var groupString = string.IsNullOrEmpty(groupNote) ? groupName : $"{groupNote} ({groupName})";
-                    ImGui.TextColored(Colours.Hex2Vector4(groupPair.Group.DisplayColour), "- " + groupString);
-                }
+                UiSharedService.ColorTextWrapped("No pairing context available for this user.", ImGuiColors.DalamudGrey);
             }
 
-            var padding = ImGui.GetStyle().WindowPadding.X / 2;
-            bool tallerThanWide = _textureWrap.Height >= _textureWrap.Width;
-            var stretchFactor = tallerThanWide ? 256f * ImGuiHelpers.GlobalScale / _textureWrap.Height : 256f * ImGuiHelpers.GlobalScale / _textureWrap.Width;
-            var newWidth = _textureWrap.Width * stretchFactor;
-            var newHeight = _textureWrap.Height * stretchFactor;
-            var remainingWidth = (256f * ImGuiHelpers.GlobalScale - newWidth) / 2f;
-            var remainingHeight = (256f * ImGuiHelpers.GlobalScale - newHeight) / 2f;
-            drawList.AddImage(_textureWrap.Handle, new Vector2(rectMin.X + padding + remainingWidth, rectMin.Y + spacing.Y + pos.Y + remainingHeight),
-                new Vector2(rectMin.X + padding + remainingWidth + newWidth, rectMin.Y + spacing.Y + pos.Y + remainingHeight + newHeight));
+            if (_textureWrap != null)
+            {
+                var padding = ImGui.GetStyle().WindowPadding.X / 2;
+                bool tallerThanWide = _textureWrap.Height >= _textureWrap.Width;
+                var stretchFactor = tallerThanWide ? 256f * ImGuiHelpers.GlobalScale / _textureWrap.Height : 256f * ImGuiHelpers.GlobalScale / _textureWrap.Width;
+                var newWidth = _textureWrap.Width * stretchFactor;
+                var newHeight = _textureWrap.Height * stretchFactor;
+                var remainingWidth = (256f * ImGuiHelpers.GlobalScale - newWidth) / 2f;
+                var remainingHeight = (256f * ImGuiHelpers.GlobalScale - newHeight) / 2f;
+                drawList.AddImage(_textureWrap.Handle, new Vector2(rectMin.X + padding + remainingWidth, rectMin.Y + spacing.Y + pos.Y + remainingHeight),
+                    new Vector2(rectMin.X + padding + remainingWidth + newWidth, rectMin.Y + spacing.Y + pos.Y + remainingHeight + newHeight));
+            }
         }
         catch (Exception ex)
         {

@@ -14,6 +14,7 @@ using System.Numerics;
 using Snowcloak.Services.Housing;
 using Snowcloak.Services.Venue;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.Services.Mediator;
 
@@ -73,12 +74,12 @@ public record DownloadStartedMessage(GameObjectHandler DownloadId, Dictionary<st
 public record DownloadFinishedMessage(GameObjectHandler DownloadId) : MessageBase;
 public record UiToggleMessage(Type UiType) : MessageBase;
 public record PlayerUploadingMessage(GameObjectHandler Handler, bool IsUploading) : MessageBase;
-public record ClearProfileDataMessage(UserData? UserData = null) : MessageBase;
+public record ClearProfileDataMessage(UserData? UserData = null, ProfileVisibility? Visibility = null) : MessageBase;
 public record CyclePauseMessage(UserData UserData) : MessageBase;
 public record PauseMessage(UserData UserData) : MessageBase;
 public record ProfilePopoutToggle(Pair? Pair) : MessageBase;
 public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
-public record ProfileOpenStandaloneMessage(Pair Pair) : MessageBase;
+public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null) : MessageBase;
 public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
 public record PlayerVisibilityMessage(string Ident, bool IsVisible, bool Invalidate = false) : KeyedMessage(Ident, SameThread: true);
 public record PairHandlerVisibleMessage(PairHandler Player) : MessageBase;

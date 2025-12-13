@@ -13,6 +13,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.UI;
 
@@ -31,6 +32,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
     private byte[] _profileImage = [];
     private string _showFileDialogError = string.Empty;
     private bool _wasOpen;
+    private ProfileVisibility _editingVisibility = ProfileVisibility.Private;
 
     public EditProfileUi(ILogger<EditProfileUi> logger, SnowMediator mediator,
         ApiController apiController, UiSharedService uiSharedService, FileDialogManager fileDialogManager,
@@ -65,10 +67,25 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
     protected override void DrawInternal()
     {
+        ImGui.TextUnformatted("Select which profile to edit");
+        if (ImGui.RadioButton("Private", _editingVisibility == ProfileVisibility.Private))
+        {
+            SwitchEditingVisibility(ProfileVisibility.Private);
+        }
+        ImGui.SameLine();
+        if (ImGui.RadioButton("Public", _editingVisibility == ProfileVisibility.Public))
+        {
+            SwitchEditingVisibility(ProfileVisibility.Public);
+        }
+        _uiSharedService.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Snowplow profile requests.");
+
+        ImGui.Separator();
         _uiSharedService.BigText("Current Profile (as saved on server)");
 
-        var profile = _snowProfileManager.GetSnowProfile(new UserData(_apiController.UID));
+        var profile = _snowProfileManager.GetSnowProfile(new UserData(_apiController.UID), _editingVisibility);
 
+        UiSharedService.ColorTextWrapped($"Active variant: {profile.Visibility} profile", ImGuiColors.DalamudGrey);
+        
         if (profile.IsFlagged)
         {
             UiSharedService.ColorTextWrapped(profile.Description, ImGuiColors.DalamudRed);
@@ -146,7 +163,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
                         return;
                     }
                     _showFileDialogError = string.Empty;
-                    await _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, Convert.ToBase64String(fileContent), Description: null))
+                    await _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, Convert.ToBase64String(fileContent), Description: null, Visibility: _editingVisibility))
                         .ConfigureAwait(false);
                 });
             });
@@ -155,7 +172,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         ImGui.SameLine();
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear uploaded profile picture"))
         {
-            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, "", Description: null));
+            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, "", Description: null, Visibility: _editingVisibility));
         }
         UiSharedService.AttachToolTip("Clear your currently uploaded profile picture");
         if (!_showFileDialogError.IsNullOrEmpty())
@@ -165,7 +182,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         var isNsfw = profile.IsNSFW;
         if (ImGui.Checkbox("Profile is NSFW", ref isNsfw))
         {
-            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, isNsfw, ProfilePictureBase64: null, Description: null));
+            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, isNsfw, ProfilePictureBase64: null, Description: null, Visibility: _editingVisibility));
         }
         _uiSharedService.DrawHelpText("If your profile description or image can be considered NSFW, toggle this to ON");
         var widthTextBox = 400;
@@ -204,13 +221,13 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Description"))
         {
-            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, _descriptionText));
+            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, _descriptionText, Visibility: _editingVisibility));
         }
         UiSharedService.AttachToolTip("Sets your profile description text");
         ImGui.SameLine();
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear Description"))
         {
-            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, ""));
+            _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, "", Visibility: _editingVisibility));
         }
         UiSharedService.AttachToolTip("Clears your profile description text");
     }
@@ -219,5 +236,18 @@ public class EditProfileUi : WindowMediatorSubscriberBase
     {
         base.Dispose(disposing);
         _pfpTextureWrap?.Dispose();
+    }
+    
+    private void SwitchEditingVisibility(ProfileVisibility visibility)
+    {
+        if (_editingVisibility == visibility) return;
+
+        _editingVisibility = visibility;
+        _pfpTextureWrap?.Dispose();
+        _pfpTextureWrap = null;
+        _profileImage = [];
+        _profileDescription = string.Empty;
+        _descriptionText = string.Empty;
+        Mediator.Publish(new ClearProfileDataMessage(new UserData(_apiController.UID), visibility));
     }
 }

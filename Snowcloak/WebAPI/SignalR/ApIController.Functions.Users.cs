@@ -56,9 +56,13 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<List<UserPairDto>>(nameof(UserGetPairedClients)).ConfigureAwait(false);
     }
 
-    public async Task<UserProfileDto> UserGetProfile(UserDto dto)
+    public async Task<UserProfileDto> UserGetProfile(UserProfileRequestDto dto)
     {
-        if (!IsConnected) return new UserProfileDto(dto.User, false, null, null, null);
+        if (!IsConnected)
+        {
+            var fallbackUser = dto.User ?? new UserData(dto.Ident ?? string.Empty);
+            return new UserProfileDto(fallbackUser, false, null, null, null, dto.Visibility);
+        }
         return await _snowHub!.InvokeAsync<UserProfileDto>(nameof(UserGetProfile), dto).ConfigureAwait(false);
     }
 

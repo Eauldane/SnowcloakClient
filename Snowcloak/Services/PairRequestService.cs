@@ -21,6 +21,8 @@ using System.Threading;
 using Snowcloak.PlayerData.Pairs;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using System.Runtime.InteropServices;
+using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.Services;
 
@@ -33,6 +35,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly IpcManager _ipcManager;
     private readonly IToastGui _toastGui;
     private readonly PairManager _pairManager;
+    private readonly SnowProfileManager _snowProfileManager;
     private readonly ConcurrentDictionary<Guid, PendingRequest> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
     private readonly object _availabilityFilterLock = new();
@@ -60,7 +63,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public PairRequestService(ILogger<PairRequestService> logger, SnowcloakConfigService configService,
         SnowMediator mediator, DalamudUtilService dalamudUtilService,
         IpcManager ipcManager, IToastGui toastGui, IContextMenu contextMenu, IServiceProvider serviceProvider,
-        ServerConfigurationManager serverConfigurationManager, PairManager pairManager)
+        ServerConfigurationManager serverConfigurationManager, PairManager pairManager, SnowProfileManager snowProfileManager)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -71,6 +74,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _toastGui = toastGui;
         _contextMenu = contextMenu;
         _pairManager = pairManager;
+        _snowProfileManager = snowProfileManager;
         _serverConfigurationManager = serverConfigurationManager;
         _contextMenu.OnMenuOpened += ContextMenuOnMenuOpened;
         Mediator.Subscribe<TargetPlayerChangedMessage>(this, OnTargetPlayerChanged);
@@ -145,7 +149,26 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
 
         Add("Send Snowcloak Pair Request", async _ => await SendPairRequestAsync(ident).ConfigureAwait(false));
-        Add("View Snowcloak Profile", _ => Mediator.Publish(new NotificationMessage("Profile request", "Requesting profile from nearby player", NotificationType.Info, TimeSpan.FromSeconds(4))));
+        Add("View Snowcloak Profile", async _ => await RequestProfileAsync(ident).ConfigureAwait(false));
+    }
+
+    public async Task RequestProfileAsync(string ident)
+    {
+        Mediator.Publish(new NotificationMessage("Profile request", "Requesting profile from nearby player", NotificationType.Info, TimeSpan.FromSeconds(4)));
+
+        try
+        {
+            var profile = await _snowProfileManager.GetSnowProfileAsync(userData: null, ident: ident, visibilityOverride: ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
+            var userData = profile.User ?? new UserData(ident);
+            var pair = _pairManager.GetOrCreateTransientPair(userData);
+            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to request profile for ident {ident}", ident);
+            Mediator.Publish(new NotificationMessage("Profile request failed", "Could not retrieve that profile right now.", NotificationType.Warning, TimeSpan.FromSeconds(5)));
+        }
+        
     }
 
     public async Task SyncAdvertisingAsync(bool force = false)

@@ -149,7 +149,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
             if (ImGui.Selectable("View Snowcloak Profile"))
             {
-                Mediator.Publish(new NotificationMessage("Profile request", "Requesting profile from nearby player", NotificationType.Info, TimeSpan.FromSeconds(4)));
+                _ = _pairRequestService.RequestProfileAsync(entry.Ident);
             }
 
             if (ImGui.Selectable("Send Snowcloak Pair Request"))
