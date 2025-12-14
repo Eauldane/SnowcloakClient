@@ -53,7 +53,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private DateTime _lastNearbyAvailabilityCheck = DateTime.MinValue;
     private string _localPlayerIdent = string.Empty;
     // Fallback frequency for polling when the push channel is unavailable; capped to once per minute.
-    private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromMinutes(1);    private const int MaxNearbySnapshot = 1024;
+    private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(15);
+    private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
     private bool _pushChannelAvailable;
     private bool _availabilitySubscriptionActive;
@@ -89,6 +90,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         Mediator.Subscribe<ZoneSwitchEndMessage>(this, OnZoneChanged);
         Mediator.Subscribe<ConnectedMessage>(this, OnConnected);
         Mediator.Subscribe<HubReconnectedMessage>(this, OnHubReconnected);
+        Mediator.Subscribe<DisconnectedMessage>(this, _ => HandleDisconnect());
         _nearbyAvailabilityLoop = Task.Run(() => PollNearbyAvailabilityAsync(_nearbyAvailabilityCts.Token));
     }
 
@@ -100,7 +102,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private Task OnPlayerLoggedInAsync()
     {
         _lastSubscriptionLocation = null;
-        return RefreshNearbyAvailabilityAsync(force: true);
+        return RefreshNearbyAvailabilityWithRetriesAsync();
     }
     
     private void OnPlayerLoggedOut(DalamudLogoutMessage message) => _ = OnPlayerLoggedOutAsync();
@@ -110,6 +112,26 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _lastNearbyIdentSnapshot.Clear();
         ClearAvailability();
     }
+    
+    
+    private void HandleDisconnect()
+    {
+        _availabilitySubscriptionActive = false;
+        _pushChannelAvailable = false;
+        _lastSubscriptionLocation = null;
+
+        HashSet<string> unavailable;
+        lock (_availabilityUpdateLock)
+        {
+            unavailable = _availableIdents.ToHashSet(StringComparer.Ordinal);
+        }
+
+        if (unavailable.Count > 0)
+        {
+            ApplyAvailabilityDelta(Array.Empty<string>(), unavailable, publishImmediately: true);
+        }
+    }
+    
     private void OnZoneChanged(ZoneSwitchEndMessage message) => _ = OnZoneChangedAsync();
     private Task OnZoneChangedAsync()
     {
@@ -120,8 +142,36 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     private async Task OnConnectedAsync()
     {
+        _availabilitySubscriptionActive = false;
+        _pushChannelAvailable = false;
+        _lastSubscriptionLocation = null;
+        _lastNearbyAvailabilityCheck = DateTime.MinValue;
+
         await SyncAdvertisingAsync(force: true).ConfigureAwait(false);
-        await RefreshNearbyAvailabilityAsync(force: true).ConfigureAwait(false);
+        await RefreshNearbyAvailabilityWithRetriesAsync().ConfigureAwait(false);
+    }
+
+    private async Task RefreshNearbyAvailabilityWithRetriesAsync()
+    {
+        const int retryDelayMs = 1000;
+        const int maxAttempts = 5;
+
+        for (var attempt = 0; attempt < maxAttempts && !_nearbyAvailabilityCts.IsCancellationRequested; attempt++)
+        {
+            await RefreshNearbyAvailabilityAsync(force: true).ConfigureAwait(false);
+
+            if (_pushChannelAvailable)
+                break;
+
+            try
+            {
+                await Task.Delay(retryDelayMs, _nearbyAvailabilityCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
     }
     
     protected override void Dispose(bool disposing)
@@ -157,6 +207,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     public IReadOnlyCollection<PairingRequestDto> PendingRequests
         => _pendingRequests.Values.Select(p => p.Request).ToList();
+    
+    public bool IsAvailabilityChannelActive => _availabilitySubscriptionActive && _pushChannelAvailable;
     
     private void ContextMenuOnMenuOpened(IMenuOpenedArgs args)
     {
@@ -357,25 +409,29 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!force && DateTime.UtcNow - _lastNearbyAvailabilityCheck < NearbyAvailabilityPollInterval)
             return;
 
-        if (!await _nearbyAvailabilitySemaphore.WaitAsync(0).ConfigureAwait(false))
+        if (force)
+        {
+            await _nearbyAvailabilitySemaphore.WaitAsync().ConfigureAwait(false);
+        }
+        else if (!await _nearbyAvailabilitySemaphore.WaitAsync(0).ConfigureAwait(false))
             return;
 
         try
         {
-            _lastNearbyAvailabilityCheck = DateTime.UtcNow;
-
             if (!_configService.Current.PairingSystemEnabled)
             {
                 ClearAvailability();
+                _lastNearbyAvailabilityCheck = DateTime.UtcNow;
                 return;
             }
 
             if (!_apiController.Value.IsConnected)
             {
                 _pushChannelAvailable = false;
+                _lastNearbyAvailabilityCheck = DateTime.MinValue;
                 return;
             }
-
+            _lastNearbyAvailabilityCheck = DateTime.UtcNow;
             HashSet<string> nearbySet = new(StringComparer.Ordinal);
             LocationInfo? location = null;
 
@@ -413,14 +469,12 @@ public class PairRequestService : DisposableMediatorSubscriberBase
                 }
 
                 if (nearbySet.Count == 0)
-                {
                     ClearAvailability();
-                    return;
-                }
+  
 
                 if (location.HasValue)
                 {
-                    await UpdateAvailabilitySubscriptionAsync(location.Value, nearbySet, entered, left)
+                    await UpdateAvailabilitySubscriptionAsync(location.Value, nearbySet, entered, left, force)
                         .ConfigureAwait(false);
                 }
 
@@ -457,24 +511,31 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
     
-        private async Task<bool> UpdateAvailabilitySubscriptionAsync(LocationInfo location,
+    private async Task<bool> UpdateAvailabilitySubscriptionAsync(LocationInfo location,
         IReadOnlyCollection<string> nearbySnapshot, IReadOnlyCollection<string> entered,
-        IReadOnlyCollection<string> left)
+        IReadOnlyCollection<string> left, bool force = false)
     {
         var requiresNewSubscription = !_lastSubscriptionLocation.HasValue
             || _lastSubscriptionLocation.Value.ServerId != location.ServerId
             || _lastSubscriptionLocation.Value.TerritoryId != location.TerritoryId;
 
-        if (!await _availabilitySubscriptionSemaphore.WaitAsync(0).ConfigureAwait(false))
+        if (force)
+        {
+            await _availabilitySubscriptionSemaphore.WaitAsync().ConfigureAwait(false);
+        }
+        else if (!await _availabilitySubscriptionSemaphore.WaitAsync(0).ConfigureAwait(false))
             return _pushChannelAvailable;
 
         try
         {
             if (!_apiController.Value.IsConnected)
             {
-                _pushChannelAvailable = false;
-                _availabilitySubscriptionActive = false;
-                return false;
+                if (!force || !await WaitForApiConnectionAsync(_nearbyAvailabilityCts.Token).ConfigureAwait(false))
+                {
+                    _pushChannelAvailable = false;
+                    _availabilitySubscriptionActive = false;
+                    return false;
+                }
             }
 
             var nearbyPayload = requiresNewSubscription ? nearbySnapshot : Array.Empty<string>();
@@ -508,6 +569,35 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         return _pushChannelAvailable;
     }
 
+    private async Task<bool> WaitForApiConnectionAsync(CancellationToken cancellationToken)
+    {
+        const int retryCount = 10;
+        const int retryDelayMs = 200;
+
+        for (var attempt = 0; attempt < retryCount; attempt++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            try
+            {
+                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            if (_apiController.Value.IsConnected)
+                return true;
+        }
+
+        return _apiController.Value.IsConnected;
+    }
+    
     private async Task StopAvailabilitySubscriptionAsync()
     {
         if (!_availabilitySubscriptionActive)

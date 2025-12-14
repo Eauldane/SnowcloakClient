@@ -112,6 +112,12 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
                 Clear();
             return;
         }
+        
+        if (!_pairRequestService.IsAvailabilityChannelActive)
+        {
+            ShowUnavailable();
+            return;
+        }
 
         if (!_entry.Value.Shown)
             _entry.Value.Shown = true;
@@ -137,7 +143,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         var colors = availableCount > 0
             ? _configService.Current.DtrColorsPairsInRange
             : _configService.Current.DtrColorsDefault;
-        var fullText = availableCount > 0 ? iconText + ' ' + availableCount : iconText;
+        var fullText = iconText + ' ' + availableCount;
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 
@@ -151,6 +157,31 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             _tooltip = tooltip;
             _colors = colors;
             _entry.Value.Text = BuildColoredSeString(fullText, colors);
+            _entry.Value.Tooltip = tooltip;
+        }
+    }
+
+    private void ShowUnavailable()
+    {
+        if (!_entry.Value.Shown)
+            _entry.Value.Shown = true;
+
+        const string iconText = "\uE044";
+        const string tooltip = "Pairing availability unavailable";
+        var colors = _configService.Current.DtrColorsDefault;
+        if (!_configService.Current.UseColorsInDtr)
+            colors = default;
+
+        if (!string.Equals(iconText, _text, StringComparison.Ordinal)
+            || _colors != colors
+            || !string.Equals(tooltip, _tooltip, StringComparison.Ordinal))
+        {
+            _text = iconText;
+            _valueText = string.Empty;
+            _tooltip = tooltip;
+            _colors = colors;
+
+            _entry.Value.Text = BuildColoredSeString(iconText, colors);
             _entry.Value.Tooltip = tooltip;
         }
     }
