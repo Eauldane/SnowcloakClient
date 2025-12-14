@@ -260,6 +260,9 @@ public sealed partial class BbCodeRenderer : IDisposable
 
         using var styleContext = PushStyleContext(segment.Style, options);
         using var colorPush = color.HasValue ? ImRaii.PushColor(ImGuiCol.Text, color.Value) : null;
+        
+        var baseColorVector = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+        var baseColor = ImGui.GetColorU32(baseColorVector);
         using var transparentText = segment.Style.Italic ? ImRaii.PushColor(ImGuiCol.Text, Vector4.Zero) : null;
         
         ImGui.TextUnformatted(text);
@@ -268,7 +271,6 @@ public sealed partial class BbCodeRenderer : IDisposable
         var rectMax = ImGui.GetItemRectMax();
 
         var drawList = ImGui.GetWindowDrawList();
-        var baseColor = color.HasValue ? ImGui.GetColorU32(color.Value) : ImGui.GetColorU32(ImGuiCol.Text);
 
         if (segment.Style.Italic)
         {

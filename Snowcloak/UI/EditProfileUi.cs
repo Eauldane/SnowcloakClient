@@ -198,23 +198,17 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
         using (_uiSharedService.GameFont.Push())
         {
-            var descriptionTextSizeLocal = ImGui.CalcTextSize(_descriptionText, hideTextAfterDoubleHash: false, 256f);
-            var childFrameLocal = ImGuiHelpers.ScaledVector2(256 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize, 200);
-            if (descriptionTextSizeLocal.Y > childFrameLocal.Y)
+            var previewFrameSize = ImGuiHelpers.ScaledVector2(256 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize,
+                200);
+            var adjustedPreviewSize = previewFrameSize with
             {
-                _adjustedForScollBarsLocalProfile = true;
-            }
-            else
-            {
-                _adjustedForScollBarsLocalProfile = false;
-            }
-            childFrameLocal = childFrameLocal with
-            {
-                X = childFrameLocal.X + (_adjustedForScollBarsLocalProfile ? ImGui.GetStyle().ScrollbarSize : 0),
+                X = previewFrameSize.X + (_adjustedForScollBarsLocalProfile ? ImGui.GetStyle().ScrollbarSize : 0),
             };
-            if (ImGui.BeginChildFrame(102, childFrameLocal))
+            if (ImGui.BeginChildFrame(102, adjustedPreviewSize))
             {
-                _uiSharedService.RenderBbCode(_descriptionText, ImGui.GetContentRegionAvail().X);
+                var previewWidth = Math.Max(0, (int)ImGui.GetContentRegionAvail().X);
+                _uiSharedService.RenderBbCode(_descriptionText, previewWidth);
+                _adjustedForScollBarsLocalProfile = ImGui.GetScrollMaxY() > 0;
             }
             ImGui.EndChildFrame();
         }

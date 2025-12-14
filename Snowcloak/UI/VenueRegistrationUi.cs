@@ -148,6 +148,13 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
             ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120));
         UiSharedService.AttachToolTip("Optional: a short description shown on the venue listing.");
 
+        ImGui.TextUnformatted("Preview (BBCode renderer)");
+        if (ImGui.BeginChild("##VenueDescriptionPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))
+        {
+            _uiSharedService.RenderBbCode(_venueDescription, ImGui.GetContentRegionAvail().X);
+        }
+        ImGui.EndChild();
+
         ImGui.Separator();
         var canSubmit = !_isSubmitting && _context != null && _adminGroups.Count > 0 && !string.IsNullOrWhiteSpace(_venueName)
                         && !string.IsNullOrWhiteSpace(_selectedGroupGid) && _apiController.IsConnected;
