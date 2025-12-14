@@ -31,6 +31,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private string? _selectedGroupGid;
     private string? _statusMessage;
     private bool _isSubmitting;
+    private bool _isEditingExistingVenue;
     private CancellationTokenSource? _prefillCancellation;
 
     public VenueRegistrationUi(ILogger<VenueRegistrationUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
@@ -60,6 +61,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         _context = message.Context;
         _statusMessage = null;
         _isSubmitting = false;
+        _isEditingExistingVenue = false;
         
         _venueName = string.Empty;
         _venueHost = string.Empty;
@@ -112,6 +114,11 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         }
         else
         {
+            if (_isEditingExistingVenue)
+                UiSharedService.ColorTextWrapped("Syncshell association cannot be changed for an existing venue.", ImGuiColors.DalamudGrey);
+
+            ImGui.BeginDisabled(_isEditingExistingVenue);
+
             if (ImGui.BeginCombo("##VenueRegistrationShell", GetGroupLabel(_selectedGroupGid)))
             {
                 foreach (var group in _adminGroups)
@@ -129,8 +136,9 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                 ImGui.EndCombo();
             }
             UiSharedService.AttachToolTip("Choose which syncshell will own this venue entry.");
+            ImGui.EndDisabled();
         }
-
+            ImGui.EndDisabled();
         ImGui.Separator();
         _uiSharedService.BigText("Venue details");
 
@@ -171,7 +179,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         }
 
         ImGui.BeginDisabled(!canSubmit);
-        if (ImGui.Button(_isSubmitting ? "Submitting..." : "Submit registration", ImGuiHelpers.ScaledVector2(200, 0)))
+        if (ImGui.Button(_isSubmitting ? "Submitting..." : "Submit", ImGuiHelpers.ScaledVector2(200, 0)))
         {
             SubmitRegistration();
         }
@@ -194,7 +202,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         _adminGroups.Sort((a, b) => string.Compare(a.Group.AliasOrGID, b.Group.AliasOrGID, StringComparison.OrdinalIgnoreCase));
 
-        if (_selectedGroupGid != null && !_adminGroups.Any(g => string.Equals(g.Group.GID, _selectedGroupGid, StringComparison.Ordinal)))
+        if (_selectedGroupGid != null && !_adminGroups.Any(g => string.Equals(g.Group.GID, _selectedGroupGid, StringComparison.Ordinal)) && !_isEditingExistingVenue)
             _selectedGroupGid = _adminGroups.FirstOrDefault()?.Group.GID;
     }
 
@@ -296,6 +304,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                     _venueWebsite = response.Venue.VenueWebsite ?? string.Empty;
                     _venueHost = response.Venue.VenueHost ?? string.Empty;
 
+                    _isEditingExistingVenue = true;
+                    
                     var existingGid = response.Venue.JoinInfo.Group.GID;
                     if (_adminGroups.Any(g => string.Equals(g.Group.GID, existingGid, StringComparison.Ordinal)))
                         _selectedGroupGid = existingGid;
