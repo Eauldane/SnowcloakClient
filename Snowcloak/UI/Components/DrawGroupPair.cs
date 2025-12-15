@@ -379,6 +379,61 @@ public class DrawGroupPair : DrawPairBase
             if (userIsOwner || (userIsModerator && !(entryIsMod || entryIsOwner)))
                 ImGui.Separator();
 
+                      if (_pair.UserPair == null)
+            {
+                var permissions = _fullInfoDto.GroupUserPermissions;
+
+                var isDisableSounds = permissions.IsDisableSounds();
+                var disableSoundsText = isDisableSounds ? "Enable sound sync" : "Disable sound sync";
+                var disableSoundsIcon = isDisableSounds ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute;
+                if (_uiSharedService.IconTextButton(disableSoundsIcon, disableSoundsText))
+                {
+                    ImGui.CloseCurrentPopup();
+                    permissions.SetDisableSounds(!isDisableSounds);
+                    _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
+                        _group.Group,
+                        _pair.UserData,
+                        permissions
+                    ));
+                }
+                UiSharedService.AttachToolTip("Sets your allowance for sound synchronization for this Syncshell member." +
+                    Environment.NewLine + "Disabling applies even without an individual pair.");
+
+                var isDisableAnims = permissions.IsDisableAnimations();
+                var disableAnimsText = isDisableAnims ? "Enable animation sync" : "Disable animation sync";
+                var disableAnimsIcon = isDisableAnims ? FontAwesomeIcon.Running : FontAwesomeIcon.Stop;
+                if (_uiSharedService.IconTextButton(disableAnimsIcon, disableAnimsText))
+                {
+                    ImGui.CloseCurrentPopup();
+                    permissions.SetDisableAnimations(!isDisableAnims);
+                    _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
+                        _group.Group,
+                        _pair.UserData,
+                        permissions
+                    ));
+                }
+                UiSharedService.AttachToolTip("Sets your allowance for animation synchronization for this Syncshell member." +
+                    Environment.NewLine + "Disabling applies even without an individual pair.");
+
+                var isDisableVfx = permissions.IsDisableVFX();
+                var disableVfxText = isDisableVfx ? "Enable VFX sync" : "Disable VFX sync";
+                var disableVfxIcon = isDisableVfx ? FontAwesomeIcon.Sun : FontAwesomeIcon.Circle;
+                if (_uiSharedService.IconTextButton(disableVfxIcon, disableVfxText))
+                {
+                    ImGui.CloseCurrentPopup();
+                    permissions.SetDisableVFX(!isDisableVfx);
+                    _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
+                        _group.Group,
+                        _pair.UserData,
+                        permissions
+                    ));
+                }
+                UiSharedService.AttachToolTip("Sets your allowance for VFX synchronization for this Syncshell member." +
+                    Environment.NewLine + "Disabling applies even without an individual pair.");
+
+                ImGui.Separator();
+            }
+
             if (_pair.IsVisible)
             {
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.Eye, "Target player"))
