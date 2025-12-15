@@ -280,7 +280,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!string.IsNullOrEmpty(_localPlayerIdent))
             incoming.Remove(_localPlayerIdent);
         
-        var pairedIdents = _pairManager.GetOnlineUserPairs()
+        var pairedIdents = _pairManager.DirectPairs
+            .Where(pair => !string.IsNullOrEmpty(pair.GetPlayerNameHash()))
             .Select(p => p.Ident)
             .Where(ident => !string.IsNullOrEmpty(ident))
             .ToHashSet(StringComparer.Ordinal);
@@ -448,7 +449,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
                 nearbySet.Remove(_localPlayerIdent);
 
-                nearbySet.ExceptWith(_pairManager.GetOnlineUserPairs()
+                nearbySet.ExceptWith(_pairManager.DirectPairs
                     .Select(p => p.Ident)
                     .Where(ident => !string.IsNullOrEmpty(ident)));
                 

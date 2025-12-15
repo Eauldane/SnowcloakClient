@@ -62,6 +62,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _wasOpen = false;
     private readonly IProgress<(int, int, FileCacheEntity)> _validationProgress;
     private (int, int, FileCacheEntity) _currentProgress;
+    private bool _snowplowEnablePopupModalShown = false;
 
     private bool _registrationInProgress = false;
     private bool _registrationSuccess = false;
@@ -1886,24 +1887,66 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private string _uidToAddForIgnoreBlacklist = string.Empty;
     private int _selectedEntryBlacklist = -1;
 
+    private void SetPairingSystemEnabled(bool enabled)
+    {
+        _configService.Current.PairingSystemEnabled = enabled;
+        _configService.Save();
+
+        _ = _pairRequestService.SyncAdvertisingAsync();
+
+        _guiHookService.RequestRedraw();
+    }
+
     private void DrawSnowplow()
     {
         _lastTab = "Snowplow";
 
         _uiShared.BigText("Snowplow Pairing");
-
+        
         var pairingEnabled = _configService.Current.PairingSystemEnabled;
-        if (ImGui.Checkbox("Enable Snowplow pairing features", ref pairingEnabled))
+        var requestedPairingEnabled = pairingEnabled;
+        if (ImGui.Checkbox("Enable Snowplow pairing features", ref requestedPairingEnabled))
         {
-            _configService.Current.PairingSystemEnabled = pairingEnabled;
-            _configService.Save();
-
-            _ = _pairRequestService.SyncAdvertisingAsync();
-            
-            _guiHookService.RequestRedraw();
+            if (requestedPairingEnabled && !pairingEnabled)
+            {
+                _snowplowEnablePopupModalShown = true;
+                ImGui.OpenPopup("Enable Snowplow pairing?");
+            }
+            else
+            {
+                SetPairingSystemEnabled(requestedPairingEnabled);
+            }
         }
         _uiShared.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
+        
+        if (ImGui.BeginPopupModal("Enable Snowplow pairing?", ref _snowplowEnablePopupModalShown, UiSharedService.PopupWindowFlags))
+        {
+            UiSharedService.TextWrapped("Snowplow pairing features make your opt-in status visible to other opted-in users to simplify pairing.");
+            UiSharedService.TextWrapped("Only enable this if you understand that others can see your pairing intent and want to participate in Snowplow.");
+            ImGui.Separator();
+            ImGui.Spacing();
 
+            var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
+                              ImGui.GetStyle().ItemSpacing.X) / 2;
+
+            if (ImGui.Button("Confirm", new Vector2(buttonSize, 0)))
+            {
+                SetPairingSystemEnabled(true);
+                _snowplowEnablePopupModalShown = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.SameLine();
+
+            if (ImGui.Button("Cancel##cancelSnowplowEnable", new Vector2(buttonSize, 0)))
+            {
+                _snowplowEnablePopupModalShown = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            UiSharedService.SetScaledWindowSize(325);
+            ImGui.EndPopup();
+        }
         using (ImRaii.Disabled(!pairingEnabled))
         {
             ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
