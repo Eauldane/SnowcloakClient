@@ -13,7 +13,7 @@ namespace Snowcloak.UI;
 public sealed class BbCodeTestUi : WindowMediatorSubscriberBase
 {
     private readonly UiSharedService _uiSharedService;
-    private string _previewText = "[color=#ff6699]Colour[/color] [b]bold[/b] [i]italic[/i] [u]underline[/u]\n[size=125%]Scaled up text[/size] and [size=12]12px text[/size]\n[center]Centered line[/center]\n[align=right]Right aligned line[/align]\n[url=https://snowcloak-sync.com]Link with label[/url] and [url]https://snowcloak-sync.com[/url]\nImage: [img]https://xiv.dev/wp-content/uploads/2023/09/dalamud.png[/img]\nEmote test: :smile: :sparkle:";    public BbCodeTestUi(ILogger<BbCodeTestUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
+    private string _previewText = "[color=#ff6699]Colour[/color] [b]bold[/b] [i]italic[/i] [u]underline[/u]\n[list][*]Generic list\n[/list]\n[ol][*]Ordered List\n[/ol]\n[ul][*]Unordered List\n[/ul][size=125%]Scaled up text[/size] and [size=12]12px text[/size]\n[center]Centered line[/center]\n[align=right]Right aligned line[/align]\n[url=https://snowcloak-sync.com]Link with label[/url] and [url]https://snowcloak-sync.com[/url]\nImage: [img]https://raw.githubusercontent.com/Eauldane/SnowcloakClient/refs/heads/main/Snowcloak/images/logo.png[/img]\nEmote test: :smile: :sparkle:";    public BbCodeTestUi(ILogger<BbCodeTestUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         PerformanceCollectorService performanceCollectorService) : base(logger, mediator, "Snowcloak BBCode Tester###SnowcloakBBCodeTestUi", performanceCollectorService)
     {
         _uiSharedService = uiSharedService;

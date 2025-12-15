@@ -64,12 +64,12 @@ public sealed partial class BbCodeRenderer : IDisposable
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
-            var startX = ImGui.GetCursorPosX();
+            var startPos = ImGui.GetCursorPos();
             var offset = CalculateAlignmentOffset(line, width);
 
-            if (offset > 0f)            
+            if (offset > 0f)
             {
-                ImGui.SetCursorPosX(startX + offset);
+                ImGui.SetCursorPosX(startPos.X + offset);
             }
 
             var firstOnLine = true;
@@ -84,11 +84,8 @@ public sealed partial class BbCodeRenderer : IDisposable
                 firstOnLine = false;
             }
 
-            if (i < lines.Count - 1)
-            {
-                ImGui.NewLine();
-                ImGui.SetCursorPosX(startX);
-            }
+            var nextLinePos = new Vector2(startPos.X, startPos.Y + line.Height);
+            ImGui.SetCursorPos(nextLinePos);
         }
     }
 
@@ -164,7 +161,7 @@ public sealed partial class BbCodeRenderer : IDisposable
         {
             if (segment.IsNewLine)
             {
-                lines.Add(new LayoutLine(currentLine, currentWidth, alignment));
+                lines.Add(new LayoutLine(currentLine, currentWidth, CalculateLineHeight(currentLine), alignment));
                 currentLine = [];
                 currentWidth = 0f;
                 alignment = BbCodeAlignment.Left;
@@ -178,7 +175,7 @@ public sealed partial class BbCodeRenderer : IDisposable
 
             if (width > 0 && currentLine.Count > 0 && currentWidth + segment.Size.X > width)
             {
-                lines.Add(new LayoutLine(currentLine, currentWidth, alignment));
+                lines.Add(new LayoutLine(currentLine, currentWidth, CalculateLineHeight(currentLine), alignment));
                 currentLine = [];
                 currentWidth = 0f;
                 alignment = segment.Style.Alignment != BbCodeAlignment.Left ? segment.Style.Alignment : BbCodeAlignment.Left;
@@ -188,8 +185,19 @@ public sealed partial class BbCodeRenderer : IDisposable
             currentWidth += segment.Size.X;
         }
 
-        lines.Add(new LayoutLine(currentLine, currentWidth, alignment));
+        lines.Add(new LayoutLine(currentLine, currentWidth, CalculateLineHeight(currentLine), alignment));
         return lines;
+    }
+
+    private static float CalculateLineHeight(IReadOnlyList<LayoutSegment> segments)
+    {
+        if (segments.Count == 0)
+        {
+            return ImGui.GetTextLineHeight();
+        }
+
+        var maxHeight = segments.Max(s => s.Size.Y);
+        return Math.Max(maxHeight, ImGui.GetTextLineHeight());
     }
 
     private static float CalculateAlignmentOffset(LayoutLine line, float availableWidth)
@@ -381,8 +389,8 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
 
-    private sealed record LayoutLine(IReadOnlyList<LayoutSegment> Segments, float Width, BbCodeAlignment Alignment);
-
+    private sealed record LayoutLine(IReadOnlyList<LayoutSegment> Segments, float Width, float Height, BbCodeAlignment Alignment);
+    
     private StyleContext PushStyleContext(BbCodeStyle style, BbCodeRenderOptions options)
     {
         var font = ImGui.GetFont();

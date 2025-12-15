@@ -7,7 +7,16 @@ using System.Text.RegularExpressions;
 internal static partial class BbCodeParser
 {
     private static readonly BbCodeStyle DefaultStyle = new();
+    private enum ListKind
+    {
+        Unordered,
+        Decimal,
+        LowerAlpha,
+        UpperAlpha,
+    }
 
+    private record struct ListContext(ListKind Kind, int Counter);
+    
     public static IReadOnlyList<BbCodeElement> Parse(string input, ISet<string> knownEmotes)
     {
         List<BbCodeElement> elements = [];
@@ -15,6 +24,8 @@ internal static partial class BbCodeParser
         var styleStack = new Stack<BbCodeStyle>();
         styleStack.Push(DefaultStyle);
 
+        var listStack = new Stack<ListContext>();
+        
         var span = sanitizedInput.AsSpan();
         var currentIndex = 0;
         while (currentIndex < span.Length)
@@ -38,6 +49,11 @@ internal static partial class BbCodeParser
 
             if (isClosingTag)
             {
+                if (IsListTag(tagName) && listStack.Count > 0)
+                {
+                    listStack.Pop();
+                }
+                
                 if (styleStack.Count > 1)
                 {
                     styleStack.Pop();
@@ -104,7 +120,27 @@ internal static partial class BbCodeParser
                     {
                         AddText(match.Value, styleStack.Peek(), knownEmotes, elements);
                     }
+                    break;
+                case "list":
+                    listStack.Push(ParseListContext(tagArgument));
+                    styleStack.Push(styleStack.Peek());
+                    break;
+                case "ul":
+                    listStack.Push(new ListContext(ListKind.Unordered, 1));
+                    styleStack.Push(styleStack.Peek());
+                    break;
+                case "ol":
+                    listStack.Push(ParseListContext(tagArgument, ListKind.Decimal));
+                    styleStack.Push(styleStack.Peek());
+                    break;
+                case "*":
+                    if (listStack.Count == 0)
+                    {
+                        AddText(match.Value, styleStack.Peek(), knownEmotes, elements);
+                        break;
+                    }
 
+                    AddListItem(elements, styleStack.Peek(), listStack);
                     break;
                 default:
                     AddText(match.Value, styleStack.Peek(), knownEmotes, elements);
@@ -165,6 +201,25 @@ internal static partial class BbCodeParser
     private static int IndexOfClosingTag(string input, int startIndex, string tagName)
     {
         return input.IndexOf($"[/{tagName}]", startIndex, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddListItem(List<BbCodeElement> elements, BbCodeStyle style, Stack<ListContext> listStack)
+    {
+        if (listStack.Count == 0) return;
+
+        var context = listStack.Pop();
+        var marker = GetListMarker(context);
+        context = context with { Counter = context.Counter + 1 };
+        listStack.Push(context);
+
+        if (elements.Count > 0 && elements[^1] is not BbCodeNewLineElement)
+        {
+            elements.Add(new BbCodeNewLineElement());
+        }
+
+        var indentLevel = Math.Max(0, listStack.Count - 1);
+        var indent = new string(' ', indentLevel * 2);
+        elements.Add(new BbCodeTextElement($"{indent}{marker} ", style));
     }
 
     private static bool TryParseColor(string? input, out Vector4 color)
@@ -228,7 +283,44 @@ internal static partial class BbCodeParser
         };
     }
 
-    [GeneratedRegex(@"\[(/?)(\w+)(?:=([^\]]+))?\]", RegexOptions.Compiled)]
+    private static ListContext ParseListContext(string? input, ListKind defaultKind = ListKind.Unordered)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return new ListContext(defaultKind, 1);
+        
+        var trimmed = input.Trim();
+        if (int.TryParse(trimmed, out var numeric) && numeric > 0)
+        {
+            return new ListContext(ListKind.Decimal, numeric);
+        }
+
+        return trimmed.ToLowerInvariant() switch
+        {
+            "a" => new ListContext(ListKind.LowerAlpha, 1),
+            "a+" => new ListContext(ListKind.LowerAlpha, 1),
+            "A" => new ListContext(ListKind.UpperAlpha, 1),
+            _ => new ListContext(defaultKind, 1),
+            
+        };
+    }
+
+    private static bool IsListTag(string tagName)
+    {
+        return tagName is "list" or "ul" or "ol";
+    }
+    
+    private static string GetListMarker(ListContext context)
+    {
+        return context.Kind switch
+        {
+            ListKind.Unordered => "•",
+            ListKind.Decimal => context.Counter.ToString(CultureInfo.InvariantCulture),
+            ListKind.LowerAlpha => ((char)('a' + (context.Counter - 1) % 26)).ToString(),
+            ListKind.UpperAlpha => ((char)('A' + (context.Counter - 1) % 26)).ToString(),
+            _ => "•",
+        };
+    }
+
+    [GeneratedRegex(@"\[(/?)(\w+|\*)(?:=([^\]]+))?\]", RegexOptions.Compiled)]
     private static partial Regex TagRegex();
 
     [GeneratedRegex(@":([a-zA-Z0-9_]+):", RegexOptions.Compiled)]
