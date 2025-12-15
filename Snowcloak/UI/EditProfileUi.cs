@@ -77,7 +77,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         {
             SwitchEditingVisibility(ProfileVisibility.Public);
         }
-        _uiSharedService.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Snowplow profile requests.");
+        _uiSharedService.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Frostbrand profile requests.");
 
         ImGui.Separator();
         _uiSharedService.BigText("Current Profile (as saved on server)");

@@ -62,7 +62,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _wasOpen = false;
     private readonly IProgress<(int, int, FileCacheEntity)> _validationProgress;
     private (int, int, FileCacheEntity) _currentProgress;
-    private bool _snowplowEnablePopupModalShown = false;
+    private bool _frostbrandEnablePopupModalShown = false;
+    private bool _frostbrandEnablePopupModalJustShown = false;
+    private static readonly Random Rng = new();
+    private bool _useUriangerText = false;
 
     private bool _registrationInProgress = false;
     private bool _registrationSuccess = false;
@@ -1897,20 +1900,21 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _guiHookService.RequestRedraw();
     }
 
-    private void DrawSnowplow()
+    private void DrawFrostbrand()
     {
-        _lastTab = "Snowplow";
+        _lastTab = "Frostbrand";
 
-        _uiShared.BigText("Snowplow Pairing");
+        _uiShared.BigText("Frostbrand Pairing");
         
         var pairingEnabled = _configService.Current.PairingSystemEnabled;
         var requestedPairingEnabled = pairingEnabled;
-        if (ImGui.Checkbox("Enable Snowplow pairing features", ref requestedPairingEnabled))
+        if (ImGui.Checkbox("Enable Frostbrand pairing features", ref requestedPairingEnabled))
         {
             if (requestedPairingEnabled && !pairingEnabled)
             {
-                _snowplowEnablePopupModalShown = true;
-                ImGui.OpenPopup("Enable Snowplow pairing?");
+                _frostbrandEnablePopupModalJustShown = true;
+                _frostbrandEnablePopupModalShown = true;
+                ImGui.OpenPopup("Enable Frostbrand pairing?");
             }
             else
             {
@@ -1919,32 +1923,84 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
         
-        if (ImGui.BeginPopupModal("Enable Snowplow pairing?", ref _snowplowEnablePopupModalShown, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal("Enable Frostbrand pairing?", ref _frostbrandEnablePopupModalShown, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Snowplow pairing features make your opt-in status visible to other opted-in users to simplify pairing.");
-            UiSharedService.TextWrapped("Only enable this if you understand that others can see your pairing intent and want to participate in Snowplow.");
-            ImGui.Separator();
-            ImGui.Spacing();
-
-            var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
-                              ImGui.GetStyle().ItemSpacing.X) / 2;
-
-            if (ImGui.Button("Confirm", new Vector2(buttonSize, 0)))
+            if (_frostbrandEnablePopupModalJustShown)
             {
-                SetPairingSystemEnabled(true);
-                _snowplowEnablePopupModalShown = false;
-                ImGui.CloseCurrentPopup();
+                _useUriangerText = Rng.Next(250) == 0;
+                _frostbrandEnablePopupModalJustShown = false;
             }
 
-            ImGui.SameLine();
-
-            if (ImGui.Button("Cancel##cancelSnowplowEnable", new Vector2(buttonSize, 0)))
+            if (!_useUriangerText)
             {
-                _snowplowEnablePopupModalShown = false;
-                ImGui.CloseCurrentPopup();
+                UiSharedService.TextWrapped(
+                    "Frostbrand is a system that, when opted-in to, shows other nearby users who've opted in that you're open to pairing.");
+                UiSharedService.TextWrapped(
+                    "Whilst Snowcloak provides filters to automatically reject those you're not interested in pairing with, please be aware that " +
+                    "while you have it enabled, anyone using Frostbrand will be able to see that you're using Snowcloak.");
+                UiSharedService.TextWrapped(
+                    "Please take the time to understand the privacy risk this introduces, and if you choose to enable the system, " +
+                    "you're advised to configure filters immediately, preferably in a quiet area.");
+                UiSharedService.TextWrapped("Continue?");
+                ImGui.Separator();
+                ImGui.Spacing();
+
+                var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
+                                  ImGui.GetStyle().ItemSpacing.X) / 2;
+
+                if (ImGui.Button("Confirm", new Vector2(buttonSize, 0)))
+                {
+                    SetPairingSystemEnabled(true);
+                    _frostbrandEnablePopupModalShown = false;
+                    ImGui.CloseCurrentPopup();
+                }
+
+                ImGui.SameLine();
+
+                if (ImGui.Button("Cancel##cancelFrostbrandEnable", new Vector2(buttonSize, 0)))
+                {
+                    _frostbrandEnablePopupModalShown = false;
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+            else
+            {
+                // hehe
+                UiSharedService.TextWrapped(
+                    "Frostbrand be a covenant of mutual accord, whereby those who do willingly partake therein may perceive, " +
+                    "among the souls nearby, others likewise disposed unto pairing.");
+                UiSharedService.TextWrapped(
+                    "Know this also: though Snowcloak doth grant thee wards and strictures, by which thou mayest " +
+                    "deny communion with those thou wouldst not suffer, yet whilst Frostbrand remaineth enabled," +
+                    " any who wield its sight shall discern that thou makest use of Snowcloak.");
+                UiSharedService.TextWrapped(
+                    "Ponder well, then, the peril to thine own privacy that this revelation entailest. Shouldst " +
+                    "thou resolve to walk this path regardless, thou art strongly counseled to set thy filters " +
+                    "with all haste - best done where few eyes linger and fewer ears attend.");
+                UiSharedService.TextWrapped("Wilt thou press on?");
+                ImGui.Separator();
+                ImGui.Spacing();
+
+                var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
+                                  ImGui.GetStyle().ItemSpacing.X) / 2;
+
+                if (ImGui.Button("Thus do I assent", new Vector2(buttonSize, 0)))
+                {
+                    SetPairingSystemEnabled(true);
+                    _frostbrandEnablePopupModalShown = false;
+                    ImGui.CloseCurrentPopup();
+                }
+
+                ImGui.SameLine();
+
+                if (ImGui.Button("I shall refrain##cancelFrostbrandEnable", new Vector2(buttonSize, 0)))
+                {
+                    _frostbrandEnablePopupModalShown = false;
+                    ImGui.CloseCurrentPopup();
+                }
             }
 
-            UiSharedService.SetScaledWindowSize(325);
+            UiSharedService.SetScaledWindowSize(500);
             ImGui.EndPopup();
         }
         using (ImRaii.Disabled(!pairingEnabled))
@@ -1961,7 +2017,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _configService.Save();
                 _guiHookService.RequestRedraw();
             }
-            _uiShared.DrawHelpText("Opted-in Snowplow users are shown to you in this color while Snowplow is enabled.");
+            _uiShared.DrawHelpText("Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled.");
 
             ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
             ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Opted-in user preview");
@@ -1979,7 +2035,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             ImGui.TextUnformatted("Reject requests below level");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("##SnowplowMinLevel", ref minimumLevel))
+            if (ImGui.InputInt("##FrostbrandMinLevel", ref minimumLevel))
             {
                 minimumLevel = Math.Clamp(minimumLevel, 0, 90);
                 _configService.Current.PairRequestMinimumLevel = minimumLevel;
@@ -2004,7 +2060,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(raceLabel);
                 ImGui.SetCursorPosX(cursorX);
                 
-                if (ImGui.BeginTable($"SnowplowRaceRow_{raceId}", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
+                if (ImGui.BeginTable($"FrostbrandRaceRow_{raceId}", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
                 {
                     ImGui.TableSetupColumn("Clan");
                     ImGui.TableSetupColumn("Male", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
@@ -2086,9 +2142,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 DrawCurrentTransfers();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Snowplow"))
+            if (ImGui.BeginTabItem("Frostbrand"))
             {
-                DrawSnowplow();
+                DrawFrostbrand();
                 ImGui.EndTabItem();
             }
 
