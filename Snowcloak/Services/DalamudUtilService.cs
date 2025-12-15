@@ -461,6 +461,41 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         return _objectTable.LocalPlayer!.CurrentWorld.RowId;
     }
 
+    public string GetDataCenterRegion()
+    {
+        EnsureIsOnFramework();
+
+        var worldId = _objectTable.LocalPlayer?.CurrentWorld.RowId ?? 0;
+        if (worldId == 0)
+            return string.Empty;
+
+        var world = _gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)?.GetRow(worldId);
+        var dataCenter = world?.DataCenter.Value;
+        if (dataCenter == null)
+            return string.Empty;
+
+        byte region = 0;
+        string fallbackName = string.Empty;
+
+        var regionProperty = dataCenter.GetType().GetProperty("Region");
+        if (regionProperty?.GetValue(dataCenter) is byte regionValue)
+            region = regionValue;
+
+        var nameProperty = dataCenter.GetType().GetProperty("Name");
+        fallbackName = nameProperty?.GetValue(dataCenter)?.ToString() ?? string.Empty;
+
+        return region switch
+        {
+            1 => "Japan",
+            2 => "North America",
+            3 => "Europe",
+            4 => "Oceania",
+            5 => "China",
+            6 => "Korea",
+            _ => fallbackName
+        };
+    }
+    
     public unsafe LocationInfo GetMapData()
     {
         EnsureIsOnFramework();

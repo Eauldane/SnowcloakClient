@@ -53,6 +53,8 @@ internal sealed class GroupPanel
     private bool _showModalChangePassword;
     private bool _showModalCreateGroup;
     private bool _showModalEnterPassword;
+    private bool _showRegionJoinError;
+    private string? _pendingRegionalShellAlias;
     private string _syncShellPassword = string.Empty;
     private string _syncShellToJoin = string.Empty;
 
@@ -74,8 +76,14 @@ internal sealed class GroupPanel
 
     public void DrawSyncshells()
     {
+        HandlePendingRegionalShell();
         using (ImRaii.PushId("addsyncshell")) DrawAddSyncshell();
-        using (ImRaii.PushId("syncshelllist")) DrawSyncshellList();
+
+        var listHeight = Math.Max(1f, ImGui.GetContentRegionAvail().Y - GetRegionJoinButtonHeight());
+
+        using (ImRaii.PushId("syncshelllist")) DrawSyncshellList(listHeight);
+        using (ImRaii.PushId("regionaljoin")) DrawRegionJoinButton();
+
         _mainUi.TransferPartHeight = ImGui.GetCursorPosY();
     }
 
@@ -119,7 +127,7 @@ internal sealed class GroupPanel
             : (userCanJoinMoreGroups ? "Join Syncshell" + _syncShellToJoin : $"You cannot join more than {ApiController.ServerInfo.MaxGroupsJoinedByUser} Syncshells"));
 
         if (alreadyInGroup) ImGui.EndDisabled();
-
+ 
         if (ImGui.BeginPopupModal("Enter Syncshell Password", ref _showModalEnterPassword, UiSharedService.PopupWindowFlags))
         {
             UiSharedService.TextWrapped("Creating a syncshell means you are responsible for ensuring proper " +
@@ -205,6 +213,119 @@ internal sealed class GroupPanel
         ImGuiHelpers.ScaledDummy(2);
     }
 
+        private float GetRegionJoinButtonHeight()
+    {
+        var style = ImGui.GetStyle();
+        var height = ImGui.GetFrameHeightWithSpacing() + style.ItemSpacing.Y;
+
+        if (_showRegionJoinError)
+        {
+            height += ImGui.GetTextLineHeightWithSpacing();
+        }
+
+        return height;
+    }
+
+    private void DrawRegionJoinButton()
+    {
+        var regionName = _uiShared.DataCenterRegion;
+        var regionShell = string.IsNullOrEmpty(regionName) ? string.Empty : $"Snowcloak - {regionName} Public Syncshell";
+        var regionShellJoinString = string.IsNullOrEmpty(regionName) ? string.Empty : $"{regionName} Public Syncshell";
+
+        var isRegionShellKnown = !string.IsNullOrEmpty(regionShell);
+        bool userCanJoinMoreGroups = _pairManager.GroupPairs.Count < ApiController.ServerInfo.MaxGroupsJoinedByUser;
+
+        if (isRegionShellKnown)
+        {
+            var alreadyInRegionShell = _pairManager.GroupPairs.Select(p => p.Key).Any(p => string.Equals(p.Group.Alias, regionShell, StringComparison.Ordinal)
+                || string.Equals(p.Group.GID, regionShell, StringComparison.Ordinal));
+            using (ImRaii.Disabled(!userCanJoinMoreGroups || alreadyInRegionShell))
+            {
+                if (ImGui.Button($"Join {regionShellJoinString}", new Vector2(-1, 0)))
+                {
+                    _showRegionJoinError = false;
+                    var joined = ApiController.GroupJoin(new(new GroupData(regionShell), "ByTheseGlyphsOurSyncshellGuarded")).Result;
+                    if (joined)
+                    {
+                        var resolved = DisableRegionalSyncshellEffects(regionShell);
+                        if (!resolved)
+                        {
+                            _pendingRegionalShellAlias = regionShell;
+                        }
+                        else
+                        {
+                            _pendingRegionalShellAlias = null;
+                        }
+                        _syncShellToJoin = string.Empty;
+                    }
+                    else
+                    {
+                        _showRegionJoinError = true;
+                    }
+                }
+                UiSharedService.AttachToolTip(alreadyInRegionShell
+                    ? "You are already a member of this Syncshell."
+                    : userCanJoinMoreGroups
+                        ? $"Join the regional Snowcloak Syncshell for {regionName}."
+                        : $"You cannot join more than {ApiController.ServerInfo.MaxGroupsJoinedByUser} Syncshells");
+            }
+        }
+        else
+        {
+            using (ImRaii.Disabled())
+            {
+                ImGui.Button("Join regional Snowcloak Syncshell", new Vector2(-1, 0));
+            }
+            UiSharedService.AttachToolTip("Regional Syncshell is unavailable because your datacenter region could not be determined.");
+        }
+
+        if (_showRegionJoinError)
+            UiSharedService.ColorTextWrapped("Unable to join your regional Snowcloak Syncshell. Please verify the Syncshell is available and try again.", ImGuiColors.DalamudRed);
+    }
+
+    private void HandlePendingRegionalShell()
+    {
+        if (string.IsNullOrEmpty(_pendingRegionalShellAlias)) return;
+
+        var hasRegionShell = _pairManager.Groups.Any(g =>
+            string.Equals(g.Key.GID, _pendingRegionalShellAlias, StringComparison.Ordinal) ||
+            string.Equals(g.Value.Group.Alias, _pendingRegionalShellAlias, StringComparison.Ordinal));
+
+        if (!hasRegionShell) return;
+
+        DisableRegionalSyncshellEffects(_pendingRegionalShellAlias);
+        _pendingRegionalShellAlias = null;
+    }
+
+    private bool DisableRegionalSyncshellEffects(string regionShell)
+    {
+        var matchingGroup = _pairManager.Groups.FirstOrDefault(g =>
+            string.Equals(g.Key.GID, regionShell, StringComparison.Ordinal) ||
+            string.Equals(g.Value.Group.Alias, regionShell, StringComparison.Ordinal));
+
+        var resolvedGid = matchingGroup.Equals(default(KeyValuePair<GroupData, GroupFullInfoDto>))
+            ? regionShell
+            : matchingGroup.Key.GID;
+
+        DisableRegionalShellChat(resolvedGid);
+
+        if (!string.Equals(resolvedGid, regionShell, StringComparison.Ordinal))
+        {
+            DisableRegionalShellChat(regionShell);
+        }
+
+        return !matchingGroup.Equals(default(KeyValuePair<GroupData, GroupFullInfoDto>));
+    }        
+    
+    private void DisableRegionalShellChat(string gid)
+    {
+        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(gid);
+        if (shellConfig.Enabled)
+        {
+            shellConfig.Enabled = false;
+            _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);        }
+    }
+    
     private void DrawSyncshell(GroupFullInfoDto groupDto, List<Pair> pairsInGroup)
     {
         int shellNumber = _serverConfigurationManager.GetShellNumberForGid(groupDto.GID);
@@ -721,11 +842,8 @@ internal sealed class GroupPanel
         }
     }
 
-    private void DrawSyncshellList()
+    private void DrawSyncshellList(float ySize)
     {
-        var ySize = _mainUi.TransferPartHeight == 0
-            ? 1
-            : (ImGui.GetWindowContentRegionMax().Y - ImGui.GetWindowContentRegionMin().Y) - _mainUi.TransferPartHeight - ImGui.GetCursorPosY();
         ImGui.BeginChild("list", new Vector2(_mainUi.WindowContentWidth, ySize), border: false);
         foreach (var entry in _pairManager.GroupPairs.OrderBy(g => g.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase).ToList())
         {
