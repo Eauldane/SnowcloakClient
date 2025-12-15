@@ -465,7 +465,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     {
         EnsureIsOnFramework();
 
-        var worldId = _objectTable.LocalPlayer?.CurrentWorld.RowId ?? 0;
+        var worldId = _objectTable.LocalPlayer?.HomeWorld.RowId ?? 0;
         if (worldId == 0)
             return string.Empty;
 

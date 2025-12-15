@@ -50,6 +50,8 @@
   <ItemGroup>
     <ProjectReference Include="..\SnowcloakAPI\Snowcloak.API.csproj" />
   </ItemGroup>
+    
+    
 
   <ItemGroup>
     <None Include="..\.editorconfig" Link=".editorconfig" />

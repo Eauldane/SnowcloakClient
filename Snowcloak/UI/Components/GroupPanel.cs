@@ -264,7 +264,7 @@ internal sealed class GroupPanel
                     }
                 }
                 UiSharedService.AttachToolTip(alreadyInRegionShell
-                    ? "You are already a member of this Syncshell."
+                    ? "You are already a member of your home region Syncshell."
                     : userCanJoinMoreGroups
                         ? $"Join the regional Snowcloak Syncshell for {regionName}."
                         : $"You cannot join more than {ApiController.ServerInfo.MaxGroupsJoinedByUser} Syncshells");

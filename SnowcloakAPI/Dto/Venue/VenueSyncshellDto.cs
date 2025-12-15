@@ -11,5 +11,6 @@ public record VenueSyncshellDto(string VenueName, string LocationDisplay, GroupP
     public string? VenueDescription { get; set; }
     public string? VenueWebsite { get; set; }
     public string? VenueHost { get; set; }
+    public string? HexString { get; set; }
     public GroupPasswordDto JoinInfo { get; set; } = JoinInfo;
 }

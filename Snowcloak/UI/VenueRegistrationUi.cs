@@ -11,6 +11,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Venue;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
+using System.Numerics;
 
 namespace Snowcloak.UI;
 
@@ -28,6 +29,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private string _venueDescription = string.Empty;
     private string _venueWebsite = string.Empty;
     private string _venueHost = string.Empty;
+    private string _syncshellAlias = string.Empty;
+    private Vector3 _venueNameColour = Vector3.One;
     private string? _selectedGroupGid;
     private string? _statusMessage;
     private bool _isSubmitting;
@@ -67,6 +70,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         _venueHost = string.Empty;
         _venueDescription = string.Empty;
         _venueWebsite = string.Empty;
+        _syncshellAlias = string.Empty;
+        _venueNameColour = Vector3.One;
         _selectedGroupGid = null;
 
 
@@ -74,6 +79,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         if (_selectedGroupGid == null && _adminGroups.Count > 0)
             _selectedGroupGid = _adminGroups[0].Group.GID;
 
+        _syncshellAlias = GetSyncshellAliasOrDefault(_selectedGroupGid);
+        
         ApplyOwnerDefaults();
 
         BeginPrefillExistingVenue();
@@ -118,7 +125,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                 UiSharedService.ColorTextWrapped("Syncshell association cannot be changed for an existing venue.", ImGuiColors.DalamudGrey);
 
             ImGui.BeginDisabled(_isEditingExistingVenue);
-
+            var previousSelectedGroup = _selectedGroupGid;
+            
             if (ImGui.BeginCombo("##VenueRegistrationShell", GetGroupLabel(_selectedGroupGid)))
             {
                 foreach (var group in _adminGroups)
@@ -137,13 +145,22 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
             }
             UiSharedService.AttachToolTip("Choose which syncshell will own this venue entry.");
             ImGui.EndDisabled();
+            
+            if (!string.Equals(previousSelectedGroup, _selectedGroupGid, StringComparison.Ordinal))
+                _syncshellAlias = GetSyncshellAliasOrDefault(_selectedGroupGid);
         }
-            ImGui.EndDisabled();
         ImGui.Separator();
         _uiSharedService.BigText("Venue details");
 
         ImGui.InputText("Venue name", ref _venueName, 100);
         UiSharedService.AttachToolTip("Required: this is the display name shown to visitors.");
+        ImGui.InputText("Syncshell name", ref _syncshellAlias, 100);
+        
+        UiSharedService.AttachToolTip("Optional: set how this syncshell should appear; the server applies it as the syncshell alias.");
+
+        ImGui.ColorEdit3("Venue name colour", ref _venueNameColour,
+            ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8);
+        UiSharedService.AttachToolTip("Leave as white to use the default syncshell colour, or pick a custom override for the venue name.");
 
         ImGui.InputText("Host / contact", ref _venueHost, 200);
         UiSharedService.AttachToolTip("Optional: who should be listed as the venue host.");
@@ -190,7 +207,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     {
         _adminGroups.Clear();
         var uid = _apiController.UID;
-
+        var previousSelectedGroup = _selectedGroupGid;
+        
         foreach (var group in _pairManager.Groups.Values)
         {
             var isOwner = string.Equals(group.OwnerUID, uid, StringComparison.Ordinal);
@@ -204,6 +222,10 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         if (_selectedGroupGid != null && !_adminGroups.Any(g => string.Equals(g.Group.GID, _selectedGroupGid, StringComparison.Ordinal)) && !_isEditingExistingVenue)
             _selectedGroupGid = _adminGroups.FirstOrDefault()?.Group.GID;
+        
+        
+        if (!string.Equals(previousSelectedGroup, _selectedGroupGid, StringComparison.Ordinal))
+            _syncshellAlias = GetSyncshellAliasOrDefault(_selectedGroupGid);
     }
 
     private string GetGroupLabel(string? gid)
@@ -229,7 +251,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         var venueHost = TrimToNull(_venueHost);
         var venueDescription = TrimToNull(_venueDescription);
         var venueWebsite = TrimToNull(_venueWebsite);
-        
+        var syncshellAlias = TrimToNull(_syncshellAlias);
 
         _ = Task.Run(async () =>
         {
@@ -244,6 +266,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                     VenueDescription = venueDescription,
                     VenueWebsite = venueWebsite,
                     VenueHost = venueHost,
+                    Alias = syncshellAlias,
+                    HexString = GetVenueNameColourHex(),
                     IsFreeCompanyPlot = context.IsFreeCompanyPlot,
                     FreeCompanyTag = context.FreeCompanyTag,
                     OwnerName = context.OwnerName
@@ -272,7 +296,40 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
     
-       private void BeginPrefillExistingVenue()
+
+    private string GetSyncshellAliasOrDefault(string? gid)
+    {
+        return _adminGroups.FirstOrDefault(g => string.Equals(g.Group.GID, gid, StringComparison.Ordinal))?.Group.AliasOrGID
+               ?? string.Empty;
+    }
+
+    private static Vector3 ParseHexColourOrDefault(string? hex, Vector3 fallback)
+    {
+        if (hex != null && hex.Length == 6)
+        {
+            var colour = Colours.Hex2Vector4(hex);
+            return new Vector3(colour.X, colour.Y, colour.Z);
+        }
+
+        return fallback;
+    }
+
+    private string? GetVenueNameColourHex()
+    {
+        var hex = ColourVectorToHex(_venueNameColour);
+        return hex == "FFFFFF" ? null : hex;
+    }
+
+    private static string ColourVectorToHex(Vector3 colour)
+    {
+        var r = (int)Math.Clamp(colour.X * 255f, 0f, 255f);
+        var g = (int)Math.Clamp(colour.Y * 255f, 0f, 255f);
+        var b = (int)Math.Clamp(colour.Z * 255f, 0f, 255f);
+
+        return $"{r:X2}{g:X2}{b:X2}";
+    }
+
+    private void BeginPrefillExistingVenue()
     {
         if (_context == null || !_apiController.IsConnected)
         {
@@ -303,7 +360,9 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                     _venueDescription = response.Venue.VenueDescription ?? string.Empty;
                     _venueWebsite = response.Venue.VenueWebsite ?? string.Empty;
                     _venueHost = response.Venue.VenueHost ?? string.Empty;
+                    _syncshellAlias = response.Venue.JoinInfo.Group.AliasOrGID;
 
+                    _venueNameColour = ParseHexColourOrDefault(response.Venue.HexString, Vector3.One);
                     _isEditingExistingVenue = true;
                     
                     var existingGid = response.Venue.JoinInfo.Group.GID;

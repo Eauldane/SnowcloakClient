@@ -17,4 +17,6 @@ public record VenueRegistrationRequestDto(
     public bool IsFreeCompanyPlot { get; set; }
     public string? FreeCompanyTag { get; set; }
     public string? OwnerName { get; set; }
+    public string? Alias { get; set; }
+    public string? HexString { get; set; }
 }
