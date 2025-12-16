@@ -84,7 +84,8 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool AutoJoinVenueSyncshells { get; set; } = true;
     public bool AllowBbCodeImages { get; set; } = true;
     public DtrEntry.Colors PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
-    public bool PairingSystemEnabled { get; set; } = true;
+    public bool PairingSystemEnabled { get; set; } = false;
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;
+    public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
 }

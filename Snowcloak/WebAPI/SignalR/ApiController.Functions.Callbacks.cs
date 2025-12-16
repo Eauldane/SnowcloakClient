@@ -141,6 +141,12 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_RequestPairingAvailabilitySubscription(PairingAvailabilityResumeRequestDto resumeRequest)
+    {
+        ExecuteSafely(() => _ = _pairRequestService.ResumePairingAvailabilitySubscriptionAsync(resumeRequest));
+        return Task.CompletedTask;
+    }
+
     public Task Client_UserPairingAvailabilityDelta(PairingAvailabilityDeltaDto delta)
     {
         Logger.LogTrace("Client_UserPairingAvailabilityDelta: +{added}/-{removed}",
@@ -369,6 +375,12 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_UserPairingAvailabilityDelta), act);
+    }
+    
+    public void OnRequestPairingAvailabilitySubscription(Action<PairingAvailabilityResumeRequestDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_RequestPairingAvailabilitySubscription), act);
     }
     
     public void OnUserPairingRequest(Action<PairingRequestDto> act)

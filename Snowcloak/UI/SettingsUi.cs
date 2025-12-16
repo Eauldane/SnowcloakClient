@@ -66,7 +66,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _frostbrandEnablePopupModalJustShown = false;
     private static readonly Random Rng = new();
     private bool _useUriangerText = false;
-
+    private string _homeworldFilterSearch = string.Empty;
+    
     private bool _registrationInProgress = false;
     private bool _registrationSuccess = false;
     private string? _registrationMessage;
@@ -2043,6 +2044,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             _uiShared.DrawHelpText("Set to 0 to disable level-based rejection.");
             ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+            DrawHomeworldFilters();
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
             ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box" +
                               " below. Requests from matching characters will be rejected.");
             ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
@@ -2097,6 +2100,70 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     ImGui.EndTable();
                 }
             }
+        }
+    }
+    
+    
+    private void DrawHomeworldFilters()
+    {
+        ImGui.TextWrapped("Reject requests from specific homeworlds.");
+        _uiShared.DrawHelpText("Checked homeworlds are filtered out when Frostbrand pairing is enabled.");
+
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextWithHint("##FrostbrandHomeworldSearch", "Search homeworlds...", ref _homeworldFilterSearch, 64);
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+
+        var rejectedHomeworlds = _configService.Current.PairRequestRejectedHomeworlds;
+        var filteredWorlds = _uiShared.WorldInfoData
+            .Where(kvp => string.IsNullOrWhiteSpace(_homeworldFilterSearch)
+                          || kvp.Value.Name.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase)
+                          || kvp.Value.DataCenter.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(kvp => kvp.Value.DataCenter)
+            .OrderBy(g => g.Key, StringComparer.Ordinal);
+        
+        using var homeworldList = ImRaii.Child("FrostbrandHomeworldFilters", new Vector2(0, ImGui.GetTextLineHeightWithSpacing() * 9), true);
+        if (homeworldList)
+        {
+            foreach (var group in filteredWorlds)
+            {
+                ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
+                _uiShared.BigText(group.Key);
+
+                if (ImGui.BeginTable($"FrostbrandHomeworldGroup_{group.Key}", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
+                {
+                    foreach (var (worldId, info) in group.OrderBy(kvp => kvp.Value.Name, StringComparer.Ordinal))
+                    {
+                        ImGui.TableNextColumn();
+                        var rejected = rejectedHomeworlds.Contains(worldId);
+                        if (ImGui.Checkbox($"{info.Name}##FrostbrandHomeworld_{worldId}", ref rejected))
+                        {
+                            if (rejected)
+                                rejectedHomeworlds.Add(worldId);
+                            else
+                                rejectedHomeworlds.Remove(worldId);
+
+                            _configService.Save();
+                        }
+                    }
+
+                    ImGui.EndTable();
+                }
+            }
+        }
+
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+
+        if (rejectedHomeworlds.Count == 0)
+        {
+            ImGui.TextDisabled("No homeworld filters configured.");
+        }
+        else
+        {
+            var filteredNames = rejectedHomeworlds
+                .Select(id => _uiShared.WorldData.GetValueOrDefault(id, id.ToString()))
+                .OrderBy(name => name, StringComparer.Ordinal);
+            ImGui.TextWrapped("Rejecting pair requests from: " + string.Join(", ", filteredNames));
         }
     }
         

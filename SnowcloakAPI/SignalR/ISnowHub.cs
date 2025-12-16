@@ -150,7 +150,7 @@ public interface ISnowHub
     Task<VenueInfoResponseDto> VenueGetInfoForPlot(VenueInfoRequestDto request);
     Task<VenueRegistrationResponseDto> VenueRegister(VenueRegistrationRequestDto request);
     Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability);
-
+    Task Client_RequestPairingAvailabilitySubscription(PairingAvailabilityResumeRequestDto resumeRequest);
     Task Client_UserPairingRequest(PairingRequestDto dto);
     Task UserSetPairingOptIn(PairingOptInDto dto);
     Task UserQueryPairingAvailability(PairingAvailabilityQueryDto query);

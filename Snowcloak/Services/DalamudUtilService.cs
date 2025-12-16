@@ -46,6 +46,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         public byte Clan;
     };
 
+    public readonly record struct WorldInfo(string Name, string DataCenter);
+    
     private struct PlayerInfo
     {
         public PlayerCharacter Character;
@@ -100,12 +102,17 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _blockedCharacterHandler = blockedCharacterHandler;
         Mediator = mediator;
         _performanceCollector = performanceCollector;
-        WorldData = new(() =>
+        WorldInfoData = new(() =>
         {
             return gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)!
                 .Where(w => w.Name.ByteLength > 0 && w.DataCenter.RowId != 0 && (w.IsPublic || char.IsUpper((char)w.Name.Data.Span[0])))
-                .ToDictionary(w => (ushort)w.RowId, w => w.Name.ToString());
+                .ToDictionary(
+                    w => (ushort)w.RowId,
+                    w => new WorldInfo(
+                        w.Name.ToString(),
+                        w.DataCenter.ValueNullable?.Name.ToString() ?? "Unknown"));
         });
+        WorldData = new(() => WorldInfoData.Value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name));
         ClassJobAbbreviations = new(() =>
         {
             return gameData.GetExcelSheet<ClassJob>(Dalamud.Game.ClientLanguage.English)!
@@ -208,6 +215,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public bool HasModifiedGameFiles => _gameData.HasModifiedGameDataFiles;
     public uint ClassJobId => _classJobId!.Value;
     public Lazy<Dictionary<ushort, string>> WorldData { get; private set; }
+    public Lazy<Dictionary<ushort, WorldInfo>> WorldInfoData { get; private set; }
     public Lazy<Dictionary<int, Lumina.Excel.Sheets.UIColor>> UiColors { get; private set; }
     public Lazy<Dictionary<uint, string>> TerritoryData { get; private set; }
     public Lazy<Dictionary<byte, string>> ClassJobAbbreviations { get; private set; }

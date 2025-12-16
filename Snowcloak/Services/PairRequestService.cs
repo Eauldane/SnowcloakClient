@@ -98,6 +98,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     private void OnHubReconnected(HubReconnectedMessage message) => _ = OnConnectedAsync();
     
+    public Task ResumePairingAvailabilitySubscriptionAsync(PairingAvailabilityResumeRequestDto resumeRequest)
+        => ResumePairingAvailabilitySubscriptionInternalAsync(resumeRequest);
     private void OnPlayerLoggedIn(DalamudLoginMessage message) => _ = OnPlayerLoggedInAsync();
     private Task OnPlayerLoggedInAsync()
     {
@@ -514,7 +516,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     
     private async Task<bool> UpdateAvailabilitySubscriptionAsync(LocationInfo location,
         IReadOnlyCollection<string> nearbySnapshot, IReadOnlyCollection<string> entered,
-        IReadOnlyCollection<string> left, bool force = false)
+        IReadOnlyCollection<string> left, bool force = false, bool forceFullSnapshot = false)
     {
         var requiresNewSubscription = !_lastSubscriptionLocation.HasValue
             || _lastSubscriptionLocation.Value.ServerId != location.ServerId
@@ -539,10 +541,19 @@ public class PairRequestService : DisposableMediatorSubscriberBase
                 }
             }
 
-            var nearbyPayload = requiresNewSubscription ? nearbySnapshot : Array.Empty<string>();
-            var addedPayload = requiresNewSubscription ? nearbySnapshot : entered;
+            var sendFullSnapshot = forceFullSnapshot || requiresNewSubscription;
+            var nearbyPayload = sendFullSnapshot ? nearbySnapshot : Array.Empty<string>();
+            var addedPayload = sendFullSnapshot ? nearbySnapshot : entered;
             var removedPayload = left;
 
+            if (sendFullSnapshot && nearbyPayload.Count > 256)
+            {
+                _logger.LogWarning("Nearby ident snapshot exceeds server cap; trimming to 256 entries (had {Count})",
+                    nearbyPayload.Count);
+                nearbyPayload = nearbyPayload.Take(256).ToArray();
+                addedPayload = addedPayload.Take(256).ToArray();
+            }
+            
             var subscription = new PairingAvailabilitySubscriptionDto(
                 location.ServerId,
                 location.TerritoryId,
@@ -568,6 +579,81 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
 
         return _pushChannelAvailable;
+    }
+
+       private async Task ResumePairingAvailabilitySubscriptionInternalAsync(PairingAvailabilityResumeRequestDto resumeRequest)
+    {
+        _logger.LogInformation(
+            "Resuming pairing availability subscription (token: {ResumeToken}, nearbyHint: {NearbyHint})",
+            resumeRequest.ResumeToken,
+            resumeRequest.NearbyIdentsCount);
+
+        await _nearbyAvailabilitySemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!_configService.Current.PairingSystemEnabled)
+            {
+                return;
+            }
+
+            if (!_apiController.Value.IsConnected)
+            {
+                _pushChannelAvailable = false;
+                _availabilitySubscriptionActive = false;
+                return;
+            }
+
+            _localPlayerIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+            var nearby = await _dalamudUtilService.GetNearbyPlayerNameHashesAsync(MaxNearbySnapshot)
+                .ConfigureAwait(false);
+
+            var nearbySet = new HashSet<string>(nearby, StringComparer.Ordinal);
+            nearbySet.Remove(_localPlayerIdent);
+            nearbySet.ExceptWith(_pairManager.DirectPairs
+                .Select(p => p.Ident)
+                .Where(ident => !string.IsNullOrEmpty(ident)));
+
+            _lastNearbyIdentSnapshot.Clear();
+            foreach (var ident in nearbySet)
+            {
+                _lastNearbyIdentSnapshot.Add(ident);
+            }
+
+            var location = new LocationInfo { ServerId = resumeRequest.WorldId, TerritoryId = resumeRequest.TerritoryId };
+            try
+            {
+                location = await _dalamudUtilService.GetMapDataAsync().ConfigureAwait(false);
+                if (location.ServerId == 0)
+                    location.ServerId = resumeRequest.WorldId;
+                if (location.TerritoryId == 0)
+                    location.TerritoryId = resumeRequest.TerritoryId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogTrace(ex, "Failed to retrieve map data while resuming pairing availability subscription");
+            }
+
+            _lastNearbyAvailabilityCheck = DateTime.UtcNow;
+
+            await UpdateAvailabilitySubscriptionAsync(
+                    location,
+                    nearbySet,
+                    nearbySet,
+                    Array.Empty<string>(),
+                    force: true,
+                    forceFullSnapshot: true)
+                .ConfigureAwait(false);
+
+            await EvaluatePendingRequestsAsync(nearbySet).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Failed to resume pairing availability subscription");
+        }
+        finally
+        {
+            _nearbyAvailabilitySemaphore.Release();
+        }
     }
 
     private async Task<bool> WaitForApiConnectionAsync(CancellationToken cancellationToken)
@@ -821,9 +907,11 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!_configService.Current.PairingSystemEnabled)
             return new AutoRejectResult(false, string.Empty, false);
         
+        var rejectedHomeworlds = _configService.Current.PairRequestRejectedHomeworlds;
         var hasAppearanceFilters = _configService.Current.AutoRejectCombos.Count > 0;
+        var hasHomeworldFilters = rejectedHomeworlds.Count > 0;
         var minimumLevel = Math.Max(0, _configService.Current.PairRequestMinimumLevel);
-        if (!hasAppearanceFilters && minimumLevel == 0)
+        if (!hasAppearanceFilters && minimumLevel == 0 && !hasHomeworldFilters)
             return new AutoRejectResult(false, string.Empty, false);
         
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
@@ -842,6 +930,21 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             
             if (pc.Level < minimumLevel)
                 return new AutoRejectResult(true, $"Auto rejected: This user isn't interested in pairing with users below level {minimumLevel}.", false);
+        }
+
+        if (hasHomeworldFilters)
+        {
+            if (pc.HomeWorldId == 0)
+                return deferIfUnavailable
+                    ? new AutoRejectResult(false, string.Empty, true)
+                    : new AutoRejectResult(true, "Auto rejected: requester homeworld unavailable", false);
+
+            var homeworldId = (ushort)pc.HomeWorldId;
+            if (rejectedHomeworlds.Contains(homeworldId))
+            {
+                var homeworldName = _dalamudUtilService.WorldData.Value.GetValueOrDefault(homeworldId, homeworldId.ToString());
+                return new AutoRejectResult(true, $"Auto rejected: This user isn't interested in pairing with users from {homeworldName}.", false);
+            }
         }
 
         var appearance = await ExtractAppearanceAsync(pc.Address).ConfigureAwait(false);
