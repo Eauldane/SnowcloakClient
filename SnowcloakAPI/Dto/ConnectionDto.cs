@@ -10,6 +10,7 @@ public record ConnectionDto(UserData User)
     public int ServerVersion { get; set; }
     public bool IsAdmin { get; set; }
     public bool IsModerator { get; set; }
+    public bool HasPersistentKey { get; set; }
     public ServerInfo ServerInfo { get; set; } = new();
 }
 

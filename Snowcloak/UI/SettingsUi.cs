@@ -65,6 +65,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _frostbrandEnablePopupModalShown = false;
     private bool _frostbrandEnablePopupModalJustShown = false;
     private static readonly Random Rng = new();
+    private string PairingPersistentKeyRequirement = "You need to link a XIVAuth account before opting into Frostbrand.";
     private bool _useUriangerText = false;
     private string _homeworldFilterSearch = string.Empty;
     
@@ -726,20 +727,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private void DrawFileStorageSettings()
     {
         _lastTab = "FileCache";
-
-        _uiShared.BigText("Export MCDF");
-
-        ImGuiHelpers.ScaledDummy(10);
-
-        UiSharedService.ColorTextWrapped("Exporting MCDF has moved.", ImGuiColors.DalamudYellow);
-        ImGuiHelpers.ScaledDummy(5);
-        UiSharedService.TextWrapped("It is now found in the Main UI under \"Character Data Hub\"");
-        if (_uiShared.IconTextButton(FontAwesomeIcon.Running, "Open Character Data Hub"))
-        {
-            Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi)));
-        }
-
-        ImGui.Separator();
 
         _uiShared.BigText("Storage");
 
@@ -1907,6 +1894,16 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
         _uiShared.BigText("Frostbrand Pairing");
         
+        
+        var hasPersistentKey = ApiController.HasPersistentKey;
+        if (!hasPersistentKey)
+        {
+            UiSharedService.ColorTextWrapped(PairingPersistentKeyRequirement, ImGuiColors.DalamudYellow);
+            _uiShared.DrawHelpText("Link a XIVAuth account to enable Frostbrand.");
+        }
+
+        using var pairingKeyDisabled = ImRaii.Disabled(!hasPersistentKey);
+        
         var pairingEnabled = _configService.Current.PairingSystemEnabled;
         var requestedPairingEnabled = pairingEnabled;
         if (ImGui.Checkbox("Enable Frostbrand pairing features", ref requestedPairingEnabled))
@@ -2044,8 +2041,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             _uiShared.DrawHelpText("Set to 0 to disable level-based rejection.");
             ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
-            DrawHomeworldFilters();
-            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+
             ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box" +
                               " below. Requests from matching characters will be rejected.");
             ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
@@ -2100,6 +2096,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     ImGui.EndTable();
                 }
             }
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+            DrawHomeworldFilters();
         }
     }
     

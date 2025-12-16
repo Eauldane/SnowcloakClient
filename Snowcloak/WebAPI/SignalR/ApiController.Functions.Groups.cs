@@ -1,12 +1,16 @@
 ﻿using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Group;
 using Microsoft.AspNetCore.SignalR.Client;
+using Snowcloak.Configuration.Models;
+using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.SignalR.Utils;
 
 namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
+    
+    private string PublicSyncshellPersistentKeyWarning = "Joining public syncshells requires a linked XIVAuth account.";
     public async Task GroupBanUser(GroupPairDto dto, string reason)
     {
         CheckConnection();
@@ -76,9 +80,16 @@ public partial class ApiController
     public async Task<bool> GroupJoin(GroupPasswordDto passwordedGroup)
     {
         CheckConnection();
+        
+        if (!HasPersistentKey && IsPublicSyncshell(passwordedGroup.Group))
+        {
+            Mediator.Publish(new NotificationMessage("Join blocked", PublicSyncshellPersistentKeyWarning, NotificationType.Warning, TimeSpan.FromSeconds(7.5)));
+            return false;
+        }
+
         return await _snowHub!.InvokeAsync<bool>(nameof(GroupJoin), passwordedGroup).ConfigureAwait(false);
     }
-
+    
     public async Task GroupLeave(GroupDto group)
     {
         CheckConnection();
@@ -124,5 +135,14 @@ public partial class ApiController
     private void CheckConnection()
     {
         if (ServerState is not (ServerState.Connected or ServerState.Connecting or ServerState.Reconnecting)) throw new InvalidDataException("Not connected");
+    }
+    
+    
+    private static bool IsPublicSyncshell(GroupData group)
+    {
+        if (!string.IsNullOrWhiteSpace(group.Alias) && group.Alias.StartsWith("Snowcloak -", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return group.GID.StartsWith("Snowcloak -", StringComparison.OrdinalIgnoreCase);
     }
 }

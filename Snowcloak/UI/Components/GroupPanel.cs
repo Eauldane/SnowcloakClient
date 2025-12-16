@@ -143,7 +143,7 @@ internal sealed class GroupPanel
             if (_errorGroupJoin)
             {
                 UiSharedService.ColorTextWrapped($"An error occured during joining of this Syncshell: you either have joined the maximum amount of Syncshells ({ApiController.ServerInfo.MaxGroupsJoinedByUser}), " +
-                    $"it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full ({ApiController.ServerInfo.MaxGroupUserCount} users) or the Syncshell has closed invites.",
+                    $"it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full, or the Syncshell has closed invites.",
                     new Vector4(1, 0, 0, 1));
             }
             if (ImGui.Button("Join " + _syncShellToJoin))
