@@ -229,7 +229,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             ImGui.Separator();
 
             // Buttons with state change
-            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, L("Sidebar.IndividualPairs", "Individual Pairs"));
+            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
             DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, "Syncshells");
             ImGui.Separator();
             //buttons without state change
