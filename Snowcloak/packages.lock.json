@@ -8,6 +8,12 @@
         "resolved": "2.0.0",
         "contentHash": "v447kojeuNYSY5dvtVGG2bv1+M3vOWJXcrYWwXho/2uUpuwK6qPeu5WSMlqLm4VRJu96kysVO11La0zN3dLAuQ=="
       },
+      "Brio.API": {
+        "type": "Direct",
+        "requested": "[3.0.0, )",
+        "resolved": "3.0.0",
+        "contentHash": "0g7BTpSj/Nwfnpkz3R2FCzDIauhUdCb5zEt9cBWB0xrDrhugvUW7/irRyB48gyHDaK4Cv13al2IGrfW7l/jBUg=="
+      },
       "Chaos.NaCl.Standard": {
         "type": "Direct",
         "requested": "[1.0.0, )",
@@ -16,9 +22,9 @@
       },
       "DalamudPackager": {
         "type": "Direct",
-        "requested": "[14.0.0, )",
-        "resolved": "14.0.0",
-        "contentHash": "9c1q/eAeAs82mkQWBOaCvbt3GIQxAIadz5b/7pCXDIy9nHPtnRc+tDXEvKR+M36Wvi7n+qBTevRupkLUQp6DFA=="
+        "requested": "[14.0.1, )",
+        "resolved": "14.0.1",
+        "contentHash": "y0WWyUE6dhpGdolK3iKgwys05/nZaVf4ZPtIjpLhJBZvHxkkiE23zYRo7K7uqAgoK/QvK5cqF6l3VG5AbgC6KA=="
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
@@ -79,9 +85,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[2.0.260, )",
-        "resolved": "2.0.260",
-        "contentHash": "Un1UmavgQSqHdHFm4qxSGt3khXp2l4oOcaQpQ1kcmJOrwwIRoKkttb2Qzoj/mckr77cpf8G1MsnCVw9uS02KTQ=="
+        "requested": "[2.0.263, )",
+        "resolved": "2.0.263",
+        "contentHash": "Pbx5I+Djo0vWp0ykEZLVuHVaNVmyEzoOe50IpSqN0P+BRFx0lULhiHMaEWym5MOwoRluv/mTWi4e+BPBraLdIA=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
