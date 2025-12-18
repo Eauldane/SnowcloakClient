@@ -75,8 +75,6 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             using (_uiSharedService.UidFont.Push())
                 UiSharedService.ColorText(UserData.AliasOrUID, Colours.Hex2Vector4(UserData.DisplayColour));
 
-            ImGui.SameLine();
-            UiSharedService.ColorText($"[{snowProfile.Visibility} profile]", ImGuiColors.DalamudGrey);
             
             var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, "Report Profile");
             ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - reportButtonSize);

@@ -28,6 +28,7 @@ using Snowcloak.Services.Housing;
 using Dalamud.Game.ClientState.Party;
 using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Game.ClientState.Objects.Types;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
 
 
 namespace Snowcloak.Services;
@@ -749,7 +750,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         bool isDrawingChanged = false;
         if ((nint)drawObj != IntPtr.Zero)
         {
-            isDrawing = gameObj->RenderFlags == 0b100000000000;
+            isDrawing = gameObj->RenderFlags == VisibilityFlags.Model;
             if (!isDrawing)
             {
                 isDrawing = ((CharacterBase*)drawObj)->HasModelInSlotLoaded != 0;

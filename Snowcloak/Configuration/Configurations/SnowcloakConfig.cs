@@ -88,4 +88,5 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;
     public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
+    public string LastSeenPatchNotesVersion { get; set; } = "1.0.0";
 }

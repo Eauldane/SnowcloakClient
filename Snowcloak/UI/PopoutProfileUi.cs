@@ -30,7 +30,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
 
     public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         ServerConfigurationManager serverManager, SnowcloakConfigService snowcloakConfigService,
-        SnowProfileManager snowProfileManager, PairManager pairManager, PerformanceCollectorService performanceCollectorService) : base(logger, mediator, "###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
+        SnowProfileManager snowProfileManager, PairManager pairManager, PerformanceCollectorService performanceCollectorService) : base(logger, mediator, "Snowcloak: User Profile###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _serverManager = serverManager;
@@ -103,9 +103,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             using (_uiSharedService.UidFont.Push())
                 UiSharedService.ColorText(_pair.UserData.AliasOrUID, Colours.Hex2Vector4(_pair.UserData.DisplayColour));
 
-            ImGui.SameLine();
-            UiSharedService.ColorText($"[{snowProfile.Visibility} profile]", ImGuiColors.DalamudGrey);
-            
+           
             ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
             var textPos = ImGui.GetCursorPosY();
             ImGui.Separator();
@@ -153,7 +151,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             _uiSharedService.GameFont.Push();
             var remaining = ImGui.GetWindowContentRegionMax().Y - ImGui.GetCursorPosY();
             var descriptionHeight = Math.Max(remaining, 120f);
-            if (ImGui.BeginChild("##popout-description", new Vector2(ImGui.GetContentRegionAvail().X, descriptionHeight), true))
+            if (ImGui.BeginChild("Profile##popout-description", new Vector2(ImGui.GetContentRegionAvail().X, descriptionHeight), true))
             {
                 _uiSharedService.RenderBbCode(snowProfile.Description, ImGui.GetContentRegionAvail().X);
             }

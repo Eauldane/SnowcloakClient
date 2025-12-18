@@ -86,7 +86,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, LocalisationService localisationService)
-        : base(logger, mediator, "###SnowcloakSyncMainUI", performanceCollectorService)
+        : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _uiSharedService = uiShared;
         _configService = configService;
@@ -559,7 +559,6 @@ public class CompactUi : WindowMediatorSubscriberBase
 
                 _ = _apiController.CreateConnections();
             }
-            ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
             if (_registrationInProgress)
             {
@@ -602,6 +601,8 @@ public class CompactUi : WindowMediatorSubscriberBase
         {
             UiSharedService.ColorTextWrapped("No secret keys are configured for the current server.", ImGuiColors.DalamudYellow);
         }
+        ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
+
     }
 
     private void DrawAddPair()
