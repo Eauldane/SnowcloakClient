@@ -10,9 +10,9 @@
       },
       "Brio.API": {
         "type": "Direct",
-        "requested": "[3.0.0, )",
-        "resolved": "3.0.0",
-        "contentHash": "0g7BTpSj/Nwfnpkz3R2FCzDIauhUdCb5zEt9cBWB0xrDrhugvUW7/irRyB48gyHDaK4Cv13al2IGrfW7l/jBUg=="
+        "requested": "[3.0.1, )",
+        "resolved": "3.0.1",
+        "contentHash": "40MD49ETqyGsdHGoG3JF/BFcNAphRqi27+ZxfDk2Aj7gAkzDFe7C2UVGirUByrUIj8lxiz9eEoB2i7O9lefEPQ=="
       },
       "Chaos.NaCl.Standard": {
         "type": "Direct",
