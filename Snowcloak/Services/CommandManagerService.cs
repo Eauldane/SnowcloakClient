@@ -78,7 +78,7 @@ public sealed class CommandManagerService : IDisposable
         });
         _commandManager.AddHandler(_venueCommand, new CommandInfo(OnVenueCommand)
         {
-            HelpMessage = "Begin registering the current housing plot for a venue syncshell."
+            HelpMessage = "Register your housing plot for a venue syncshell."
         });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
 
