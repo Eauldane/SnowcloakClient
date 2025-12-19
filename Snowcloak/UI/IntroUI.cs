@@ -1,4 +1,5 @@
-﻿using Dalamud.Bindings.ImGui;
+﻿using System.Globalization;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
@@ -15,6 +16,7 @@ using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Numerics;
 using System.Text.RegularExpressions;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -26,6 +28,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly AccountRegistrationService _registerService;
     private readonly UiSharedService _uiShared;
+    private readonly LocalisationService _localisationService;
     private bool _readFirstPage;
 
     private string _secretKey = string.Empty;
@@ -35,11 +38,18 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private bool _registrationSuccess = false;
     private string? _registrationMessage;
     private RegisterReplyDto? _registrationReply;
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"IntroUi.{key}", fallback);
+    }
 
     public IntroUi(ILogger<IntroUi> logger, UiSharedService uiShared, SnowcloakConfigService configService,
         CacheMonitor fileCacheManager, ServerConfigurationManager serverConfigurationManager, SnowMediator snowMediator,
-        PerformanceCollectorService performanceCollectorService, DalamudUtilService dalamudUtilService, AccountRegistrationService registerService) : base(logger, snowMediator, "Snowcloak Setup", performanceCollectorService)
+        PerformanceCollectorService performanceCollectorService, DalamudUtilService dalamudUtilService, AccountRegistrationService registerService, LocalisationService localisationService)
+        : base(logger, snowMediator, localisationService.GetString("IntroUi.WindowTitle", "Snowcloak Setup"), performanceCollectorService)
     {
+        _localisationService = localisationService;
         _uiShared = uiShared;
         _configService = configService;
         _cacheMonitor = fileCacheManager;
@@ -87,17 +97,17 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     {
         return _uiShared.ApiController.ServerState switch
         {
-            ServerState.Reconnecting => "Reconnecting",
-            ServerState.Connecting => "Connecting",
-            ServerState.Disconnected => "Disconnected",
-            ServerState.Disconnecting => "Disconnecting",
-            ServerState.Unauthorized => "Unauthorized",
-            ServerState.VersionMisMatch => "Version mismatch",
-            ServerState.Offline => "Unavailable",
-            ServerState.RateLimited => "Rate Limited",
-            ServerState.NoSecretKey => "No Secret Key",
-            ServerState.MultiChara => "Duplicate Characters",
-            ServerState.Connected => "Connected",
+            ServerState.Reconnecting => L("Connection.Reconnecting", "Reconnecting"),
+            ServerState.Connecting => L("Connection.Connecting", "Connecting"),
+            ServerState.Disconnected => L("Connection.Disconnected", "Disconnected"),
+            ServerState.Disconnecting => L("Connection.Disconnecting", "Disconnecting"),
+            ServerState.Unauthorized => L("Connection.Unauthorized", "Unauthorized"),
+            ServerState.VersionMisMatch => L("Connection.VersionMismatch", "Version mismatch"),
+            ServerState.Offline => L("Connection.Unavailable", "Unavailable"),
+            ServerState.RateLimited => L("Connection.RateLimited", "Rate Limited"),
+            ServerState.NoSecretKey => L("Connection.NoSecretKey", "No Secret Key"),
+            ServerState.MultiChara => L("Connection.DuplicateCharacters", "Duplicate Characters"),
+            ServerState.Connected => L("Connection.Connected", "Connected"),
             _ => string.Empty
         };
     }
@@ -108,18 +118,18 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
         if (!_configService.Current.AcceptedAgreement && !_readFirstPage)
         {
-            _uiShared.BigText("Welcome to Snowcloak");
+            _uiShared.BigText(L("Welcome.Header", "Welcome to Snowcloak"));
             ImGui.Separator();
-            UiSharedService.TextWrapped("Snowcloak is a plugin that will replicate your full current character state including all Penumbra mods to other paired users. " +
-                              "Note that you will have to have Penumbra as well as Glamourer installed to use this plugin.");
-            UiSharedService.TextWrapped("We will have to setup a few things first before you can start using this plugin. Click on next to continue.");
+            UiSharedService.TextWrapped(L("Welcome.Description1", "Snowcloak is a plugin that will replicate your full current character state including all Penumbra mods to other paired users. " +
+                                                                  "Note that you will have to have Penumbra as well as Glamourer installed to use this plugin."));
+            UiSharedService.TextWrapped(L("Welcome.Description2", "We will have to setup a few things first before you can start using this plugin. Click on next to continue."));
 
-            UiSharedService.ColorTextWrapped("Note: Any modifications you have applied through anything but Penumbra cannot be shared and your character state on other clients " +
-                                 "might look broken because of this or others players mods might not apply on your end altogether. " +
-                                 "If you want to use this plugin you will have to move your mods to Penumbra.", ImGuiColors.DalamudYellow);
+            UiSharedService.ColorTextWrapped(L("Welcome.Warning", "Note: Any modifications you have applied through anything but Penumbra cannot be shared and your character state on other clients " +
+                                                                  "might look broken because of this or others players mods might not apply on your end altogether. " +
+                                                                  "If you want to use this plugin you will have to move your mods to Penumbra."), ImGuiColors.DalamudYellow);
             if (!_uiShared.DrawOtherPluginState(intro: true)) return;
             ImGui.Separator();
-            if (ImGui.Button("Next##toAgreement"))
+            if (ImGui.Button(L("Welcome.Next", "Next##toAgreement")))
             {
                 _readFirstPage = true;
 #if !DEBUG
@@ -127,7 +137,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 {
                     for (int i = 10; i > 0; i--)
                     {
-                        _timeoutLabel = $"'I agree' button will be available in {i}s";
+                        _timeoutLabel = string.Format(CultureInfo.InvariantCulture, L("Agreement.Timeout", "'I agree' button will be available in {0}s"), i);
                         await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
                     }
                 });
@@ -140,52 +150,32 @@ public partial class IntroUi : WindowMediatorSubscriberBase
         {
             using (_uiShared.UidFont.Push())
             {
-                ImGui.TextUnformatted("Agreement of Usage of Service");
+                ImGui.TextUnformatted(L("Agreement.Header", "Agreement of Usage of Service"));
             }
 
             ImGui.Separator();
             ImGui.SetWindowFontScale(1.5f);
-            string readThis = "READ THIS CAREFULLY";
+            string readThis = L("Agreement.ReadThis", "READ THIS CAREFULLY");
             Vector2 textSize = ImGui.CalcTextSize(readThis);
             ImGui.SetCursorPosX(ImGui.GetWindowSize().X / 2 - textSize.X / 2);
             UiSharedService.ColorText(readThis, ImGuiColors.DalamudRed);
             ImGui.SetWindowFontScale(1.0f);
             ImGui.Separator();
-            UiSharedService.TextWrapped("""
-                                        To use Snowcloak, you must be over the age of 18, or 21 in some jurisdictions. 
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        Snowcloak is operated from servers located in the European Union. You agree not to upload any content to the service that violates EU law; and more specifically, German law.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days.
-                                        """);
-            UiSharedService.TextWrapped("""
-                                        This service is provided as-is.
-                                        """);
+            UiSharedService.TextWrapped(L("Agreement.Paragraph1", "To use Snowcloak, you must be over the age of 18, or 21 in some jurisdictions."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph2", "All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph3", "If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph4", "The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph5", "The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph6", "Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph7", "Accounts that are inactive for ninety (90) days will be deleted for privacy reasons."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph8", "Snowcloak is operated from servers located in the European Union. You agree not to upload any content to the service that violates EU law; and more specifically, German law."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph9", "You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days."));
+            UiSharedService.TextWrapped(L("Agreement.Paragraph10", "This service is provided as-is."));
 
             ImGui.Separator();
             if (_timeoutTask?.IsCompleted ?? true)
             {
-                if (ImGui.Button("I agree##toSetup"))
+                if (ImGui.Button(L("Agreement.Agree", "I agree##toSetup")))
                 {
                     _configService.Current.AcceptedAgreement = true;
                     _configService.Save();
@@ -202,29 +192,29 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                      || !Directory.Exists(_configService.Current.CacheFolder)))
         {
             using (_uiShared.UidFont.Push())
-                ImGui.TextUnformatted("File Storage Setup");
-
+                ImGui.TextUnformatted(L("Storage.Header", "File Storage Setup"));
             ImGui.Separator();
 
             if (!_uiShared.HasValidPenumbraModPath)
             {
-                UiSharedService.ColorTextWrapped("You do not have a valid Penumbra path set. Open Penumbra and set up a valid path for the mod directory.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(L("Storage.InvalidPenumbra", "You do not have a valid Penumbra path set. Open Penumbra and set up a valid path for the mod directory."), ImGuiColors.DalamudRed);
+                
             }
             else
             {
-                UiSharedService.TextWrapped("To not unnecessary download files already present on your computer, Snowcloak will have to scan your Penumbra mod directory. " +
-                                     "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
-                                     "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service.");
-                UiSharedService.TextWrapped("Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed.");
-                UiSharedService.ColorTextWrapped("Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
-                                          "Otherwise on the next launch a full re-scan of the file cache database will be initiated.", ImGuiColors.DalamudYellow);
-                UiSharedService.ColorTextWrapped("Warning: if the scan is hanging and does nothing for a long time, chances are high your Penumbra folder is not set up properly.", ImGuiColors.DalamudYellow);
+                UiSharedService.TextWrapped(L("Storage.Description1", "To not unnecessary download files already present on your computer, Snowcloak will have to scan your Penumbra mod directory. " +
+                                                                      "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
+                                                                      "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service."));
+                UiSharedService.TextWrapped(L("Storage.Description2", "Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed."));
+                UiSharedService.ColorTextWrapped(L("Storage.Warning.Files", "Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
+                                                                            "Otherwise on the next launch a full re-scan of the file cache database will be initiated."), ImGuiColors.DalamudYellow);
+                UiSharedService.ColorTextWrapped(L("Storage.Warning.Scan", "Warning: if the scan is hanging and does nothing for a long time, chances are high your Penumbra folder is not set up properly."), ImGuiColors.DalamudYellow);
                 _uiShared.DrawCacheDirectorySetting();
             }
 
             if (!_cacheMonitor.IsScanRunning && !string.IsNullOrEmpty(_configService.Current.CacheFolder) && _uiShared.HasValidPenumbraModPath && Directory.Exists(_configService.Current.CacheFolder))
             {
-                if (ImGui.Button("Start Scan##startScan"))
+                if (ImGui.Button(L("Storage.StartScan", "Start Scan##startScan")))
                 {
                     _cacheMonitor.InvokeScan();
                 }
@@ -236,22 +226,22 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             if (!_dalamudUtilService.IsWine)
             {
                 var useFileCompactor = _configService.Current.UseCompactor;
-                if (ImGui.Checkbox("Use File Compactor", ref useFileCompactor))
+                if (ImGui.Checkbox(L("Storage.UseCompactor", "Use File Compactor"), ref useFileCompactor))
                 {
                     _configService.Current.UseCompactor = useFileCompactor;
                     _configService.Save();
                 }
-                UiSharedService.ColorTextWrapped("The File Compactor can save a tremendeous amount of space on the hard disk for downloads through Snowcloak. It will incur a minor CPU penalty on download but can speed up " +
-                    "loading of other characters. It is recommended to keep it enabled. You can change this setting later anytime in the Snowcloak settings.", ImGuiColors.DalamudYellow);
+                UiSharedService.ColorTextWrapped(L("Storage.UseCompactor.Help", "The File Compactor can save a tremendeous amount of space on the hard disk for downloads through Snowcloak. It will incur a minor CPU penalty on download but can speed up " +
+                    "loading of other characters. It is recommended to keep it enabled. You can change this setting later anytime in the Snowcloak settings."), ImGuiColors.DalamudYellow);
             }
         }
         else if (!_uiShared.ApiController.IsConnected)
         {
             using (_uiShared.UidFont.Push())
-                ImGui.TextUnformatted("Service Registration");
+                ImGui.TextUnformatted(L("Registration.Header", "Service Registration"));
             ImGui.Separator();
-            UiSharedService.TextWrapped("To be able to use Snowcloak you will have to register an account.");
-            UiSharedService.TextWrapped("Refer to the instructions at the location you obtained this plugin for more information or support.");
+            UiSharedService.TextWrapped(L("Registration.Description1", "To be able to use Snowcloak you will have to register an account."));
+            UiSharedService.TextWrapped(L("Registration.Description2", "Refer to the instructions at the location you obtained this plugin for more information or support."));
 
             ImGui.Separator();
 
@@ -262,8 +252,8 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             {
                 ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
                 ImGui.Separator();
-                ImGui.TextUnformatted("If you have not used Snowcloak before, click below to register a new account.");
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                ImGui.TextUnformatted(L("Registration.NewAccountPrompt", "If you have not used Snowcloak before, click below to register a new account."));
+                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, L("Registration.LoginXivAuth", "Log in with XIVAuth")))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {
@@ -275,10 +265,10 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                                 _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
                                 _registrationMessage = reply.ErrorMessage;
                                 if (_registrationMessage.IsNullOrEmpty())
-                                    _registrationMessage = "An unknown error occured. Please try again later.";
+                                    _registrationMessage = L("Registration.UnknownError", "An unknown error occured. Please try again later.");
                                 return;
                             }
-                            _registrationMessage = "Account registered. Welcome to Snowcloak!";
+                            _registrationMessage = L("Registration.SuccessXivAuth", "Account registered. Welcome to Snowcloak!");
                             _secretKey = reply.SecretKey ?? "";
                             _registrationReply = reply;
                             _registrationSuccess = true;
@@ -287,7 +277,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                         {
                             _logger.LogWarning(ex, "Registration failed");
                             _registrationSuccess = false;
-                            _registrationMessage = "An unknown error occured. Please try again later.";
+                            _registrationMessage = L("Registration.UnknownError", "An unknown error occured. Please try again later.");
                         }
                         finally
                         {
@@ -296,7 +286,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                     });
                 }
                 ImGui.SameLine();
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
+                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, L("Registration.Legacy", "Register new Snowcloak account (legacy method)")))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {
@@ -308,10 +298,10 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                                 _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
                                 _registrationMessage = reply.ErrorMessage;
                                 if (_registrationMessage.IsNullOrEmpty())
-                                    _registrationMessage = "An unknown error occured. Please try again later.";
+                                    _registrationMessage = L("Registration.UnknownError", "An unknown error occured. Please try again later.");
                                 return;
                             }
-                            _registrationMessage = "New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
+                            _registrationMessage = L("Registration.Legacy.Success", "New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.");
                             _secretKey = reply.SecretKey ?? "";
                             _registrationReply = reply;
                             _registrationSuccess = true;
@@ -320,7 +310,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                         {
                             _logger.LogWarning(ex, "Registration failed");
                             _registrationSuccess = false;
-                            _registrationMessage = "An unknown error occured. Please try again later.";
+                            _registrationMessage = L("Registration.UnknownError", "An unknown error occured. Please try again later.");
                         }
                         finally
                         {
@@ -331,7 +321,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
                 if (_registrationInProgress)
                 {
-                    ImGui.TextUnformatted("Waiting for the server...");
+                    ImGui.TextUnformatted(L("Registration.Waiting", "Waiting for the server..."));
                 }
                 else if (!_registrationMessage.IsNullOrEmpty())
                 {
@@ -344,15 +334,15 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             ImGui.Separator();
 
-            var text = "Enter Secret Key";
-
+            var text = L("Registration.SecretKey.Enter", "Enter Secret Key");
+            
             if (_registrationSuccess)
             {
-                text = "Secret Key";
+                text = L("Registration.SecretKey.Label", "Secret Key");
             }
             else
             {
-                ImGui.TextUnformatted("If you already have a registered account, you can enter its secret key below to use it instead.");
+                ImGui.TextUnformatted(L("Registration.SecretKey.Instructions", "If you already have a registered account, you can enter its secret key below to use it instead."));
             }
 
             var textSize = ImGui.CalcTextSize(text);
@@ -363,23 +353,23 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             ImGui.InputText("", ref _secretKey, 64);
             if (_secretKey.Length > 0 && _secretKey.Length != 64)
             {
-                UiSharedService.ColorTextWrapped("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(L("Registration.SecretKey.Length", "Your secret key must be exactly 64 characters long."), ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64 && !HexRegex().IsMatch(_secretKey))
             {
-                UiSharedService.ColorTextWrapped("Your secret key can only contain ABCDEF and the numbers 0-9.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(L("Registration.SecretKey.Format", "Your secret key can only contain ABCDEF and the numbers 0-9."), ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64)
             {
                 using var saveDisabled = ImRaii.Disabled(_uiShared.ApiController.ServerState == ServerState.Connecting || _uiShared.ApiController.ServerState == ServerState.Reconnecting);
-                if (ImGui.Button("Save and Connect"))
+                if (ImGui.Button(L("Registration.SaveAndConnect", "Save and Connect")))
                 {
                     string keyName;
                     if (_serverConfigurationManager.CurrentServer == null) _serverConfigurationManager.SelectServer(0);
                     if (_registrationReply != null && _secretKey.Equals(_registrationReply.SecretKey, StringComparison.Ordinal))
-                        keyName = _registrationReply.UID + $" (registered {DateTime.Now:yyyy-MM-dd})";
+                        keyName = _registrationReply.UID + " " + string.Format(CultureInfo.InvariantCulture, L("Registration.SecretKey.Registered", "(registered {0:yyyy-MM-dd})"), DateTime.Now);
                     else
-                        keyName = $"Secret Key added on Setup ({DateTime.Now:yyyy-MM-dd})";
+                        keyName = string.Format(CultureInfo.InvariantCulture, L("Registration.SecretKey.Added", "Secret Key added on Setup ({0:yyyy-MM-dd})"), DateTime.Now);
                     _serverConfigurationManager.CurrentServer!.SecretKeys.Add(_serverConfigurationManager.CurrentServer.SecretKeys.Select(k => k.Key).LastOrDefault() + 1, new SecretKey()
                     {
                         FriendlyName = keyName,

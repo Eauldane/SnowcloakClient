@@ -9,6 +9,8 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI;
 using Snowcloak.WebAPI.Files.Models;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Services.Localisation;
+using System.Globalization;
 
 namespace Snowcloak.Services;
 
@@ -25,11 +27,12 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly PlayerPerformanceConfigService _playerPerformanceConfigService;
     private readonly Dictionary<string, bool> _warnedForPlayers = new(StringComparer.Ordinal);
+    private readonly LocalisationService _localisationService;
 
     public PlayerPerformanceService(ILogger<PlayerPerformanceService> logger, SnowMediator mediator,
         ServerConfigurationManager serverConfigurationManager,
         PlayerPerformanceConfigService playerPerformanceConfigService, FileCacheManager fileCacheManager,
-        XivDataAnalyzer xivDataAnalyzer)
+        XivDataAnalyzer xivDataAnalyzer, LocalisationService localisationService)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -38,6 +41,12 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _fileCacheManager = fileCacheManager;
         _xivDataAnalyzer = xivDataAnalyzer;
+        _localisationService = localisationService;
+    }
+
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"Services.PlayerPerformanceService.{key}", fallback);
     }
     
         public bool CheckReportedThresholds(PairHandler pairHandler, long? reportedTriangles, long? reportedVramBytes)
@@ -73,19 +82,23 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 
             if (reportedVramBytes.HasValue && reportedVramBytes.Value > vramUsageThreshold)
             {
-                var tooltip =
-                    $"Auto-paused: reported VRAM usage {UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true)} exceeds limit of {config.VRAMSizeAutoPauseThresholdMiB}MiB.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("ReportedVramTooltip", "Auto-paused: reported VRAM usage {0} exceeds limit of {1}MiB."),
+                    UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true), config.VRAMSizeAutoPauseThresholdMiB);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Vram, tooltip);
                 passed = false;
 
                 if (!hadVramAutoPause)
                 {
-                    newlyBlockedReasons.Add(
-                        $"VRAM usage {UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true)}/{config.VRAMSizeAutoPauseThresholdMiB}MiB");
+                    newlyBlockedReasons.Add(string.Format(CultureInfo.InvariantCulture,
+                        L("ReportedVramReason", "VRAM usage {0}/{1}MiB"),
+                        UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true), config.VRAMSizeAutoPauseThresholdMiB));
                 }
 
                 _mediator.Publish(new EventMessage(new Event(pair.PlayerName, pair.UserData, nameof(PlayerPerformanceService), EventSeverity.Warning,
-                    $"Reported VRAM exceeds threshold: ({UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true)}/{config.VRAMSizeAutoPauseThresholdMiB} MiB)")));
+                    string.Format(CultureInfo.InvariantCulture,
+                        L("ReportedVramEvent", "Reported VRAM exceeds threshold: ({0}/{1} MiB)"),
+                        UiSharedService.ByteToString(reportedVramBytes.Value, addSuffix: true), config.VRAMSizeAutoPauseThresholdMiB))));
             }
             else
             {
@@ -94,18 +107,22 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 
             if (reportedTriangles.HasValue && reportedTriangles.Value > triUsageThreshold)
             {
-                var tooltip =
-                    $"Auto-paused: reported triangle count {reportedTriangles.Value} exceeds limit of {triUsageThreshold}.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("ReportedTrianglesTooltip", "Auto-paused: reported triangle count {0} exceeds limit of {1}."),
+                    reportedTriangles.Value, triUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Triangles, tooltip);
                 passed = false;
 
                 if (!hadTriangleAutoPause)
                 {
-                    newlyBlockedReasons.Add($"triangle usage {reportedTriangles}/{triUsageThreshold}");
+                    newlyBlockedReasons.Add(string.Format(CultureInfo.InvariantCulture,
+                        L("ReportedTrianglesReason", "triangle usage {0}/{1}"), reportedTriangles, triUsageThreshold));
                 }
 
                 _mediator.Publish(new EventMessage(new Event(pair.PlayerName, pair.UserData, nameof(PlayerPerformanceService), EventSeverity.Warning,
-                    $"Reported triangle usage exceeds threshold: ({reportedTriangles}/{triUsageThreshold} triangles)")));
+                    string.Format(CultureInfo.InvariantCulture,
+                        L("ReportedTrianglesEvent", "Reported triangle usage exceeds threshold: ({0}/{1} triangles)"),
+                        reportedTriangles, triUsageThreshold))));
             }
             else
             {
@@ -116,8 +133,8 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
             {
                 var reasonSummary = string.Join("; ", newlyBlockedReasons);
                 _mediator.Publish(new NotificationMessage(
-                    $"{pair.PlayerName} ({pair.UserData.AliasOrUID}) automatically blocked",
-                    $"Player {pair.PlayerName} ({pair.UserData.AliasOrUID}) exceeded your configured auto block threshold(s): {reasonSummary}. Based on reported usage they have been automatically blocked.",
+                    AutoBlockedTitle(pair),
+                    AutoBlockedSummaryBody(pair, reasonSummary),
                     Configuration.Models.NotificationType.Warning));
             }
         }
@@ -174,30 +191,28 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
             if (autoPause)
             {
                 var hadAutoPause = pair.HasAutoPauseReason(Pair.AutoPauseReason.Triangles);
-                var tooltip =
-                    $"Auto-paused: triangle count {triUsage} exceeds limit of {triUsageThreshold}.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("AppliedTriangleTooltip", "Auto-paused: triangle count {0} exceeds limit of {1}."),
+                    triUsage, triUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Triangles, tooltip);
 
                 if (notify && !wasBlocked && !hadAutoPause)
                 {
-                    _mediator.Publish(new NotificationMessage($"{pair.PlayerName} ({pair.UserData.AliasOrUID}) automatically blocked",
-                        $"Player {pair.PlayerName} ({pair.UserData.AliasOrUID}) exceeded your configured triangle auto block threshold (" +
-                        $"{triUsage}/{triUsageThreshold} triangles)" +
-                        $" and has been automatically blocked.",
+                    _mediator.Publish(new NotificationMessage(AutoBlockedTitle(pair),
+                        AutoBlockedTriangleBody(pair, triUsage, triUsageThreshold),
                         Configuration.Models.NotificationType.Warning));
                 }
             }
             else if (notify && !wasBlocked)
             {
-                _mediator.Publish(new NotificationMessage($"{pair.PlayerName} ({pair.UserData.AliasOrUID}) automatically blocked",
-                    $"Player {pair.PlayerName} ({pair.UserData.AliasOrUID}) exceeded your configured triangle auto block threshold (" +
-                    $"{triUsage}/{triUsageThreshold} triangles)" +
-                    $" and has been automatically blocked.",
+                _mediator.Publish(new NotificationMessage(AutoBlockedTitle(pair),
+                    AutoBlockedTriangleBody(pair, triUsage, triUsageThreshold),
                     Configuration.Models.NotificationType.Warning));
             }
 
             _mediator.Publish(new EventMessage(new Event(pair.PlayerName, pair.UserData, nameof(PlayerPerformanceService), EventSeverity.Warning,
-                $"Exceeds triangle threshold: ({triUsage}/{triUsageThreshold} triangles)")));
+                string.Format(CultureInfo.InvariantCulture,
+                    L("TriangleThresholdEvent", "Exceeds triangle threshold: ({0}/{1} triangles)"), triUsage, triUsageThreshold))));
 
             return false;
         }
@@ -270,8 +285,9 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 
             if (autoPause)
             {
-                var tooltip =
-                    $"Auto-paused: VRAM usage {UiSharedService.ByteToString(vramUsage, addSuffix: true)} exceeds limit of {vramUsageThreshold}MiB.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("AppliedVramTooltip", "Auto-paused: VRAM usage {0} exceeds limit of {1}MiB."),
+                    UiSharedService.ByteToString(vramUsage, addSuffix: true), vramUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Vram, tooltip);
 
                 if (notify && !wasBlocked && !hadAutoPause)
@@ -285,15 +301,15 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
             }
             else if (notify && !wasBlocked)
             {
-                _mediator.Publish(new NotificationMessage($"{pair.PlayerName} ({pair.UserData.AliasOrUID}) automatically blocked",
-                    $"Player {pair.PlayerName} ({pair.UserData.AliasOrUID}) exceeded your configured VRAM auto block threshold (" +
-                    $"{UiSharedService.ByteToString(vramUsage, addSuffix: true)}/{vramUsageThreshold}MiB)" +
-                    $" and has been automatically blocked.",
+                _mediator.Publish(new NotificationMessage(AutoBlockedTitle(pair),
+                    AutoBlockedVramBody(pair, vramUsage, vramUsageThreshold),
                     Configuration.Models.NotificationType.Warning));
             }
 
             _mediator.Publish(new EventMessage(new Event(pair.PlayerName, pair.UserData, nameof(PlayerPerformanceService), EventSeverity.Warning,
-                $"Exceeds VRAM threshold: ({UiSharedService.ByteToString(vramUsage, addSuffix: true)}/{vramUsageThreshold} MiB)")));
+                string.Format(CultureInfo.InvariantCulture,
+                    L("VramThresholdEvent", "Exceeds VRAM threshold: ({0}/{1} MiB)"),
+                    UiSharedService.ByteToString(vramUsage, addSuffix: true), vramUsageThreshold))));
 
             return false;
         }
@@ -331,8 +347,9 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         {
             if (pair.LastAppliedApproximateVRAMBytes > vramUsageThreshold)
             {
-                var tooltip =
-                    $"Auto-paused: VRAM usage {UiSharedService.ByteToString(pair.LastAppliedApproximateVRAMBytes, addSuffix: true)} exceeds limit of {vramUsageThreshold / (1024L * 1024L)}MiB.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("ReevaluationVramTooltip", "Auto-paused: VRAM usage {0} exceeds limit of {1}MiB."),
+                    UiSharedService.ByteToString(pair.LastAppliedApproximateVRAMBytes, addSuffix: true), vramUsageThreshold / (1024L * 1024L));
                 pair.SetAutoPaused(Pair.AutoPauseReason.Vram, tooltip);
             }
             else
@@ -345,7 +362,9 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         {
             if (pair.LastAppliedDataTris > triUsageThreshold)
             {
-                var tooltip = $"Auto-paused: triangle count {pair.LastAppliedDataTris} exceeds limit of {triUsageThreshold}.";
+                var tooltip = string.Format(CultureInfo.InvariantCulture,
+                    L("ReevaluationTriangleTooltip", "Auto-paused: triangle count {0} exceeds limit of {1}."),
+                    pair.LastAppliedDataTris, triUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Triangles, tooltip);
             }
             else
@@ -502,5 +521,32 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         ).ConfigureAwait(false);
 
         return shrunken;
+    }
+
+    private string AutoBlockedTitle(Pair pair)
+    {
+        return string.Format(CultureInfo.InvariantCulture,
+            L("AutoBlockedTitle", "{0} ({1}) automatically blocked"), pair.PlayerName, pair.UserData.AliasOrUID);
+    }
+
+    private string AutoBlockedSummaryBody(Pair pair, string reasonSummary)
+    {
+        return string.Format(CultureInfo.InvariantCulture,
+            L("AutoBlockedSummaryBody", "Player {0} ({1}) exceeded your configured auto block threshold(s): {2}. Based on reported usage they have been automatically blocked."),
+            pair.PlayerName, pair.UserData.AliasOrUID, reasonSummary);
+    }
+
+    private string AutoBlockedTriangleBody(Pair pair, long triUsage, long triUsageThreshold)
+    {
+        return string.Format(CultureInfo.InvariantCulture,
+            L("AutoBlockedTriangleBody", "Player {0} ({1}) exceeded your configured triangle auto block threshold ({2}/{3} triangles) and has been automatically blocked."),
+            pair.PlayerName, pair.UserData.AliasOrUID, triUsage, triUsageThreshold);
+    }
+
+    private string AutoBlockedVramBody(Pair pair, long vramUsageBytes, long vramThresholdMiB)
+    {
+        return string.Format(CultureInfo.InvariantCulture,
+            L("AutoBlockedVramBody", "Player {0} ({1}) exceeded your configured VRAM auto block threshold ({2}/{3}MiB) and has been automatically blocked."),
+            pair.PlayerName, pair.UserData.AliasOrUID, UiSharedService.ByteToString(vramUsageBytes, addSuffix: true), vramThresholdMiB);
     }
 }

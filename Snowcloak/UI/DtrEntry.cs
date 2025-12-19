@@ -9,6 +9,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
 using System.Runtime.InteropServices;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -37,13 +38,14 @@ public sealed class DtrEntry : IDisposable, IHostedService
     private readonly Lazy<IDtrBarEntry> _entry;
     private readonly ILogger<DtrEntry> _logger;
     private readonly SnowMediator _snowMediator;
+    private readonly LocalisationService _localisationService;
     private readonly PairManager _pairManager;
     private Task? _runTask;
     private string? _text;
     private string? _tooltip;
     private Colors _colors;
 
-    public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator, PairManager pairManager, ApiController apiController)
+    public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator, PairManager pairManager, ApiController apiController, LocalisationService localisationService)
     {
         _logger = logger;
         _dtrBar = dtrBar;
@@ -52,6 +54,12 @@ public sealed class DtrEntry : IDisposable, IHostedService
         _snowMediator = snowMediator;
         _pairManager = pairManager;
         _apiController = apiController;
+        _localisationService = localisationService;
+    }
+
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"DtrEntry.{key}", fallback);
     }
 
     public void Dispose()

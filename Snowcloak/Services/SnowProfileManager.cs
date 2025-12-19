@@ -9,25 +9,32 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.Services;
 
 public class SnowProfileManager : MediatorSubscriberBase
 {
-    private const string _noDescription = "-- User has no description set --";
-    private const string _nsfw = "Profile not displayed - NSFW";
+    private readonly string _noDescription;
+    private readonly string _nsfw;
     private readonly Lazy<ApiController> _apiController;
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _snowProfiles = new(new ProfileRequestKeyComparer());
-
-    private readonly SnowProfileData _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private);
-    private readonly SnowProfileData _loadingProfileData = new(null, false, false, string.Empty, "Loading Data from server...", ProfileVisibility.Private);
-    private readonly SnowProfileData _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private);
+    private readonly LocalisationService _localisationService;
+    private readonly SnowProfileData _defaultProfileData;
+    private readonly SnowProfileData _loadingProfileData;
+    private readonly SnowProfileData _nsfwProfileData;
 
     public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService snowcloakConfigService,
-        SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
+        SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager, LocalisationService localisationService) : base(logger, mediator)
     {
+        _noDescription = L("NoDescription", "-- User has no description set --");
+        _nsfw = L("NsfwNotice", "Profile not displayed - NSFW");
+        _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private);
+        _loadingProfileData = new(null, false, false, string.Empty, L("LoadingData", "Loading Data from server..."), ProfileVisibility.Private);
+        _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private);
         _snowcloakConfigService = snowcloakConfigService;
+        _localisationService = localisationService;
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
         _ = serverConfigurationManager;
         
@@ -46,6 +53,11 @@ public class SnowProfileManager : MediatorSubscriberBase
             }
         });
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => _snowProfiles.Clear());
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"Services.PluginWarningNotificationService.{key}", fallback);
     }
 
     public SnowProfileData GetSnowProfile(UserData data, ProfileVisibility? visibilityOverride = null)

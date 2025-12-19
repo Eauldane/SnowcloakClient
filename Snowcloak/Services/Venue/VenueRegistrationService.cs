@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -13,6 +14,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services.Housing;
+using Snowcloak.Services.Localisation;
 using Snowcloak.Services.Mediator;
 
 
@@ -31,7 +33,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
     private readonly IClientState _clientState;
     private readonly ILogger<VenueRegistrationService> _logger;
     private readonly SnowMediator _mediator;
-
+    private readonly LocalisationService _localisationService;
+    
     private HousingPlotLocation? _pendingPlot;
     private bool _wasPlacardOpen;
     private bool _loggedMissingPlacard;
@@ -39,7 +42,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
     public VenueRegistrationService(ILogger<VenueRegistrationService> logger, DalamudUtilService dalamudUtilService,
         IChatGui chatGui, IGameGui gameGui, IFramework framework, IObjectTable objectTable, IPlayerState playerState,
-        IClientState clientState, SnowMediator mediator)
+        IClientState clientState, SnowMediator mediator, LocalisationService localisationService)
     {
         _logger = logger;
         _dalamudUtilService = dalamudUtilService;
@@ -50,8 +53,14 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _playerState = playerState;
         _clientState = clientState;
         _mediator = mediator;
+        _localisationService = localisationService;
     }
-
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"Services.VenueRegistrationService.{key}", fallback);
+    }
+    
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _framework.Update += OnFrameworkUpdate;
@@ -73,7 +82,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
     {
         if (!_dalamudUtilService.TryGetLastHousingPlot(out var location))
         {
-            _chatGui.PrintError("[Snowcloak] You must stand on a housing plot to start registration.");
+            _chatGui.PrintError(L("Errors.NotOnPlot", "[Snowcloak] You must stand on a housing plot to start registration."));
             return;
         }
 
@@ -83,7 +92,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _activePlacardAddonKey = null;
         _chatGui.Print(new XivChatEntry
         {
-            Message = $"[Snowcloak] Tracking placard for {location.DisplayName}. Interact with the placard to verify ownership.",
+            Message = string.Format(CultureInfo.InvariantCulture,
+                L("Messages.TrackingPlacard", "[Snowcloak] Tracking placard for {0}. Interact with the placard to verify ownership."), location.DisplayName),
             Type = XivChatType.SystemMessage
         });
 
@@ -99,7 +109,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             || currentPlot.TerritoryId != _pendingPlot.Value.TerritoryId)
         {
             CancelPendingRegistration(
-                "[Snowcloak] Registration cancelled: you changed areas. Please start registration again from the new plot.");
+                L("Messages.RegistrationCancelled", "[Snowcloak] Registration cancelled: you changed areas. Please start registration again from the new plot."));
             return;
         }
 
@@ -187,7 +197,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 _chatGui.Print(new XivChatEntry
                 {
                     Message =
-                        "[Snowcloak] Placard closed or unavailable before details loaded. Please open the placard again.",
+                        L("Messages.PlacardUnavailable", "[Snowcloak] Placard closed or unavailable before details loaded. Please open the placard again."),
                     Type = XivChatType.SystemMessage
                 });
 
@@ -199,7 +209,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             {
                 _chatGui.Print(new XivChatEntry
                 {
-                    Message = "[Snowcloak] Placard opened, but no text could be read.",
+                    Message = L("Messages.PlacardEmpty", "[Snowcloak] Placard opened, but no text could be read. This could be a bug!"),
                     Type = XivChatType.SystemMessage
                 });
                 return;
@@ -207,7 +217,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
             _chatGui.Print(new XivChatEntry
             {
-                Message = "[Snowcloak] Placard details detected; evaluating ownership.",
+                Message = L("Messages.PlacardDetected", "[Snowcloak] Placard details detected; evaluating ownership."),
                 Type = XivChatType.SystemMessage
             });
             var placardKeywords = GetPlacardKeywords();
@@ -239,7 +249,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                                      && MatchesFreeCompanyTag(companySource!, evaluation.PlayerCompanyTag!);
 
             var matchesOwner = matchesOwnerName || matchesOwnerCompanyTag;
-
+#if DEBUG
             if (ward != null || plot != null)
             {
                 _chatGui.Print(new XivChatEntry
@@ -249,29 +259,42 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                     Type = XivChatType.SystemMessage
                 });
             }
-
+#endif
             var authorised = matchesOwner || matchesFreeCompany;
-            _chatGui.Print(new XivChatEntry
-            {
-                Message =
-                    $"[Snowcloak] Authority check -> Owner match: {matchesOwner}, Free Company match: {matchesFreeCompany}. {(authorised ? "Registration can proceed." : "Registration blocked: no authority detected.")}",
-                Type = XivChatType.SystemMessage
-            });
+            if (matchesOwner) {
+                _chatGui.Print(new XivChatEntry
+                {
+                    Message =
+                        L("Messages.PersonalConfirmed", "[Snowcloak] Authority check succeeded - you own this house. Registration can proceed."),
+                    Type = XivChatType.SystemMessage
+                });
+            }
+            if (matchesFreeCompany) {
+                _chatGui.Print(new XivChatEntry
+                {
+                    Message =
+                        L("Messages.FCConfirmed", "[Snowcloak] Authority check succeeded - your FC owns this house. Registration can proceed."),
+                    Type = XivChatType.SystemMessage
+                });
+            }
 
-            _chatGui.Print(new XivChatEntry
+            if (!authorised)
             {
-                Message = authorised
-                    ? "[Snowcloak] Ownership verification passed."
-                    : "[Snowcloak] Ownership verification failed; no authorised owner detected.",
-                Type = XivChatType.SystemMessage
-            });
+                _chatGui.Print(new XivChatEntry
+                {
+                    Message =
+                        L("Messages.Unauthorised", "[Snowcloak] Authority check failed - this plot doesn't seem to belong to you."),
+                    Type = XivChatType.SystemMessage
+                });
+            }
+            
 
             if (!authorised && !plotMatches)
             {
                 _chatGui.Print(new XivChatEntry
                 {
                     Message =
-                        "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location.",
+                        L("Messages.PlacardMismatch", "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location."),
                     Type = XivChatType.SystemMessage
                 });
             }
@@ -287,7 +310,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
                 _chatGui.Print(new XivChatEntry
                 {
-                    Message = "[Snowcloak] Opening venue registration window.",
+                    Message = L("Messages.OpeningRegistration", "[Snowcloak] Opening venue registration window."),
                     Type = XivChatType.SystemMessage
                 });
             }

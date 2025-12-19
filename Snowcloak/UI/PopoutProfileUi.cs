@@ -11,6 +11,7 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Configuration;
 using Snowcloak.Utils;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -20,6 +21,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
+    private readonly LocalisationService _localisationService;
     private Vector2 _lastMainPos = Vector2.Zero;
     private Vector2 _lastMainSize = Vector2.Zero;
     private byte[] _lastProfilePicture = [];
@@ -30,12 +32,14 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
 
     public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         ServerConfigurationManager serverManager, SnowcloakConfigService snowcloakConfigService,
-        SnowProfileManager snowProfileManager, PairManager pairManager, PerformanceCollectorService performanceCollectorService) : base(logger, mediator, "Snowcloak: User Profile###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
+        SnowProfileManager snowProfileManager, PairManager pairManager, PerformanceCollectorService performanceCollectorService, LocalisationService localisationService) : base(logger, mediator,
+        localisationService.GetString("PopoutProfileUi.WindowTitle", "Snowcloak: User Profile") + "###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _serverManager = serverManager;
         _snowProfileManager = snowProfileManager;
         _pairManager = pairManager;
+        _localisationService = localisationService;
         Flags = ImGuiWindowFlags.NoDecoration;
 
         Mediator.Subscribe<ProfilePopoutToggle>(this, (msg) =>
@@ -114,7 +118,11 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             {
                 UiSharedService.ColorText(note, ImGuiColors.DalamudGrey);
             }
-            string status = _pair.IsVisible ? "Visible" : (_pair.IsOnline ? "Online" : "Offline");
+            string status = _pair.IsVisible
+                ? _localisationService.GetString("ProfileCommon.Status.Visible", "Visible")
+                : (_pair.IsOnline
+                    ? _localisationService.GetString("ProfileCommon.Status.Online", "Online")
+                    : _localisationService.GetString("ProfileCommon.Status.Offline", "Offline"));            
             UiSharedService.ColorText(status, (_pair.IsVisible || _pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
             if (_pair.IsVisible)
             {
@@ -123,21 +131,21 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             }
             if (_pair.UserPair != null)
             {
-                ImGui.TextUnformatted("Directly paired");
+                ImGui.TextUnformatted(_localisationService.GetString("ProfileCommon.DirectlyPaired", "Directly paired"));
                 if (_pair.UserPair.OwnPermissions.IsPaused())
                 {
                     ImGui.SameLine();
-                    UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                    UiSharedService.ColorText(_localisationService.GetString("ProfileCommon.YouPaused", "You: paused"), ImGuiColors.DalamudYellow);
                 }
                 if (_pair.UserPair.OtherPermissions.IsPaused())
                 {
                     ImGui.SameLine();
-                    UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                    UiSharedService.ColorText(_localisationService.GetString("ProfileCommon.TheyPaused", "They: paused"), ImGuiColors.DalamudYellow);
                 }
             }
             if (_pair.GroupPair.Any())
             {
-                ImGui.TextUnformatted("Paired through Syncshells:");
+                ImGui.TextUnformatted(_localisationService.GetString("ProfileCommon.PairedThroughSyncshells", "Paired through Syncshells:"));
                 foreach (var groupPair in _pair.GroupPair.Select(k => k.Key))
                 {
                     var groupNote = _serverManager.GetNoteForGid(groupPair.GID);

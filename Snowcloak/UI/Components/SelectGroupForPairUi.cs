@@ -6,6 +6,7 @@ using Dalamud.Utility;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.UI.Handlers;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components;
 
@@ -14,6 +15,7 @@ public class SelectGroupForPairUi
     private readonly TagHandler _tagHandler;
     private readonly UidDisplayHandler _uidDisplayHandler;
     private readonly UiSharedService _uiSharedService;
+    private readonly LocalisationService _localisationService;
 
     /// <summary>
     /// The group UI is always open for a specific pair. This defines which pair the UI is open for.
@@ -31,13 +33,14 @@ public class SelectGroupForPairUi
     /// </summary>
     private string _tagNameToAdd = "";
 
-    public SelectGroupForPairUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler, UiSharedService uiSharedService)
+    public SelectGroupForPairUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler, UiSharedService uiSharedService, LocalisationService localisationService)
     {
         _show = false;
         _pair = null;
         _tagHandler = tagHandler;
         _uidDisplayHandler = uidDisplayHandler;
         _uiSharedService = uiSharedService;
+        _localisationService = localisationService;
     }
 
     public void Draw()
@@ -48,7 +51,7 @@ public class SelectGroupForPairUi
         }
 
         var name = PairName(_pair);
-        var popupName = $"Choose Groups for {name}";
+        var popupName = string.Format(L("ChooseGroupsTitle", "Choose Groups for {0}"), name);
         // Is the popup supposed to show but did not open yet? Open it
         if (_show)
         {
@@ -62,7 +65,7 @@ public class SelectGroupForPairUi
             var childHeight = tags.Count != 0 ? tags.Count * 25 : 1;
             var childSize = new Vector2(0, childHeight > 100 ? 100 : childHeight) * ImGuiHelpers.GlobalScale;
 
-            ImGui.TextUnformatted($"Select the groups you want {name} to be in.");
+            ImGui.TextUnformatted(string.Format(L("SelectGroupsDescription", "Select the groups you want {0} to be in."), name));
             if (ImGui.BeginChild(name + "##listGroups", childSize))
             {
                 foreach (var tag in tags)
@@ -73,13 +76,13 @@ public class SelectGroupForPairUi
             }
 
             ImGui.Separator();
-            ImGui.TextUnformatted($"Create a new group for {name}.");
+            ImGui.TextUnformatted(string.Format(L("CreateGroup", "Create a new group for {0}."), name));
             if (_uiSharedService.IconButton(FontAwesomeIcon.Plus))
             {
                 HandleAddTag();
             }
             ImGui.SameLine();
-            ImGui.InputTextWithHint("##category_name", "New Group", ref _tagNameToAdd, 40);
+            ImGui.InputTextWithHint("##category_name", L("NewGroup", "New Group"), ref _tagNameToAdd, 40);
             if (ImGui.IsKeyDown(ImGuiKey.Enter))
             {
                 HandleAddTag();
@@ -135,5 +138,10 @@ public class SelectGroupForPairUi
     private string PairName(Pair pair)
     {
         return _uidDisplayHandler.GetPlayerText(pair).text;
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"SelectGroupForPairUi.{key}", fallback);
     }
 }

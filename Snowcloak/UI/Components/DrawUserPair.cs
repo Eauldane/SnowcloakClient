@@ -1,4 +1,5 @@
-﻿using Dalamud.Bindings.ImGui;
+﻿using System.Globalization;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
@@ -12,6 +13,7 @@ using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components;
 
@@ -20,11 +22,12 @@ public class DrawUserPair : DrawPairBase
     protected readonly SnowMediator _mediator;
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly CharaDataManager _charaDataManager;
+    private readonly LocalisationService _localisationService;
     public long VramUsage { get; set; }
 
     public DrawUserPair(string id, Pair entry, UidDisplayHandler displayHandler, ApiController apiController,
         SnowMediator snowMediator, SelectGroupForPairUi selectGroupForPairUi,
-        UiSharedService uiSharedService, CharaDataManager charaDataManager)
+        UiSharedService uiSharedService, CharaDataManager charaDataManager, LocalisationService localisationService)
         : base(id, entry, apiController, displayHandler, uiSharedService)
     {
         if (_pair.UserPair == null) throw new ArgumentException("Pair must be UserPair", nameof(entry));
@@ -32,6 +35,7 @@ public class DrawUserPair : DrawPairBase
         _selectGroupForPairUi = selectGroupForPairUi;
         _mediator = snowMediator;
         _charaDataManager = charaDataManager;
+        _localisationService = localisationService;
     }
 
     public bool IsOnline => _pair.IsOnline;
@@ -48,13 +52,13 @@ public class DrawUserPair : DrawPairBase
         if (_pair.UserPair!.OwnPermissions.IsPaired() && _pair.UserPair!.OtherPermissions.IsPaired())
         {
             connectionIcon = FontAwesomeIcon.Snowflake;
-            connectionText = "You are paired with " + _pair.UserData.AliasOrUID;
+            connectionText = LF("PairedWith", "You are paired with {0}", _pair.UserData.AliasOrUID);
             connectionColor = _pair.IsOnline ? Colours._snowcloakOnline : ImGuiColors.DalamudGrey;
         }
         else
         {
             connectionIcon = FontAwesomeIcon.ArrowUp;
-            connectionText = _pair.UserData.AliasOrUID + " has not added you back";
+            connectionText = LF("NotAddedBack", "{0} has not added you back", _pair.UserData.AliasOrUID);
             connectionColor = ImGuiColors.DalamudRed;
         }
         if (_pair is { IsOnline: true, IsVisible: true })
@@ -67,21 +71,21 @@ public class DrawUserPair : DrawPairBase
                 _mediator.Publish(new TargetPairMessage(_pair));
             }
             ImGui.PopFont();
-            var visibleTooltip = _pair.UserData.AliasOrUID + " is visible: " + _pair.PlayerName! + Environment.NewLine + "Click to target this player";
+            var visibleTooltip = LF("VisibleTooltip", "{0} is visible: {1}{2}Click to target this player", _pair.UserData.AliasOrUID, _pair.PlayerName!, Environment.NewLine);
             if (_pair.LastAppliedDataBytes >= 0)
             {
                 visibleTooltip += UiSharedService.TooltipSeparator;
-                visibleTooltip += ((!_pair.IsVisible) ? "(Last) " : string.Empty) + "Mods Info" + Environment.NewLine;
-                visibleTooltip += "Files Size: " + UiSharedService.ByteToString(_pair.LastAppliedDataBytes, true);
+                visibleTooltip += ((!_pair.IsVisible) ? L("LastPrefix", "(Last) ") : string.Empty) + L("ModsInfo", "Mods Info") + Environment.NewLine;
+                visibleTooltip += L("FilesSize", "Files Size: ") + UiSharedService.ByteToString(_pair.LastAppliedDataBytes, true);
                 if (_pair.LastAppliedApproximateVRAMBytes >= 0)
                 {
                     VramUsage = _pair.LastAppliedApproximateVRAMBytes;
-                    visibleTooltip += Environment.NewLine + "Approx. VRAM Usage: " + UiSharedService.ByteToString(_pair.LastAppliedApproximateVRAMBytes, true);
+                    visibleTooltip += Environment.NewLine + L("ApproxVram", "Approx. VRAM Usage: ") + UiSharedService.ByteToString(_pair.LastAppliedApproximateVRAMBytes, true);
                 }
                 if (_pair.LastAppliedDataTris >= 0)
                 {
-                    visibleTooltip += Environment.NewLine + "Triangle Count (excl. Vanilla): "
-                        + (_pair.LastAppliedDataTris > 1000 ? (_pair.LastAppliedDataTris / 1000d).ToString("0.0'k'") : _pair.LastAppliedDataTris);
+                    visibleTooltip += Environment.NewLine + L("TriangleCount", "Triangle Count (excl. Vanilla): ")
+                                                          + (_pair.LastAppliedDataTris > 1000 ? (_pair.LastAppliedDataTris / 1000d).ToString("0.0'k'") : _pair.LastAppliedDataTris);
                 }
             }
 
@@ -113,12 +117,13 @@ public class DrawUserPair : DrawPairBase
         // Flyout Menu
         ImGui.SameLine(rightSidePos);
         ImGui.SetCursorPosY(originalY);
-
+        
+        var flyoutMenuTitle = L("UserFlyoutMenu", "User Flyout Menu");
         if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
         {
-            ImGui.OpenPopup("User Flyout Menu");
+            ImGui.OpenPopup(flyoutMenuTitle);
         }
-        if (ImGui.BeginPopup("User Flyout Menu"))
+        if (ImGui.BeginPopup(flyoutMenuTitle))
         {
             using (ImRaii.PushId($"buttons-{_pair.UserData.UID}")) DrawPairedClientMenu(_pair);
             ImGui.EndPopup();
@@ -137,8 +142,8 @@ public class DrawUserPair : DrawPairBase
                 _ = _apiController.UserSetPairPermissions(new(_pair.UserData, perm));
             }
             UiSharedService.AttachToolTip(!_pair.UserPair!.OwnPermissions.IsPaused()
-                ? "Pause pairing with " + entryUID
-                : "Resume pairing with " + entryUID);
+                ? LF("PausePairing", "Pause pairing with {0}", entryUID)
+                : LF("ResumePairing", "Resume pairing with {0}", entryUID));
 
 
             var individualSoundsDisabled = (_pair.UserPair?.OwnPermissions.IsDisableSounds() ?? false) || (_pair.UserPair?.OtherPermissions.IsDisableSounds() ?? false);
@@ -161,39 +166,39 @@ public class DrawUserPair : DrawPairBase
                 {
                     ImGui.BeginTooltip();
 
-                    ImGui.TextUnformatted("Individual User permissions");
-
+                    ImGui.TextUnformatted(L("IndividualPermissions", "Individual User permissions"));
+                    
                     if (individualSoundsDisabled)
                     {
-                        var userSoundsText = "Sound sync disabled with " + _pair.UserData.AliasOrUID;
+                        var userSoundsText = LF("SoundSyncDisabled", "Sound sync disabled with {0}", _pair.UserData.AliasOrUID);
                         _uiSharedService.IconText(FontAwesomeIcon.VolumeOff);
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
                         ImGui.TextUnformatted(userSoundsText);
                         ImGui.NewLine();
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
-                        ImGui.TextUnformatted("You: " + (_pair.UserPair!.OwnPermissions.IsDisableSounds() ? "Disabled" : "Enabled") + ", They: " + (_pair.UserPair!.OtherPermissions.IsDisableSounds() ? "Disabled" : "Enabled"));
+                        ImGui.TextUnformatted(LF("SoundStatus", "You: {0}, They: {1}", _pair.UserPair!.OwnPermissions.IsDisableSounds() ? L("Disabled", "Disabled") : L("Enabled", "Enabled"), _pair.UserPair!.OtherPermissions.IsDisableSounds() ? L("Disabled", "Disabled") : L("Enabled", "Enabled")));
                     }
 
                     if (individualAnimDisabled)
                     {
-                        var userAnimText = "Animation sync disabled with " + _pair.UserData.AliasOrUID;
+                        var userAnimText = LF("AnimationSyncDisabled", "Animation sync disabled with {0}", _pair.UserData.AliasOrUID);
                         _uiSharedService.IconText(FontAwesomeIcon.Stop);
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
                         ImGui.TextUnformatted(userAnimText);
                         ImGui.NewLine();
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
-                        ImGui.TextUnformatted("You: " + (_pair.UserPair!.OwnPermissions.IsDisableAnimations() ? "Disabled" : "Enabled") + ", They: " + (_pair.UserPair!.OtherPermissions.IsDisableAnimations() ? "Disabled" : "Enabled"));
+                        ImGui.TextUnformatted(LF("AnimationStatus", "You: {0}, They: {1}", _pair.UserPair!.OwnPermissions.IsDisableAnimations() ? L("Disabled", "Disabled") : L("Enabled", "Enabled"), _pair.UserPair!.OtherPermissions.IsDisableAnimations() ? L("Disabled", "Disabled") : L("Enabled", "Enabled")));
                     }
 
                     if (individualVFXDisabled)
                     {
-                        var userVFXText = "VFX sync disabled with " + _pair.UserData.AliasOrUID;
+                        var userVFXText = LF("VfxSyncDisabled", "VFX sync disabled with {0}", _pair.UserData.AliasOrUID);
                         _uiSharedService.IconText(FontAwesomeIcon.Circle);
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
                         ImGui.TextUnformatted(userVFXText);
                         ImGui.NewLine();
                         ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
-                        ImGui.TextUnformatted("You: " + (_pair.UserPair!.OwnPermissions.IsDisableVFX() ? "Disabled" : "Enabled") + ", They: " + (_pair.UserPair!.OtherPermissions.IsDisableVFX() ? "Disabled" : "Enabled"));
+                        ImGui.TextUnformatted(LF("VfxStatus", "You: {0}, They: {1}", _pair.UserPair!.OwnPermissions.IsDisableVFX() ? L("Disabled", "Disabled") : L("Enabled", "Enabled"), _pair.UserPair!.OtherPermissions.IsDisableVFX() ? L("Disabled", "Disabled") : L("Enabled", "Enabled")));
                     }
 
                     ImGui.EndTooltip();
@@ -210,8 +215,8 @@ public class DrawUserPair : DrawPairBase
             ImGui.SameLine(rightSidePos);
             _uiSharedService.IconText(icon);
 
-            UiSharedService.AttachToolTip($"This user has shared {sharedData.Count} Character Data Sets with you." + UiSharedService.TooltipSeparator
-                + "Click to open the Character Data Hub and show the entries.");
+            UiSharedService.AttachToolTip(LF("SharedData", "This user has shared {0} Character Data Sets with you.", sharedData.Count) + UiSharedService.TooltipSeparator
+                + L("OpenCharaHub", "Click to open the Character Data Hub and show the entries."));
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
@@ -226,7 +231,7 @@ public class DrawUserPair : DrawPairBase
     {
         if (entry.IsVisible)
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Eye, "Target player"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Eye, L("TargetPlayer", "Target player")))
             {
                 _mediator.Publish(new TargetPairMessage(entry));
                 ImGui.CloseCurrentPopup();
@@ -234,44 +239,44 @@ public class DrawUserPair : DrawPairBase
         }
         if (!entry.IsPaused)
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.User, "Open Profile"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.User, L("OpenProfile", "Open Profile")))
             {
                 _displayHandler.OpenProfile(entry);
                 ImGui.CloseCurrentPopup();
             }
-            UiSharedService.AttachToolTip("Opens the profile for this user in a new window");
+            UiSharedService.AttachToolTip(L("OpenProfileTooltip", "Opens the profile for this user in a new window"));
         }
         if (entry.IsVisible)
         {
 #if DEBUG
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.PersonCircleQuestion, "Open Analysis"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.PersonCircleQuestion, L("OpenAnalysis", "Open Analysis")))
             {
                 _displayHandler.OpenAnalysis(_pair);
                 ImGui.CloseCurrentPopup();
             }
 #endif
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Sync, "Reload last data"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Sync, L("ReloadLastData", "Reload last data")))
             {
                 entry.ApplyLastReceivedData(forced: true);
                 ImGui.CloseCurrentPopup();
             }
-            UiSharedService.AttachToolTip("This reapplies the last received character data to this character");
+            UiSharedService.AttachToolTip(L("ReloadTooltip", "This reapplies the last received character data to this character"));
         }
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Cycle pause state"))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, L("CyclePause", "Cycle pause state")))
         {
             _ = _apiController.CyclePause(entry.UserData);
             ImGui.CloseCurrentPopup();
         }
         var entryUID = entry.UserData.AliasOrUID;
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Folder, "Pair Groups"))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Folder, L("PairGroups", "Pair Groups")))
         {
             _selectGroupForPairUi.Open(entry);
         }
-        UiSharedService.AttachToolTip("Choose pair groups for " + entryUID);
+        UiSharedService.AttachToolTip(LF("PairGroupsTooltip", "Choose pair groups for {0}", entryUID));
 
         var isDisableSounds = entry.UserPair!.OwnPermissions.IsDisableSounds();
-        string disableSoundsText = isDisableSounds ? "Enable sound sync" : "Disable sound sync";
+        string disableSoundsText = isDisableSounds ? L("EnableSound", "Enable sound sync") : L("DisableSound", "Disable sound sync");
         var disableSoundsIcon = isDisableSounds ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute;
         if (_uiSharedService.IconTextButton(disableSoundsIcon, disableSoundsText))
         {
@@ -281,7 +286,7 @@ public class DrawUserPair : DrawPairBase
         }
 
         var isDisableAnims = entry.UserPair!.OwnPermissions.IsDisableAnimations();
-        string disableAnimsText = isDisableAnims ? "Enable animation sync" : "Disable animation sync";
+        string disableAnimsText = isDisableAnims ? L("EnableAnimations", "Enable animation sync") : L("DisableAnimations", "Disable animation sync");
         var disableAnimsIcon = isDisableAnims ? FontAwesomeIcon.Running : FontAwesomeIcon.Stop;
         if (_uiSharedService.IconTextButton(disableAnimsIcon, disableAnimsText))
         {
@@ -291,7 +296,7 @@ public class DrawUserPair : DrawPairBase
         }
 
         var isDisableVFX = entry.UserPair!.OwnPermissions.IsDisableVFX();
-        string disableVFXText = isDisableVFX ? "Enable VFX sync" : "Disable VFX sync";
+        string disableVFXText = isDisableVFX ? L("EnableVfx", "Enable VFX sync") : L("DisableVfx", "Disable VFX sync");
         var disableVFXIcon = isDisableVFX ? FontAwesomeIcon.Sun : FontAwesomeIcon.Circle;
         if (_uiSharedService.IconTextButton(disableVFXIcon, disableVFXText))
         {
@@ -300,10 +305,20 @@ public class DrawUserPair : DrawPairBase
             _ = _apiController.UserSetPairPermissions(new UserPermissionsDto(entry.UserData, permissions));
         }
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Unpair Permanently") && UiSharedService.CtrlPressed())
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, L("Unpair", "Unpair Permanently")) && UiSharedService.CtrlPressed())
         {
             _ = _apiController.UserRemovePair(new(entry.UserData));
         }
-        UiSharedService.AttachToolTip("Hold CTRL and click to unpair permanently from " + entryUID);
+        UiSharedService.AttachToolTip(LF("UnpairTooltip", "Hold CTRL and click to unpair permanently from {0}", entryUID));
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"DrawUserPair.{key}", fallback);
+    }
+
+    private string LF(string key, string fallback, params object[] args)
+    {
+        return string.Format(CultureInfo.CurrentCulture, L(key, fallback), args);
     }
 }

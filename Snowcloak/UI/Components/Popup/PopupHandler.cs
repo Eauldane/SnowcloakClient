@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components.Popup;
 
@@ -14,10 +15,11 @@ public class PopupHandler : WindowMediatorSubscriberBase
     protected bool _openPopup = false;
     private readonly HashSet<IPopupHandler> _handlers;
     private readonly UiSharedService _uiSharedService;
+    private readonly LocalisationService _localisationService;
     private IPopupHandler? _currentHandler = null;
 
     public PopupHandler(ILogger<PopupHandler> logger, SnowMediator mediator, IEnumerable<IPopupHandler> popupHandlers,
-        PerformanceCollectorService performanceCollectorService, UiSharedService uiSharedService)
+        PerformanceCollectorService performanceCollectorService, UiSharedService uiSharedService, LocalisationService localisationService)
         : base(logger, mediator, "SnowPopupHandler", performanceCollectorService)
     {
         Flags = ImGuiWindowFlags.NoBringToFrontOnFocus
@@ -33,6 +35,7 @@ public class PopupHandler : WindowMediatorSubscriberBase
         IsOpen = true;
 
         _handlers = popupHandlers.ToHashSet();
+        _localisationService = localisationService;
 
         Mediator.Subscribe<OpenReportPopupMessage>(this, (msg) =>
         {
@@ -86,10 +89,15 @@ public class PopupHandler : WindowMediatorSubscriberBase
         if (_currentHandler.ShowClose)
         {
             ImGui.Separator();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L("Close", "Close")))
             {
                 ImGui.CloseCurrentPopup();
             }
         }
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"PopupHandler.{key}", fallback);
     }
 }

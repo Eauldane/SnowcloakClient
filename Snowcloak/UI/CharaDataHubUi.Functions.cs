@@ -8,26 +8,26 @@ namespace Snowcloak.UI;
 
 internal sealed partial class CharaDataHubUi
 {
-	private static string GetAccessTypeString(AccessTypeDto dto) => dto switch
-	{
-		AccessTypeDto.AllPairs => "All Pairs",
-		AccessTypeDto.ClosePairs => "Direct Pairs",
-		AccessTypeDto.Individuals => "Specified",
-		AccessTypeDto.Public => "Everyone",
+    private string GetAccessTypeString(AccessTypeDto dto) => dto switch
+    {
+        AccessTypeDto.AllPairs => L("AccessType.AllPairs", "All Pairs"),
+        AccessTypeDto.ClosePairs => L("AccessType.ClosePairs", "Direct Pairs"),
+        AccessTypeDto.Individuals => L("AccessType.Individuals", "Specified"),
+        AccessTypeDto.Public => L("AccessType.Public", "Everyone"),
         _ => ((int)dto).ToString()
 	};
 
-	private static string GetShareTypeString(ShareTypeDto dto) => dto switch
+    private string GetShareTypeString(ShareTypeDto dto) => dto switch
     {
-        ShareTypeDto.Private => "Code Only",
-        ShareTypeDto.Shared => "Shared",
+        ShareTypeDto.Private => L("ShareType.Private", "Code Only"),
+        ShareTypeDto.Shared => L("ShareType.Shared", "Shared"),
         _ => ((int)dto).ToString()
     };
 
-	private static string GetWorldDataTooltipText(PoseEntryExtended poseEntry)
+	private string GetWorldDataTooltipText(PoseEntryExtended poseEntry)
 	{
-		if (!poseEntry.HasWorldData) return "This Pose has no world data attached.";
-		return poseEntry.WorldDataDescriptor;
+        if (!poseEntry.HasWorldData) return L("WorldData.None", "This Pose has no world data attached.");
+        return poseEntry.WorldDataDescriptor;
 	}
 
 
@@ -41,38 +41,38 @@ internal sealed partial class CharaDataHubUi
 		void AddErrorStart(StringBuilder sb)
 		{
 			sb.Append(UiSharedService.TooltipSeparator);
-			sb.AppendLine("Cannot execute:");
-		}
+            sb.AppendLine(L("Gpose.ActionCannotExecute", "Cannot execute:"));
+        }
 
 		if (dto == null)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- No metainfo present");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NoMetainfo", "- No metainfo present"));
+            isDisabled = true;
 		}
 		if (!dto?.CanBeDownloaded ?? false)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Character is not downloadable");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NotDownloadable", "- Character is not downloadable"));
+            isDisabled = true;
 		}
 		if (!_uiSharedService.IsInGpose)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires to be in GPose");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NotInGpose", "- Requires to be in GPose"));
+            isDisabled = true;
 		}
 		if (!hasValidGposeTarget && !isSpawning)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires a valid GPose target");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NoTarget", "- Requires a valid GPose target"));
+            isDisabled = true;
 		}
 		if (isSpawning && !_charaDataManager.BrioAvailable)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires Brio to be installed.");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.BrioRequired", "- Requires Brio to be installed."));
+            isDisabled = true;
 		}
 
 		using (ImRaii.Group())
@@ -96,26 +96,26 @@ internal sealed partial class CharaDataHubUi
 		void AddErrorStart(StringBuilder sb)
 		{
 			sb.Append(UiSharedService.TooltipSeparator);
-			sb.AppendLine("Cannot execute:");
-		}
+            sb.AppendLine(L("Gpose.ActionCannotExecute", "Cannot execute:"));
+        }
 
 		if (!_uiSharedService.IsInGpose)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires to be in GPose");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NotInGpose", "- Requires to be in GPose"));
+            isDisabled = true;
 		}
 		if (!hasValidGposeTarget)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires a valid GPose target");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.NoTarget", "- Requires a valid GPose target"));
+            isDisabled = true;
 		}
 		if (!_charaDataManager.BrioAvailable)
 		{
 			if (!isDisabled) AddErrorStart(sb);
-			sb.AppendLine("- Requires Brio to be installed.");
-			isDisabled = true;
+            sb.AppendLine(L("Gpose.Error.BrioRequired", "- Requires Brio to be installed."));
+            isDisabled = true;
 		}
 
 		using (ImRaii.Group())

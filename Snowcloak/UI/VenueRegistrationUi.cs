@@ -12,6 +12,7 @@ using Snowcloak.Services.Venue;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -21,7 +22,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private readonly UiSharedService _uiSharedService;
     private readonly PairManager _pairManager;
     private ILogger<VenueRegistrationUi> _logger;
-
+    private readonly LocalisationService _localisationService;
     private readonly List<GroupFullInfoDto> _adminGroups = new();
 
     private VenueRegistrationContext? _context;
@@ -38,12 +39,13 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private CancellationTokenSource? _prefillCancellation;
 
     public VenueRegistrationUi(ILogger<VenueRegistrationUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        ApiController apiController, PairManager pairManager, PerformanceCollectorService performanceCollectorService)
-        : base(logger, mediator, "Snowcloak Venue Registration###SnowcloakVenueRegistration", performanceCollectorService)
+        ApiController apiController, PairManager pairManager, PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
+        : base(logger, mediator, localisationService.GetString("VenueRegistrationUI.WindowTitle", "Snowcloak Venue Registration###SnowcloakVenueRegistration"), performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _apiController = apiController;
         _pairManager = pairManager;
+        _localisationService = localisationService;
         _logger = logger;
 
         SizeConstraints = new WindowSizeConstraints
@@ -55,6 +57,11 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         Mediator.Subscribe<OpenVenueRegistrationWindowMessage>(this, OnOpenRegistrationWindow);
     }
 
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"GroupPanel.{key}", fallback);
+    }
+    
     private void OnOpenRegistrationWindow(OpenVenueRegistrationWindowMessage message)
     {
         _prefillCancellation?.Cancel();
@@ -92,37 +99,37 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     {
         if (_context == null)
         {
-            UiSharedService.ColorTextWrapped("No pending venue registration. Use /snowvenuereg to verify a placard first.",
+            UiSharedService.ColorTextWrapped(L("NoPendingRegistration", "No pending venue registration. Use /snowvenuereg to verify a placard first."),
                 ImGuiColors.DalamudGrey);
             return;
         }
 
         RefreshAdminGroups();
 
-        _uiSharedService.BigText("Plot details");
+        _uiSharedService.BigText(L("PlotDetails", "Plot details"));
         ImGui.TextUnformatted(_context.Location.FriendlyName);
-        ImGui.TextUnformatted($"Placard owner: {_context.OwnerName ?? "Unknown"}");
+        ImGui.TextUnformatted(string.Format(L("PlacardOwner", "Placard owner: {0}"), _context.OwnerName ?? L("Unknown", "Unknown")));
         ImGui.TextUnformatted(_context.AuthorisedByFreeCompany
-            ? "Plot Type: Free Company"
-            : "Plot Type: Personal ownership");
+            ? L("PlotTypeFreeCompany", "Plot Type: Free Company")
+            : L("PlotTypePersonal", "Plot Type: Personal ownership"));
         if (_context.AuthorisedByFreeCompany)
         {
             ImGui.TextUnformatted(_context.FreeCompanyTag != null
-                ? $"Free Company tag: {_context.FreeCompanyTag}"
-                : "Free Company tag: None detected");
+                ? string.Format(L("FreeCompanyTag", "Free Company tag: {0}"), _context.FreeCompanyTag)
+                : L("FreeCompanyTagMissing", "Free Company tag: None detected"));
         }
 
         ImGui.Separator();
-        _uiSharedService.BigText("Select syncshell");
+        _uiSharedService.BigText(L("SelectSyncshell", "Select syncshell"));
 
         if (_adminGroups.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("You must own or moderate a syncshell to register a venue.", ImGuiColors.DalamudRed);
+            UiSharedService.ColorTextWrapped(L("NoAdminGroups", "You must own or moderate a syncshell to register a venue."), ImGuiColors.DalamudRed);
         }
         else
         {
             if (_isEditingExistingVenue)
-                UiSharedService.ColorTextWrapped("Syncshell association cannot be changed for an existing venue.", ImGuiColors.DalamudGrey);
+                UiSharedService.ColorTextWrapped(L("SyncshellAssociationLocked", "Syncshell association cannot be changed for an existing venue."), ImGuiColors.DalamudGrey);
 
             ImGui.BeginDisabled(_isEditingExistingVenue);
             var previousSelectedGroup = _selectedGroupGid;
@@ -143,37 +150,37 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
                 ImGui.EndCombo();
             }
-            UiSharedService.AttachToolTip("Choose which syncshell will own this venue entry.");
+            UiSharedService.AttachToolTip(L("SelectSyncshellTooltip", "Choose which syncshell will own this venue entry."));
             ImGui.EndDisabled();
             
             if (!string.Equals(previousSelectedGroup, _selectedGroupGid, StringComparison.Ordinal))
                 _syncshellAlias = GetSyncshellAliasOrDefault(_selectedGroupGid);
         }
         ImGui.Separator();
-        _uiSharedService.BigText("Venue details");
-
-        ImGui.InputText("Venue name", ref _venueName, 100);
-        UiSharedService.AttachToolTip("Required: this is the display name shown to visitors.");
-        ImGui.InputText("Syncshell name", ref _syncshellAlias, 100);
+        _uiSharedService.BigText(L("VenueDetails", "Venue details"));
         
-        UiSharedService.AttachToolTip("Optional: set how this syncshell should appear; the server applies it as the syncshell alias.");
+        ImGui.InputText(L("VenueName", "Venue name"), ref _venueName, 100);
+        UiSharedService.AttachToolTip(L("VenueNameTooltip", "Required: this is the display name shown to visitors."));
+        ImGui.InputText(L("SyncshellName", "Syncshell name"), ref _syncshellAlias, 100);
 
-        ImGui.ColorEdit3("Venue name colour", ref _venueNameColour,
+        UiSharedService.AttachToolTip(L("SyncshellAliasTooltip", "Optional: set how this syncshell should appear; the server applies it as the syncshell alias."));
+
+        ImGui.ColorEdit3(L("VenueNameColour", "Venue name colour"), ref _venueNameColour,
             ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8);
-        UiSharedService.AttachToolTip("Leave as white to use the default syncshell colour, or pick a custom override for the venue name.");
+        UiSharedService.AttachToolTip(L("VenueNameColourTooltip", "Leave as white to use the default syncshell colour, or pick a custom override for the venue name."));
+        
+        ImGui.InputText(L("VenueHost", "Host / contact"), ref _venueHost, 200);
+        UiSharedService.AttachToolTip(L("VenueHostTooltip", "Optional: who should be listed as the venue host."));
 
-        ImGui.InputText("Host / contact", ref _venueHost, 200);
-        UiSharedService.AttachToolTip("Optional: who should be listed as the venue host.");
+        ImGui.InputText(L("VenueWebsite", "Website"), ref _venueWebsite, 200);
+        UiSharedService.AttachToolTip(L("VenueWebsiteTooltip", "Optional: external link for the venue."));
 
-        ImGui.InputText("Website", ref _venueWebsite, 200);
-        UiSharedService.AttachToolTip("Optional: external link for the venue.");
-
-        ImGui.TextUnformatted("Description");
+        ImGui.TextUnformatted(L("VenueDescription", "Description"));
         ImGui.InputTextMultiline("##VenueDescription", ref _venueDescription, 2000,
             ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120));
-        UiSharedService.AttachToolTip("Optional: a short description shown on the venue listing.");
-
-        ImGui.TextUnformatted("Preview (BBCode renderer)");
+        UiSharedService.AttachToolTip(L("VenueDescriptionTooltip", "Optional: a short description shown on the venue listing."));
+        
+        ImGui.TextUnformatted(L("BbCodePreview", "Preview (BBCode renderer)"));
         if (ImGui.BeginChild("##VenueDescriptionPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))
         {
             _uiSharedService.RenderBbCode(_venueDescription, ImGui.GetContentRegionAvail().X);
@@ -186,7 +193,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         if (!_apiController.IsConnected)
         {
-            UiSharedService.ColorTextWrapped("You must be connected to Snowcloak to submit a venue registration.",
+            UiSharedService.ColorTextWrapped(L("MustBeConnected", "You must be connected to Snowcloak to submit a venue registration."),
                 ImGuiColors.DalamudYellow);
         }
 
@@ -196,7 +203,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         }
 
         ImGui.BeginDisabled(!canSubmit);
-        if (ImGui.Button(_isSubmitting ? "Submitting..." : "Submit", ImGuiHelpers.ScaledVector2(200, 0)))
+        if (ImGui.Button(_isSubmitting ? L("Submitting", "Submitting...") : L("Submit", "Submit"), ImGuiHelpers.ScaledVector2(200, 0)))
         {
             SubmitRegistration();
         }
@@ -231,8 +238,8 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private string GetGroupLabel(string? gid)
     {
         if (gid == null)
-            return "Select a syncshell";
-
+            return L("SelectSyncshellPlaceholder", "Select a syncshell");
+        
         var group = _adminGroups.FirstOrDefault(g => string.Equals(g.Group.GID, gid, StringComparison.Ordinal));
         return group?.Group.AliasOrGID ?? gid;
     }
@@ -275,13 +282,13 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
                 var response = await _apiController.VenueRegister(request).ConfigureAwait(false);
                 _statusMessage = response.Success
-                    ? (response.WasUpdate ? "Venue registration updated." : "Venue registration submitted.")
-                    : (response.ErrorMessage ?? "Registration failed.");
+                    ? (response.WasUpdate ? L("RegistrationUpdated", "Venue registration updated.") : L("RegistrationSubmitted", "Venue registration submitted."))
+                    : (response.ErrorMessage ?? L("RegistrationFailed", "Registration failed."));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to submit venue registration");
-                _statusMessage = "An error occurred while submitting the registration.";
+                _logger.LogError(ex, L("SubmitRegistrationErrorLog", "Failed to submit venue registration"));
+                _statusMessage = L("SubmitRegistrationError", "An error occurred while submitting the registration.");
             }
             finally
             {

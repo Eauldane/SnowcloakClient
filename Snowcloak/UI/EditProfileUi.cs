@@ -14,6 +14,7 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Snowcloak.API.Data.Enum;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -33,11 +34,12 @@ public class EditProfileUi : WindowMediatorSubscriberBase
     private string _showFileDialogError = string.Empty;
     private bool _wasOpen;
     private ProfileVisibility _editingVisibility = ProfileVisibility.Private;
+    private readonly LocalisationService _localisationService;
 
     public EditProfileUi(ILogger<EditProfileUi> logger, SnowMediator mediator,
         ApiController apiController, UiSharedService uiSharedService, FileDialogManager fileDialogManager,
         ServerConfigurationManager serverConfigurationManager,
-        SnowProfileManager snowProfileManager, PerformanceCollectorService performanceCollectorService)
+        SnowProfileManager snowProfileManager, PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
         : base(logger, mediator, "Snowcloak Profile Editor###SnowcloakSyncEditProfileUI", performanceCollectorService)
     {
         IsOpen = false;
@@ -51,7 +53,9 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         _fileDialogManager = fileDialogManager;
         _serverConfigurationManager = serverConfigurationManager;
         _snowProfileManager = snowProfileManager;
+        _localisationService = localisationService;
 
+        WindowName = $"{L("Title", "Snowcloak Profile Editor")}###SnowcloakSyncEditProfileUI";
         Mediator.Subscribe<GposeStartMessage>(this, (_) => { _wasOpen = IsOpen; IsOpen = false; });
         Mediator.Subscribe<GposeEndMessage>(this, (_) => IsOpen = _wasOpen);
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => IsOpen = false);
@@ -65,26 +69,31 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         });
     }
 
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"EditProfileUi.{key}", fallback);
+    }
+    
     protected override void DrawInternal()
     {
-        ImGui.TextUnformatted("Select which profile to edit");
-        if (ImGui.RadioButton("Private", _editingVisibility == ProfileVisibility.Private))
+        ImGui.TextUnformatted(L("SelectProfilePrompt", "Select which profile to edit"));
+        if (ImGui.RadioButton(L("PrivateLabel", "Private"), _editingVisibility == ProfileVisibility.Private))
         {
             SwitchEditingVisibility(ProfileVisibility.Private);
         }
         ImGui.SameLine();
-        if (ImGui.RadioButton("Public", _editingVisibility == ProfileVisibility.Public))
+        if (ImGui.RadioButton(L("PublicLabel", "Public"), _editingVisibility == ProfileVisibility.Public))
         {
             SwitchEditingVisibility(ProfileVisibility.Public);
         }
-        _uiSharedService.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Frostbrand profile requests.");
-
+        _uiSharedService.DrawHelpText(L("ProfileSelectionHelp", "Private profiles are shared with pairs; public profiles are visible to Frostbrand profile requests."));
+        
         ImGui.Separator();
-        _uiSharedService.BigText("Current Profile (as saved on server)");
-
+        _uiSharedService.BigText(L("CurrentProfileHeader", "Current Profile (as saved on server)"));
+        
         var profile = _snowProfileManager.GetSnowProfile(new UserData(_apiController.UID), _editingVisibility);
 
-        UiSharedService.ColorTextWrapped($"Active variant: {profile.Visibility} profile", ImGuiColors.DalamudGrey);
+        UiSharedService.ColorTextWrapped(string.Format(L("ActiveVariant", "Active variant: {0} profile"), profile.Visibility), ImGuiColors.DalamudGrey);
         
         if (profile.IsFlagged)
         {
@@ -131,24 +140,24 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
         var nsfw = profile.IsNSFW;
         ImGui.BeginDisabled();
-        ImGui.Checkbox("Is NSFW", ref nsfw);
+        ImGui.Checkbox(L("IsNsfwLabel", "Is NSFW"), ref nsfw);
         ImGui.EndDisabled();
 
         ImGui.Separator();
-        _uiSharedService.BigText("Rules and Guidelines");
-        UiSharedService.ColorTextWrapped("Users that are paired with you (not paused) will be able to see your profile picture and description.", ImGuiColors.DalamudWhite);
-        UiSharedService.ColorTextWrapped("All users have the capability to report your profile if it violates the rules.", ImGuiColors.DalamudGrey);
-        UiSharedService.ColorTextWrapped(" - Please do NOT upload anything that can be considered highly illegal or obscene (beastiality, sexual acts depicting minors or anything representing a minor (including Lalafel), etc.)", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - Please avoid the use of slurs, hate speech, threatening behaviour, etc.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - In the event we receive a report of an offensive profile, we may disable your profile forever or terminate your Snowcloak service account.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - You may not appeal any bans of your profile and or Snowcloak service account.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped("Users who wish to mark their profile as NSFW should enable the toggle below.", ImGuiColors.DalamudWhite);
+        _uiSharedService.BigText(L("RulesHeader", "Rules and Guidelines"));
+        UiSharedService.ColorTextWrapped(L("RulePairedVisibility", "Users that are paired with you (not paused) will be able to see your profile picture and description."), ImGuiColors.DalamudWhite);
+        UiSharedService.ColorTextWrapped(L("RuleReporting", "All users have the capability to report your profile if it violates the rules."), ImGuiColors.DalamudGrey);
+        UiSharedService.ColorTextWrapped(L("RuleIllegalContent", " - Please do NOT upload anything that can be considered highly illegal or obscene (beastiality, sexual acts depicting minors or anything representing a minor (including Lalafel), etc.)"), ImGuiColors.DalamudRed);
+        UiSharedService.ColorTextWrapped(L("RuleHateSpeech", " - Please avoid the use of slurs, hate speech, threatening behaviour, etc."), ImGuiColors.DalamudRed);
+        UiSharedService.ColorTextWrapped(L("RuleOffensiveConsequences", " - In the event we receive a report of an offensive profile, we may disable your profile forever or terminate your Snowcloak service account."), ImGuiColors.DalamudRed);
+        UiSharedService.ColorTextWrapped(L("RuleNoAppeal", " - You may not appeal any bans of your profile and or Snowcloak service account."), ImGuiColors.DalamudRed);
+        UiSharedService.ColorTextWrapped(L("RuleNsfwToggle", "Users who wish to mark their profile as NSFW should enable the toggle below."), ImGuiColors.DalamudWhite);
         ImGui.Separator();
-        _uiSharedService.BigText("Profile Settings");
-        UiSharedService.ColorTextWrapped("Profile pictures must be cropped to 256x256px and have a file size of 250KiB or smaller.", ImGuiColors.DalamudGrey);
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.FileUpload, "Upload new profile picture"))
+        _uiSharedService.BigText(L("ProfileSettingsHeader", "Profile Settings"));
+        UiSharedService.ColorTextWrapped(L("ProfilePictureRequirements", "Profile pictures must be cropped to 256x256px and have a file size of 250KiB or smaller."), ImGuiColors.DalamudGrey);
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.FileUpload, L("UploadProfilePicture", "Upload new profile picture")))
         {
-            _fileDialogManager.OpenFileDialog("Select new Profile picture", ".png", (success, file) =>
+            _fileDialogManager.OpenFileDialog(L("SelectProfilePictureTitle", "Select new Profile picture"), ".png", (success, file) =>
             {
                 if (!success) return;
                 _ = Task.Run(async () =>
@@ -159,7 +168,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
                     if (format.Width > 256 || format.Height > 256 || (fileContent.Length > 250 * 1024))
                     {
-                        _showFileDialogError = format.Width > 256 || format.Height > 256 ? "ERROR: Image dimensions must be 256x256px or smaller." : fileContent.Length > 250 * 1024 ? "ERROR: File size was bigger than 250KiB" : "ERROR: An unknown error has occured.";
+                        _showFileDialogError = format.Width > 256 || format.Height > 256 ? L("ErrorImageDimensions", "ERROR: Image dimensions must be 256x256px or smaller.") : fileContent.Length > 250 * 1024 ? L("ErrorFileSize", "ERROR: File size was bigger than 250KiB") : L("ErrorUnknown", "ERROR: An unknown error has occured.");
                         return;
                     }
                     _showFileDialogError = string.Empty;
@@ -168,29 +177,29 @@ public class EditProfileUi : WindowMediatorSubscriberBase
                 });
             });
         }
-        UiSharedService.AttachToolTip("Select and upload a new profile picture");
+        UiSharedService.AttachToolTip(L("UploadProfilePictureTooltip", "Select and upload a new profile picture"));
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear uploaded profile picture"))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, L("ClearProfilePicture", "Clear uploaded profile picture")))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, "", Description: null, Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Clear your currently uploaded profile picture");
+        UiSharedService.AttachToolTip(L("ClearProfilePictureTooltip", "Clear your currently uploaded profile picture"));
         if (!_showFileDialogError.IsNullOrEmpty())
         {
             UiSharedService.ColorTextWrapped(_showFileDialogError, ImGuiColors.DalamudRed);
         }
         var isNsfw = profile.IsNSFW;
-        if (ImGui.Checkbox("Profile is NSFW", ref isNsfw))
+        if (ImGui.Checkbox(L("ProfileIsNsfwLabel", "Profile is NSFW"), ref isNsfw))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, isNsfw, ProfilePictureBase64: null, Description: null, Visibility: _editingVisibility));
         }
-        _uiSharedService.DrawHelpText("If your profile description or image can be considered NSFW, toggle this to ON");
+        _uiSharedService.DrawHelpText(L("ProfileIsNsfwHelp", "If your profile description or image can be considered NSFW, toggle this to ON"));
         var widthTextBox = 400;
         var posX = ImGui.GetCursorPosX();
-        ImGui.TextUnformatted($"Description {_descriptionText.Length}/1500");
+        ImGui.TextUnformatted(string.Format(L("DescriptionCounter", "Description {0}/1500"), _descriptionText.Length));
         ImGui.SetCursorPosX(posX);
         ImGuiHelpers.ScaledRelativeSameLine(widthTextBox, ImGui.GetStyle().ItemSpacing.X);
-        ImGui.TextUnformatted("Preview (approximate)");
+        ImGui.TextUnformatted(L("PreviewLabel", "Preview (approximate)"));
         using (_uiSharedService.GameFont.Push())
             ImGui.InputTextMultiline("##description", ref _descriptionText, 1500, ImGuiHelpers.ScaledVector2(widthTextBox, 200));
 
@@ -213,17 +222,17 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             ImGui.EndChildFrame();
         }
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Description"))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, L("SaveDescription", "Save Description")))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, _descriptionText, Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Sets your profile description text");
+        UiSharedService.AttachToolTip(L("SaveDescriptionHelp", "Sets your profile description text"));
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear Description"))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, L("ClearDescription", "Clear Description")))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, "", Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Clears your profile description text");
+        UiSharedService.AttachToolTip(L("ClearDescriptionTooltip", "Clears your profile description text"));
     }
 
     protected override void Dispose(bool disposing)

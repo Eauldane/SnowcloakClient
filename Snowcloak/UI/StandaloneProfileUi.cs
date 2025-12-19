@@ -13,6 +13,7 @@ using Snowcloak.Utils;
 using System.Numerics;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -23,18 +24,22 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
+    private readonly LocalisationService _localisationService;
     private bool _adjustedForScrollBars = false;
     private byte[] _lastProfilePicture = [];
     private IDalamudTextureWrap? _textureWrap;
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiBuilder,
         ServerConfigurationManager serverManager, SnowProfileManager snowProfileManager, PairManager pairManager, Pair? pair,
-        UserData userData, ProfileVisibility? requestedVisibility, PerformanceCollectorService performanceCollector)
-        : base(logger, mediator, "Profile of " + userData.AliasOrUID + "##SnowcloakSyncStandaloneProfileUI" + userData.AliasOrUID + requestedVisibility, performanceCollector)
+        UserData userData, ProfileVisibility? requestedVisibility, PerformanceCollectorService performanceCollector, LocalisationService localisationService)
+        : base(logger, mediator,
+            localisationService.GetString("StandaloneProfileUi.WindowTitle", $"Profile of {userData.AliasOrUID}") +
+            "##SnowcloakSyncStandaloneProfileUI" + userData.AliasOrUID + requestedVisibility, performanceCollector)
     {
         _uiSharedService = uiBuilder;
         _serverManager = serverManager;
         _snowProfileManager = snowProfileManager;
+        _localisationService = localisationService;
         pair ??= pairManager.GetPairByUID(userData.UID);
         Pair = pair;
         UserData = userData;
@@ -60,6 +65,8 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
 
             var snowProfile = _snowProfileManager.GetSnowProfile(UserData, _requestedVisibility);
             
+            var reportLabel = _localisationService.GetString("ProfileCommon.ReportProfile", "Report Profile");
+            
             if (_textureWrap == null || !snowProfile.ImageData.Value.SequenceEqual(_lastProfilePicture))
             {
                 _textureWrap?.Dispose();
@@ -76,11 +83,11 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                 UiSharedService.ColorText(UserData.AliasOrUID, Colours.Hex2Vector4(UserData.DisplayColour));
 
             
-            var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, "Report Profile");
+            var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
             ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - reportButtonSize);
             var canReport = Pair != null;
             if (!canReport) ImGui.BeginDisabled();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile") && Pair != null)
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExclamationTriangle, reportLabel) && Pair != null)
                 Mediator.Publish(new OpenReportPopupMessage(Pair));
             if (!canReport) ImGui.EndDisabled();
             
@@ -124,7 +131,11 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             
             if (Pair != null)
             {
-                string status = Pair.IsVisible ? "Visible" : (Pair.IsOnline ? "Online" : "Offline");
+                string status = Pair.IsVisible
+                    ? _localisationService.GetString("ProfileCommon.Status.Visible", "Visible")
+                    : (Pair.IsOnline
+                        ? _localisationService.GetString("ProfileCommon.Status.Online", "Online")
+                        : _localisationService.GetString("ProfileCommon.Status.Offline", "Offline"));
                 UiSharedService.ColorText(status, (Pair.IsVisible || Pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
                 if (Pair.IsVisible)
                 {
@@ -133,23 +144,23 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                 }
                 if (Pair.UserPair != null)
                 {
-                    ImGui.TextUnformatted("Directly paired");
+                    ImGui.TextUnformatted(_localisationService.GetString("ProfileCommon.DirectlyPaired", "Directly paired"));
                     if (Pair.UserPair.OwnPermissions.IsPaused())
                     {
                         ImGui.SameLine();
-                        UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                        UiSharedService.ColorText(_localisationService.GetString("ProfileCommon.YouPaused", "You: paused"), ImGuiColors.DalamudYellow);
                     }
                     if (Pair.UserPair.OtherPermissions.IsPaused())
                     {
                         ImGui.SameLine();
-                        UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                        UiSharedService.ColorText(_localisationService.GetString("ProfileCommon.TheyPaused", "They: paused"), ImGuiColors.DalamudYellow);
                     }
                 }
             
 
                 if (Pair.GroupPair.Any())
                 {
-                    ImGui.TextUnformatted("Paired through Syncshells:");
+                    ImGui.TextUnformatted(_localisationService.GetString("ProfileCommon.PairedThroughSyncshells", "Paired through Syncshells:"));
                     foreach (var groupPair in Pair.GroupPair.Select(k => k.Key))
                     {
                         var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
@@ -161,7 +172,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             }
             else
             {
-                UiSharedService.ColorTextWrapped("No pairing context available for this user.", ImGuiColors.DalamudGrey);
+                UiSharedService.ColorTextWrapped(_localisationService.GetString("ProfileCommon.NoPairingContext", "No pairing context available for this user."), ImGuiColors.DalamudGrey);
             }
 
             if (_textureWrap != null)

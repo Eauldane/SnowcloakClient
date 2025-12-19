@@ -11,5 +11,6 @@
   "IconUrl": "https://raw.githubusercontent.com/Eauldane/SnowcloakClient/refs/heads/main/Snowcloak/images/logo.png",
   "RepoUrl": "https://github.com/Eauldane/SnowcloakClient",
   "CanUnloadAsync": true,
+  "DalamudApiLevel": 14,
   "MakeZip": false
 }

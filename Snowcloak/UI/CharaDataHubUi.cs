@@ -12,6 +12,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.CharaData.Models;
+using Snowcloak.Services.Localisation;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
@@ -44,6 +45,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
     private bool _hasValidGposeTarget;
     private string _importCode = string.Empty;
     private bool _isHandlingSelf = false;
+    
     private DateTime _lastFavoriteUpdateTime = DateTime.UtcNow;
     private PoseEntryExtended? _nearbyHovered;
     private bool _openMcdOnlineOnNextRun = false;
@@ -71,6 +73,8 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
     private string _specificGroupAdd = string.Empty;
     private bool _abbreviateCharaName = false;
     private string? _openComboHybridId = null;
+    private readonly LocalisationService _localisationService;
+
     private (string Id, string? Alias, string AliasOrId, string? Note)[]? _openComboHybridEntries = null;
     private bool _comboHybridUsedLastFrame = false;
 
@@ -78,7 +82,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                          CharaDataManager charaDataManager, CharaDataNearbyManager charaDataNearbyManager, CharaDataConfigService configService,
                          UiSharedService uiSharedService, ServerConfigurationManager serverConfigurationManager,
                          DalamudUtilService dalamudUtilService, FileDialogManager fileDialogManager, PairManager pairManager,
-                         CharaDataGposeTogetherManager charaDataGposeTogetherManager)
+                         CharaDataGposeTogetherManager charaDataGposeTogetherManager, LocalisationService localisationService)
         : base(logger, mediator, "Snowcloak Character Data Hub###SnowcloakCharaDataUI", performanceCollectorService)
     {
         SetWindowSizeConstraints();
@@ -90,6 +94,8 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         _serverConfigurationManager = serverConfigurationManager;
         _dalamudUtilService = dalamudUtilService;
         _fileDialogManager = fileDialogManager;
+        _localisationService = localisationService;
+
         _pairManager = pairManager;
         _charaDataGposeTogetherManager = charaDataGposeTogetherManager;
         Mediator.Subscribe<GposeStartMessage>(this, (_) => IsOpen |= _configService.Current.OpenMareHubOnGposeStart);
@@ -102,6 +108,10 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         });
     }
 
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"CharaDataHubUi.{key}", fallback);
+    }
     private bool _openDataApplicationShared = false;
 
     public string CharaName(string name)
@@ -170,7 +180,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         if (!_charaDataManager.BrioAvailable)
         {
             ImGuiHelpers.ScaledDummy(3);
-            UiSharedService.DrawGroupedCenteredColorText("To utilize any features related to posing or spawning characters you require to have Brio installed.", ImGuiColors.DalamudRed);
+            UiSharedService.DrawGroupedCenteredColorText(L("Warning.BrioRequired", "To utilize any features related to posing or spawning characters you require to have Brio installed."), ImGuiColors.DalamudRed);
             UiSharedService.DistanceSeparator();
         }
 
@@ -181,9 +191,9 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             if (_charaDataManager.DataApplicationTask != null)
             {
                 ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted("Applying Data to Actor");
+                ImGui.TextUnformatted(L("Apply.Progress", "Applying Data to Actor"));
                 ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Cancel Application"))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Ban, L("Apply.Cancel", "Cancel Application")))
                 {
                     _charaDataManager.CancelDataApplication();
                 }
@@ -194,7 +204,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             }
             if (_charaDataManager.DataApplicationTask != null)
             {
-                UiSharedService.ColorTextWrapped("WARNING: During the data application avoid interacting with this actor to prevent potential crashes.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(L("Apply.Warning", "WARNING: During the data application avoid interacting with this actor to prevent potential crashes."), ImGuiColors.DalamudRed);
                 ImGuiHelpers.ScaledDummy(5);
                 ImGui.Separator();
             }
@@ -216,7 +226,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             }
         }
 
-        using (var applicationTabItem = ImRaii.TabItem("Data Application", _openDataApplicationShared ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
+        using (var applicationTabItem = ImRaii.TabItem(L("Tabs.DataApplication", "Data Application"), _openDataApplicationShared ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
         {
             if (applicationTabItem)
             {
@@ -235,9 +245,9 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     }
                 }
                 if (!_uiSharedService.IsInGpose)
-                    UiSharedService.AttachToolTip("Only available in GPose");
-
-                using (var nearbyPosesTabItem = ImRaii.TabItem("Poses Nearby"))
+                    UiSharedService.AttachToolTip(L("Tooltip.OnlyInGpose", "Only available in GPose"));
+                
+                using (var nearbyPosesTabItem = ImRaii.TabItem(L("Tabs.PosesNearby", "Poses Nearby")))
                 {
                     if (nearbyPosesTabItem)
                     {
@@ -252,7 +262,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     }
                 }
 
-                using (var gposeTabItem = ImRaii.TabItem("Apply Data", _openDataApplicationShared ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
+                using (var gposeTabItem = ImRaii.TabItem(L("Tabs.ApplyData", "Apply Data"), _openDataApplicationShared ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
                 {
                     if (gposeTabItem)
                     {
@@ -277,7 +287,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 _openMcdOnlineOnNextRun = false;
             }
 
-            using (var creationTabItem = ImRaii.TabItem("Data Creation", flagsTopLevel))
+            using (var creationTabItem = ImRaii.TabItem(L("Tabs.DataCreation", "Data Creation"), flagsTopLevel))
             {
                 if (creationTabItem)
                 {
@@ -311,10 +321,10 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         }
         if (_isHandlingSelf)
         {
-            UiSharedService.AttachToolTip("Cannot use creation tools while having Character Data applied to self.");
+            UiSharedService.AttachToolTip(L("Tooltip.CreationBlocked", "Cannot use creation tools while having Character Data applied to self."));
         }
 
-        using (var settingsTabItem = ImRaii.TabItem("Settings"))
+        using (var settingsTabItem = ImRaii.TabItem(L("Tabs.Settings", "Settings")))
         {
             if (settingsTabItem)
             {

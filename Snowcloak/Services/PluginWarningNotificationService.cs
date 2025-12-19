@@ -7,6 +7,8 @@ using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using System.Collections.Concurrent;
+using System.Globalization;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.Services;
 
@@ -16,12 +18,19 @@ public class PluginWarningNotificationService
     private readonly IpcManager _ipcManager;
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly SnowMediator _mediator;
-
-    public PluginWarningNotificationService(SnowcloakConfigService snowcloakConfigService, IpcManager ipcManager, SnowMediator mediator)
+    private readonly LocalisationService _localisationService;
+    
+    public PluginWarningNotificationService(SnowcloakConfigService snowcloakConfigService, IpcManager ipcManager, SnowMediator mediator, LocalisationService localisationService)
     {
         _snowcloakConfigService = snowcloakConfigService;
         _ipcManager = ipcManager;
         _mediator = mediator;
+        _localisationService = localisationService;
+    }
+
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"Services.PluginWarningNotificationService.{key}", fallback);
     }
 
     public void NotifyForMissingPlugins(UserData user, string playerName, HashSet<PlayerChanges> changes)
@@ -70,8 +79,11 @@ public class PluginWarningNotificationService
 
         if (missingPluginsForData.Any())
         {
-            _mediator.Publish(new NotificationMessage("Missing plugins for " + playerName,
-                $"Received data for {playerName} that contained information for plugins you have not installed. Install {string.Join(", ", missingPluginsForData)} to experience their character fully.",
+            var title = L("MissingPluginsTitle", "Missing plugins for {0}");
+            var content = L("MissingPluginsContent",
+                "Received data for {0} that contained information for plugins you have not installed. Install {1} to experience their character fully.");
+            _mediator.Publish(new NotificationMessage(string.Format(CultureInfo.InvariantCulture, title, playerName),
+                string.Format(CultureInfo.InvariantCulture, content, playerName, string.Join(", ", missingPluginsForData)),
                 NotificationType.Warning, TimeSpan.FromSeconds(10)));
         }
     }

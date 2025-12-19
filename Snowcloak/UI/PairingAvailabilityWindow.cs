@@ -12,6 +12,7 @@ using Snowcloak.Services.Mediator;
 using System;
 using System.Linq;
 using System.Numerics;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -19,18 +20,23 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 {
     private readonly PairRequestService _pairRequestService;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly LocalisationService _localisationService;
     private bool _locked;
     private List<AvailabilityEntry> _lockedEntries = new();
     private readonly TitleBarButton _lockButton;
-    private string _lockTooltip = "Lock list to pause updates";
+    private string _lockTooltip;
+    
     public PairingAvailabilityWindow(ILogger<PairingAvailabilityWindow> logger, SnowMediator mediator,
         PairRequestService pairRequestService, DalamudUtilService dalamudUtilService,
-        PerformanceCollectorService performanceCollectorService)
+        PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
         : base(logger, mediator, "SnowcloakPairingAvailability", performanceCollectorService)
     {
         _pairRequestService = pairRequestService;
         _dalamudUtilService = dalamudUtilService;
+        _localisationService = localisationService;
 
+        _lockTooltip = L("LockTooltipUnlocked", "Lock list to pause updates");
+        
         SizeConstraints = new()
         {
             MinimumSize = new(350, 200)
@@ -39,7 +45,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         RespectCloseHotkey = true;
         TitleBarButtons.Add(new TitleBarButton()
         {
-            ShowTooltip = () => ImGui.SetTooltip("Refresh list of nearby players"),
+            ShowTooltip = () => ImGui.SetTooltip(L("RefreshTooltip", "Refresh list of nearby players")),
             Click = (btn) => _ = RefreshAndUpdateLockAsync(),
             Icon = FontAwesomeIcon.SyncAlt
         });
@@ -53,8 +59,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         };
 
         TitleBarButtons.Add(_lockButton);
-        WindowName = "Nearby players open to pairing";
-
+        WindowName = L("WindowTitle", "Nearby players open to pairing");
     }
 
     protected override void DrawInternal()
@@ -67,20 +72,21 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
         if (available.Count == 0)
         {
-            ImGui.TextColored(ImGuiColors.DalamudGrey, "No nearby users are currently open to pairing.");
+            ImGui.TextColored(ImGuiColors.DalamudGrey, L("NoNearbyUsers", "No nearby users are currently open to pairing."));
             if (filteredCount > 0)
-                ImGui.TextColored(ImGuiColors.DalamudGrey, $"({filteredCount} nearby players filtered by auto-reject settings)");
+                ImGui.TextColored(ImGuiColors.DalamudGrey,
+                    string.Format(L("FilteredPlayers", "({0} nearby players filtered by auto-reject settings)"), filteredCount));
             return;
         }
 
         using var table = ImRaii.Table("pairing-availability-table", 6, ImGuiTableFlags.ScrollY | ImGuiTableFlags.Borders | ImGuiTableFlags.Hideable | ImGuiTableFlags.Reorderable | ImGuiTableFlags.Resizable);
         if (table) {
-            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0.28f);
-            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.18f);
-            ImGui.TableSetupColumn("Class", ImGuiTableColumnFlags.WidthStretch, 0.16f);
-            ImGui.TableSetupColumn("Level", ImGuiTableColumnFlags.WidthFixed, 60f);
-            ImGui.TableSetupColumn("Gender", ImGuiTableColumnFlags.WidthFixed, 70f);
-            ImGui.TableSetupColumn("Clan", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+            ImGui.TableSetupColumn(L("Column.Name", "Name"), ImGuiTableColumnFlags.WidthStretch, 0.28f);
+            ImGui.TableSetupColumn(L("Column.Homeworld", "Homeworld"), ImGuiTableColumnFlags.WidthStretch, 0.18f);
+            ImGui.TableSetupColumn(L("Column.Class", "Class"), ImGuiTableColumnFlags.WidthStretch, 0.16f);
+            ImGui.TableSetupColumn(L("Column.Level", "Level"), ImGuiTableColumnFlags.WidthFixed, 60f);
+            ImGui.TableSetupColumn(L("Column.Gender", "Gender"), ImGuiTableColumnFlags.WidthFixed, 70f);
+            ImGui.TableSetupColumn(L("Column.Clan", "Clan"), ImGuiTableColumnFlags.WidthStretch, 0.2f);
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableHeadersRow();
             ImGuiClip.ClippedDraw(available, this.DrawPlayer, ImGui.GetTextLineHeightWithSpacing());
@@ -114,8 +120,8 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 ImGui.TableNextColumn();
                 var gender = entry.Gender switch
                 {
-                    0 => "Male",
-                    1 => "Female",
+                    0 => L("Gender.Male", "Male"),
+                    1 => L("Gender.Female", "Female"),
                     _ => "-"
                 };
                 ImGui.TextUnformatted(gender);
@@ -137,22 +143,22 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         using var popupContext = ImRaii.ContextPopupItem($"{entry.DisplayName}{worldName}##SCPopupCX");
         if (popupContext)
         {
-            if (ImGui.Selectable("Examine"))
+            if (ImGui.Selectable(L("Context.Examine", "Examine")))
             {
                 _ = HandleExamineAsync(entry);
             }
 
-            if (ImGui.Selectable("Adventurer Plate"))
+            if (ImGui.Selectable(L("Context.AdventurerPlate", "Adventurer Plate")))
             {
                 _ = HandleAdventurerPlateAsync(entry);
             }
 
-            if (ImGui.Selectable("View Snowcloak Profile"))
+            if (ImGui.Selectable(L("Context.ViewProfile", "View Snowcloak Profile")))
             {
                 _ = _pairRequestService.RequestProfileAsync(entry.Ident);
             }
 
-            if (ImGui.Selectable("Send Snowcloak Pair Request"))
+            if (ImGui.Selectable(L("Context.SendPairRequest", "Send Snowcloak Pair Request")))
             {
                 _ = _pairRequestService.SendPairRequestAsync(entry.Ident);
             }
@@ -165,8 +171,10 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         var success = await _dalamudUtilService.ExaminePlayerByIdentAsync(entry.Ident).ConfigureAwait(false);
 
         Mediator.Publish(success
-            ? new NotificationMessage("Examine", $"Opening examination for {entry.DisplayName}.", NotificationType.Info, TimeSpan.FromSeconds(4))
-            : new NotificationMessage("Examine failed", "Could not find that player nearby.", NotificationType.Warning, TimeSpan.FromSeconds(4)));
+            ? new NotificationMessage(L("Notification.ExamineTitle", "Examine"),
+                string.Format(L("Notification.ExamineOpening", "Opening examination for {0}."), entry.DisplayName), NotificationType.Info, TimeSpan.FromSeconds(4))
+            : new NotificationMessage(L("Notification.ExamineFailedTitle", "Examine failed"),
+                L("Notification.NotNearby", "Could not find that player nearby."), NotificationType.Warning, TimeSpan.FromSeconds(4)));
     }
 
     private async Task HandleAdventurerPlateAsync(AvailabilityEntry entry)
@@ -174,8 +182,10 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         var success = await _dalamudUtilService.OpenAdventurerPlateByIdentAsync(entry.Ident).ConfigureAwait(false);
 
         Mediator.Publish(success
-            ? new NotificationMessage("Adventurer Plate", $"Opening Adventurer Plate for {entry.DisplayName}.", NotificationType.Info, TimeSpan.FromSeconds(4))
-            : new NotificationMessage("Adventurer Plate failed", "Could not find that player nearby.", NotificationType.Warning, TimeSpan.FromSeconds(4)));
+            ? new NotificationMessage(L("Notification.AdventurerPlateTitle", "Adventurer Plate"),
+                string.Format(L("Notification.AdventurerPlateOpening", "Opening Adventurer Plate for {0}."), entry.DisplayName), NotificationType.Info, TimeSpan.FromSeconds(4))
+            : new NotificationMessage(L("Notification.AdventurerPlateFailedTitle", "Adventurer Plate failed"),
+                L("Notification.NotNearby", "Could not find that player nearby."), NotificationType.Warning, TimeSpan.FromSeconds(4)));
     }
     
     private void ToggleLock()
@@ -183,8 +193,8 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         _locked = !_locked;
         _lockButton.Icon = _locked ? FontAwesomeIcon.Lock : FontAwesomeIcon.LockOpen;
         _lockTooltip = _locked
-            ? "Unlock to resume live updates"
-            : "Lock list to pause updates";
+            ? L("LockTooltipLocked", "Unlock to resume live updates")
+            : L("LockTooltipUnlocked", "Lock list to pause updates");
 
         if (_locked)
             _lockedEntries = BuildAvailabilityEntries();
@@ -219,4 +229,8 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
     private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, byte ClassJobId, byte Level, byte Gender, byte Tribe);
     
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"PairingAvailabilityWindow.{key}", fallback);
+    }
 }

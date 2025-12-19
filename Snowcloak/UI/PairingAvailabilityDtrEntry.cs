@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System;
+using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -24,6 +25,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
     private readonly SnowMediator _snowMediator;
     private readonly PairRequestService _pairRequestService;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly LocalisationService _localisationService;
     private string? _text;
     private string? _valueText;
     private string? _tooltip;
@@ -32,7 +34,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     public PairingAvailabilityDtrEntry(ILogger<PairingAvailabilityDtrEntry> logger, IDtrBar dtrBar,
         SnowcloakConfigService configService, SnowMediator snowMediator, PairRequestService pairRequestService,
-        DalamudUtilService dalamudUtilService)
+        DalamudUtilService dalamudUtilService, LocalisationService localisationService)
     {
         _logger = logger;
         _dtrBar = dtrBar;
@@ -40,6 +42,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         _configService = configService;
         _snowMediator = snowMediator;
         _pairRequestService = pairRequestService;
+        _localisationService = localisationService;
         _dalamudUtilService = dalamudUtilService;
     }
 
@@ -79,7 +82,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     private IDtrBarEntry CreateEntry()
     {
-        var entry = _dtrBar.Get("Snowcloak Pairing");
+        var entry = _dtrBar.Get(L("EntryTitle", "Snowcloak Pairing"));
         entry.OnClick = _ => _snowMediator.Publish(new UiToggleMessage(typeof(PairingAvailabilityWindow)));
         return entry;
     }
@@ -130,15 +133,15 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         var valueText = availableCount > 0 ? availableCount.ToString() : string.Empty;
         var hoverText = hoverPlayers.Count > 0
             ? string.Join(Environment.NewLine, hoverPlayers.Names)
-            : "No nearby players open to pairing";
+            : L("Tooltip.None", "No nearby players open to pairing");
         var remaining = Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0);
 
         if (remaining > 0)
-            hoverText += $"{Environment.NewLine}... and {remaining} more";
+            hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Remaining", "... and {0} more"), remaining);
         if (filteredCount > 0)
-            hoverText += $"{Environment.NewLine}({filteredCount} filtered players)";
+            hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Filtered", "({0} filtered players)"), filteredCount);
         var tooltip = availableCount > 0
-            ? $"Users nearby open to pairing:{Environment.NewLine}{hoverText}"
+            ? string.Format(L("Tooltip.Header", "Users nearby open to pairing:{0}{1}"), Environment.NewLine, hoverText)
             : hoverText;
         var colors = availableCount > 0
             ? _configService.Current.DtrColorsPairsInRange
@@ -167,7 +170,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             _entry.Value.Shown = true;
 
         const string iconText = "\uE044";
-        const string tooltip = "Pairing availability unavailable";
+        var tooltip = L("Tooltip.Unavailable", "Pairing availability unavailable");
         var colors = _configService.Current.DtrColorsDefault;
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
@@ -228,5 +231,10 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
     private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total, int FilteredCount)
     {
         public int Count => Names.Count;
+    }
+    
+    private string L(string key, string fallback)
+    {
+        return _localisationService.GetString($"PairingAvailabilityDtrEntry.{key}", fallback);
     }
 }

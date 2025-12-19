@@ -101,19 +101,20 @@ public class CompactUi : WindowMediatorSubscriberBase
         _charaDataManager = charaDataManager;
         _tagHandler = new TagHandler(_serverManager);
         
-        _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager);
-        _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService);
-        _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler);
-        _pairGroupsUi = new(configService, _tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService);
+        _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager, _localisationService);
+        _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService, _localisationService);
+        _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler, _localisationService);
+        _pairGroupsUi = new(configService, _tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService, _localisationService);
 
-#if DEBUG
-        string dev = "Dev Build";
+
         var ver = Assembly.GetExecutingAssembly().GetName().Version!;
-        WindowName = $"Snowcloak Sync {dev} ({ver.Major}.{ver.Minor}.{ver.Build})###SnowcloakSyncMainUIDev";
+#if DEBUG
+        var devTitle = string.Format(L("Window.Title.Dev", "Snowcloak Sync Dev Build ({0})"), $"{ver.Major}.{ver.Minor}.{ver.Build}");
+        WindowName = $"{devTitle}###SnowcloakSyncMainUIDev";
         Toggle();
 #else
-        var ver = Assembly.GetExecutingAssembly().GetName().Version!;
-        WindowName = "Snowcloak Sync " + ver.Major + "." + ver.Minor + "." + ver.Build + "###SnowcloakSyncMainUI";
+       var windowTitle = string.Format(L("Window.Title", "Snowcloak Sync {0}"), $"{ver.Major}.{ver.Minor}.{ver.Build}");
+        WindowName = $"{windowTitle}###SnowcloakSyncMainUI";
 #endif
         Mediator.Subscribe<SwitchToMainUiMessage>(this, (_) => IsOpen = true);
         Mediator.Subscribe<SwitchToIntroUiMessage>(this, (_) => IsOpen = false);
@@ -128,14 +129,14 @@ public class CompactUi : WindowMediatorSubscriberBase
             new()
             {
                 Icon = FontAwesomeIcon.GlobeEurope,
-                ShowTooltip = () => ImGui.SetTooltip("Discord"),
+                ShowTooltip = () => ImGui.SetTooltip(L("TitleBar.Tooltip.Discord", "Discord")),
                 Click = (btn) => Util.OpenLink("https://discord.gg/snowcloak")
             },
             new()
             {
                 Icon = FontAwesomeIcon.Heart,
-                ShowTooltip = () => ImGui.SetTooltip("Patreon"),
-                Click = (btn) => Util.OpenLink("https://patreon.com/snowcloak")
+                ShowTooltip = () => ImGui.SetTooltip(L("TitleBar.Tooltip.Patreon", "Patreon")),
+                Click = (btn) => Util.OpenLink("https://patreon.com/eauldane")
             }
         ];
         // changed min size
@@ -224,36 +225,38 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 _sidebarCollapsed = !_sidebarCollapsed;
             }
-            UiSharedService.AttachToolTip(_sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar");
-
+            UiSharedService.AttachToolTip(_sidebarCollapsed
+                ? L("Sidebar.Expand", "Expand Sidebar")
+                : L("Sidebar.Collapse", "Collapse Sidebar"));
+            
             ImGui.Separator();
 
             // Buttons with state change
-            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
-            DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, "Syncshells");
+            DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, L("Sidebar.IndividualPairs", "Direct Pairs"));
+            DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, L("Sidebar.Syncshells", "Syncshells"));
             ImGui.Separator();
             //buttons without state change
-            DrawSidebarAction(FontAwesomeIcon.PersonCircleQuestion, "Character Analysis",
-                       () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
+            DrawSidebarAction(FontAwesomeIcon.PersonCircleQuestion, L("Sidebar.CharacterAnalysis", "Character Analysis"),
+                () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
             //Abbrivated because Character Data Hub is too long and loogs ugly in the lables
-            DrawSidebarAction(FontAwesomeIcon.Running, "Character Hub",
+            DrawSidebarAction(FontAwesomeIcon.Running, L("Sidebar.CharacterHub", "Character Hub"),
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
-            DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
+            DrawSidebarAction(FontAwesomeIcon.Cog, L("Sidebar.Settings", "Settings"),
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
             ImGui.Separator();
 
             if (_apiController.ServerState is ServerState.Connected)
             {
-                DrawSidebarAction(FontAwesomeIcon.UserCircle, "Edit Profile",
+                DrawSidebarAction(FontAwesomeIcon.UserCircle, L("Sidebar.EditProfile", "Edit Profile"),
                     () => Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi))));
             }
 
             {
                 #if DEBUG
-                DrawSidebarAction(FontAwesomeIcon.UserCog, "Account Management",
+                DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.AccountManagement", "Account Management"),
                     () => Util.OpenLink("http://account.snow.cloak"));
                 #else
-                DrawSidebarAction(FontAwesomeIcon.UserCog, "Account Management",
+                DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.AccountManagement", "Account Management"),
                     () => Util.OpenLink("https://account.snowcloak-sync.com"));
                 #endif
             }
@@ -273,13 +276,13 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 var userCount = _apiController.OnlineUsers.ToString(CultureInfo.InvariantCulture);
                 ImGui.PushStyleColor(ImGuiCol.Text, UiSharedService.AccentColor);
-                DrawSidebarAction(FontAwesomeIcon.Users, $"{userCount} Users Online", () => { });
+                DrawSidebarAction(FontAwesomeIcon.Users, string.Format(L("Sidebar.UsersOnline", "{0} Users Online"), userCount), () => { });
                 ImGui.PopStyleColor();
             }
             else
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudRed);
-                DrawSidebarAction(FontAwesomeIcon.ExclamationTriangle, "Not connected", () => { });
+                DrawSidebarAction(FontAwesomeIcon.ExclamationTriangle, L("Sidebar.NotConnected", "Not connected"), () => { });
                 ImGui.PopStyleColor();
             }
 
@@ -293,15 +296,17 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, color);
 
-                DrawSidebarAction(connectedIcon, !_serverManager.CurrentServer.FullPause ? "Disconnect": "Connect",
-                () =>
+                DrawSidebarAction(connectedIcon, !_serverManager.CurrentServer.FullPause ? L("Sidebar.Disconnect", "Disconnect") : L("Sidebar.Connect", "Connect"),
+                    () =>
                 {
                     _serverManager.CurrentServer.FullPause = !_serverManager.CurrentServer.FullPause;
                     _serverManager.Save();
                     _ = _apiController.CreateConnections();
                 });
                 ImGui.PopStyleColor();
-                UiSharedService.AttachToolTip(!_serverManager.CurrentServer.FullPause ? "Disconnect from " + _serverManager.CurrentServer.ServerName : "Connect to " + _serverManager.CurrentServer.ServerName);
+                UiSharedService.AttachToolTip(!_serverManager.CurrentServer.FullPause
+                    ? string.Format(L("Sidebar.DisconnectTooltip", "Disconnect from {0}"), _serverManager.CurrentServer.ServerName)
+                    : string.Format(L("Sidebar.ConnectTooltip", "Connect to {0}"), _serverManager.CurrentServer.ServerName));
             }
 
         }
@@ -317,7 +322,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             if (!_apiController.IsCurrentVersion)
             {
                 var ver = _apiController.CurrentClientVersion;
-                var unsupported = "UNSUPPORTED VERSION";
+                var unsupported = L("Version.UnsupportedTitle", "UNSUPPORTED VERSION");
                 using (_uiSharedService.UidFont.Push())
                 {
                     var uidTextSize = ImGui.CalcTextSize(unsupported);
@@ -325,8 +330,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     ImGui.AlignTextToFramePadding();
                     ImGui.TextColored(ImGuiColors.DalamudRed, unsupported);
                 }
-                UiSharedService.ColorTextWrapped($"Your Snowcloak installation is out of date, the current version is {ver.Major}.{ver.Minor}.{ver.Build}. " +
-                    $"You may not be able to sync correctly or at all until you update. Open /xlplugins and update the plugin.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(string.Format(L("Version.UnsupportedMessage", "Your Snowcloak installation is out of date, the current version is {0}.{1}.{2}. You may not be able to sync correctly or at all until you update. Open /xlplugins and update the plugin."), ver.Major, ver.Minor, ver.Build), ImGuiColors.DalamudRed);
             }
 
             using (ImRaii.PushId("header")) DrawUIDHeader();
@@ -356,12 +360,14 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 _lastAddedUser = _pairManager.LastAddedUser;
                 _pairManager.LastAddedUser = null;
-                ImGui.OpenPopup("Set Notes for New User");
+                ImGui.OpenPopup(L("NewUserNotes.Title", "Set Notes for New User"));
                 _showModalForUserAddition = true;
                 _lastAddedUserComment = string.Empty;
             }
 
-            if (ImGui.BeginPopupModal("Set Notes for New User", ref _showModalForUserAddition, UiSharedService.PopupWindowFlags))
+            var newUserPopupTitle = L("NewUserNotes.Title", "Set Notes for New User");
+
+            if (ImGui.BeginPopupModal(newUserPopupTitle, ref _showModalForUserAddition, UiSharedService.PopupWindowFlags))
             {
                 if (_lastAddedUser == null)
                 {
@@ -369,9 +375,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                 }
                 else
                 {
-                    UiSharedService.TextWrapped($"You have successfully added {_lastAddedUser.UserData.AliasOrUID}. Set a local note for the user in the field below:");
-                    ImGui.InputTextWithHint("##noteforuser", $"Note for {_lastAddedUser.UserData.AliasOrUID}", ref _lastAddedUserComment, 100);
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Note"))
+                    UiSharedService.TextWrapped(string.Format(L("NewUserNotes.Description", "You have successfully added {0}. Set a local note for the user in the field below:"), _lastAddedUser.UserData.AliasOrUID));
+                    ImGui.InputTextWithHint("##noteforuser", string.Format(L("NewUserNotes.InputHint", "Note for {0}"), _lastAddedUser.UserData.AliasOrUID), ref _lastAddedUserComment, 100);
+                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, L("NewUserNotes.Save", "Save Note")))
                     {
                         _serverManager.SetNoteForUid(_lastAddedUser.UserData.UID, _lastAddedUserComment);
                         _lastAddedUser = null;
@@ -420,7 +426,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
 
         ImGui.SameLine();
-        ImGui.TextUnformatted($"Pair Requests ({pending.Count})");
+        ImGui.TextUnformatted(string.Format(L("PairRequests.Title", "Pair Requests ({0})"), pending.Count));
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
             isOpen = !isOpen;
@@ -434,8 +440,8 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
 
         ImGui.Indent(20);
-        ImGui.TextUnformatted("Notes will be auto-filled with the sender's name when you accept.");
-
+        ImGui.TextUnformatted(L("PairRequests.NoteInfo", "Notes will be auto-filled with the sender's name when you accept."));
+        
         if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
         {
             foreach (var request in pending)
@@ -451,17 +457,18 @@ public class CompactUi : WindowMediatorSubscriberBase
                     ImGui.SameLine();
                     ImGui.TextDisabled($"({request.AliasOrUid})");
                 }
-                UiSharedService.AttachToolTip($"Requested at {request.Request.RequestedAt:HH:mm:ss}");
+                UiSharedService.AttachToolTip(string.Format(L("PairRequests.RequestedAt", "Requested at {0:HH:mm:ss}"), request.Request.RequestedAt));
                 ImGui.TableSetColumnIndex(1);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, "Add"))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, L("PairRequests.Accept", "Add")))
                 {
                     _ = _pairRequestService.RespondAsync(request.Request, true);
                 }
                 ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Reject"))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L("PairRequests.Reject", "Reject")))
                 {
-                    _ = _pairRequestService.RespondAsync(request.Request, false, "Rejected by user");
-                }            }
+                    _ = _pairRequestService.RespondAsync(request.Request, false, L("PairRequests.RejectReason", "Rejected by user"));
+                }
+            }
             ImGui.EndTable();
             
         }
@@ -513,7 +520,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (keys.Any())
         {
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, L("AddCharacter.LoginXIVAuth", "Log in with XIVAuth")))
             {
                 _registrationInProgress = true;
                 _ = Task.Run(async () => {
@@ -525,10 +532,10 @@ public class CompactUi : WindowMediatorSubscriberBase
                             _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
                             _registrationMessage = reply.ErrorMessage;
                             if (_registrationMessage.IsNullOrEmpty())
-                                _registrationMessage = "An unknown error occured. Please try again later.";
+                                _registrationMessage = L("AddCharacter.UnknownError", "An unknown error occured. Please try again later.");
                             return;
                         }
-                        _registrationMessage = "Account registered. Welcome to Snowcloak!";
+                        _registrationMessage = L("AddCharacter.Success", "Account registered. Welcome to Snowcloak!");
                         _secretKey = reply.SecretKey ?? "";
                         _registrationReply = reply;
                         _registrationSuccess = true;
@@ -537,7 +544,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     {
                         _logger.LogWarning(ex, "Registration failed");
                         _registrationSuccess = false;
-                        _registrationMessage = "An unknown error occured. Please try again later.";
+                        _registrationMessage = L("AddCharacter.UnknownError", "An unknown error occured. Please try again later.");
                     }
                     finally
                     {
@@ -546,7 +553,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 });
             }
 
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Add character with existing key"))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, L("AddCharacter.AddWithExistingKey", "Add character with existing key")))
             {
                 _serverManager.CurrentServer!.Authentications.Add(new Configuration.Models.Authentication()
                 {
@@ -562,7 +569,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
             if (_registrationInProgress)
             {
-                ImGui.TextUnformatted("Waiting for the server...");
+                ImGui.TextUnformatted(L("AddCharacter.Waiting", "Waiting for the server..."));
             }
             else if (!_registrationMessage.IsNullOrEmpty())
             {
@@ -573,19 +580,19 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
             if (_secretKey.Length > 0 && _secretKey.Length != 64)
             {
-                UiSharedService.ColorTextWrapped("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(L("AddCharacter.SecretKeyLength", "Your secret key must be exactly 64 characters long."), ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64)
             {
                 using var saveDisabled = ImRaii.Disabled(_uiSharedService.ApiController.ServerState == ServerState.Connecting || _uiSharedService.ApiController.ServerState == ServerState.Reconnecting);
-                if (ImGui.Button("Save and Connect"))
+                if (ImGui.Button(L("AddCharacter.SaveAndConnect", "Save and Connect")))
                 {
                     string keyName;
                     if (_serverManager.CurrentServer == null) _serverManager.SelectServer(0);
                     if (_registrationReply != null && _secretKey.Equals(_registrationReply.SecretKey, StringComparison.Ordinal))
-                        keyName = _registrationReply.UID + $" (registered {DateTime.Now:yyyy-MM-dd})";
+                        keyName = string.Format(L("AddCharacter.RegisteredKeyName", "{0} (registered {1:yyyy-MM-dd})"), _registrationReply.UID, DateTime.Now);
                     else
-                        keyName = $"Secret Key added on Setup ({DateTime.Now:yyyy-MM-dd})";
+                        keyName = string.Format(L("AddCharacter.AddedKeyName", "Secret Key added on Setup ({0:yyyy-MM-dd})"), DateTime.Now);
                     _serverManager.CurrentServer!.SecretKeys.Add(_serverManager.CurrentServer.SecretKeys.Select(k => k.Key).LastOrDefault() + 1, new SecretKey()
                     {
                         FriendlyName = keyName,
@@ -595,11 +602,11 @@ public class CompactUi : WindowMediatorSubscriberBase
                     _ = Task.Run(() => _uiSharedService.ApiController.CreateConnections());
                 }
             }
-            _uiSharedService.DrawCombo("Secret Key##addCharacterSecretKey", keys, (f) => f.Value.FriendlyName, (f) => _secretKeyIdx = f.Key);
+            _uiSharedService.DrawCombo(L("AddCharacter.SecretKeyLabel", "Secret Key") + "##addCharacterSecretKey", keys, (f) => f.Value.FriendlyName, (f) => _secretKeyIdx = f.Key);
         }
         else
         {
-            UiSharedService.ColorTextWrapped("No secret keys are configured for the current server.", ImGuiColors.DalamudYellow);
+            UiSharedService.ColorTextWrapped(L("AddCharacter.NoSecretKeys", "No secret keys are configured for the current server."), ImGuiColors.DalamudYellow);
         }
         ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
@@ -609,7 +616,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         var buttonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus);
         ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X - buttonSize.X);
-        ImGui.InputTextWithHint("##otheruid", "Other players UID/Alias", ref _pairToAdd, 20);
+        ImGui.InputTextWithHint("##otheruid", L("Pairs.AddInputHint", "Other players UID/Alias"), ref _pairToAdd, 20);
         ImGui.SameLine(ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() - buttonSize.X);
         var canAdd = !_pairManager.DirectPairs.Any(p => string.Equals(p.UserData.UID, _pairToAdd, StringComparison.Ordinal) || string.Equals(p.UserData.Alias, _pairToAdd, StringComparison.Ordinal));
         using (ImRaii.Disabled(!canAdd))
@@ -619,7 +626,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _ = _apiController.UserAddPair(new(new(_pairToAdd)));
                 _pairToAdd = string.Empty;
             }
-            UiSharedService.AttachToolTip("Pair with " + (_pairToAdd.IsNullOrEmpty() ? "other user" : _pairToAdd));
+            UiSharedService.AttachToolTip(string.Format(L("Pairs.AddTooltip", "Pair with {0}"), _pairToAdd.IsNullOrEmpty() ? L("Pairs.AddTooltipFallback", "other user") : _pairToAdd));
         }
 
         ImGuiHelpers.ScaledDummy(2);
@@ -637,8 +644,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             : 0;
 
         ImGui.SetNextItemWidth(WindowContentWidth - spacing);
-        ImGui.InputTextWithHint("##filter", "Filter for UID/notes", ref _characterOrCommentFilter, 255);
-
+        ImGui.InputTextWithHint("##filter", L("Pairs.FilterHint", "Filter for UID/notes"), ref _characterOrCommentFilter, 255);
+        
         if (userCount == 0) return;
 
         var pausedUsers = users.Where(u => u.UserPair!.OwnPermissions.IsPaused() && u.UserPair.OtherPermissions.IsPaired()).ToList();
@@ -686,9 +693,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _buttonState = !_buttonState;
             }
             if (!_timeout.IsRunning)
-                UiSharedService.AttachToolTip($"Hold Control to {(button == FontAwesomeIcon.Play ? "resume" : "pause")} pairing with {users.Count} out of {userCount} displayed users.");
+                UiSharedService.AttachToolTip(string.Format(L("Pairs.FilterToggleTooltip", "Hold Control to {0} pairing with {1} out of {2} displayed users."), button == FontAwesomeIcon.Play ? L("Pairs.FilterToggleResume", "resume") : L("Pairs.FilterTogglePause", "pause"), users.Count, userCount));
             else
-                UiSharedService.AttachToolTip($"Next execution is available at {(5000 - _timeout.ElapsedMilliseconds) / 1000} seconds");
+                UiSharedService.AttachToolTip(string.Format(L("Pairs.FilterToggleCooldown", "Next execution is available at {0} seconds"), (5000 - _timeout.ElapsedMilliseconds) / 1000));
         }
     }
 
@@ -717,8 +724,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return isPaired && u.IsOnline && !u.IsVisible && !otherPaused && !ownPaused;
-        }).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
-
+        }).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _localisationService)).ToList();
         var pausedUsers = users.Where(u =>
         {
             var pair = u.UserPair;
@@ -727,8 +733,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return isPaired && (otherPaused || ownPaused);
-        }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
-        var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+        }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _localisationService)).ToList();
+        var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _localisationService)).ToList();
 
         var offlineUsers = users.Where(u =>
         {
@@ -738,7 +744,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return !isPaired || (!u.IsOnline && !(ownPaused || otherPaused));
-        }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+        }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _localisationService)).ToList();
         ImGui.BeginChild("list", new Vector2(WindowContentWidth, ySize), border: false);
 
         _pairGroupsUi.Draw(visibleUsers, onlineUsers, pausedUsers, offlineUsers);
@@ -810,8 +816,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 ImGui.SetClipboardText(_apiController.DisplayName);
             }
-            UiSharedService.AttachToolTip("Click to copy");
-
+            UiSharedService.AttachToolTip(L("Uid.Copy", "Click to copy"));
+            
             if (!string.Equals(_apiController.DisplayName, _apiController.UID, StringComparison.Ordinal))
             {
                 var origTextSize = ImGui.CalcTextSize(_apiController.UID);
@@ -821,7 +827,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 {
                     ImGui.SetClipboardText(_apiController.UID);
                 }
-                UiSharedService.AttachToolTip("Click to copy");
+                UiSharedService.AttachToolTip(L("Uid.Copy", "Click to copy"));
             }
         }
 
@@ -853,18 +859,18 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         return _apiController.ServerState switch
         {
-            ServerState.Connecting => "Attempting to connect to the server.",
-            ServerState.Reconnecting => "Connection to server interrupted, attempting to reconnect to the server.",
-            ServerState.Disconnected => "You are currently disconnected from the sync server.",
-            ServerState.Disconnecting => "Disconnecting from the server",
-            ServerState.Unauthorized => "Server Response: " + _apiController.AuthFailureMessage,
-            ServerState.Offline => "Your selected sync server is currently offline.",
+            ServerState.Connecting => L("Status.Connecting", "Attempting to connect to the server."),
+            ServerState.Reconnecting => L("Status.Reconnecting", "Connection to server interrupted, attempting to reconnect to the server."),
+            ServerState.Disconnected => L("Status.Disconnected", "You are currently disconnected from the sync server."),
+            ServerState.Disconnecting => L("Status.Disconnecting", "Disconnecting from the server"),
+            ServerState.Unauthorized => string.Format(L("Status.Unauthorized", "Server Response: {0}"), _apiController.AuthFailureMessage),
+            ServerState.Offline => L("Status.Offline", "Your selected sync server is currently offline."),
             ServerState.VersionMisMatch =>
-                "Your plugin or the server you are connecting to is out of date. Please update your plugin now. If you already did so, contact the server provider to update their server to the latest version.",
-            ServerState.RateLimited => "You are rate limited for (re)connecting too often. Disconnect, wait 10 minutes and try again.",
+                L("Status.VersionMismatch", "Your plugin or the server you are connecting to is out of date. Please update your plugin now. If you already did so, contact the server provider to update their server to the latest version."),
+            ServerState.RateLimited => L("Status.RateLimited", "You are rate limited for (re)connecting too often. Disconnect, wait 10 minutes and try again."),
             ServerState.Connected => string.Empty,
-            ServerState.NoSecretKey => "You have no secret key set for this current character. Use the button below or open the settings and set a secret key for the current character. You can reuse the same secret key for multiple characters.",
-            ServerState.MultiChara => "Your Character Configuration has multiple characters configured with same name and world. You will not be able to connect until you fix this issue. Remove the duplicates from the configuration in Settings -> Service Settings -> Character Management and reconnect manually after.",
+            ServerState.NoSecretKey => L("Status.NoSecretKey", "You have no secret key set for this current character. Use the button below or open the settings and set a secret key for the current character. You can reuse the same secret key for multiple characters."),
+            ServerState.MultiChara => L("Status.MultiChara", "Your Character Configuration has multiple characters configured with same name and world. You will not be able to connect until you fix this issue. Remove the duplicates from the configuration in Settings -> Service Settings -> Character Management and reconnect manually after."),
             _ => string.Empty
         };
     }
@@ -902,16 +908,16 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         return _apiController.ServerState switch
         {
-            ServerState.Reconnecting => "Reconnecting",
-            ServerState.Connecting => "Connecting",
-            ServerState.Disconnected => "Disconnected",
-            ServerState.Disconnecting => "Disconnecting",
-            ServerState.Unauthorized => "Unauthorized",
-            ServerState.VersionMisMatch => "Version mismatch",
-            ServerState.Offline => "Unavailable",
-            ServerState.RateLimited => "Rate Limited",
-            ServerState.NoSecretKey => "No Secret Key",
-            ServerState.MultiChara => "Duplicate Characters",
+            ServerState.Reconnecting => L("StatusLabel.Reconnecting", "Reconnecting"),
+            ServerState.Connecting => L("StatusLabel.Connecting", "Connecting"),
+            ServerState.Disconnected => L("StatusLabel.Disconnected", "Disconnected"),
+            ServerState.Disconnecting => L("StatusLabel.Disconnecting", "Disconnecting"),
+            ServerState.Unauthorized => L("StatusLabel.Unauthorized", "Unauthorized"),
+            ServerState.VersionMisMatch => L("StatusLabel.VersionMismatch", "Version mismatch"),
+            ServerState.Offline => L("StatusLabel.Offline", "Unavailable"),
+            ServerState.RateLimited => L("StatusLabel.RateLimited", "Rate Limited"),
+            ServerState.NoSecretKey => L("StatusLabel.NoSecretKey", "No Secret Key"),
+            ServerState.MultiChara => L("StatusLabel.MultiChara", "Duplicate Characters"),
             ServerState.Connected => _apiController.DisplayName,
             _ => string.Empty
         };
