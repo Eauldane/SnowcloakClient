@@ -25,7 +25,7 @@ public sealed class CommandManagerService : IDisposable
     private const string _commandName3 = "/sync";
     private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
-    private const string _venueRegistration = "/snowvenuereg";
+    private const string _venueCommand = "/venue";
     private const string _ssCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
@@ -76,7 +76,7 @@ public sealed class CommandManagerService : IDisposable
         {
             HelpMessage = "Resets animation state of yourself, your target, and party members so that they all line up. Local only, does not affect unsynced players."
         });
-        _commandManager.AddHandler(_venueRegistration, new CommandInfo(OnVenueRegistrationCommand)
+        _commandManager.AddHandler(_venueCommand, new CommandInfo(OnVenueCommand)
         {
             HelpMessage = "Begin registering the current housing plot for a venue syncshell."
         });
@@ -104,8 +104,8 @@ public sealed class CommandManagerService : IDisposable
         _commandManager.RemoveHandler(_commandName3);
         _commandManager.RemoveHandler(_animSyncCommand);
         _commandManager.RemoveHandler(_venueFinder);
-        _commandManager.RemoveHandler(_venueRegistration);
-
+        _commandManager.RemoveHandler(_venueCommand);
+        
         for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
             _commandManager.RemoveHandler($"{_ssCommandPrefix}{i}");
     }
@@ -185,7 +185,15 @@ public sealed class CommandManagerService : IDisposable
         {
             _mediator.Publish(new UiToggleMessage(typeof(BbCodeTestUi)));
         }
-        
+        else if (string.Equals(splitArgs[0], "venue", StringComparison.OrdinalIgnoreCase))
+        {
+            _venueRegistrationService.BeginRegistrationFromCommand();
+        }
+    }
+
+    private void OnVenueCommand(string command, string args)
+    {
+        _venueRegistrationService.BeginRegistrationFromCommand();
     }
 
     private void OnVenueFindCommand(string command, string args)
@@ -275,11 +283,6 @@ public sealed class CommandManagerService : IDisposable
             Type = XivChatType.SystemMessage
         });
         #endif
-    }
-     
-    private void OnVenueRegistrationCommand(string command, string args)
-    {
-        _venueRegistrationService.BeginRegistrationFromCommand();
     }
     
     private void OnChatCommand(string command, string args)

@@ -50,7 +50,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         try
         {
             var version = _apiVersion.Invoke();
-            APIAvailable = (version.Item1 == 2 && version.Item2 >= 0);
+            APIAvailable = (version.Item1 == 3 && version.Item2 >= 0);
         }
         catch
         {

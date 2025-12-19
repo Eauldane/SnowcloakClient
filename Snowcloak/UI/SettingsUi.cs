@@ -113,7 +113,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _fileCompactor = fileCompactor;
         _uiShared = uiShared;
         _capabilityRegistry = capabilityRegistry;
-        PairingPersistentKeyRequirement = L("Frostbrand.PersistentKeyRequirement", "You need to link a XIVAuth account before opting into Frostbrand.");
+        PairingPersistentKeyRequirement = L("Frostbrand.PersistentKeyRequirement", "You need to link a XIVAuth account before opting into Frostbrand. Please visit the user guide to learn how to do this.");
         _raceClanOptions = GetRaceClanOptions();
         AllowClickthrough = false;
         AllowPinning = false;
@@ -1918,7 +1918,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         if (!hasPersistentKey)
         {
             UiSharedService.ColorTextWrapped(PairingPersistentKeyRequirement, ImGuiColors.DalamudYellow);
-            _uiShared.DrawHelpText(L("Frostbrand.PersistentKey.Help", "Link a XIVAuth account to enable Frostbrand."));
+            _uiShared.DrawHelpText(L("Frostbrand.PersistentKey.Help", "Link a XIVAuth account to enable Frostbrand. Please visit the user guide to learn how to do this."));
         }
 
         using var pairingKeyDisabled = ImRaii.Disabled(!hasPersistentKey);

@@ -60,7 +60,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private bool _hasPersistentKey = true;
     private DateTime _lastPersistentKeyWarningAt = DateTime.MinValue;
     private static readonly TimeSpan PersistentKeyWarningCooldown = TimeSpan.FromSeconds(10);
-    private string MissingPersistentKeyWarning = "You need to link a XIVAuth account before opting into Frostbrand.";
+    private string MissingPersistentKeyWarning = "You need to link a XIVAuth account before opting into Frostbrand. Please visit the user guide to learn how to do this.";
     private bool _availabilitySubscriptionActive;
     private LocationInfo? _lastSubscriptionLocation;
     private readonly SemaphoreSlim _availabilitySubscriptionSemaphore = new(1, 1);

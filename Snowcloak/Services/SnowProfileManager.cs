@@ -28,13 +28,14 @@ public class SnowProfileManager : MediatorSubscriberBase
     public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService snowcloakConfigService,
         SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager, LocalisationService localisationService) : base(logger, mediator)
     {
+        _snowcloakConfigService = snowcloakConfigService;
+        _localisationService = localisationService;
         _noDescription = L("NoDescription", "-- User has no description set --");
         _nsfw = L("NsfwNotice", "Profile not displayed - NSFW");
         _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private);
         _loadingProfileData = new(null, false, false, string.Empty, L("LoadingData", "Loading Data from server..."), ProfileVisibility.Private);
         _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private);
-        _snowcloakConfigService = snowcloakConfigService;
-        _localisationService = localisationService;
+
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
         _ = serverConfigurationManager;
         

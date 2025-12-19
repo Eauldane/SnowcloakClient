@@ -10,7 +10,7 @@ namespace Snowcloak.WebAPI;
 public partial class ApiController
 {
     
-    private string PublicSyncshellPersistentKeyWarning = "Joining public syncshells requires a linked XIVAuth account.";
+    private string PublicSyncshellPersistentKeyWarning = "Joining public syncshells requires a linked XIVAuth account. Please visit the user guide to learn how to do this.";
     public async Task GroupBanUser(GroupPairDto dto, string reason)
     {
         CheckConnection();

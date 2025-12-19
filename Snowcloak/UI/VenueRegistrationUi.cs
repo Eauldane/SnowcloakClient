@@ -99,7 +99,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     {
         if (_context == null)
         {
-            UiSharedService.ColorTextWrapped(L("NoPendingRegistration", "No pending venue registration. Use /snowvenuereg to verify a placard first."),
+            UiSharedService.ColorTextWrapped(L("NoPendingRegistration", "No pending venue registration. Use /venue to verify a placard first."),
                 ImGuiColors.DalamudGrey);
             return;
         }

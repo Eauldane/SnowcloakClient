@@ -277,7 +277,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                     ]),
                     new ChangelogSection("Enhanced Venue Support",
                         [
-                            "Venues wanting auto-join syncshells can now be registered entirely in-game, using the /snowvenuereg command.",
+                            "Venues wanting auto-join syncshells can now be registered entirely in-game, using the /venue command.",
                             "Using the above command while on your plot will also allow you to update your existing info.",
                             "Venue descriptions now support BBCode, allowing for images, text formatting, colour, and emoji.",
                             "Venue owners must be authenticating with XIVAuth for moderation and safety reasons."

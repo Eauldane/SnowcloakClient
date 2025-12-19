@@ -59,6 +59,8 @@ internal sealed class GroupPanel
     private string? _pendingRegionalShellAlias;
     private string _syncShellPassword = string.Empty;
     private string _syncShellToJoin = string.Empty;
+    private bool _showPublicSyncshellWarning;
+    private string? _publicSyncshellAliasToJoin;
 
     public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager, ChatService chatServivce,
         UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager,
@@ -212,7 +214,7 @@ internal sealed class GroupPanel
         ImGuiHelpers.ScaledDummy(2);
     }
 
-        private float GetRegionJoinButtonHeight()
+    private float GetRegionJoinButtonHeight()
     {
         var style = ImGui.GetStyle();
         var height = ImGui.GetFrameHeightWithSpacing() + style.ItemSpacing.Y;
@@ -242,25 +244,10 @@ internal sealed class GroupPanel
             {
                 if (ImGui.Button($"Join {regionShellJoinString}", new Vector2(-1, 0)))
                 {
+                    _publicSyncshellAliasToJoin = regionShell;
                     _showRegionJoinError = false;
-                    var joined = ApiController.GroupJoin(new(new GroupData(regionShell), "ByTheseGlyphsOurSyncshellGuarded")).Result;
-                    if (joined)
-                    {
-                        var resolved = DisableRegionalSyncshellEffects(regionShell);
-                        if (!resolved)
-                        {
-                            _pendingRegionalShellAlias = regionShell;
-                        }
-                        else
-                        {
-                            _pendingRegionalShellAlias = null;
-                        }
-                        _syncShellToJoin = string.Empty;
-                    }
-                    else
-                    {
-                        _showRegionJoinError = true;
-                    }
+                    _showPublicSyncshellWarning = true;
+                    ImGui.OpenPopup(L("PublicSyncshellWarningTitle", "Join Public Syncshell"));
                 }
                 UiSharedService.AttachToolTip(alreadyInRegionShell
                     ? L("RegionAlreadyJoined", "You are already a member of your home region Syncshell.")
@@ -280,6 +267,46 @@ internal sealed class GroupPanel
 
         if (_showRegionJoinError)
             UiSharedService.ColorTextWrapped(L("RegionJoinError", "Unable to join your regional Snowcloak Syncshell. Please verify the Syncshell is available and try again."), ImGuiColors.DalamudRed);
+        
+        
+        DrawPublicSyncshellWarningModal();
+    }
+
+    private void DrawPublicSyncshellWarningModal()
+    {
+        var popupTitle = L("PublicSyncshellWarningTitle", "Join Public Syncshell");
+        if (ImGui.BeginPopupModal(popupTitle, ref _showPublicSyncshellWarning, UiSharedService.PopupWindowFlags))
+        {
+            UiSharedService.TextWrapped(L("PublicSyncshellWarningBody1", "Public Syncshells can contain lots of people, and these people may gather in one particular spot."));
+            UiSharedService.TextWrapped(L("PublicSyncshellWarningBody2", "This can cause significant load on both the server, and your PC. If you have a lower-end computer, we STRONGLY recommend that you do not join public syncshells."));
+            UiSharedService.TextWrapped(L("PublicSyncshellWarningBody3", "Please note that these syncshells are not provided with the intention of facilitating large gatherings. In the event that one occurs, public syncshells will be automatically disabled and paused for all members to protect the functionality of the rest of the service."));
+
+            ImGui.Separator();
+
+            using (ImRaii.Disabled(string.IsNullOrEmpty(_publicSyncshellAliasToJoin)))
+            {
+                if (ImGui.Button(L("PublicSyncshellWarningConfirm", "Join Public Syncshell")))
+                {
+                    if (!string.IsNullOrEmpty(_publicSyncshellAliasToJoin))
+                    {
+                        JoinRegionalSyncshell(_publicSyncshellAliasToJoin);
+                    }
+
+                    _showPublicSyncshellWarning = false;
+                    _publicSyncshellAliasToJoin = null;
+                }
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button(L("PublicSyncshellWarningCancel", "Cancel")))
+            {
+                _showPublicSyncshellWarning = false;
+                _publicSyncshellAliasToJoin = null;
+            }
+
+            UiSharedService.SetScaledWindowSize(500);
+            ImGui.EndPopup();
+        }
     }
 
     private void HandlePendingRegionalShell()
@@ -314,6 +341,30 @@ internal sealed class GroupPanel
         }
 
         return !matchingGroup.Equals(default(KeyValuePair<GroupData, GroupFullInfoDto>));
+    }
+
+    private void JoinRegionalSyncshell(string regionShell)
+    {
+        _showRegionJoinError = false;
+        var joined = ApiController.GroupJoin(new(new GroupData(regionShell), "ByTheseGlyphsOurSyncshellGuarded")).Result;
+        if (joined)
+        {
+            var resolved = DisableRegionalSyncshellEffects(regionShell);
+            if (!resolved)
+            {
+                _pendingRegionalShellAlias = regionShell;
+            }
+            else
+            {
+                _pendingRegionalShellAlias = null;
+            }
+
+            _syncShellToJoin = string.Empty;
+        }
+        else
+        {
+            _showRegionJoinError = true;
+        }
     }        
     
     private void DisableRegionalShellChat(string gid)

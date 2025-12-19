@@ -260,6 +260,8 @@ public class CompactUi : WindowMediatorSubscriberBase
                     () => Util.OpenLink("https://account.snowcloak-sync.com"));
                 #endif
             }
+            DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.UserGuide", "User Guide"),
+                () => Util.OpenLink("https://docs.snowcloak-sync.com"));
             float bottomElementsHeight = ImGui.GetFrameHeightWithSpacing() * 2;
             var availableSpace = ImGui.GetContentRegionAvail().Y;
             if (availableSpace > bottomElementsHeight)

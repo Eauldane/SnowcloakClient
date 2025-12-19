@@ -93,7 +93,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _chatGui.Print(new XivChatEntry
         {
             Message = string.Format(CultureInfo.InvariantCulture,
-                L("Messages.TrackingPlacard", "[Snowcloak] Tracking placard for {0}. Interact with the placard to verify ownership."), location.DisplayName),
+                L("Messages.TrackingPlacard", "[Snowcloak] Tracking placard for {0}. Interact with the placard and wait a few seconds to verify ownership."), location.FriendlyName),
             Type = XivChatType.SystemMessage
         });
 
