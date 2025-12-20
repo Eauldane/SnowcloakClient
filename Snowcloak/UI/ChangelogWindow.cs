@@ -300,7 +300,12 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                         "The Character Data Analysis window now analyses textures for suitability before converting to BC7, and will warn you about any risky conversions. It's not perfect, but it catches the worst offenders.",
                         "XIVAuth users are exempted from the inactivity cleanup now. Legacy key users are still removed after 90 days of inactivity.",
                         "Fixed MCDO permissions not working for allowed syncshells."
-                    ])
+                    ]),
+                    new ChangelogSection("Hotfix 2.0.0.1",
+                    [
+                        "Fixed a broken window title.",
+                        "Removed some debug popups.",
+                    ]),
                 ]),
             new(VersionFromString("1.0.2.1"),
                 [
