@@ -287,8 +287,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     public async Task RequestProfileAsync(string ident)
     {
-        Mediator.Publish(new NotificationMessage("Profile request", "Requesting profile from nearby player", NotificationType.Info, TimeSpan.FromSeconds(4)));
-
         try
         {
             var profile = await _snowProfileManager.GetSnowProfileAsync(userData: null, ident: ident, visibilityOverride: ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);

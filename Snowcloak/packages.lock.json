@@ -20,12 +20,6 @@
         "resolved": "1.0.0",
         "contentHash": "8ajPyzu49LSIdPgeg56eDdKu1j8FZJngKgTn9rXHV3GNVly49XFvPAwoWuUT8xPze3OjVUOWQZaO82HWrYFFEw=="
       },
-      "DalamudPackager": {
-        "type": "Direct",
-        "requested": "[14.0.1, )",
-        "resolved": "14.0.1",
-        "contentHash": "y0WWyUE6dhpGdolK3iKgwys05/nZaVf4ZPtIjpLhJBZvHxkkiE23zYRo7K7uqAgoK/QvK5cqF6l3VG5AbgC6KA=="
-      },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
         "requested": "[1.2.39, )",

@@ -40,6 +40,7 @@
     <PackageReference Include="System.IO.Pipelines" Version="10.0.1" />
     <PackageReference Update="DotNet.ReproducibleBuilds" Version="1.2.39" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+    <PackageReference Remove="DalamudPackager" />
   </ItemGroup>
 
   <PropertyGroup>

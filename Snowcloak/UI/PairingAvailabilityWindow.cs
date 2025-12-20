@@ -181,11 +181,13 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
     {
         var success = await _dalamudUtilService.OpenAdventurerPlateByIdentAsync(entry.Ident).ConfigureAwait(false);
 
-        Mediator.Publish(success
-            ? new NotificationMessage(L("Notification.AdventurerPlateTitle", "Adventurer Plate"),
-                string.Format(L("Notification.AdventurerPlateOpening", "Opening Adventurer Plate for {0}."), entry.DisplayName), NotificationType.Info, TimeSpan.FromSeconds(4))
-            : new NotificationMessage(L("Notification.AdventurerPlateFailedTitle", "Adventurer Plate failed"),
-                L("Notification.NotNearby", "Could not find that player nearby."), NotificationType.Warning, TimeSpan.FromSeconds(4)));
+        if (!success)
+        {
+            Mediator.Publish(new NotificationMessage(
+                L("Notification.AdventurerPlateFailedTitle", "Adventurer Plate failed"),
+                L("Notification.NotNearby", "Could not find that player nearby."), NotificationType.Warning,
+                TimeSpan.FromSeconds(4)));
+        }
     }
     
     private void ToggleLock()

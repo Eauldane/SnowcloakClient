@@ -14,6 +14,7 @@ using System.Numerics;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.Services.Localisation;
+using System.Globalization;
 
 namespace Snowcloak.UI;
 
@@ -33,7 +34,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
         ServerConfigurationManager serverManager, SnowProfileManager snowProfileManager, PairManager pairManager, Pair? pair,
         UserData userData, ProfileVisibility? requestedVisibility, PerformanceCollectorService performanceCollector, LocalisationService localisationService)
         : base(logger, mediator,
-            localisationService.GetString("StandaloneProfileUi.WindowTitle", $"Profile of {userData.AliasOrUID}") +
+            String.Format(CultureInfo.InvariantCulture, localisationService.GetString($"StandaloneProfileUi.WindowTitle", $"Profile of {0}"), userData.AliasOrUID) +
             "##SnowcloakSyncStandaloneProfileUI" + userData.AliasOrUID + requestedVisibility, performanceCollector)
     {
         _uiSharedService = uiBuilder;
