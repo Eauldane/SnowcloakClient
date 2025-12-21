@@ -137,7 +137,12 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
         var iconText = "\uE044";
         var valueText = availableCount.ToString();
-
+        if (pendingCount > 0)
+        {
+            valueText += " (" + pendingCount.ToString() + ")";
+        }
+            
+        
         var tooltipLines = new List<string>();
         if (hasPending)
             tooltipLines.Add(string.Format(L("Tooltip.PendingRequests", "{0} pending pair requests"), pendingCount));
