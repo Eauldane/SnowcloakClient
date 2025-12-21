@@ -520,7 +520,11 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         uint houseId = 0;
         var tempHouseId = houseMan == null ? 0 : (houseMan->GetCurrentPlot());
         if (!houseMan->IsInside()) tempHouseId = 0;
-
+        if (tempHouseId < -1)
+        {
+            divisionId = tempHouseId == -127 ? 2 : (uint)1;
+            tempHouseId = 100;
+        }
         if (tempHouseId == -1) tempHouseId = 0;
         houseId = (uint)tempHouseId;
         if (houseId != 0)
@@ -1065,9 +1069,10 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                 return true;
             }
 
-            if (currentPlot > 60)
+            if (currentPlot < -1)
             {
-                housingLocation = new HousingPlotLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
+                uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
+                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);
                 return true;            }
         }
 
