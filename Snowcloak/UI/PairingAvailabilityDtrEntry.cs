@@ -136,7 +136,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         var filteredCount = availabilityActive ? hoverPlayers.FilteredCount : 0;
 
         var iconText = "\uE044";
-        var valueText = availableCount > 0 ? availableCount.ToString() : string.Empty;
+        var valueText = availableCount.ToString();
 
         var tooltipLines = new List<string>();
         if (hasPending)
