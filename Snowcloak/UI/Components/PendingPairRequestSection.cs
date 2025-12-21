@@ -141,16 +141,27 @@ public sealed class PendingPairRequestSection
             requesterName += $" @ {worldName}";
         }
 
-        var note = _serverManager.GetNoteForUid(dto.Requester.UID);
+        var requesterUid = !string.IsNullOrWhiteSpace(dto.Requester.UID)
+            ? dto.Requester.UID
+            : dto.RequesterIdent;
+
+        var note = !string.IsNullOrWhiteSpace(requesterUid)
+            ? _serverManager.GetNoteForUid(requesterUid!)
+            : null;
+
+        var aliasOrUid = !string.IsNullOrWhiteSpace(dto.Requester.AliasOrUID)
+            ? dto.Requester.AliasOrUID
+            : requesterUid ?? dto.RequestId.ToString();
+
         var displayName = !string.IsNullOrWhiteSpace(note)
             ? note!
-            : requesterName ?? dto.Requester.AliasOrUID;
-
+            : requesterName ?? aliasOrUid;
+        
         var showAlias = string.IsNullOrWhiteSpace(note)
                         && requesterName != null
-                        && !string.Equals(dto.Requester.AliasOrUID, displayName, StringComparison.Ordinal);
-
-        return new PendingPairRequestDisplay(dto, displayName, dto.Requester.AliasOrUID, showAlias);
+                        && !string.Equals(aliasOrUid, displayName, StringComparison.Ordinal);
+        
+        return new PendingPairRequestDisplay(dto, displayName, aliasOrUid, showAlias);
     }
 
     private string L(string prefix, string key, string fallback)
