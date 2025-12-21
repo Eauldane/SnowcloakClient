@@ -131,7 +131,7 @@ public class FrostbrandPanel
         {
             if (_frostbrandEnablePopupModalJustShown)
             {
-                _useUriangerText = Rng.Next(250) == 0;
+                _useUriangerText = Rng.Next(99) == 0;
                 _frostbrandEnablePopupModalJustShown = false;
             }
 

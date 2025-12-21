@@ -250,6 +250,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.1"),
+            [
+                new ChangelogSection("Changes",
+                [
+                    "Frostbrand has been moved into the main UI rather than tucked away in settings.",
+                    "Frostbrand DTR icon will be a nice shade of blue when you have pending requests (configurable!)",
+                    "Fixed an error message."
+                ])
+            ]),
             new(VersionFromString("2.0.0"),
                 [
                     new ChangelogSection("New Feature: Frostbrand",
