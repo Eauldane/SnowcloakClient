@@ -7,6 +7,8 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -109,14 +111,18 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     private void Update()
     {
+        var pendingCount = _pairRequestService.PendingRequests.Count;
+        var hasPending = pendingCount > 0;
+
         if (!_configService.Current.EnableDtrEntry || !_configService.Current.PairingSystemEnabled)
         {
             if (_entry.IsValueCreated && _entry.Value.Shown)
                 Clear();
             return;
         }
-        
-        if (!_pairRequestService.IsAvailabilityChannelActive)
+
+        var availabilityActive = _pairRequestService.IsAvailabilityChannelActive;
+        if (!availabilityActive && !hasPending)
         {
             ShowUnavailable();
             return;
@@ -125,28 +131,46 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         if (!_entry.Value.Shown)
             _entry.Value.Shown = true;
 
-        var hoverPlayers = ResolveHoverPlayers();
-        var availableCount = hoverPlayers.Total;
-        var filteredCount = hoverPlayers.FilteredCount;
-        
+        var hoverPlayers = availabilityActive ? ResolveHoverPlayers() : new HoverPlayers([], 0, 0);
+        var availableCount = availabilityActive ? hoverPlayers.Total : 0;
+        var filteredCount = availabilityActive ? hoverPlayers.FilteredCount : 0;
+
         var iconText = "\uE044";
         var valueText = availableCount > 0 ? availableCount.ToString() : string.Empty;
-        var hoverText = hoverPlayers.Count > 0
-            ? string.Join(Environment.NewLine, hoverPlayers.Names)
-            : L("Tooltip.None", "No nearby players open to pairing");
-        var remaining = Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0);
 
-        if (remaining > 0)
-            hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Remaining", "... and {0} more"), remaining);
-        if (filteredCount > 0)
-            hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Filtered", "({0} filtered players)"), filteredCount);
-        var tooltip = availableCount > 0
-            ? string.Format(L("Tooltip.Header", "Users nearby open to pairing:{0}{1}"), Environment.NewLine, hoverText)
-            : hoverText;
-        var colors = availableCount > 0
-            ? _configService.Current.DtrColorsPairsInRange
-            : _configService.Current.DtrColorsDefault;
-        var fullText = iconText + ' ' + availableCount;
+        var tooltipLines = new List<string>();
+        if (hasPending)
+            tooltipLines.Add(string.Format(L("Tooltip.PendingRequests", "{0} pending pair requests"), pendingCount));
+
+        if (availabilityActive)
+        {
+            var hoverText = hoverPlayers.Count > 0
+                ? string.Join(Environment.NewLine, hoverPlayers.Names)
+                : L("Tooltip.None", "No nearby players open to pairing");
+            var remaining = Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0);
+
+            if (remaining > 0)
+                hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Remaining", "... and {0} more"), remaining);
+            if (filteredCount > 0)
+                hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Filtered", "({0} filtered players)"), filteredCount);
+
+            var nearbyTooltip = availableCount > 0
+                ? string.Format(L("Tooltip.Header", "Users nearby open to pairing:{0}{1}"), Environment.NewLine, hoverText)
+                : hoverText;
+            tooltipLines.Add(nearbyTooltip);
+        }
+        else
+        {
+            tooltipLines.Add(L("Tooltip.Unavailable", "Pairing availability unavailable"));
+        }
+
+        var tooltip = string.Join(Environment.NewLine + Environment.NewLine, tooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)));
+        var colors = hasPending
+            ? _configService.Current.DtrColorsPendingRequests
+            : availableCount > 0
+                ? _configService.Current.DtrColorsPairsInRange
+                : _configService.Current.DtrColorsDefault;
+        var fullText = string.IsNullOrWhiteSpace(valueText) ? iconText : iconText + ' ' + valueText;
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 

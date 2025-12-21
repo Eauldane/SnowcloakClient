@@ -38,7 +38,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     private enum Menu
     {
         IndividualPairs,
-        Syncshells
+        Syncshells,
+        Frostbrand
     }
 
     // currebnt selected tab and sidebar state
@@ -62,6 +63,9 @@ public class CompactUi : WindowMediatorSubscriberBase
     private readonly CharaDataManager _charaDataManager;
     private readonly UidDisplayHandler _uidDisplayHandler;
     private readonly UiSharedService _uiSharedService;
+    private readonly GuiHookService _guiHookService;
+    private readonly FrostbrandPanel _frostbrandPanel;
+    private readonly PendingPairRequestSection _pendingPairRequestSection;
     private bool _buttonState;
     private readonly TagHandler _tagHandler;
     private string _characterOrCommentFilter = string.Empty;
@@ -84,7 +88,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
-        ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
+        GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, LocalisationService localisationService)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
@@ -94,12 +98,15 @@ public class CompactUi : WindowMediatorSubscriberBase
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
+        _guiHookService = guiHookService;
         _registerService = registerService;
         _localisationService = localisationService;
         _fileTransferManager = fileTransferManager;
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;
         _tagHandler = new TagHandler(_serverManager);
+        _pendingPairRequestSection = new PendingPairRequestSection(_pairRequestService, _serverManager, _uiSharedService, _localisationService);
+        _frostbrandPanel = new FrostbrandPanel(_apiController, _configService, _pairRequestService, _uiSharedService, _guiHookService, _localisationService, _pendingPairRequestSection, "SettingsUi");
         
         _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager, _localisationService);
         _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService, _localisationService);
@@ -210,6 +217,16 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
         }
     }
+
+    private string GetFrostbrandSidebarLabel()
+    {
+        var label = L("Sidebar.Frostbrand", "Frostbrand");
+        var pending = _pendingPairRequestSection.PendingCount;
+
+        return pending > 0
+            ? string.Format(L("Sidebar.Frostbrand.Pending", "{0} ({1})"), label, pending)
+            : label;
+    }
     private void DrawSidebar()
     {
         // Adjust both values below to change size, 40 seems good to fit the buttons
@@ -234,6 +251,10 @@ public class CompactUi : WindowMediatorSubscriberBase
             // Buttons with state change
             DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, L("Sidebar.IndividualPairs", "Direct Pairs"));
             DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, L("Sidebar.Syncshells", "Syncshells"));
+            if (_apiController.ServerState is ServerState.Connected)
+            {
+                DrawSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
+            }
             ImGui.Separator();
             //buttons without state change
             DrawSidebarAction(FontAwesomeIcon.PersonCircleQuestion, L("Sidebar.CharacterAnalysis", "Character Analysis"),
@@ -349,6 +370,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                     case Menu.Syncshells:
                         using (ImRaii.PushId("syncshells")) _groupPanel.DrawSyncshells();
                         break;
+                    case Menu.Frostbrand:
+                        using (ImRaii.PushId("frostbrand")) _frostbrandPanel.Draw();
+                        break;
                 }
 
                 ImGui.Separator();
@@ -407,105 +431,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (!_configService.Current.PairingSystemEnabled)
             return;
 
-        var pending = _pairRequestService.PendingRequests
-            .OrderBy(r => r.RequestedAt)
-            .Select(BuildPendingRequestDisplay)
-            .ToList();
-        if (pending.Count == 0)
-            return;
-        
-        using var id = ImRaii.PushId("pending-requests");
-
-        var tag = TagHandler.CustomPairRequestsTag;
-        var isOpen = _tagHandler.IsTagOpen(tag);
-        var icon = isOpen ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
-
-        _uiSharedService.IconText(icon);
-        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
-        {
-            isOpen = !isOpen;
-            _tagHandler.SetTagOpen(tag, isOpen);
-        }
-
-        ImGui.SameLine();
-        ImGui.TextUnformatted(string.Format(L("PairRequests.Title", "Pair Requests ({0})"), pending.Count));
-        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
-        {
-            isOpen = !isOpen;
-            _tagHandler.SetTagOpen(tag, isOpen);
-        }
-
-        if (!isOpen)
-        {
-            ImGui.Separator();
-            return;
-        }
-
-        ImGui.Indent(20);
-        ImGui.TextUnformatted(L("PairRequests.NoteInfo", "Notes will be auto-filled with the sender's name when you accept."));
-        
-        if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
-        {
-            foreach (var request in pending)
-            {
-                using var requestId = ImRaii.PushId(request.Request.RequestId.ToString());
-                ImGui.TableNextRow();
-
-                ImGui.TableSetColumnIndex(0);
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted(request.DisplayName);
-                if (request.ShowAlias)
-                {
-                    ImGui.SameLine();
-                    ImGui.TextDisabled($"({request.AliasOrUid})");
-                }
-                UiSharedService.AttachToolTip(string.Format(L("PairRequests.RequestedAt", "Requested at {0:HH:mm:ss}"), request.Request.RequestedAt));
-                ImGui.TableSetColumnIndex(1);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, L("PairRequests.Accept", "Add")))
-                {
-                    _ = _pairRequestService.RespondAsync(request.Request, true);
-                }
-                ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L("PairRequests.Reject", "Reject")))
-                {
-                    _ = _pairRequestService.RespondAsync(request.Request, false, L("PairRequests.RejectReason", "Rejected by user"));
-                }
-            }
-            ImGui.EndTable();
-            
-        }
-        
-        
-        ImGui.Unindent();
-        ImGui.Separator();
-    }
-
-    private PendingPairRequestDisplay BuildPendingRequestDisplay(PairingRequestDto dto)
-    {
-        var requester = _pairRequestService.GetRequesterDisplay(dto);
-        string? worldName = null;
-        var hasWorld = requester.WorldId.HasValue && _uiSharedService.WorldData.TryGetValue(requester.WorldId.Value, out worldName);
-
-        var hasIdentName = !string.IsNullOrWhiteSpace(requester.Name)
-                           && !string.Equals(requester.Name, dto.Requester.UID, StringComparison.Ordinal);
-        var requesterName = hasIdentName ? requester.Name : null;
-
-        if (hasIdentName && hasWorld && !string.IsNullOrWhiteSpace(worldName))
-        {
-            requesterName += $" @ {worldName}";
-        }
-
-        var note = _serverManager.GetNoteForUid(dto.Requester.UID);
-        var displayName = !string.IsNullOrWhiteSpace(note)
-            ? note!
-            : requesterName ?? dto.Requester.AliasOrUID;
-
-        var showAlias = string.IsNullOrWhiteSpace(note)
-                        && requesterName != null
-                        && !string.Equals(dto.Requester.AliasOrUID, displayName, StringComparison.Ordinal);
-
-        return new PendingPairRequestDisplay(dto, displayName, dto.Requester.AliasOrUID, showAlias);
-        
+        _pendingPairRequestSection.Draw(_tagHandler, "CompactUI", indent: true, collapsibleWhenNoTag: false);
     }
 
     public override void OnClose()
@@ -936,8 +862,3 @@ public class CompactUi : WindowMediatorSubscriberBase
         IsOpen = false;
     }
 }
-public readonly record struct PendingPairRequestDisplay(
-    PairingRequestDto Request,
-    string DisplayName,
-    string AliasOrUid,
-    bool ShowAlias);

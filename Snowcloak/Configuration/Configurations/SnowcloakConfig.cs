@@ -22,6 +22,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public DtrEntry.Colors DtrColorsDefault { get; set; } = default;
     public DtrEntry.Colors DtrColorsNotConnected { get; set; } = new(Glow: 0x0428FFu);
     public DtrEntry.Colors DtrColorsPairsInRange { get; set; } = new(Glow: 0xFFBA47u);
+    public DtrEntry.Colors DtrColorsPendingRequests { get; set; } = new(Foreground: 0xFFB790u, Glow: 0xFF6347u);
     public bool UseNameColors { get; set; } = false;
     public DtrEntry.Colors NameColors { get; set; } = new(Foreground: 0x67EBF5u, Glow: 0x00303Cu);
     public DtrEntry.Colors BlockedNameColors { get; set; } = new(Foreground: 0x8AADC7, Glow: 0x000080u);
@@ -85,6 +86,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool AllowBbCodeImages { get; set; } = true;
     public DtrEntry.Colors PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = false;
+    public bool FrostbrandWelcomeSeen { get; set; } = false;
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;
     public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
