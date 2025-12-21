@@ -1017,9 +1017,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
         
 
-        return hasAppearanceFilters
-            ? new AutoRejectResult(true, "Auto rejected: appearance unavailable", false)
-            : new AutoRejectResult(false, string.Empty, false);
+        // Appearance filters are configured, but the requester does not match any of them.
+        // Treat as acceptable instead of falling back to an "appearance unavailable" auto-rejection.
+        return new AutoRejectResult(false, string.Empty, false);
 
         
     }
