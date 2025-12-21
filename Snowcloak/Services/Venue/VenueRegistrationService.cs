@@ -105,8 +105,16 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         if (_pendingPlot == null)
             return;
 
-        if (!_dalamudUtilService.TryGetLastHousingPlot(out var currentPlot)
-            || currentPlot.TerritoryId != _pendingPlot.Value.TerritoryId)
+        var hasCurrentPlot = _dalamudUtilService.TryGetLastHousingPlot(out var currentPlot);
+        var pendingPlot = _pendingPlot.Value;
+
+        var locationInfo = _dalamudUtilService.GetMapData();
+        var movedToDifferentTerritory = _clientState.TerritoryType != pendingPlot.TerritoryId;
+        var movedToDifferentSubdivision = locationInfo.DivisionId != pendingPlot.DivisionId
+                                          || locationInfo.WardId != pendingPlot.WardId;
+        var enteredDifferentPlot = hasCurrentPlot && !IsSameHousingStructure(currentPlot, pendingPlot);
+
+        if (movedToDifferentTerritory || movedToDifferentSubdivision || enteredDifferentPlot)
         {
             CancelPendingRegistration(
                 L("Messages.RegistrationCancelled", "[Snowcloak] Registration cancelled: you changed areas. Please start registration again from the new plot."));
@@ -146,6 +154,14 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
         _wasPlacardOpen = true;
         _ = HandlePlacardOpenedAsync();
+    }
+
+    private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
+    {
+        return left.WorldId == right.WorldId
+               && left.WardId == right.WardId
+               && left.PlotId == right.PlotId
+               && left.IsApartment == right.IsApartment;
     }
     
     private void CancelPendingRegistration(string message)
