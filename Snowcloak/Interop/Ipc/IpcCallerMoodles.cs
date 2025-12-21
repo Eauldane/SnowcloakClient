@@ -10,7 +10,7 @@ namespace Snowcloak.Interop.Ipc;
 public sealed class IpcCallerMoodles : IIpcCaller
 {
     private readonly ICallGateSubscriber<int> _moodlesApiVersion;
-    private readonly ICallGateSubscriber<IPlayerCharacter, object> _moodlesOnChange;
+    private readonly ICallGateSubscriber<nint, object> _moodlesOnChange;
     private readonly ICallGateSubscriber<nint, string> _moodlesGetStatus;
     private readonly ICallGateSubscriber<nint, string, object> _moodlesSetStatus;
     private readonly ICallGateSubscriber<nint, object> _moodlesRevertStatus;
@@ -26,7 +26,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
         _snowMediator = snowMediator;
 
         _moodlesApiVersion = pi.GetIpcSubscriber<int>("Moodles.Version");
-        _moodlesOnChange = pi.GetIpcSubscriber<IPlayerCharacter, object>("Moodles.StatusManagerModified");
+        _moodlesOnChange = pi.GetIpcSubscriber<nint, object>("Moodles.StatusManagerModified");
         _moodlesGetStatus = pi.GetIpcSubscriber<nint, string>("Moodles.GetStatusManagerByPtrV2");
         _moodlesSetStatus = pi.GetIpcSubscriber<nint, string, object>("Moodles.SetStatusManagerByPtrV2");
         _moodlesRevertStatus = pi.GetIpcSubscriber<nint, object>("Moodles.ClearStatusManagerByPtrV2");
@@ -36,9 +36,9 @@ public sealed class IpcCallerMoodles : IIpcCaller
         CheckAPI();
     }
 
-    private void OnMoodlesChange(IPlayerCharacter character)
+    private void OnMoodlesChange(nint address)
     {
-        _snowMediator.Publish(new MoodlesMessage(character.Address));
+        _snowMediator.Publish(new MoodlesMessage(address));
     }
 
     public bool APIAvailable { get; private set; } = false;
@@ -47,7 +47,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
     {
         try
         {
-            APIAvailable = _moodlesApiVersion.InvokeFunc() == 3;
+            APIAvailable = _moodlesApiVersion.InvokeFunc() == 4;
         }
         catch
         {
