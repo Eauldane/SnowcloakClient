@@ -558,25 +558,62 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             _applicationId = Guid.NewGuid();
             Logger.LogDebug("[BASE-{applicationId}] Starting application task for {this}: {appId}", applicationBase, this, _applicationId);
 
+            var handler = _charaHandler;
+            if (handler == null)
+            {
+                Logger.LogInformation("[BASE-{applicationBase}] Aborting application task, character handler is null for {this}", applicationBase, this);
+                return;
+            }
+
+            async Task<ushort?> TryGetObjectIndexAsync()
+            {
+                try
+                {
+                    var index = await _dalamudUtil.RunOnFrameworkThread(() => handler.GetGameObject()?.ObjectIndex ?? ushort.MaxValue).ConfigureAwait(false);
+                    return index == ushort.MaxValue ? null : index;
+                }
+                catch (Exception ex) when (ex is NullReferenceException or AccessViolationException)
+                {
+                    Logger.LogInformation(ex, "[{applicationId}] Failed to resolve object index for {handler}", _applicationId, handler);
+                    return null;
+                }
+            }
             if (_penumbraCollection == Guid.Empty)
             {
                 if (objIndex == ushort.MaxValue)
-                    objIndex = await _dalamudUtil.RunOnFrameworkThread(() => _charaHandler!.GetGameObject()!.ObjectIndex).ConfigureAwait(false);
+                {
+                    var index = await TryGetObjectIndexAsync().ConfigureAwait(false);
+                    if (index == null)
+                    {
+                        Logger.LogInformation("[{applicationId}] Aborting application task, unable to obtain object index for {handler}", _applicationId, handler);
+                        return;
+                    }
+
+                    objIndex = index.Value;
+                }
                 _penumbraCollection = await _ipcManager.Penumbra.CreateTemporaryCollectionAsync(Logger, Pair.UserData.UID).ConfigureAwait(false);
                 await _ipcManager.Penumbra.AssignTemporaryCollectionAsync(Logger, _penumbraCollection, objIndex).ConfigureAwait(false);
             }
 
             Logger.LogDebug("[{applicationId}] Waiting for initial draw for for {handler}", _applicationId, _charaHandler);
-            await _dalamudUtil.WaitWhileCharacterIsDrawing(Logger, _charaHandler!, _applicationId, 30000, token).ConfigureAwait(false);
-
+            await _dalamudUtil.WaitWhileCharacterIsDrawing(Logger, handler, _applicationId, 30000, token).ConfigureAwait(false);
+            
             token.ThrowIfCancellationRequested();
 
             if (updateModdedPaths)
             {
                 // ensure collection is set
                 if (objIndex == ushort.MaxValue)
-                    objIndex = await _dalamudUtil.RunOnFrameworkThread(() => _charaHandler!.GetGameObject()!.ObjectIndex).ConfigureAwait(false);
-                await _ipcManager.Penumbra.AssignTemporaryCollectionAsync(Logger, _penumbraCollection, objIndex).ConfigureAwait(false);
+                {
+                    var index = await TryGetObjectIndexAsync().ConfigureAwait(false);
+                    if (index == null)
+                    {
+                        Logger.LogInformation("[{applicationId}] Aborting application task, unable to obtain object index for {handler} before applying mods", _applicationId, handler);
+                        return;
+                    }
+
+                    objIndex = index.Value;
+                }                await _ipcManager.Penumbra.AssignTemporaryCollectionAsync(Logger, _penumbraCollection, objIndex).ConfigureAwait(false);
 
                 await _ipcManager.Penumbra.SetTemporaryModsAsync(Logger, _applicationId, _penumbraCollection,
                     moddedPaths.ToDictionary(k => k.Key.GamePath, k => k.Value, StringComparer.Ordinal)).ConfigureAwait(false);
