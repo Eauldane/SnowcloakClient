@@ -566,15 +566,27 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
                     var cacheSubDirs = Directory.GetDirectories(path);
 
                     _cacheDirectoryHasOtherFilesThanCache = cacheDirFiles.Any(f =>
-                        Path.GetFileNameWithoutExtension(f).Length != 40
-                            && !Path.GetExtension(f).Equals("tmp", StringComparison.OrdinalIgnoreCase)
-                            && !Path.GetExtension(f).Equals("blk", StringComparison.OrdinalIgnoreCase)
-                    );
+                    {
+                        var fileName = Path.GetFileName(f);
+                        if (string.IsNullOrEmpty(fileName) || fileName.StartsWith('.'))
+                            return false;
+
+                        var extension = Path.GetExtension(f);
+                        if (extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase)
+                            || extension.Equals(".blk", StringComparison.OrdinalIgnoreCase))
+                            return false;
+
+                        return Path.GetFileNameWithoutExtension(f).Length != 64;
+                    });
 
                     if (!_cacheDirectoryHasOtherFilesThanCache
                         && cacheSubDirs.Select(f => Path.GetFileName(Path.TrimEndingDirectorySeparator(f))).Any(f =>
-                            !f.Equals("subst", StringComparison.OrdinalIgnoreCase)
-                    ))
+                        {
+                            if (string.IsNullOrEmpty(f) || f.StartsWith('.'))
+                                return false;
+
+                            return !f.Equals("subst", StringComparison.OrdinalIgnoreCase);
+                        }))
                         _cacheDirectoryHasOtherFilesThanCache = true;
 
                     _cacheDirectoryIsValidPath = PathRegex().IsMatch(path);
