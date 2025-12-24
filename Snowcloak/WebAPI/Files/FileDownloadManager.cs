@@ -9,6 +9,7 @@ using Snowcloak.Utils;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.Files.Models;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 
@@ -16,7 +17,7 @@ namespace Snowcloak.WebAPI.Files;
 
 public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
-    private readonly Dictionary<string, FileDownloadStatus> _downloadStatus;
+    private readonly ConcurrentDictionary<string, FileDownloadStatus> _downloadStatus;
     private readonly FileCacheManager _fileDbManager;
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly List<ThrottledStream> _activeDownloadStreams;
@@ -25,7 +26,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         FileTransferOrchestrator orchestrator,
         FileCacheManager fileCacheManager) : base(logger, mediator)
     {
-        _downloadStatus = new Dictionary<string, FileDownloadStatus>(StringComparer.Ordinal);
+        _downloadStatus = new ConcurrentDictionary<string, FileDownloadStatus>(StringComparer.Ordinal);
         _orchestrator = orchestrator;
         _fileDbManager = fileCacheManager;
         _activeDownloadStreams = [];
@@ -135,8 +136,10 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 
         await WaitForDownloadReady(fileTransfer, requestId, ct).ConfigureAwait(false);
 
-        _downloadStatus[downloadGroup].DownloadStatus = DownloadStatus.Downloading;
-
+        if (_downloadStatus.TryGetValue(downloadGroup, out var status))
+        {
+            status.DownloadStatus = DownloadStatus.Downloading;
+        }
         HttpResponseMessage response = null!;
         var requestUrl = SnowFiles.CacheGetFullPath(fileTransfer[0].DownloadUri, requestId);
 
@@ -272,9 +275,15 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             FileInfo fi = new(blockFile);
             try
             {
-                _downloadStatus[fileGroup.Key].DownloadStatus = DownloadStatus.WaitingForSlot;
+                if (_downloadStatus.TryGetValue(fileGroup.Key, out var statusWaitingForSlot))
+                {
+                    statusWaitingForSlot.DownloadStatus = DownloadStatus.WaitingForSlot;
+                }
                 await _orchestrator.WaitForDownloadSlotAsync(token).ConfigureAwait(false);
-                _downloadStatus[fileGroup.Key].DownloadStatus = DownloadStatus.WaitingForQueue;
+                if (_downloadStatus.TryGetValue(fileGroup.Key, out var statusWaitingForQueue))
+                {
+                    statusWaitingForQueue.DownloadStatus = DownloadStatus.WaitingForQueue;
+                }
                 Progress<long> progress = new((bytesDownloaded) =>
                 {
                     try

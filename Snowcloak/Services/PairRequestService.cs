@@ -861,10 +861,21 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             var name = pc.Name;
             var world = (ushort?)pc.HomeWorldId;
-            _serverConfigurationManager.SetNameForUid(dto.Requester.UID, name);
-            if (setNoteFromNearby && string.IsNullOrWhiteSpace(_serverConfigurationManager.GetNoteForUid(dto.Requester.UID)))
+            var requesterUid = string.IsNullOrWhiteSpace(dto.Requester.UID)
+                ? dto.RequesterIdent
+                : dto.Requester.UID;
+
+            if (!string.IsNullOrWhiteSpace(requesterUid))
             {
-                _serverConfigurationManager.SetNoteForUid(dto.Requester.UID, name);
+                _serverConfigurationManager.SetNameForUid(requesterUid!, name);
+                if (setNoteFromNearby && string.IsNullOrWhiteSpace(_serverConfigurationManager.GetNoteForUid(requesterUid!)))
+                {
+                    _serverConfigurationManager.SetNameForUid(requesterUid!, name);
+                    if (setNoteFromNearby && string.IsNullOrWhiteSpace(_serverConfigurationManager.GetNoteForUid(requesterUid!)))
+                    {
+                        _serverConfigurationManager.SetNoteForUid(requesterUid!, name);
+                    }
+                }
             }
 
             return new RequesterDisplay(name, world);

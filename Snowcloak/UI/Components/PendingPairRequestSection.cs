@@ -4,6 +4,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Snowcloak.API.Data;
 using Snowcloak.API.Dto.User;
 using Snowcloak.Services;
 using Snowcloak.Services.Localisation;
@@ -43,8 +44,8 @@ public sealed class PendingPairRequestSection
         if (pending.Count == 0)
             return;
 
-        var title = string.Format(L(localisationPrefix, "PairRequests.Title", "Pair Requests ({0})"), pending.Count);
-
+        var titleTemplate = L(localisationPrefix, "PairRequests.Title", "Pair Requests ({0})");
+        var title = string.Format(titleTemplate, pending.Count);
         var isOpen = tagHandler?.IsTagOpen(TagHandler.CustomPairRequestsTag) ?? true;
         var usedCollapsingHeader = false;
 
@@ -98,8 +99,8 @@ public sealed class PendingPairRequestSection
                     ImGui.SameLine();
                     ImGui.TextDisabled($"({request.AliasOrUid})");
                 }
-                UiSharedService.AttachToolTip(string.Format(L(localisationPrefix, "PairRequests.RequestedAt", "Requested at {0:HH:mm:ss}"), request.Request.RequestedAt));
-
+                var requestedAtTemplate = L(localisationPrefix, "PairRequests.RequestedAt", "Requested at {0:HH:mm:ss}");
+                UiSharedService.AttachToolTip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
                 ImGui.TableSetColumnIndex(1);
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, L(localisationPrefix, "PairRequests.Accept", "Add")))
                 {
@@ -128,12 +129,14 @@ public sealed class PendingPairRequestSection
 
     private PendingPairRequestDisplay BuildPendingRequestDisplay(PairingRequestDto dto)
     {
+        var requesterData = dto.Requester ?? new UserData(string.Empty);
         var requester = _pairRequestService.GetRequesterDisplay(dto);
         string? worldName = null;
-        var hasWorld = requester.WorldId.HasValue && _uiSharedService.WorldData.TryGetValue(requester.WorldId.Value, out worldName);
-
+        var hasWorld = requester.WorldId.HasValue
+                       && _uiSharedService.WorldData != null
+                       && _uiSharedService.WorldData.TryGetValue(requester.WorldId.Value, out worldName);
         var hasIdentName = !string.IsNullOrWhiteSpace(requester.Name)
-                           && !string.Equals(requester.Name, dto.Requester.UID, StringComparison.Ordinal);
+                           && !string.Equals(requester.Name, requesterData.UID, StringComparison.Ordinal);
         var requesterName = hasIdentName ? requester.Name : null;
 
         if (hasIdentName && hasWorld && !string.IsNullOrWhiteSpace(worldName))
@@ -141,17 +144,19 @@ public sealed class PendingPairRequestSection
             requesterName += $" @ {worldName}";
         }
 
-        var requesterUid = !string.IsNullOrWhiteSpace(dto.Requester.UID)
-            ? dto.Requester.UID
+        var requesterUid = !string.IsNullOrWhiteSpace(requesterData.UID)
+            ? requesterData.UID
             : dto.RequesterIdent;
 
         var note = !string.IsNullOrWhiteSpace(requesterUid)
             ? _serverManager.GetNoteForUid(requesterUid!)
             : null;
 
-        var aliasOrUid = !string.IsNullOrWhiteSpace(dto.Requester.AliasOrUID)
-            ? dto.Requester.AliasOrUID
-            : requesterUid ?? dto.RequestId.ToString();
+        var aliasOrUid = !string.IsNullOrWhiteSpace(requesterData.AliasOrUID)
+            ? requesterData.AliasOrUID
+            : !string.IsNullOrWhiteSpace(requesterUid)
+                ? requesterUid
+                : dto.RequestId.ToString();
 
         var displayName = !string.IsNullOrWhiteSpace(note)
             ? note!
