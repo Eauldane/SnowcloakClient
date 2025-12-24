@@ -395,7 +395,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{dlName}: Error during block file read", fi.Name);
+                Logger.LogInformation(ex, "{dlName}: Error during block file read. This is probably fine, and will fix itself.", fi.Name);
             }
             finally
             {

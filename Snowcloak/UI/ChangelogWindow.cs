@@ -250,6 +250,24 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.2"),
+            [
+                new ChangelogSection("Changes",
+                [
+                    "Improved download performance and fixed a potential error when files were downloading while changing areas or running through congested areas.",
+                    "Fixed Mac and Linux users being unable to set a storage directory sometimes due to hidden OS files.",
+                    "Fixed a rare error related to changing areas when mods were being applied to a pair.",
+                    "Fixed some logging levels to be more appropriate to the severity.",
+                    "XIVAuth now allows you to re-request permissions for characters if you verify some during the authentication flow, rather than having to start from scratch."
+                ]),
+                new ChangelogSection("Hotfix Rollup",
+                [
+                    "Fixed DTR icon for Frostbrand not showing a zero if nobody was in range.",
+                    "Moodles IPC fixes.",
+                    "Fixed a rare error on Frostbrand's panel.",
+                    "Frostbrand DTR icon now shows pending requests in brackets next to the nearby value."
+                ])
+            ]),
             new(VersionFromString("2.0.1"),
             [
                 new ChangelogSection("Changes",
