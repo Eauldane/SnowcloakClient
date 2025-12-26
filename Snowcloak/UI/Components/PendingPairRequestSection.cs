@@ -45,8 +45,7 @@ public sealed class PendingPairRequestSection
         if (pending.Count == 0)
             return;
 
-        var titleTemplate = L(localisationPrefix, "PairRequests.Title", "Pair Requests ({0})");
-        var title = string.Format(titleTemplate, pending.Count);
+        var title = $"Pair Requests ({pending.Count})";
         var isOpen = tagHandler?.IsTagOpen(TagHandler.CustomPairRequestsTag) ?? true;
         var usedCollapsingHeader = false;
 
@@ -83,9 +82,9 @@ public sealed class PendingPairRequestSection
         if (indent)
             ImGui.Indent(20 * ImGuiHelpers.GlobalScale);
 
-        ImGui.TextUnformatted(L(localisationPrefix, "PairRequests.NoteInfo", "Notes will be auto-filled with the sender's name when you accept."));
+        ImGui.TextUnformatted("Notes will be auto-filled with the sender's name when you accept.");
 
-        if (ImGui.BeginTable($"pair-request-table-{localisationPrefix}", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
+        if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
         {
             foreach (var request in pending)
             {
@@ -100,19 +99,19 @@ public sealed class PendingPairRequestSection
                     ImGui.SameLine();
                     ImGui.TextDisabled($"({request.AliasOrUid})");
                 }
-                var requestedAtTemplate = L(localisationPrefix, "PairRequests.RequestedAt", "Requested at {0:HH:mm:ss}");
+                var requestedAtTemplate = "Requested at {0:HH:mm:ss}";
                 UiSharedService.AttachToolTip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
                 ImGui.TableSetColumnIndex(1);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, L(localisationPrefix, "PairRequests.Accept", "Add")))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, "Add"))
                 {
                     _ = _pairRequestService.RespondAsync(request.Request, true);
                 }
 
                 ImGui.SameLine();
 
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L(localisationPrefix, "PairRequests.Reject", "Reject")))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Reject"))
                 {
-                    _ = _pairRequestService.RespondAsync(request.Request, false, L(localisationPrefix, "PairRequests.RejectReason", "Rejected by user"));
+                    _ = _pairRequestService.RespondAsync(request.Request, false, "Rejected by user");
                 }
             }
 
@@ -175,11 +174,7 @@ public sealed class PendingPairRequestSection
         var uid = dto.Requester?.UID;
         return string.IsNullOrWhiteSpace(dto.RequesterIdent) && string.IsNullOrWhiteSpace(uid);
     }
-
-    private string L(string prefix, string key, string fallback)
-    {
-        return _localisationService.GetString($"{prefix}.{key}", fallback);
-    }
+    
 }
 
 public readonly record struct PendingPairRequestDisplay(
