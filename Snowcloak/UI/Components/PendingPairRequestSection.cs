@@ -38,6 +38,7 @@ public sealed class PendingPairRequestSection
     {
         var pending = _pairRequestService.PendingRequests
             .OrderBy(r => r.RequestedAt)
+            .Where(r => !IsMalformed(r))
             .Select(dto => BuildPendingRequestDisplay(dto))
             .ToList();
 
@@ -167,6 +168,12 @@ public sealed class PendingPairRequestSection
                         && !string.Equals(aliasOrUid, displayName, StringComparison.Ordinal);
         
         return new PendingPairRequestDisplay(dto, displayName, aliasOrUid, showAlias);
+    }
+
+    private static bool IsMalformed(PairingRequestDto dto)
+    {
+        var uid = dto.Requester?.UID;
+        return string.IsNullOrWhiteSpace(dto.RequesterIdent) && string.IsNullOrWhiteSpace(uid);
     }
 
     private string L(string prefix, string key, string fallback)
