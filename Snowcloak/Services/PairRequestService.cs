@@ -829,6 +829,13 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     private async Task HandleRequestAsync(PairingRequestDto dto)
     {
+        if (IsMalformed(dto))
+        {
+            _logger.LogWarning("Rejecting malformed pair request: missing requester ident and UID (RequestId: {RequestId})", dto.RequestId);
+            await RespondAsync(dto.RequestId, false, "Malformed pairing request").ConfigureAwait(false);
+            return;
+        }
+
         var autoRejectResult = await ShouldAutoRejectAsync(dto.RequesterIdent).ConfigureAwait(false);
         if (autoRejectResult.ShouldReject)
         {
@@ -841,6 +848,12 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         Mediator.Publish(new PairingRequestListChangedMessage());
         var requesterName = GetRequesterDisplayName(dto, setNoteFromNearby: true);
         _toastGui.ShowQuest(requesterName + " sent a pairing request.");
+    }
+
+    private static bool IsMalformed(PairingRequestDto dto)
+    {
+        var uid = dto.Requester?.UID;
+        return string.IsNullOrWhiteSpace(dto.RequesterIdent) && string.IsNullOrWhiteSpace(uid);
     }
 
     public RequesterDisplay GetRequesterDisplay(PairingRequestDto dto, bool setNoteFromNearby = false)
