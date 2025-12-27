@@ -832,7 +832,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (IsMalformed(dto))
         {
             _logger.LogWarning("Rejecting malformed pair request: missing requester ident and UID (RequestId: {RequestId})", dto.RequestId);
-            await RespondAsync(dto.RequestId, false, "Malformed pairing request").ConfigureAwait(false);
+            await RespondAsync(dto.RequestId, false, "Malformed pairing request. Try moving a little closer?").ConfigureAwait(false);
             return;
         }
 
