@@ -508,7 +508,10 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.SameLine();
                         _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
                         UiSharedService.AttachToolTip(L("Conversion.RiskTooltip", "Texture flagged as risky (alpha/detail patterns or dye/colorset path). Proceed with caution when converting."));
-                        _texturesToConvert.Remove(filePath);
+                        if (!toConvert)
+                        {
+                            _texturesToConvert.Remove(filePath);
+                        }
                     }
                 }
             }

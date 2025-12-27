@@ -250,6 +250,16 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.3"),
+            [
+                new ChangelogSection("Changes and Bug FIxes",
+                [
+                   "Fixed malformed pairing requests being sent if both sender and recipient logged off and reconnected.",
+                   "Updated Blake3 hashing implementation.",
+                   "Fixed BC7 checkbox unchecking itself if Snowcloak thinks it's a risky texture.",
+                   "Adjusted wording of the 'Unauthorised' message to let people know about the inactivity period."
+                ])
+            ]),
             new(VersionFromString("2.0.2"),
             [
                 new ChangelogSection("Changes",

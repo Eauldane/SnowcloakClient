@@ -4,9 +4,9 @@
     "net10.0-windows7.0": {
       "Blake3": {
         "type": "Direct",
-        "requested": "[2.0.0, )",
-        "resolved": "2.0.0",
-        "contentHash": "v447kojeuNYSY5dvtVGG2bv1+M3vOWJXcrYWwXho/2uUpuwK6qPeu5WSMlqLm4VRJu96kysVO11La0zN3dLAuQ=="
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "RM6sZLZDx2wGi00aTj9s2jUcrI4s9dS2ibcT7lSujpUpBGp+TLf71F3XdBKJyYSxHnZ+FL7Dm36Pl0Y+cfcXvw=="
       },
       "Brio.API": {
         "type": "Direct",
@@ -586,7 +586,7 @@
       "snowcloak.api": {
         "type": "Project",
         "dependencies": {
-          "Blake3": "[2.0.0, )",
+          "Blake3": "[2.2.0, )",
           "MessagePack.Annotations": "[3.1.4, )"
         }
       }
@@ -594,9 +594,9 @@
     "net10.0-windows7.0/win-x64": {
       "Blake3": {
         "type": "Direct",
-        "requested": "[2.0.0, )",
-        "resolved": "2.0.0",
-        "contentHash": "v447kojeuNYSY5dvtVGG2bv1+M3vOWJXcrYWwXho/2uUpuwK6qPeu5WSMlqLm4VRJu96kysVO11La0zN3dLAuQ=="
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "RM6sZLZDx2wGi00aTj9s2jUcrI4s9dS2ibcT7lSujpUpBGp+TLf71F3XdBKJyYSxHnZ+FL7Dm36Pl0Y+cfcXvw=="
       },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Transitive",
