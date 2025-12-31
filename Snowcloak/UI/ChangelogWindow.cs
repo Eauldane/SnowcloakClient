@@ -250,6 +250,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.4"),
+            [
+                new ChangelogSection("Changes and Bug FIxes",
+                [
+                    "Added a button to log in with XIVAuth on the Service Management tab in settings that will automatically replace invalid secret keys that have been deleted for inactivity.",
+                    "Adjusted autopause notifications to not display again when the paused user changes their outfit until they've switched to an outfit below your thresholds."
+                ])
+            ]),
             new(VersionFromString("2.0.3"),
             [
                 new ChangelogSection("Changes and Bug FIxes",

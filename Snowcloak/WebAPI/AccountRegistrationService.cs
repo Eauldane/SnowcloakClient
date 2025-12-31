@@ -57,11 +57,8 @@ public sealed class AccountRegistrationService : IDisposable
             
         
         var sessionID = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-        #if DEBUG
-            Uri handshakeUri = new Uri("http://account.snow.cloak/register");
-        #else
-            Uri handshakeUri = new Uri("https://account.snowcloak-sync.com/register");
-        #endif
+        Uri handshakeUri = new Uri("https://account.snowcloak-sync.com/register");
+
 
         var handshakePayload = new { session_id = sessionID, hashed_secret = hashedSecretKey, character_name = playerName, home_world = worldName };
         var handshakeResponse = await _httpClient.PostAsJsonAsync(handshakeUri, handshakePayload, token).ConfigureAwait(false);

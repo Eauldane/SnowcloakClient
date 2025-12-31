@@ -68,6 +68,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _registrationInProgress = false;
     private bool _registrationSuccess = false;
     private string? _registrationMessage;
+    private bool _xivAuthRegistrationInProgress = false;
+    private bool _xivAuthRegistrationSuccess = false;
+    private string? _xivAuthRegistrationMessage;
     
     public SettingsUi(ILogger<SettingsUi> logger,
         UiSharedService uiShared, SnowcloakConfigService configService,
@@ -1702,6 +1705,130 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
             if (ImGui.BeginTabItem(secretKeyTab))
             {
+                var currentCharacterAssignment = selectedServer.Authentications.Find(a =>
+                    string.Equals(a.CharacterName, _uiShared.PlayerName, StringComparison.OrdinalIgnoreCase)
+                        && a.WorldId == playerWorldId
+                );
+                var hasSecretKey =
+                    currentCharacterAssignment != null
+                    && selectedServer.SecretKeys.TryGetValue(currentCharacterAssignment.SecretKeyIdx, out var currentSecretKey)
+                    && !currentSecretKey.Key.IsNullOrEmpty();
+
+                var invalidSecretKey = _apiController.ServerState == ServerState.Unauthorized
+                                       && !_apiController.AuthFailureMessage.IsNullOrEmpty()
+                                       && _apiController.AuthFailureMessage.Contains("secret", StringComparison.OrdinalIgnoreCase);
+
+                var invalidSecretKeyIdx = currentCharacterAssignment?.SecretKeyIdx;
+                var removeInvalidSecretKey = invalidSecretKey
+                                             && invalidSecretKeyIdx.HasValue
+                                             && selectedServer.SecretKeys.ContainsKey(invalidSecretKeyIdx.Value);
+
+                if (!hasSecretKey || invalidSecretKey)
+                {
+                    var xivAuthPrompt = invalidSecretKey
+                        ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a legacy key."
+                        : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a legacy key.";
+                    UiSharedService.ColorTextWrapped(
+                        xivAuthPrompt,
+                        ImGuiColors.DalamudYellow);
+
+                    using (ImRaii.Disabled(_xivAuthRegistrationInProgress))
+                    {
+                        if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                        {
+                            var currentPlayerName = playerName;
+                            var currentPlayerWorldId = playerWorldId;
+
+                            _xivAuthRegistrationInProgress = true;
+                            _xivAuthRegistrationMessage = null;
+                            _xivAuthRegistrationSuccess = false;
+
+                            var server = selectedServer;
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
+                                    if (!reply.Success)
+                                    {
+                                        _logger.LogWarning("XIVAuth registration failed: {err}", reply.ErrorMessage);
+                                        _xivAuthRegistrationMessage = reply.ErrorMessage;
+                                        if (_xivAuthRegistrationMessage.IsNullOrEmpty())
+                                            _xivAuthRegistrationMessage = L("Service.SecretKey.Register.UnknownError", "An unknown error occured. Please try again later.");
+                                        return;
+                                    }
+
+                                    var assignedCharacter = server.Authentications.Find(a =>
+                                        string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
+                                        && a.WorldId == currentPlayerWorldId);
+
+                                    var newSecretKeyIdx = server.SecretKeys.Any() ? server.SecretKeys.Max(p => p.Key) + 1 : 0;
+                                    server.SecretKeys.Add(newSecretKeyIdx, new SecretKey()
+                                    {
+                                        FriendlyName = string.Format(CultureInfo.InvariantCulture, "{0} {1}", reply.UID,
+                                            string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
+                                        Key = reply.SecretKey ?? string.Empty
+                                    });
+
+                                    if (removeInvalidSecretKey && invalidSecretKeyIdx.HasValue)
+                                    {
+                                        foreach (var auth in server.Authentications.Where(a => a.SecretKeyIdx == invalidSecretKeyIdx.Value).ToList())
+                                        {
+                                            auth.SecretKeyIdx = newSecretKeyIdx;
+                                        }
+                                        server.SecretKeys.Remove(invalidSecretKeyIdx.Value);
+                                    }
+                                    else
+                                    {
+                                        if (assignedCharacter == null)
+                                        {
+                                            server.Authentications.Add(new Authentication()
+                                            {
+                                                CharacterName = currentPlayerName,
+                                                WorldId = currentPlayerWorldId,
+                                                SecretKeyIdx = newSecretKeyIdx
+                                            });
+                                        }
+                                        else
+                                        {
+                                            assignedCharacter.SecretKeyIdx = newSecretKeyIdx;
+                                        }
+                                    }
+
+                                    _serverConfigurationManager.Save();
+                                    _ = _apiController.CreateConnections();
+
+                                    _xivAuthRegistrationSuccess = true;
+                                    _xivAuthRegistrationMessage = L("Service.SecretKey.XivAuth.Success", "XIVAuth login successful. Added a new secret key and assigned it to your current character.");
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "XIVAuth registration failed");
+                                    _xivAuthRegistrationSuccess = false;
+                                    _xivAuthRegistrationMessage = L("Service.SecretKey.Register.UnknownError", "An unknown error occured. Please try again later.");
+                                }
+                                finally
+                                {
+                                    _xivAuthRegistrationInProgress = false;
+                                }
+                            }, CancellationToken.None);
+                        }
+                    }
+
+                    if (_xivAuthRegistrationInProgress)
+                    {
+                        ImGui.TextUnformatted(L("Service.SecretKey.XivAuth.InProgress", "Waiting for XIVAuth..."));
+                    }
+                    else if (!_xivAuthRegistrationMessage.IsNullOrEmpty())
+                    {
+                        if (!_xivAuthRegistrationSuccess)
+                            ImGui.TextColored(ImGuiColors.DalamudYellow, _xivAuthRegistrationMessage);
+                        else
+                            ImGui.TextWrapped(_xivAuthRegistrationMessage);
+                    }
+
+                    ImGui.Separator();
+                }                
                 foreach (var item in selectedServer.SecretKeys.ToList())
                 {
                     using var id = ImRaii.PushId("key" + item.Key);
@@ -1733,12 +1860,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     {
                         if (_uiShared.IconTextButton(FontAwesomeIcon.User, L("Service.SecretKey.AssignCurrent", "Assign current character")))
                         {
-                            var currentAssignment = selectedServer.Authentications.Find(a =>
+                            var existingAssignment = selectedServer.Authentications.Find(a =>
                                 string.Equals(a.CharacterName, _uiShared.PlayerName, StringComparison.OrdinalIgnoreCase)
                                     && a.WorldId == playerWorldId
                             );
 
-                            if (currentAssignment == null)
+                            if (existingAssignment == null)
                             {
                                 selectedServer.Authentications.Add(new Authentication()
                                 {
@@ -1749,7 +1876,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                             }
                             else
                             {
-                                currentAssignment.SecretKeyIdx = item.Key;
+                                existingAssignment.SecretKeyIdx = item.Key;
                             }
                         }
                         if (!disableAssignment)

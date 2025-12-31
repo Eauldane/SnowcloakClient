@@ -129,13 +129,14 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
                 pair.ClearAutoPaused(Pair.AutoPauseReason.Triangles);
             }
             
-            if (notify && newlyBlockedReasons.Count > 0 && !wasBlocked)
+            if (notify && newlyBlockedReasons.Count > 0 && !wasBlocked && !pair.AutoPauseNotificationShown)
             {
                 var reasonSummary = string.Join("; ", newlyBlockedReasons);
                 _mediator.Publish(new NotificationMessage(
                     AutoBlockedTitle(pair),
                     AutoBlockedSummaryBody(pair, reasonSummary),
                     Configuration.Models.NotificationType.Warning));
+                pair.MarkAutoPauseNotificationShown();
             }
         }
 
@@ -196,11 +197,12 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
                     triUsage, triUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Triangles, tooltip);
 
-                if (notify && !wasBlocked && !hadAutoPause)
+                if (notify && !wasBlocked && !hadAutoPause && !pair.AutoPauseNotificationShown)
                 {
                     _mediator.Publish(new NotificationMessage(AutoBlockedTitle(pair),
                         AutoBlockedTriangleBody(pair, triUsage, triUsageThreshold),
                         Configuration.Models.NotificationType.Warning));
+                    pair.MarkAutoPauseNotificationShown();
                 }
             }
             else if (notify && !wasBlocked)
@@ -290,13 +292,14 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
                     UiSharedService.ByteToString(vramUsage, addSuffix: true), vramUsageThreshold);
                 pair.SetAutoPaused(Pair.AutoPauseReason.Vram, tooltip);
 
-                if (notify && !wasBlocked && !hadAutoPause)
+                if (notify && !wasBlocked && !hadAutoPause && !pair.AutoPauseNotificationShown)
                 {
                     _mediator.Publish(new NotificationMessage($"{pair.PlayerName} ({pair.UserData.AliasOrUID}) automatically blocked",
                         $"Player {pair.PlayerName} ({pair.UserData.AliasOrUID}) exceeded your configured VRAM auto block threshold (" +
                         $"{UiSharedService.ByteToString(vramUsage, addSuffix: true)}/{vramUsageThreshold}MiB)" +
                         $" and has been automatically blocked.",
                         Configuration.Models.NotificationType.Warning));
+                    pair.MarkAutoPauseNotificationShown();
                 }
             }
             else if (notify && !wasBlocked)

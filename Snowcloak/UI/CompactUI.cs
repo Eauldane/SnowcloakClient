@@ -271,16 +271,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                 DrawSidebarAction(FontAwesomeIcon.UserCircle, L("Sidebar.EditProfile", "Edit Profile"),
                     () => Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi))));
             }
-
-            {
-                #if DEBUG
-                DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.AccountManagement", "Account Management"),
-                    () => Util.OpenLink("http://account.snow.cloak"));
-                #else
-                DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.AccountManagement", "Account Management"),
+            DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.AccountManagement", "Account Management"),
                     () => Util.OpenLink("https://account.snowcloak-sync.com"));
-                #endif
-            }
+            
             DrawSidebarAction(FontAwesomeIcon.UserCog, L("Sidebar.UserGuide", "User Guide"),
                 () => Util.OpenLink("https://docs.snowcloak-sync.com"));
             float bottomElementsHeight = ImGui.GetFrameHeightWithSpacing() * 2;

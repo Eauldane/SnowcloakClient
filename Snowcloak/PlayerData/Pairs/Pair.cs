@@ -33,6 +33,7 @@ public class Pair : DisposableMediatorSubscriberBase
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private const string AutoPauseVramReason = "AutoPause-VRAM";
     private const string AutoPauseTriangleReason = "AutoPause-Triangles";
+    private bool _autoPauseNotificationShown;
     private readonly Dictionary<AutoPauseReason, string> _autoPauseReasons = new();
     private CancellationTokenSource _applicationCts = new();
     private OnlineUserIdentDto? _onlineUserIdentDto = null;
@@ -69,7 +70,7 @@ public class Pair : DisposableMediatorSubscriberBase
     public bool IsApplicationBlocked => HoldApplicationLocks.Any(f => f.Value > 0) || IsDownloadBlocked;
     public bool IsAutoPaused => HoldDownloadLocks.ContainsKey(AutoPauseVramReason) || HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason);
     public IEnumerable<string> AutoPauseReasons => _autoPauseReasons.Values;
-
+    public bool AutoPauseNotificationShown => _autoPauseNotificationShown;
 
     public IEnumerable<string> HoldDownloadReasons => HoldDownloadLocks.Keys;
     public IEnumerable<string> HoldApplicationReasons => Enumerable.Concat(HoldDownloadLocks.Keys, HoldApplicationLocks.Keys);
@@ -344,6 +345,11 @@ public class Pair : DisposableMediatorSubscriberBase
             ApplyLastReceivedData(forced: true);
     }
 
+    public void MarkAutoPauseNotificationShown()
+    {
+        _autoPauseNotificationShown = true;
+    }
+    
     public bool HasAutoPauseReason(AutoPauseReason reason)
     {
         return reason switch
@@ -388,7 +394,10 @@ public class Pair : DisposableMediatorSubscriberBase
         }
 
         if (!IsAutoPaused)
+        {
+            _autoPauseNotificationShown = false;
             _autoPauseReasons.Clear();
+        }
     }
 
     private CharacterData? RemoveNotSyncedFiles(CharacterData? data)
