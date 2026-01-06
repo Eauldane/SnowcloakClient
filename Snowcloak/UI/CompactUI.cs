@@ -106,7 +106,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         _charaDataManager = charaDataManager;
         _tagHandler = new TagHandler(_serverManager);
         _pendingPairRequestSection = new PendingPairRequestSection(_pairRequestService, _serverManager, _uiSharedService, _localisationService);
-        _frostbrandPanel = new FrostbrandPanel(_apiController, _configService, _pairRequestService, _uiSharedService, _guiHookService, _localisationService, _pendingPairRequestSection, "SettingsUi");
+        _frostbrandPanel = new FrostbrandPanel(_configService, _pairRequestService, _uiSharedService, _guiHookService, _localisationService, _pendingPairRequestSection, "SettingsUi");
         
         _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager, _localisationService);
         _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService, _localisationService);

@@ -21,7 +21,6 @@ public class FrostbrandPanel
         Settings
     }
 
-    private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
     private readonly PairRequestService _pairRequestService;
     private readonly UiSharedService _uiShared;
@@ -35,15 +34,14 @@ public class FrostbrandPanel
     private static readonly Random Rng = new();
     private bool _useUriangerText;
     private string _homeworldFilterSearch = string.Empty;
-    private readonly string _pairingPersistentKeyRequirement;
     private FrostbrandPanelView _activeView = FrostbrandPanelView.Pending;
     private bool _defaultViewInitialised;
     private bool _wasPairingEnabled;
 
-    public FrostbrandPanel(ApiController apiController, SnowcloakConfigService configService, PairRequestService pairRequestService,
-        UiSharedService uiShared, GuiHookService guiHookService, LocalisationService localisationService, PendingPairRequestSection pendingPairRequestSection, string localisationPrefix = "SettingsUi")
+    public FrostbrandPanel(SnowcloakConfigService configService, PairRequestService pairRequestService,
+        UiSharedService uiShared, GuiHookService guiHookService, LocalisationService localisationService, 
+        PendingPairRequestSection pendingPairRequestSection, string localisationPrefix = "SettingsUi")
     {
-        _apiController = apiController;
         _configService = configService;
         _pairRequestService = pairRequestService;
         _uiShared = uiShared;
@@ -51,7 +49,6 @@ public class FrostbrandPanel
         _localisationService = localisationService;
         _pendingPairRequestSection = pendingPairRequestSection;
         _localisationPrefix = localisationPrefix;
-        _pairingPersistentKeyRequirement = L("Frostbrand.PersistentKeyRequirement", "You need to link a XIVAuth account before opting into Frostbrand. Please visit the user guide to learn how to do this.");
         _raceClanOptions = GetRaceClanOptions();
     }
 
@@ -88,15 +85,6 @@ public class FrostbrandPanel
     public void Draw()
     {
         _uiShared.BigText(L("Frostbrand.Header", "Frostbrand Pairing"));
-
-        var hasPersistentKey = _apiController.HasPersistentKey;
-        if (!hasPersistentKey)
-        {
-            UiSharedService.ColorTextWrapped(_pairingPersistentKeyRequirement, ImGuiColors.DalamudYellow);
-            _uiShared.DrawHelpText(L("Frostbrand.PersistentKey.Help", "Link a XIVAuth account to enable Frostbrand. Please visit the user guide to learn how to do this."));
-        }
-
-        using var pairingKeyDisabled = ImRaii.Disabled(!hasPersistentKey);
 
         var pairingEnabled = _configService.Current.PairingSystemEnabled;
         var requestedPairingEnabled = pairingEnabled;

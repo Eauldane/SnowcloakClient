@@ -57,10 +57,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
     private bool _pushChannelAvailable;
-    private bool _hasPersistentKey = true;
-    private DateTime _lastPersistentKeyWarningAt = DateTime.MinValue;
-    private static readonly TimeSpan PersistentKeyWarningCooldown = TimeSpan.FromSeconds(10);
-    private string MissingPersistentKeyWarning = "You need to link a XIVAuth account before opting into Frostbrand. Please visit the user guide to learn how to do this.";
     private bool _availabilitySubscriptionActive;
     private LocationInfo? _lastSubscriptionLocation;
     private readonly SemaphoreSlim _availabilitySubscriptionSemaphore = new(1, 1);
@@ -100,7 +96,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
     private void OnConnected(ConnectedMessage message)
     {
-        ApplyPersistentKeyState(message.Connection.HasPersistentKey);
         _ = OnConnectedAsync();
     }
     
@@ -121,49 +116,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         await StopAvailabilitySubscriptionAsync().ConfigureAwait(false);
         _lastNearbyIdentSnapshot.Clear();
         ClearAvailability();
-    }
-    
-    
-    private void ApplyPersistentKeyState(bool hasPersistentKey)
-    {
-        _hasPersistentKey = hasPersistentKey;
-
-        if (_hasPersistentKey)
-            return;
-
-        EnforcePairingOptOutForMissingKey(showWarning: _configService.Current.PairingSystemEnabled);
-    }
-
-    private void EnforcePairingOptOutForMissingKey(bool showWarning)
-    {
-        var wasEnabled = _configService.Current.PairingSystemEnabled;
-        if (wasEnabled)
-        {
-            _configService.Current.PairingSystemEnabled = false;
-            _configService.Save();
-        }
-
-        _advertisingPairing = false;
-        _pushChannelAvailable = false;
-        _availabilitySubscriptionActive = false;
-        _lastSubscriptionLocation = null;
-        _lastNearbyAvailabilityCheck = DateTime.MinValue;
-        _lastNearbyIdentSnapshot.Clear();
-
-        _ = StopAvailabilitySubscriptionAsync();
-        ClearAvailability();
-
-        if (showWarning && wasEnabled)
-            PublishMissingPersistentKeyWarning();
-    }
-
-    private void PublishMissingPersistentKeyWarning()
-    {
-        if (DateTime.UtcNow - _lastPersistentKeyWarningAt < PersistentKeyWarningCooldown)
-            return;
-
-        _lastPersistentKeyWarningAt = DateTime.UtcNow;
-        Mediator.Publish(new NotificationMessage("Pairing availability unavailable", MissingPersistentKeyWarning, NotificationType.Warning, TimeSpan.FromSeconds(7.5)));
     }
     
     private void HandleDisconnect()
@@ -305,12 +257,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public async Task SyncAdvertisingAsync(bool force = false)
     {
         var advertise = _configService.Current.PairingSystemEnabled;
-
-        if (advertise && !_hasPersistentKey)
-        {
-            EnforcePairingOptOutForMissingKey(showWarning: true);
-            advertise = false;
-        }
 
         if (!force && _advertisingPairing == advertise) return;
         

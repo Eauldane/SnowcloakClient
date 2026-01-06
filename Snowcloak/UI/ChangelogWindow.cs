@@ -39,7 +39,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(520f, 420f),
+            MinimumSize = new Vector2(520f, 620f),
             MaximumSize = new Vector2(700f, 900f),
         };
         RespectCloseHotkey = false;
@@ -250,6 +250,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.5"),
+            [
+                new ChangelogSection("Changes and Bug FIxes",
+                [
+                    "Frostbrand no longer requires XIVAuth. Given the one-on-one nature and filters, it was deemed safe enough to remove the requirement. Public syncshells still require XIVAuth.",
+                    "Upgraded internal dependencies."
+                ])
+            ]),
             new(VersionFromString("2.0.4"),
             [
                 new ChangelogSection("Changes and Bug FIxes",
