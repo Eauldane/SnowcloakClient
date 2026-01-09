@@ -266,7 +266,7 @@ internal sealed class GroupPanel
         }
 
         if (_showRegionJoinError)
-            UiSharedService.ColorTextWrapped(L("RegionJoinError", "Unable to join your regional Snowcloak Syncshell. Please verify the Syncshell is available and try again."), ImGuiColors.DalamudRed);
+            UiSharedService.ColorTextWrapped(L("RegionJoinError", "The regional syncshell you're trying to join is currently full. The capacity is raised as we add more servers, so please try again later!"), ImGuiColors.DalamudRed);
         
         
         DrawPublicSyncshellWarningModal();
