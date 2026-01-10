@@ -126,6 +126,7 @@ public interface ISnowHub
     Task UserSetPairPermissions(UserPermissionsDto userPermissions);
 
     Task UserSetProfile(UserProfileDto userDescription);
+    Task<bool> UserSetVanityId(UserVanityIdDto vanityId);
     Task<bool> UserSubscribePairingAvailability(PairingAvailabilitySubscriptionDto request);
 
     Task UserUnsubscribePairingAvailability();

@@ -90,7 +90,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     public string DisplayName => _connectionDto?.User.AliasOrUID ?? string.Empty;
     public string DisplayColour => _connectionDto?.User.DisplayColour ?? string.Empty;
     public bool HasPersistentKey => _connectionDto?.HasPersistentKey ?? false;
-
+    public string? VanityId => _connectionDto?.User.Alias;
     public bool IsConnected => ServerState == ServerState.Connected;
 
     public bool IsCurrentVersion => (Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0)) >= (_connectionDto?.CurrentClientVersion ?? new Version(0, 0, 0, 0));

@@ -109,6 +109,12 @@ public partial class ApiController
         await _snowHub!.InvokeAsync(nameof(UserSetProfile), userDescription).ConfigureAwait(false);
     }
     
+    public async Task<bool> UserSetVanityId(UserVanityIdDto vanityId)
+    {
+        if (!IsConnected) return false;
+        return await _snowHub!.InvokeAsync<bool>(nameof(UserSetVanityId), vanityId).ConfigureAwait(false);
+    }
+    
     public async Task UserSetPairingOptIn(PairingOptInDto optInDto)
     {
         if (!IsConnected) return;

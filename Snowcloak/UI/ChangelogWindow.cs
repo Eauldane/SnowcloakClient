@@ -250,6 +250,16 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.6"),
+            [
+                new ChangelogSection("Changes and Bug FIxes",
+                [
+                    "Vanity UIDs can now be set directly from the client if you use XIVAuth to log in.",
+                    "Adjusted internal logic to reduce the likelihood of having to reconnect to get your game to recognise someone is nearby.",
+                    "Frostbrand can now be configured to only allow pair requests from friends.",
+                    "Adjusted public syncshell join error to be more clear that the shell you're trying to join is probably full, rather than a generic error."
+                ])
+            ]),
             new(VersionFromString("2.0.5"),
             [
                 new ChangelogSection("Changes and Bug FIxes",

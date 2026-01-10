@@ -84,7 +84,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     private readonly AccountRegistrationService _registerService;
     private readonly LocalisationService _localisationService;
     private string _secretKey = string.Empty;
-
+    private bool _showVanityIdModal;
+    private string _vanityIdInput = string.Empty;
 
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
@@ -407,7 +408,8 @@ public class CompactUi : WindowMediatorSubscriberBase
                 UiSharedService.SetScaledWindowSize(275);
                 ImGui.EndPopup();
             }
-
+            DrawVanityIdPopup();
+            
             var pos = ImGui.GetWindowPos();
             var size = ImGui.GetWindowSize();
             if (_lastSize != size || _lastPosition != pos)
@@ -723,7 +725,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     private void DrawUIDHeader()
     {
         var uidText = GetUidText();
-
+        var headerStart = ImGui.GetCursorPos();
+        
         using (_uiSharedService.UidFont.Push())
         {
             var uidTextSize = ImGui.CalcTextSize(uidText);
@@ -739,6 +742,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
             UiSharedService.AttachToolTip(L("Uid.Copy", "Click to copy"));
             
+                        
             if (!string.Equals(_apiController.DisplayName, _apiController.UID, StringComparison.Ordinal))
             {
                 var origTextSize = ImGui.CalcTextSize(_apiController.UID);
@@ -750,6 +754,28 @@ public class CompactUi : WindowMediatorSubscriberBase
                 }
                 UiSharedService.AttachToolTip(L("Uid.Copy", "Click to copy"));
             }
+            
+            var headerEnd = ImGui.GetCursorPos();
+            var buttonHeight = ImGui.GetFrameHeight();
+            var iconSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Pen);
+            var buttonWidth = iconSize.X + ImGui.GetStyle().FramePadding.X * 2f;
+            var buttonX = ImGui.GetWindowContentRegionMax().X - buttonWidth;
+            var buttonY = headerStart.Y + ((headerEnd.Y - headerStart.Y) - buttonHeight) / 2f;
+            ImGui.SetCursorPos(new Vector2(buttonX, buttonY));
+            var canEditVanityId = _apiController.HasPersistentKey;
+            using (ImRaii.PushId("vanity-id-edit"))
+            using (ImRaii.Disabled(!canEditVanityId))
+            {
+                if (_uiSharedService.IconButton(FontAwesomeIcon.Pen))
+                {
+                    _vanityIdInput = _apiController.VanityId ?? string.Empty;
+                    _showVanityIdModal = true;
+                }
+            }
+            UiSharedService.AttachToolTip(canEditVanityId
+                ? L("Uid.Vanity.EditTooltip", "Edit vanity ID")
+                : L("Uid.Vanity.DisabledTooltip", "Link a XIVAuth account to edit your vanity ID."));
+            ImGui.SetCursorPos(headerEnd);
         }
 
         if (_apiController.ServerState is not ServerState.Connected)
@@ -762,6 +788,35 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
     }
 
+    private void DrawVanityIdPopup()
+    {
+        var popupTitle = L("Uid.Vanity.PopupTitle", "Edit Vanity ID");
+        if (_showVanityIdModal && !ImGui.IsPopupOpen(popupTitle))
+        {
+            ImGui.OpenPopup(popupTitle);
+        }
+        if (ImGui.BeginPopupModal(popupTitle, ref _showVanityIdModal, UiSharedService.PopupWindowFlags))
+        {
+            UiSharedService.TextWrapped(L("Uid.Vanity.Description", "Set your vanity ID (3-25 characters, letters/numbers/underscores/hyphens). Leave blank to clear."));
+            ImGui.InputTextWithHint("##vanity-id", L("Uid.Vanity.InputHint", "Enter vanity ID (optional)"), ref _vanityIdInput, 25);
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, L("Uid.Vanity.Save", "Save")))
+            {
+                var trimmed = _vanityIdInput.Trim();
+                var vanityId = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId));
+                _showVanityIdModal = false;
+            }
+
+            ImGui.SameLine();
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L("Uid.Vanity.Cancel", "Cancel")))
+            {
+                _showVanityIdModal = false;
+            }
+            UiSharedService.SetScaledWindowSize(320);
+            ImGui.EndPopup();
+        }
+    }
+    
     private List<Pair> GetFilteredUsers()
     {
         return _pairManager.DirectPairs

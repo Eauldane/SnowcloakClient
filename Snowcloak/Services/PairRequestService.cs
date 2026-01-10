@@ -1,5 +1,6 @@
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Plugin.Services;
@@ -221,7 +222,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (args.MenuType == ContextMenuType.Inventory) return;
         if (!_dalamudUtilService.TryGetIdentFromMenuTarget(args, out var ident)) return;
         if (!_availableIdents.Contains(ident)) return;
-
+        if (_configService.Current.PairRequestFriendsOnly && !_dalamudUtilService.IsFriendByIdent(ident))
+            return;
+        
         void Add(string name, Action<IMenuItemClickedArgs>? action)
         {
             args.AddMenuItem(new MenuItem
@@ -934,8 +937,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         var rejectedHomeworlds = _configService.Current.PairRequestRejectedHomeworlds;
         var hasAppearanceFilters = _configService.Current.AutoRejectCombos.Count > 0;
         var hasHomeworldFilters = rejectedHomeworlds.Count > 0;
+        var friendsOnly = _configService.Current.PairRequestFriendsOnly;
         var minimumLevel = Math.Max(0, _configService.Current.PairRequestMinimumLevel);
-        if (!hasAppearanceFilters && minimumLevel == 0 && !hasHomeworldFilters)
+        if (!hasAppearanceFilters && minimumLevel == 0 && !hasHomeworldFilters && !friendsOnly)
             return new AutoRejectResult(false, string.Empty, false);
         
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
@@ -943,6 +947,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             return deferIfUnavailable
                 ? new AutoRejectResult(false, string.Empty, true)
                 : new AutoRejectResult(true, "Auto rejected: requester unavailable for filtering", false);
+        
+        if (friendsOnly && !await _dalamudUtilService.IsFriendByIdentAsync(ident).ConfigureAwait(false))
+            return new AutoRejectResult(true, "Auto rejected: This user is only accepting pair requests from friends.", false);
         
         if (minimumLevel > 0)
         {

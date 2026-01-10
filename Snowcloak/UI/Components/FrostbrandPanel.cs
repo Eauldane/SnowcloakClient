@@ -324,6 +324,15 @@ public class FrostbrandPanel
         _uiShared.DrawHelpText(L("Frostbrand.Filters.MinimumLevel.Help", "Set to 0 to disable level-based rejection."));
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
+        var friendsOnly = _configService.Current.PairRequestFriendsOnly;
+        if (ImGui.Checkbox(L("Frostbrand.Filters.FriendsOnly", "Friends only"), ref friendsOnly))
+        {
+            _configService.Current.PairRequestFriendsOnly = friendsOnly;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText(L("Frostbrand.Filters.FriendsOnly.Help", "Only allow pairing with characters marked as friends in your nameplates."));
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+
         ImGui.TextWrapped(L("Frostbrand.Filters.ClanDescription", "If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box"
                                                                   + " below. Requests from matching characters will be rejected."));
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));

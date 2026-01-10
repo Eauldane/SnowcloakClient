@@ -403,6 +403,25 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         return IntPtr.Zero;
     }
 
+    public bool IsFriendByIdent(string ident)
+    {
+        EnsureIsOnFramework();
+        var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
+        if (addr == IntPtr.Zero)
+            return false;
+
+        var obj = _objectTable.CreateObjectReference(addr);
+        if (obj is not IPlayerCharacter pc)
+            return false;
+
+        return pc.StatusFlags.HasFlag(StatusFlags.Friend);
+    }
+
+    public async Task<bool> IsFriendByIdentAsync(string ident)
+    {
+        return await RunOnFrameworkThread(() => IsFriendByIdent(ident)).ConfigureAwait(false);
+    }
+    
     public string GetPlayerName()
     {
         EnsureIsOnFramework();
@@ -821,7 +840,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
                     _notUpdatedCharas.AddRange(_playerCharas.Keys);
 
-                    for (int i = 0; i < 200; i += 2)
+                    for (int i = 0; i < _objectTable.Length; i++)
                     {
                         var chara = _objectTable[i];
                         if (chara == null || chara.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player)
