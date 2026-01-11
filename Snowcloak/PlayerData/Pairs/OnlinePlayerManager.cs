@@ -9,6 +9,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI;
+using Snowcloak.Configuration;
 
 namespace Snowcloak.PlayerData.Pairs;
 
@@ -19,14 +20,16 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
     private readonly FileUploadManager _fileTransferManager;
     private readonly HashSet<PairHandler> _newVisiblePlayers = [];
     private readonly PairManager _pairManager;
+    private readonly SnowcloakConfigService _configService;
     private CharacterData? _lastSentData;
 
     public OnlinePlayerManager(ILogger<OnlinePlayerManager> logger, ApiController apiController, DalamudUtilService dalamudUtil,
-        PairManager pairManager, SnowMediator mediator, FileUploadManager fileTransferManager) : base(logger, mediator)
+        PairManager pairManager, SnowMediator mediator, FileUploadManager fileTransferManager, SnowcloakConfigService configService) : base(logger, mediator)
     {
         _apiController = apiController;
         _dalamudUtil = dalamudUtil;
         _pairManager = pairManager;
+        _configService = configService;
         _fileTransferManager = fileTransferManager;
         Mediator.Subscribe<PlayerChangedMessage>(this, (_) => PlayerManagerOnPlayerHasChanged());
         Mediator.Subscribe<DelayedFrameworkUpdateMessage>(this, (_) => FrameworkOnUpdate());
@@ -68,7 +71,9 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
     {
         if (_lastSentData == null)
             return;
-
+        if (_configService.Current.HoldUploadsUntilInRange && !visiblePlayers.Any())
+            return;
+        
         _ = Task.Run(async () =>
         {
             var dataToSend = await _fileTransferManager.UploadFiles(_lastSentData.DeepClone(), visiblePlayers).ConfigureAwait(false);

@@ -92,4 +92,5 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
     public string LastSeenPatchNotesVersion { get; set; } = "1.0.0";
     public bool PairRequestFriendsOnly { get; set; } = false;
+    public bool HoldUploadsUntilInRange { get; set; } = false;
 }

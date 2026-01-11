@@ -228,6 +228,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ParallelDownloads = maxParallelDownloads;
             _configService.Save();
         }
+        bool holdUploadsUntilInRange = _configService.Current.HoldUploadsUntilInRange;
+        if (ImGui.Checkbox(L("Transfers.HoldUploadsUntilInRange", "Hold uploads until someone is in range"), ref holdUploadsUntilInRange))
+        {
+            _configService.Current.HoldUploadsUntilInRange = holdUploadsUntilInRange;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText(L("Transfers.HoldUploadsUntilInRange.Help", "When enabled, Snowcloak will wait to upload your files until a paired player is nearby."));
 
         ImGui.Separator();
         _uiShared.BigText(L("Transfers.UiHeader", "Transfer UI"));
