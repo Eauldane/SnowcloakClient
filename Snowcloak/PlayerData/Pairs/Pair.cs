@@ -88,11 +88,24 @@ public class Pair : DisposableMediatorSubscriberBase
     public string Ident => _onlineUserIdentDto?.Ident ?? string.Empty;
     public PairAnalyzer? PairAnalyzer => CachedPlayer?.PairAnalyzer;
 
-    public UserData UserData { get; init; }
+    public UserData UserData { get; private set; }
 
     public UserPairDto? UserPair { get; set; }
 
     private PairHandler? CachedPlayer { get; set; }
+    
+    public void UpdateUserData(UserData userData)
+    {
+        if (!string.Equals(UserData.UID, userData.UID, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("Attempted to update user data for {uid} with mismatched UID {newUid}", UserData.UID, userData.UID);
+            return;
+        }
+
+        UserData = userData;
+        PairColour = Colours.Hex2Vector4(UserData.DisplayColour);
+    }
+
 
     public void AddContextMenu(IMenuOpenedArgs args)
     {

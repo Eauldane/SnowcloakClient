@@ -252,7 +252,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
         {
             new(VersionFromString("2.0.6"),
             [
-                new ChangelogSection("Changes and Bug FIxes",
+                new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Vanity UIDs can now be set directly from the client if you use XIVAuth to log in.",
                     "Adjusted internal logic to reduce the likelihood of having to reconnect to get your game to recognise someone is nearby.",
@@ -262,7 +262,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             ]),
             new(VersionFromString("2.0.5"),
             [
-                new ChangelogSection("Changes and Bug FIxes",
+                new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Frostbrand no longer requires XIVAuth. Given the one-on-one nature and filters, it was deemed safe enough to remove the requirement. Public syncshells still require XIVAuth.",
                     "Upgraded internal dependencies."
@@ -270,7 +270,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             ]),
             new(VersionFromString("2.0.4"),
             [
-                new ChangelogSection("Changes and Bug FIxes",
+                new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Added a button to log in with XIVAuth on the Service Management tab in settings that will automatically replace invalid secret keys that have been deleted for inactivity.",
                     "Adjusted autopause notifications to not display again when the paused user changes their outfit until they've switched to an outfit below your thresholds."
@@ -278,7 +278,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             ]),
             new(VersionFromString("2.0.3"),
             [
-                new ChangelogSection("Changes and Bug FIxes",
+                new ChangelogSection("Changes and Bug Fixes",
                 [
                    "Fixed malformed pairing requests being sent if both sender and recipient logged off and reconnected.",
                    "Updated Blake3 hashing implementation.",

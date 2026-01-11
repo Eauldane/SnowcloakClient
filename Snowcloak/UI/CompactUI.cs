@@ -86,7 +86,8 @@ public class CompactUi : WindowMediatorSubscriberBase
     private string _secretKey = string.Empty;
     private bool _showVanityIdModal;
     private string _vanityIdInput = string.Empty;
-
+    private Vector3 _vanityColour = Vector3.One;
+    private bool _useVanityColour;
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
@@ -769,6 +770,11 @@ public class CompactUi : WindowMediatorSubscriberBase
                 if (_uiSharedService.IconButton(FontAwesomeIcon.Pen))
                 {
                     _vanityIdInput = _apiController.VanityId ?? string.Empty;
+                    if (_apiController.HexAllowed)
+                    {
+                        _useVanityColour = !string.IsNullOrWhiteSpace(_apiController.DisplayColour);
+                        _vanityColour = ParseHexColourOrDefault(_apiController.DisplayColour, Vector3.One);
+                    }
                     _showVanityIdModal = true;
                 }
             }
@@ -799,11 +805,27 @@ public class CompactUi : WindowMediatorSubscriberBase
         {
             UiSharedService.TextWrapped(L("Uid.Vanity.Description", "Set your vanity ID (3-25 characters, letters/numbers/underscores/hyphens). Leave blank to clear."));
             ImGui.InputTextWithHint("##vanity-id", L("Uid.Vanity.InputHint", "Enter vanity ID (optional)"), ref _vanityIdInput, 25);
+            
+            if (_apiController.HexAllowed)
+            {
+                ImGui.Spacing();
+                UiSharedService.TextWrapped(L("Uid.Vanity.ColorDescription", "Optional: set a custom display color."));
+                ImGui.Checkbox(L("Uid.Vanity.ColorEnabled", "Use custom color"), ref _useVanityColour);
+                using (ImRaii.Disabled(!_useVanityColour))
+                {
+                    ImGui.ColorEdit3("##vanity-color", ref _vanityColour, ImGuiColorEditFlags.NoInputs);
+                }
+            }
             if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, L("Uid.Vanity.Save", "Save")))
             {
                 var trimmed = _vanityIdInput.Trim();
                 var vanityId = string.IsNullOrEmpty(trimmed) ? null : trimmed;
-                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId));
+                string? hexString = null;
+                if (_apiController.HexAllowed)
+                {
+                    hexString = _useVanityColour ? ColourVectorToHex(_vanityColour) : string.Empty;
+                }
+                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId, hexString));
                 _showVanityIdModal = false;
             }
 
@@ -815,6 +837,27 @@ public class CompactUi : WindowMediatorSubscriberBase
             UiSharedService.SetScaledWindowSize(320);
             ImGui.EndPopup();
         }
+    }
+    
+    private static Vector3 ParseHexColourOrDefault(string? hex, Vector3 fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(hex) && hex.Length == 6
+                                            && int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+        {
+            var colour = Colours.Hex2Vector4(hex);
+            return new Vector3(colour.X, colour.Y, colour.Z);
+        }
+
+        return fallback;
+    }
+
+    private static string ColourVectorToHex(Vector3 colour)
+    {
+        var r = (int)Math.Clamp(colour.X * 255f, 0f, 255f);
+        var g = (int)Math.Clamp(colour.Y * 255f, 0f, 255f);
+        var b = (int)Math.Clamp(colour.Z * 255f, 0f, 255f);
+
+        return $"{r:X2}{g:X2}{b:X2}";
     }
     
     private List<Pair> GetFilteredUsers()

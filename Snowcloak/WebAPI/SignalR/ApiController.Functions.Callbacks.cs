@@ -224,7 +224,15 @@ public partial class ApiController
     public Task Client_UserUpdateProfile(UserDto dto)
     {
         Logger.LogDebug("Client_UserUpdateProfile: {dto}", dto);
-        ExecuteSafely(() => Mediator.Publish(new ClearProfileDataMessage(dto.User)));
+        ExecuteSafely(() =>
+        {
+            _pairManager.UpdateUserProfile(dto);
+            if (_connectionDto != null && string.Equals(_connectionDto.User.UID, dto.User.UID, StringComparison.Ordinal))
+            {
+                _connectionDto = _connectionDto with { User = dto.User };
+            }
+            Mediator.Publish(new ClearProfileDataMessage(dto.User));
+        });
         return Task.CompletedTask;
     }
 

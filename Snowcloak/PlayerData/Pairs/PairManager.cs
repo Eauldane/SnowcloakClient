@@ -109,6 +109,39 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         RecreateLazy();
     }
 
+    public void UpdateUserProfile(UserDto dto)
+    {
+        if (!_allClientPairs.TryGetValue(dto.User, out var pair))
+        {
+            return;
+        }
+
+        var existingKey = _allClientPairs.FirstOrDefault(kvp => ReferenceEquals(kvp.Value, pair)).Key;
+        if (!Equals(existingKey, default(UserData)))
+        {
+            var aliasChanged = !string.Equals(existingKey.Alias, dto.User.Alias, StringComparison.Ordinal);
+            var hexChanged = !string.Equals(existingKey.HexString, dto.User.HexString, StringComparison.Ordinal);
+            if (aliasChanged || hexChanged)
+            {
+                _allClientPairs.TryRemove(existingKey, out _);
+                _allClientPairs[dto.User] = pair;
+                RecreateLazy();
+            }
+        }
+
+        pair.UpdateUserData(dto.User);
+
+        if (pair.UserPair != null)
+        {
+            pair.UserPair = pair.UserPair with { User = dto.User };
+        }
+
+        foreach (var groupEntry in pair.GroupPair.ToList())
+        {
+            pair.GroupPair[groupEntry.Key] = groupEntry.Value with { User = dto.User };
+        }
+    }
+    
     public void ClearPairs()
     {
         Logger.LogDebug("Clearing all Pairs");
