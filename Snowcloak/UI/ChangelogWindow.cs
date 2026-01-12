@@ -250,6 +250,17 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.0.7"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Patreon backers who use XIVAuth are now able to set vanity colours for their name. (The Patreon can be accessed through the account management portal, or with the little heart button in the main window)",
+                    "The Vanity ID setter introduced last patch now also allows setting a colour, if you're eligible for one.",
+                    "Added a settings toggle to hold uploads until a pair is in range.",
+                    "Updating vanity IDs/colours now automatically updates both your own and other users' clients.",
+                    "Fixed some typos."
+                ])
+            ]),
             new(VersionFromString("2.0.6"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
