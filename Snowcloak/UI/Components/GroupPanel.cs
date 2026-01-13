@@ -266,7 +266,7 @@ internal sealed class GroupPanel
         }
 
         if (_showRegionJoinError)
-            UiSharedService.ColorTextWrapped(L("RegionJoinError", "The regional syncshell you're trying to join is currently full. The capacity is raised as we add more servers, so please try again later!"), ImGuiColors.DalamudRed);
+            UiSharedService.ColorTextWrapped("The regional syncshell you're trying to join is either full and awaiting server expansion, or you don't have XIVAuth enabled. Try again later!", ImGuiColors.DalamudRed);
         
         
         DrawPublicSyncshellWarningModal();
