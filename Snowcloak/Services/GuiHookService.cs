@@ -3,11 +3,13 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.Logging;
+using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Snowcloak.Services;
@@ -77,19 +79,15 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var useNameColors = _configService.Current.UseNameColors;
         var usePairingHighlights = _configService.Current.PairingSystemEnabled;
 
-        if (!useNameColors && !usePairingHighlights)
+        var visibleUsers = _pairManager.GetOnlineUserPairs()
+            .Where(u => u.IsVisible && u.PlayerCharacterId != uint.MaxValue)
+            .ToList();
+        var visibleUsersIds = visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet();
+        var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
+        var hasVanityColors = visibleUsers.Any(pair => ShouldApplyVanityColor(pair));
+
+        if (!useNameColors && !usePairingHighlights && !hasVanityColors)
             return;
-
-        var visibleUsers = useNameColors
-            ? _pairManager.GetOnlineUserPairs().Where(u => u.IsVisible && u.PlayerCharacterId != uint.MaxValue)
-            : Enumerable.Empty<Pair>();
-        var visibleUsersIds = useNameColors
-            ? visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet()
-            : new HashSet<ulong>();
-
-        var visibleUsersDict = useNameColors
-            ? visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId)
-            : new Dictionary<ulong, Pair>();
         
         var availabilitySnapshot = usePairingHighlights
             ? _pairRequestService.GetAvailabilityFilterSnapshot()
@@ -110,17 +108,31 @@ public class GuiHookService : DisposableMediatorSubscriberBase
 
         foreach (var handler in handlers)
         {
-            if (useNameColors && handler != null && visibleUsersIds.Contains(handler.GameObjectId))
+            if (handler != null && visibleUsersIds.Contains(handler.GameObjectId))
             {
                 if (_namePlateRoleColorsEnabled && partyMembers.Contains(handler.GameObject?.Address ?? nint.MaxValue))
                     continue;
                 var pair = visibleUsersDict[handler.GameObjectId];
-                var colors = !pair.IsApplicationBlocked ? _configService.Current.NameColors : _configService.Current.BlockedNameColors;
-                handler.NameParts.TextWrap = (
-                    BuildColorStartSeString(colors),
-                    BuildColorEndSeString(colors)
-                );
-                _isModified = true;
+                if (TryGetVanityColors(pair, out var vanityColors))
+                {
+                    var colors = pair.IsAutoPaused ? _configService.Current.BlockedNameColors : vanityColors;
+                    handler.NameParts.TextWrap = (
+                        BuildColorStartSeString(colors),
+                        BuildColorEndSeString(colors)
+                    );
+                    _isModified = true;
+                    continue;
+                }
+
+                if (useNameColors)
+                {
+                    var colors = !pair.IsApplicationBlocked ? _configService.Current.NameColors : _configService.Current.BlockedNameColors;
+                    handler.NameParts.TextWrap = (
+                        BuildColorStartSeString(colors),
+                        BuildColorEndSeString(colors)
+                    );
+                    _isModified = true;
+                }
             }
             else if (usePairingHighlights && handler != null && availableForPairing.ContainsKey(handler.GameObjectId))
             {
@@ -134,6 +146,48 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         }
     }
 
+    private static bool ShouldApplyVanityColor(Pair pair)
+    {
+        return IsPairedForVanity(pair)
+               && !pair.IsPaused
+               && TryParseVanityColor(pair.UserData.DisplayColour, out _);
+    }
+
+    private static bool IsPairedForVanity(Pair pair)
+    {
+        if (pair.UserPair != null)
+        {
+            return pair.UserPair.OtherPermissions.IsPaired()
+                   && pair.UserPair.OwnPermissions.IsPaired();
+        }
+
+        return pair.GroupPair.Any();
+    }
+
+    private static bool TryGetVanityColors(Pair pair, out DtrEntry.Colors colors)
+    {
+        colors = default;
+        if (!IsPairedForVanity(pair) || pair.IsPaused)
+            return false;
+
+        return TryParseVanityColor(pair.UserData.DisplayColour, out colors);
+    }
+
+    private static bool TryParseVanityColor(string? hex, out DtrEntry.Colors colors)
+    {
+        colors = default;
+        if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6
+                                           || !uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
+            return false;
+
+        var red = (parsed >> 16) & 0xFF;
+        var green = (parsed >> 8) & 0xFF;
+        var blue = parsed & 0xFF;
+        var bgr = (blue << 16) | (green << 8) | red;
+        colors = new DtrEntry.Colors(Foreground: bgr);
+        return true;
+    }
+    
     private void GameSettingsCheck()
     {
         if (!_gameConfig.TryGet(Dalamud.Game.Config.UiConfigOption.NamePlateSetRoleColor, out bool namePlateRoleColorsEnabled))

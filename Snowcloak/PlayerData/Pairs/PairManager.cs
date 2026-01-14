@@ -127,6 +127,10 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
                 _allClientPairs[dto.User] = pair;
                 RecreateLazy();
             }
+            if (hexChanged)
+            {
+                Mediator.Publish(new NameplateRedrawMessage());
+            }
         }
 
         pair.UpdateUserData(dto.User);
