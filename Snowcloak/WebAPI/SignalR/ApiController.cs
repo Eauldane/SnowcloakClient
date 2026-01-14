@@ -118,8 +118,13 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public async Task<bool> CheckClientHealth()
     {
-        return await _snowHub!.InvokeAsync<bool>(nameof(CheckClientHealth)).ConfigureAwait(false);
-    }
+        var hub = _snowHub;
+        if (hub == null || hub.State != HubConnectionState.Connected)
+        {
+            return false;
+        }
+
+        return await hub.InvokeAsync<bool>(nameof(CheckClientHealth)).ConfigureAwait(false);    }
 
     public async Task CreateConnections()
     {
@@ -339,13 +344,41 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     
     private async Task ClientHealthCheck(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && _snowHub != null)
+        while (!ct.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
-            var healthy = await CheckClientHealth().ConfigureAwait(false);
-            if (!healthy || _snowHub.State != HubConnectionState.Connected)
+            var hub = _snowHub;
+            if (hub == null)
             {
-                Logger.LogWarning("Health check failed, forcing reconnect. ClientHealth: {0} HubConnected: {1}", healthy, _snowHub.State != HubConnectionState.Connected);
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (!ReferenceEquals(hub, _snowHub))
+                {
+                    continue;
+                }
+
+                var healthy = await CheckClientHealth().ConfigureAwait(false);
+                if (!healthy || hub.State != HubConnectionState.Connected)
+                {
+                    Logger.LogWarning("Health check failed, forcing reconnect. ClientHealth: {0} HubConnected: {1}", healthy, hub.State != HubConnectionState.Connected);
+                    await ForceResetConnection().ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Health check exception, forcing reconnect");
                 await ForceResetConnection().ConfigureAwait(false);
             }
         }
