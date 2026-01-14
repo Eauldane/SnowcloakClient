@@ -11,6 +11,7 @@ using Snowcloak.UI;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.Services;
 
@@ -24,12 +25,14 @@ public class GuiHookService : DisposableMediatorSubscriberBase
     private readonly IPartyList _partyList;
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
+    private readonly ApiController _apiController;
 
     private bool _isModified = false;
     private bool _namePlateRoleColorsEnabled = false;
 
     public GuiHookService(ILogger<GuiHookService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, SnowcloakConfigService configService,
-        INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList, PairManager pairManager, PairRequestService pairRequestService)
+        INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList, PairManager pairManager, PairRequestService pairRequestService,
+        ApiController apiController)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -40,7 +43,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         _partyList = partyList;
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
-
+        _apiController = apiController;
+        
         _namePlateGui.OnNamePlateUpdate += OnNamePlateUpdate;
         _namePlateGui.RequestRedraw();
 
@@ -85,8 +89,9 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var visibleUsersIds = visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet();
         var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
         var hasVanityColors = visibleUsers.Any(pair => ShouldApplyVanityColor(pair));
-
-        if (!useNameColors && !usePairingHighlights && !hasVanityColors)
+        var hasSelfVanityColor = TryParseVanityColor(_apiController.DisplayColour, out var selfVanityColors);
+        
+        if (!useNameColors && !usePairingHighlights && !hasVanityColors && !hasSelfVanityColor)
             return;
         
         var availabilitySnapshot = usePairingHighlights
@@ -106,8 +111,19 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         for (int i = 0; i < _partyList.Count; ++i)
             partyMembers[i] = _partyList[i]?.GameObject?.Address ?? nint.MaxValue;
 
+        var localPlayerAddress = hasSelfVanityColor ? _dalamudUtil.GetPlayerPointer() : IntPtr.Zero;
+        
         foreach (var handler in handlers)
         {
+            if (handler != null && hasSelfVanityColor && handler.GameObject?.Address == localPlayerAddress)
+            {
+                handler.NameParts.TextWrap = (
+                    BuildColorStartSeString(selfVanityColors),
+                    BuildColorEndSeString(selfVanityColors)
+                );
+                _isModified = true;
+                continue;
+            }
             if (handler != null && visibleUsersIds.Contains(handler.GameObjectId))
             {
                 if (_namePlateRoleColorsEnabled && partyMembers.Contains(handler.GameObject?.Address ?? nint.MaxValue))
