@@ -5,6 +5,10 @@ A Dalamud plugin.
 
 [![Discord](https://img.shields.io/discord/1408265972720078990?color=5865F2&label=discord&logo=discord&logoColor=white)](https://discord.gg/snowcloak)
 
+## Usage and Installation
+
+For details on how to use Snowcloak, including install instructions, give our [docs](https://docs.snowcloak-sync.com) a read!
+
 ## License
 
 This project is based on Mare Synchronos by DarkArchon. Original code is licensed under the MIT License; see the 
