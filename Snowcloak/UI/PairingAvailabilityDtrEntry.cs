@@ -13,7 +13,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -27,7 +26,6 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
     private readonly SnowMediator _snowMediator;
     private readonly PairRequestService _pairRequestService;
     private readonly DalamudUtilService _dalamudUtilService;
-    private readonly LocalisationService _localisationService;
     private string? _text;
     private string? _valueText;
     private string? _tooltip;
@@ -36,7 +34,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     public PairingAvailabilityDtrEntry(ILogger<PairingAvailabilityDtrEntry> logger, IDtrBar dtrBar,
         SnowcloakConfigService configService, SnowMediator snowMediator, PairRequestService pairRequestService,
-        DalamudUtilService dalamudUtilService, LocalisationService localisationService)
+        DalamudUtilService dalamudUtilService)
     {
         _logger = logger;
         _dtrBar = dtrBar;
@@ -44,7 +42,6 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         _configService = configService;
         _snowMediator = snowMediator;
         _pairRequestService = pairRequestService;
-        _localisationService = localisationService;
         _dalamudUtilService = dalamudUtilService;
     }
 
@@ -84,7 +81,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
 
     private IDtrBarEntry CreateEntry()
     {
-        var entry = _dtrBar.Get(L("EntryTitle", "Snowcloak Pairing"));
+        var entry = _dtrBar.Get("Snowcloak Pairing");
         entry.OnClick = _ => _snowMediator.Publish(new UiToggleMessage(typeof(PairingAvailabilityWindow)));
         return entry;
     }
@@ -145,28 +142,28 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         
         var tooltipLines = new List<string>();
         if (hasPending)
-            tooltipLines.Add(string.Format(L("Tooltip.PendingRequests", "{0} pending pair requests"), pendingCount));
+            tooltipLines.Add(string.Format("{0} pending pair requests", pendingCount));
 
         if (availabilityActive)
         {
             var hoverText = hoverPlayers.Count > 0
                 ? string.Join(Environment.NewLine, hoverPlayers.Names)
-                : L("Tooltip.None", "No nearby players open to pairing");
+                : "No nearby players open to pairing";
             var remaining = Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0);
 
             if (remaining > 0)
-                hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Remaining", "... and {0} more"), remaining);
+                hoverText += $"{Environment.NewLine}" + string.Format("... and {0} more", remaining);
             if (filteredCount > 0)
-                hoverText += $"{Environment.NewLine}" + string.Format(L("Tooltip.Filtered", "({0} filtered players)"), filteredCount);
+                hoverText += $"{Environment.NewLine}" + string.Format("({0} filtered players)", filteredCount);
 
             var nearbyTooltip = availableCount > 0
-                ? string.Format(L("Tooltip.Header", "Users nearby open to pairing:{0}{1}"), Environment.NewLine, hoverText)
+                ? string.Format("Users nearby open to pairing:{0}{1}", Environment.NewLine, hoverText)
                 : hoverText;
             tooltipLines.Add(nearbyTooltip);
         }
         else
         {
-            tooltipLines.Add(L("Tooltip.Unavailable", "Pairing availability unavailable"));
+            tooltipLines.Add("Pairing availability unavailable");
         }
 
         var tooltip = string.Join(Environment.NewLine + Environment.NewLine, tooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)));
@@ -199,7 +196,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             _entry.Value.Shown = true;
 
         const string iconText = "\uE044";
-        var tooltip = L("Tooltip.Unavailable", "Pairing availability unavailable");
+        var tooltip = "Frostbrand is loading...";
         var colors = _configService.Current.DtrColorsDefault;
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
@@ -260,10 +257,5 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
     private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total, int FilteredCount)
     {
         public int Count => Names.Count;
-    }
-    
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"PairingAvailabilityDtrEntry.{key}", fallback);
     }
 }

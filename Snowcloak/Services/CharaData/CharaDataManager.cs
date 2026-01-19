@@ -14,7 +14,6 @@ using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using System.Collections.Concurrent;
 using System.Text;
-using Snowcloak.Services.Localisation;
 using System.Globalization;
 
 namespace Snowcloak.Services.CharaData;
@@ -31,7 +30,6 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
     private readonly CharaDataNearbyManager _nearbyManager;
     private readonly CharaDataCharacterHandler _characterHandler;
     private readonly PairManager _pairManager;
-    private readonly LocalisationService _localisationService;
     private readonly Dictionary<string, CharaDataFullExtendedDto> _ownCharaData = [];
     private readonly Dictionary<string, Task> _sharedMetaInfoTimeoutTasks = [];
     private readonly Dictionary<UserData, List<CharaDataMetaInfoExtendedDto>> _sharedWithYouData = [];
@@ -43,18 +41,12 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
     private CancellationTokenSource _getSharedDataCts = new();
     private CancellationTokenSource _uploadCts = new();
     
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"Services.CharaDataManager.{key}", fallback);
-    }
-
-
     public CharaDataManager(ILogger<CharaDataManager> logger, ApiController apiController,
         CharaDataFileHandler charaDataFileHandler,
         SnowMediator snowMediator, IpcManager ipcManager, DalamudUtilService dalamudUtilService,
         FileDownloadManagerFactory fileDownloadManagerFactory,
         CharaDataConfigService charaDataConfigService, CharaDataNearbyManager charaDataNearbyManager,
-        CharaDataCharacterHandler charaDataCharacterHandler, PairManager pairManager, LocalisationService localisationService) : base(logger, snowMediator)
+        CharaDataCharacterHandler charaDataCharacterHandler, PairManager pairManager) : base(logger, snowMediator)
     {
         _apiController = apiController;
         _fileHandler = charaDataFileHandler;
@@ -63,7 +55,6 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         _configService = charaDataConfigService;
         _nearbyManager = charaDataNearbyManager;
         _characterHandler = charaDataCharacterHandler;
-        _localisationService = localisationService;
         _pairManager = pairManager;
         snowMediator.Subscribe<ConnectedMessage>(this, (msg) =>
         {
@@ -127,7 +118,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
             {
                 CanBeDownloaded = true,
                 Description = string.Format(CultureInfo.InvariantCulture,
-                    L("MetaInfoDescription", "Data from {0} for {1}"), dataDownloadDto.Uploader.AliasOrUID, dataDownloadDto.Id),
+                    "Data from {0} for {1}", dataDownloadDto.Uploader.AliasOrUID, dataDownloadDto.Id),
                 UpdatedDate = dataDownloadDto.UpdatedDate,
             };
 
@@ -285,7 +276,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         }
         else
         {
-            targetName = L("InvalidTarget", "Invalid Target");
+            targetName = "Invalid Target";
         }
         return (canApply, targetName);
     }
@@ -315,11 +306,11 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
 
             if (result == null)
-                return (L("CreateDataFailed", "Failed to create character data, see log for more information"), false);
+                return ("Failed to create character data, see log for more information", false);
             
             await AddOrUpdateDto(result).ConfigureAwait(false);
 
-            return (L("CreateDataSuccess", "Created Character Data"), true);
+            return ("Created Character Data", true);
             
         });
     }
@@ -350,14 +341,14 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
                 if (metaInfo == null)
                 {
                     _metaInfoCache[importCode] = null;
-                    return (L("MetaInfoDownloadFailed", "Failed to download meta info for this code. Check if the code is valid and you have rights to access it."), false);
+                    return ("Failed to download meta info for this code. Check if the code is valid and you have rights to access it.", false);
                 }
                 await CacheData(metaInfo).ConfigureAwait(false);
                 if (store)
                 {
                     LastDownloadedMetaInfo = await CharaDataMetaInfoExtendedDto.Create(metaInfo, _dalamudUtilService).ConfigureAwait(false);
                 }
-                return (L("MetaInfoDownloadSuccess", "Ok"), true);
+                return ("Ok", true);
             }
             finally
             {
@@ -487,7 +478,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
                 long expectedExtractedSize = LoadedMcdfHeader.Result.ExpectedLength;
                 var charaFile = LoadedMcdfHeader.Result.LoadedFile;
-                DataApplicationProgress = L("Progress.ExtractingMcdf", "Extracting MCDF data");
+                DataApplicationProgress = "Extracting MCDF data";
                 
                 var extractedFiles = _fileHandler.McdfExtractFiles(charaFile, expectedExtractedSize, actuallyExtractedFiles);
 
@@ -496,7 +487,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
                     extractedFiles[entry.Key] = entry.Value;
                 }
 
-                DataApplicationProgress = L("Progress.ApplyingMcdf", "Applying MCDF data");
+                DataApplicationProgress = "Applying MCDF data";
                 
                 var extended = await CharaDataMetaInfoExtendedDto.Create(new(charaFile.FilePath, new UserData(string.Empty)), _dalamudUtilService)
                     .ConfigureAwait(false);
@@ -662,7 +653,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
             _ownCharaData.Remove(dto.Id);
             _metaInfoCache.Remove(dto.FullId, out _);
             UiBlockingComputation = null;
-            return (L("DtoNotFound", "No such DTO found"), false);
+            return ("No such DTO found", false);
         }
 
         await AddOrUpdateDto(newDto).ConfigureAwait(false);
@@ -671,7 +662,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         if (!extendedDto!.HasMissingFiles)
         {
             UiBlockingComputation = null;
-            return (L("RestoreSuccess", "Restored successfully"), true);
+            return ("Restored successfully", true);
         }
 
         var missingFileList = extendedDto!.MissingFiles.ToList();
@@ -834,7 +825,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         Guid penumbraCollection;
         try
         {
-            DataApplicationProgress = L("Progress.RevertingPrevious", "Reverting previous Application");
+            DataApplicationProgress = "Reverting previous Application";
             
             Logger.LogTrace("[{appId}] Reverting chara {chara}", applicationId, tempHandler.Name);
             bool reverted = await _characterHandler.RevertHandledChara(tempHandler.Name).ConfigureAwait(false);
@@ -843,7 +834,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
             Logger.LogTrace("[{appId}] Applying data in Penumbra", applicationId);
 
-            DataApplicationProgress = L("Progress.ApplyingPenumbra", "Applying Penumbra information");
+            DataApplicationProgress = "Applying Penumbra information";
             penumbraCollection = await _ipcManager.Penumbra.CreateTemporaryCollectionAsync(Logger, metaInfo.Uploader.UID + metaInfo.Id).ConfigureAwait(false);
             var idx = await _dalamudUtilService.RunOnFrameworkThread(() => tempHandler.GetGameObject()?.ObjectIndex).ConfigureAwait(false) ?? 0;
             await _ipcManager.Penumbra.AssignTemporaryCollectionAsync(Logger, penumbraCollection, idx).ConfigureAwait(false);
@@ -851,15 +842,15 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
             await _ipcManager.Penumbra.SetManipulationDataAsync(Logger, applicationId, penumbraCollection, manipData ?? string.Empty).ConfigureAwait(false);
 
             Logger.LogTrace("[{appId}] Applying Glamourer data and Redrawing", applicationId);
-            DataApplicationProgress = L("Progress.ApplyingGlamourer", "Applying Glamourer and redrawing Character");
+            DataApplicationProgress = "Applying Glamourer and redrawing Character";
             await _ipcManager.Glamourer.ApplyAllAsync(Logger, tempHandler, glamourerData, applicationId, token).ConfigureAwait(false);
             await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, token).ConfigureAwait(false);
             await _dalamudUtilService.WaitWhileCharacterIsDrawing(Logger, tempHandler, applicationId, ct: token).ConfigureAwait(false);
             Logger.LogTrace("[{appId}] Removing collection", applicationId);
             await _ipcManager.Penumbra.RemoveTemporaryCollectionAsync(Logger, applicationId, penumbraCollection).ConfigureAwait(false);
 
-            DataApplicationProgress = L("Progress.ApplyingCustomize", "Applying Customize+ data");
-            Logger.LogTrace("[{appId}] Appplying C+ data", applicationId);
+            DataApplicationProgress = "Applying Customize+ data";
+            Logger.LogTrace("[{appId}] Applying C+ data", applicationId);
 
             if (!string.IsNullOrEmpty(customizeData))
             {
@@ -878,7 +869,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
                 while (i > 0)
                 {
                     DataApplicationProgress = string.Format(CultureInfo.InvariantCulture,
-                        L("Progress.RevertingCountdown", "All data applied. Reverting automatically in {0} seconds."), i);
+                        "All data applied. Reverting automatically in {0} seconds.", i);
                     await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
                     i--;
                 }
@@ -893,9 +884,9 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         finally
         {
             if (token.IsCancellationRequested)
-                DataApplicationProgress = L("Progress.ApplicationAbortedReverting", "Application aborted. Reverting Character...");
+                DataApplicationProgress = "Application aborted. Reverting Character...";
             else if (autoRevert)
-                DataApplicationProgress = L("Progress.ApplicationFinished", "Application finished. Reverting Character...");
+                DataApplicationProgress = "Application finished. Reverting Character...";
             if (autoRevert)
             {
                 await _characterHandler.RevertChara(tempHandler.Name, cPlusId).ConfigureAwait(false);
@@ -921,7 +912,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         var baseUpdateDto = updateDto.BaseDto;
         if (baseUpdateDto.FileGamePaths != null)
         {
-        DataApplicationProgress = L("Progress.CheckingLocalFiles", "Checking local files");
+        DataApplicationProgress = "Checking local files";
             UploadTask = UploadFiles(baseUpdateDto.FileGamePaths);
             var result = await UploadTask.ConfigureAwait(false);
             if (!result.Success)
@@ -950,7 +941,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         var playerChar = await _dalamudUtilService.GetPlayerCharacterAsync().ConfigureAwait(false);
         bool isSelf = playerChar != null && string.Equals(playerChar.Name.TextValue, chara.Name.TextValue, StringComparison.Ordinal);
 
-        DataApplicationProgress = L("Progress.CheckingLocalFiles", "Checking local files");
+        DataApplicationProgress = "Checking local files";
         
         Logger.LogTrace("[{appId}] Computing local missing files", applicationId);
 
@@ -967,18 +958,18 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         {
             try
             {
-                DataApplicationProgress = L("Progress.DownloadingMissingFiles", "Downloading Missing Files. Please be patient.");
+                DataApplicationProgress = "Downloading Missing Files. Please be patient.";
                 await _fileHandler.DownloadFilesAsync(tempHandler, missingFiles, modPaths, token).ConfigureAwait(false);
             }
             catch (FileNotFoundException)
             {
-                DataApplicationProgress = L("Progress.DownloadFailed", "Failed to download one or more files. Aborting.");
+                DataApplicationProgress = "Failed to download one or more files. Aborting.";
                 DataApplicationTask = null;
                 return;
             }
             catch (OperationCanceledException)
             {
-                DataApplicationProgress = L("Progress.ApplicationAborted", "Application aborted.");
+                DataApplicationProgress = "Application aborted.";
                 DataApplicationTask = null;
                 return;
             }
@@ -1004,22 +995,22 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
             {
                 Logger.LogInformation("Failed to upload {files}", string.Join(", ", missingFiles));
                 return (string.Format(CultureInfo.InvariantCulture,
-                    L("UploadMissingFilesFailed", "Upload failed: {0} missing or forbidden to upload local files."), missingFiles.Count), false);
+                    "Upload failed: {0} missing or forbidden to upload local files.", missingFiles.Count), false);
             }
 
             if (postUpload != null)
                 await postUpload.Invoke().ConfigureAwait(false);
 
-            return (L("UploadSuccessful", "Upload sucessful"), true);
+            return ("Upload sucessful", true);
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Error during upload");
             if (ex is OperationCanceledException)
             {
-                return (L("UploadCancelled", "Upload Cancelled"), false);
+                return ("Upload Cancelled", false);
             }
-            return (L("UploadError", "Error in upload, see log for more details"), false);
+            return ("Error in upload, see log for more details", false);
         }
         finally
         {

@@ -7,7 +7,6 @@ using Dalamud.Interface.Utility.Raii;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.User;
 using Snowcloak.Services;
-using Snowcloak.Services.Localisation;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI.Handlers;
 
@@ -18,18 +17,15 @@ public sealed class PendingPairRequestSection
     private readonly PairRequestService _pairRequestService;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
-    private readonly LocalisationService _localisationService;
 
     public PendingPairRequestSection(
         PairRequestService pairRequestService,
         ServerConfigurationManager serverManager,
-        UiSharedService uiSharedService,
-        LocalisationService localisationService)
+        UiSharedService uiSharedService)
     {
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _uiSharedService = uiSharedService;
-        _localisationService = localisationService;
     }
 
     public int PendingCount => _pairRequestService.PendingRequests.Count;

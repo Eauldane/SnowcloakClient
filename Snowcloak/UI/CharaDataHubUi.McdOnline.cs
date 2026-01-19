@@ -18,7 +18,7 @@ internal sealed partial class CharaDataHubUi
         if (dataDto == null)
         {
             ImGuiHelpers.ScaledDummy(5);
-            UiSharedService.DrawGroupedCenteredColorText(L("Mcd.SelectEntry", "Select an entry above to edit its data."), ImGuiColors.DalamudYellow);
+            UiSharedService.DrawGroupedCenteredColorText("Select an entry above to edit its data.", ImGuiColors.DalamudYellow);
             return;
         }
 
@@ -26,7 +26,7 @@ internal sealed partial class CharaDataHubUi
 
         if (updateDto == null)
         {
-            UiSharedService.DrawGroupedCenteredColorText(L("Mcd.NoUpdateDto", "Something went awfully wrong and there's no update DTO. Try updating Character Data via the button above."), ImGuiColors.DalamudYellow);
+            UiSharedService.DrawGroupedCenteredColorText("Something went awfully wrong and there's no update DTO. Try updating Character Data via the button above.", ImGuiColors.DalamudYellow);
             return;
         }
 
@@ -45,23 +45,23 @@ internal sealed partial class CharaDataHubUi
                 if (canUpdate)
                 {
                     ImGui.AlignTextToFramePadding();
-                    UiSharedService.ColorTextWrapped(L("Mcd.UnsavedChanges", "Warning: You have unsaved changes!"), ImGuiColors.DalamudRed);
+                    UiSharedService.ColorTextWrapped("Warning: You have unsaved changes!", ImGuiColors.DalamudRed);
                     ImGui.SameLine();
                     using (ImRaii.Disabled(_charaDataManager.CharaUpdateTask != null && !_charaDataManager.CharaUpdateTask.IsCompleted))
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, L("Mcd.Save", "Save to Server")))
+                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, "Save to Server"))
                         {
                             _charaDataManager.UploadCharaData(dataDto.Id);
                         }
                         ImGui.SameLine();
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Undo, L("Mcd.Undo", "Undo all changes")))
+                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Undo, "Undo all changes"))
                         {
                             updateDto.UndoChanges();
                         }
                     }
                     if (_charaDataManager.CharaUpdateTask != null && !_charaDataManager.CharaUpdateTask.IsCompleted)
                     {
-                        UiSharedService.ColorTextWrapped(L("Mcd.Updating", "Updating data on server, please wait."), ImGuiColors.DalamudYellow);
+                        UiSharedService.ColorTextWrapped("Updating data on server, please wait.", ImGuiColors.DalamudYellow);
                     }
                 }
 
@@ -73,7 +73,7 @@ internal sealed partial class CharaDataHubUi
                         {
                             UiSharedService.ColorTextWrapped(_charaDataManager.UploadProgress.Value ?? string.Empty, ImGuiColors.DalamudYellow);
                         }
-                        if ((!_charaDataManager.UploadTask?.IsCompleted ?? false) && _uiSharedService.IconTextButton(FontAwesomeIcon.Ban, L("Mcd.CancelUpload", "Cancel Upload")))
+                        if ((!_charaDataManager.UploadTask?.IsCompleted ?? false) && _uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Cancel Upload"))
                         {
                             _charaDataManager.CancelUpload();
                         }
@@ -111,11 +111,11 @@ internal sealed partial class CharaDataHubUi
 
     private void DrawEditCharaDataAccessAndSharing(CharaDataExtendedUpdateDto updateDto)
     {
-        _uiSharedService.BigText(L("Mcd.AccessSharing", "Access and Sharing"));
+        _uiSharedService.BigText("Access and Sharing");
         
         ImGui.SetNextItemWidth(200);
         var dtoAccessType = updateDto.AccessType;
-        if (ImGui.BeginCombo(L("Mcd.AccessRestrictions", "Access Restrictions"), GetAccessTypeString(dtoAccessType)))
+        if (ImGui.BeginCombo("Access Restrictions", GetAccessTypeString(dtoAccessType)))
         {
             foreach (var accessType in Enum.GetValues(typeof(AccessTypeDto)).Cast<AccessTypeDto>())
             {
@@ -127,21 +127,21 @@ internal sealed partial class CharaDataHubUi
 
             ImGui.EndCombo();
         }
-        _uiSharedService.DrawHelpText(L("Mcd.AccessHelp", "You can control who has access to your character data based on the access restrictions." + UiSharedService.TooltipSeparator
+        _uiSharedService.DrawHelpText("You can control who has access to your character data based on the access restrictions." + UiSharedService.TooltipSeparator
             + "Specified: Only people and syncshells you directly specify in 'Specific Individuals / Syncshells' can access this character data" + Environment.NewLine
             + "Direct Pairs: Only people you have directly paired can access this character data" + Environment.NewLine
             + "All Pairs: All people you have paired can access this character data" + Environment.NewLine
             + "Everyone: Everyone can access this character data" + UiSharedService.TooltipSeparator
             + "Note: To access your character data the person in question requires to have the code. Exceptions for 'Shared' data, see 'Sharing' below." + Environment.NewLine
             + "Note: For 'Direct' and 'All Pairs' the pause state plays a role. Paused people will not be able to access your character data." + Environment.NewLine
-            + "Note: Directly specified Individuals or Syncshells in the 'Specific Individuals / Syncshells' list will be able to access your character data regardless of pause or pair state."));
+            + "Note: Directly specified Individuals or Syncshells in the 'Specific Individuals / Syncshells' list will be able to access your character data regardless of pause or pair state.");
         DrawSpecific(updateDto);
 
         ImGui.SetNextItemWidth(200);
         var dtoShareType = updateDto.ShareType;
         using (ImRaii.Disabled(dtoAccessType == AccessTypeDto.Public))
         {
-            if (ImGui.BeginCombo(L("Mcd.Sharing", "Sharing"), GetShareTypeString(dtoShareType)))
+            if (ImGui.BeginCombo("Sharing", GetShareTypeString(dtoShareType)))
             {
                 foreach (var shareType in Enum.GetValues(typeof(ShareTypeDto)).Cast<ShareTypeDto>())
                 {
@@ -154,40 +154,40 @@ internal sealed partial class CharaDataHubUi
                 ImGui.EndCombo();
             }
         }
-        _uiSharedService.DrawHelpText(L("Mcd.SharingHelp", "This regulates how you want to distribute this character data." + UiSharedService.TooltipSeparator
+        _uiSharedService.DrawHelpText("This regulates how you want to distribute this character data." + UiSharedService.TooltipSeparator
             + "Code Only: People require to have the code to download this character data" + Environment.NewLine
             + "Shared: People that are allowed through 'Access Restrictions' will have this character data entry displayed in 'Shared with You' (it can also be accessed through the code)" + UiSharedService.TooltipSeparator
-            + "Note: Shared is incompatible with Access Restriction 'Everyone'"));
+            + "Note: Shared is incompatible with Access Restriction 'Everyone'");
         ImGuiHelpers.ScaledDummy(10f);
     }
 
     private void DrawEditCharaDataAppearance(CharaDataFullExtendedDto dataDto, CharaDataExtendedUpdateDto updateDto)
     {
-        _uiSharedService.BigText(L("Mcd.Appearance", "Appearance"));
+        _uiSharedService.BigText("Appearance");
         
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, L("Mcd.SetAppearance", "Set Appearance to Current Appearance")))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, "Set Appearance to Current Appearance"))
         {
             _charaDataManager.SetAppearanceData(dataDto.Id);
         }
-        _uiSharedService.DrawHelpText(L("Mcd.SetAppearanceHelp", "This will overwrite the appearance data currently stored in this Character Data entry with your current appearance."));
+        _uiSharedService.DrawHelpText("This will overwrite the appearance data currently stored in this Character Data entry with your current appearance.");
         ImGui.SameLine();
         using (ImRaii.Disabled(dataDto.HasMissingFiles || !updateDto.IsAppearanceEqual || _charaDataManager.DataApplicationTask != null))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.CheckCircle, L("Mcd.PreviewAppearance", "Preview Saved Apperance on Self")))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.CheckCircle, "Preview Saved Apperance on Self"))
             {
                 _charaDataManager.ApplyDataToSelf(dataDto);
             }
         }
-        _uiSharedService.DrawHelpText(L("Mcd.PreviewAppearanceHelp", "This will download and apply the saved character data to yourself. Once loaded it will automatically revert itself within 15 seconds." + UiSharedService.TooltipSeparator
-            + "Note: Weapons will not be displayed correctly unless using the same job as the saved data."));
+        _uiSharedService.DrawHelpText("This will download and apply the saved character data to yourself. Once loaded it will automatically revert itself within 15 seconds." + UiSharedService.TooltipSeparator
+            + "Note: Weapons will not be displayed correctly unless using the same job as the saved data.");
 
-        ImGui.TextUnformatted(L("Mcd.ContainsGlamourer", "Contains Glamourer Data"));
+        ImGui.TextUnformatted("Contains Glamourer Data");
         ImGui.SameLine();
         bool hasGlamourerdata = !string.IsNullOrEmpty(updateDto.GlamourerData);
         ImGui.SameLine(200);
         _uiSharedService.BooleanToColoredIcon(hasGlamourerdata, false);
 
-        ImGui.TextUnformatted(L("Mcd.ContainsFiles", "Contains Files"));
+        ImGui.TextUnformatted("Contains Files");
         var hasFiles = (updateDto.FileGamePaths ?? []).Any() || (dataDto.OriginalFiles.Any());
         ImGui.SameLine(200);
         _uiSharedService.BooleanToColoredIcon(hasFiles, false);
@@ -199,22 +199,22 @@ internal sealed partial class CharaDataHubUi
             var pos = ImGui.GetCursorPosX();
             ImGui.NewLine();
             ImGui.SameLine(pos);
-            ImGui.TextUnformatted(string.Format(L("Mcd.FileHashes", "{0} unique file hashes (original upload: {1} file hashes)"), dataDto.FileGamePaths.DistinctBy(k => k.HashOrFileSwap).Count(), dataDto.OriginalFiles.DistinctBy(k => k.HashOrFileSwap).Count()));
+            ImGui.TextUnformatted(string.Format("{0} unique file hashes (original upload: {1} file hashes)", dataDto.FileGamePaths.DistinctBy(k => k.HashOrFileSwap).Count(), dataDto.OriginalFiles.DistinctBy(k => k.HashOrFileSwap).Count()));
             ImGui.NewLine();
             ImGui.SameLine(pos);
-            ImGui.TextUnformatted(string.Format(L("Mcd.FileGamePaths", "{0} associated game paths"), dataDto.FileGamePaths.Count));
+            ImGui.TextUnformatted(string.Format("{0} associated game paths", dataDto.FileGamePaths.Count));
             ImGui.NewLine();
             ImGui.SameLine(pos);
-            ImGui.TextUnformatted(string.Format(L("Mcd.FileSwaps", "{0} file swaps"), dataDto.FileSwaps!.Count));
+            ImGui.TextUnformatted(string.Format("{0} file swaps", dataDto.FileSwaps!.Count));
             ImGui.NewLine();
             ImGui.SameLine(pos);
             if (!dataDto.HasMissingFiles)
             {
-                UiSharedService.ColorTextWrapped(L("Mcd.FilesPresent", "All files to download this character data are present on the server"), ImGuiColors.HealerGreen);
+                UiSharedService.ColorTextWrapped("All files to download this character data are present on the server", ImGuiColors.HealerGreen);
             }
             else
             {
-                UiSharedService.ColorTextWrapped(string.Format(L("Mcd.FilesMissing", "{0} files to download this character data are missing on the server"), dataDto.MissingFiles.DistinctBy(k => k.HashOrFileSwap).Count()), ImGuiColors.DalamudRed);
+                UiSharedService.ColorTextWrapped(string.Format("{0} files to download this character data are missing on the server", dataDto.MissingFiles.DistinctBy(k => k.HashOrFileSwap).Count()), ImGuiColors.DalamudRed);
                 ImGui.NewLine();
                 ImGui.SameLine(pos);
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, "Attempt to upload missing files and restore Character Data"))

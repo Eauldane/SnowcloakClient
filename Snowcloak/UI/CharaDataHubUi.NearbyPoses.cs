@@ -11,75 +11,74 @@ internal partial class CharaDataHubUi
 {
     private void DrawNearbyPoses()
     {
-        _uiSharedService.BigText(L("Nearby.Title", "Poses Nearby"));
+        _uiSharedService.BigText("Poses Nearby");
         
-        DrawHelpFoldout(L("Nearby.Help",
-            "This tab will show you all Shared World Poses nearby you." + Environment.NewLine + Environment.NewLine
-            + "Shared World Poses are poses in character data that have world data attached to them and are set to shared. "
+        DrawHelpFoldout("This tab will show you all Shared World Poses nearby you." + Environment.NewLine + Environment.NewLine
+                        + "Shared World Poses are poses in character data that have world data attached to them and are set to shared. "
                         + "This means that all data that is in 'Shared with You' that has a pose with world data attached to it will be shown here if you are nearby." + Environment.NewLine
                         + "By default all poses that are shared will be shown. Poses taken in housing areas will by default only be shown on the correct world and location." + Environment.NewLine + Environment.NewLine
                         + "Shared World Poses will appear in the world as floating wisps, as well as in the list below. You can mouse over a Shared World Pose in the list for it to get highlighted in the world." + Environment.NewLine + Environment.NewLine
                         + "You can apply Shared World Poses to yourself or spawn the associated character to pose with them." + Environment.NewLine + Environment.NewLine
-            + "You can adjust the filter and change further settings in the 'Settings & Filter' foldout."));
+                        + "You can adjust the filter and change further settings in the 'Settings & Filter' foldout.");
         
-        UiSharedService.DrawTree(L("Nearby.Settings", "Settings & Filters"), () =>
+        UiSharedService.DrawTree("Settings & Filters", () =>
         {
             string filterByUser = _charaDataNearbyManager.UserNoteFilter;
-            if (ImGui.InputTextWithHint("##filterbyuser", L("Nearby.FilterByUser", "Filter by User"), ref filterByUser, 50))
+            if (ImGui.InputTextWithHint("##filterbyuser", "Filter by User", ref filterByUser, 50))
             {
                 _charaDataNearbyManager.UserNoteFilter = filterByUser;
             }
             bool onlyCurrent = _configService.Current.NearbyOwnServerOnly;
-            if (ImGui.Checkbox(L("Nearby.OnlyCurrentWorld", "Only show Poses on current world"), ref onlyCurrent))
+            if (ImGui.Checkbox("Only show Poses on current world", ref onlyCurrent))
             {
                 _configService.Current.NearbyOwnServerOnly = onlyCurrent;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.OnlyCurrentWorldHelp", "Show the location of shared Poses with World Data from current world only"));
+            _uiSharedService.DrawHelpText("Show the location of shared Poses with World Data from current world only");
             bool showOwn = _configService.Current.NearbyShowOwnData;
-            if (ImGui.Checkbox(L("Nearby.ShowOwn", "Also show your own data"), ref showOwn))
+            if (ImGui.Checkbox("Also show your own data", ref showOwn))
             {
                 _configService.Current.NearbyShowOwnData = showOwn;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.ShowOwnHelp", "Show your own Poses as well"));
+            _uiSharedService.DrawHelpText("Show your own Poses as well");
             bool ignoreHousing = _configService.Current.NearbyIgnoreHousingLimitations;
-            if (ImGui.Checkbox(L("Nearby.IgnoreHousing", "Ignore Housing Limitations"), ref ignoreHousing))
+            if (ImGui.Checkbox("Ignore Housing Limitations", ref ignoreHousing))
             {
                 _configService.Current.NearbyIgnoreHousingLimitations = ignoreHousing;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.IgnoreHousingHelp", "Display all poses in their location regardless of housing limitations. (Ignoring Ward, Plot, Room)" + UiSharedService.TooltipSeparator
-                + "Note: Poses that utilize housing props, furniture, etc. will not be displayed correctly if not spawned in the right location."));
+            _uiSharedService.DrawHelpText("Display all poses in their location regardless of housing limitations. (Ignoring Ward, Plot, Room)" + UiSharedService.TooltipSeparator
+                + "Note: Poses that utilize housing props, furniture, etc. will not be displayed correctly if not spawned in the right location.");
             bool showWisps = _configService.Current.NearbyDrawWisps;
-            if (ImGui.Checkbox(L("Nearby.ShowWisps", "Show Pose Wisps in the overworld"), ref showWisps))
+            if (ImGui.Checkbox("Show Pose Wisps in the overworld", ref showWisps))
             {
                 _configService.Current.NearbyDrawWisps = showWisps;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.ShowWispsHelp", "Draw floating wisps where other's poses are in the world."));
+            _uiSharedService.DrawHelpText("Draw floating wisps where other's poses are in the world.");
             int poseDetectionDistance = _configService.Current.NearbyDistanceFilter;
             ImGui.SetNextItemWidth(100);
-            if (ImGui.SliderInt(L("Nearby.DetectionDistance", "Detection Distance"), ref poseDetectionDistance, 5, 1000))
+            if (ImGui.SliderInt("Detection Distance", ref poseDetectionDistance, 5, 1000))
             {
                 _configService.Current.NearbyDistanceFilter = poseDetectionDistance;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.DetectionDistanceHelp", "Maximum distance in which poses will be shown. Set it to the maximum if you want to see all poses on the current map."));
+            _uiSharedService.DrawHelpText("Maximum distance in which poses will be shown. Set it to the maximum if you want to see all poses on the current map.");
             bool alwaysShow = _configService.Current.NearbyShowAlways;
-            if (ImGui.Checkbox(L("Nearby.AlwaysShow", "Keep active outside Poses Nearby tab"), ref alwaysShow))
+            if (ImGui.Checkbox("Keep active outside Poses Nearby tab", ref alwaysShow))
             {
                 _configService.Current.NearbyShowAlways = alwaysShow;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText(L("Nearby.AlwaysShowHelp", "Continue the calculation of position of wisps etc. active outside of the 'Poses Nearby' tab." + UiSharedService.TooltipSeparator
-                + "Note: The wisps etc. will disappear during combat and performing."));
+            _uiSharedService.DrawHelpText("Continue the calculation of position of wisps etc. active outside of the 'Poses Nearby' tab." + UiSharedService.TooltipSeparator
+                + "Note: The wisps etc. will disappear during combat and performing.");
         });
 
         if (!_uiSharedService.IsInGpose)
         {
             ImGuiHelpers.ScaledDummy(5);
-            UiSharedService.DrawGroupedCenteredColorText(L("Nearby.GposeOnly", "Spawning and applying pose data is only available in GPose."), ImGuiColors.DalamudYellow);
+            UiSharedService.DrawGroupedCenteredColorText("Spawning and applying pose data is only available in GPose.", ImGuiColors.DalamudYellow);
             ImGuiHelpers.ScaledDummy(5);
         }
 

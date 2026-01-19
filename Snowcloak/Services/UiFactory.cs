@@ -3,7 +3,6 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Group;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
-using Snowcloak.Services.Localisation;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI;
@@ -21,11 +20,10 @@ public class UiFactory
     private readonly ServerConfigurationManager _serverConfigManager;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly PerformanceCollectorService _performanceCollectorService;
-    private readonly LocalisationService _localisationService;
 
     public UiFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, ApiController apiController,
         UiSharedService uiSharedService, PairManager pairManager, ServerConfigurationManager serverConfigManager,
-        SnowProfileManager snowProfileManager, PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
+        SnowProfileManager snowProfileManager, PerformanceCollectorService performanceCollectorService)
     {
         _loggerFactory = loggerFactory;
         _snowMediator = snowMediator;
@@ -35,31 +33,30 @@ public class UiFactory
         _serverConfigManager = serverConfigManager;
         _snowProfileManager = snowProfileManager;
         _performanceCollectorService = performanceCollectorService;
-        _localisationService = localisationService;
     }
 
     public SyncshellAdminUI CreateSyncshellAdminUi(GroupFullInfoDto dto)
     {
         return new SyncshellAdminUI(_loggerFactory.CreateLogger<SyncshellAdminUI>(), _snowMediator,
-            _apiController, _uiSharedService, _pairManager, dto, _performanceCollectorService, _localisationService);
+            _apiController, _uiSharedService, _pairManager, dto, _performanceCollectorService);
     }
 
     public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null)
     {
         pair ??= _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _performanceCollectorService, _localisationService);
+            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)
     {
         return new PermissionWindowUI(_loggerFactory.CreateLogger<PermissionWindowUI>(), pair,
-            _snowMediator, _uiSharedService, _apiController, _performanceCollectorService, _localisationService);
+            _snowMediator, _uiSharedService, _apiController, _performanceCollectorService);
     }
 
     public PlayerAnalysisUI CreatePlayerAnalysisUi(Pair pair)
     {
         return new PlayerAnalysisUI(_loggerFactory.CreateLogger<PlayerAnalysisUI>(), pair,
-            _snowMediator, _uiSharedService, _performanceCollectorService, _localisationService);
+            _snowMediator, _uiSharedService, _performanceCollectorService);
     }
 }

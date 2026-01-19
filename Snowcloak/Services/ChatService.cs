@@ -11,7 +11,6 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
-using Snowcloak.Services.Localisation;
 using System.Globalization;
 
 namespace Snowcloak.Services;
@@ -28,13 +27,12 @@ public class ChatService : DisposableMediatorSubscriberBase
     private readonly ApiController _apiController;
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverConfigurationManager;
-    private readonly LocalisationService _localisationService;
 
     private readonly Lazy<GameChatHooks> _gameChatHooks;
 
     public ChatService(ILogger<ChatService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, ApiController apiController,
         PairManager pairManager, ILoggerFactory loggerFactory, IGameInteropProvider gameInteropProvider, IChatGui chatGui,
-        SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager, LocalisationService localisationService) : base(logger, mediator)
+        SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
     {
         _logger = logger;
         _dalamudUtil = dalamudUtil;
@@ -43,7 +41,6 @@ public class ChatService : DisposableMediatorSubscriberBase
         _apiController = apiController;
         _pairManager = pairManager;
         _serverConfigurationManager = serverConfigurationManager;
-        _localisationService = localisationService;
 
         Mediator.Subscribe<UserChatMsgMessage>(this, HandleUserChat);
         Mediator.Subscribe<GroupChatMsgMessage>(this, HandleGroupChat);
@@ -62,11 +59,6 @@ public class ChatService : DisposableMediatorSubscriberBase
                 _logger.LogError(ex, "Failed to initialize chat hooks");
             }
         });
-    }
-
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"Services.ChatService.{key}", fallback);
     }
     
     protected override void Dispose(bool disposing)
@@ -215,7 +207,7 @@ public class ChatService : DisposableMediatorSubscriberBase
             }
         }
 
-        _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, L("SyncshellNotFound", "[SnowcloakSync] Syncshell number #{0} not found"), shellNumber));
+        _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, "[Snowcloak] Syncshell number #{0} not found", shellNumber));
         
     }
 
@@ -245,6 +237,6 @@ public class ChatService : DisposableMediatorSubscriberBase
             }
         }
 
-        _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, L("SyncshellNotFound", "[SnowcloakSync] Syncshell number #{0} not found"), shellNumber));
+        _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, "[Snowcloak] Syncshell number #{0} not found", shellNumber));
     }
 }

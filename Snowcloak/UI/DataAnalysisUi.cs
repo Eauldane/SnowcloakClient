@@ -9,7 +9,6 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Numerics;
-using Snowcloak.Services.Localisation;
 using Penumbra.Api.Enums;
 
 namespace Snowcloak.UI;
@@ -20,7 +19,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     private readonly Progress<(string, int)> _conversionProgress = new();
     private readonly IpcManager _ipcManager;
     private readonly UiSharedService _uiSharedService;
-    private readonly LocalisationService _localisationService;
     private readonly Dictionary<string, (TextureType TextureType, string[] Duplicates)> _texturesToConvert = new(StringComparer.Ordinal);
     private Dictionary<ObjectKind, Dictionary<string, CharacterAnalyzer.FileDataEntry>>? _cachedAnalysis;
     private CancellationTokenSource _conversionCancellationTokenSource = new();
@@ -39,14 +37,13 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     public DataAnalysisUi(ILogger<DataAnalysisUi> logger, SnowMediator mediator,
         CharacterAnalyzer characterAnalyzer, IpcManager ipcManager,
         PerformanceCollectorService performanceCollectorService,
-        UiSharedService uiSharedService, LocalisationService localisationService)
+        UiSharedService uiSharedService)
         : base(logger, mediator, "Snowcloak Character Data Analysis###SnowcloakDataAnalysisUI", performanceCollectorService)
     {
         _characterAnalyzer = characterAnalyzer;
         _ipcManager = ipcManager;
         _uiSharedService = uiSharedService;
-        _localisationService = localisationService;
-        WindowName = L("Window.Title", "Character Data Analysis");
+        WindowName = "Character Data Analysis";
         Mediator.Subscribe<CharacterDataAnalyzedMessage>(this, (_) =>
         {
             _hasUpdate = true;
@@ -68,11 +65,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         _conversionProgress.ProgressChanged += ConversionProgress_ProgressChanged;
     }
     
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"DataAnalysis.{key}", fallback);
-    }
-
     protected override void DrawInternal()
     {
         var conversionPopupTitle = "Texture Conversion in Progress";
@@ -81,9 +73,9 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             _showModal = true;
             if (ImGui.BeginPopupModal(conversionPopupTitle))
             {
-                ImGui.TextUnformatted(string.Format(L("Conversion.Progress", "Texture Conversion in progress: {0}/{1}"), _conversionCurrentFileProgress, _texturesToConvert.Count));
-                UiSharedService.TextWrapped(string.Format(L("Conversion.CurrentFile", "Current file: {0}"), _conversionCurrentFileName));
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, L("Conversion.Cancel", "Cancel conversion")))
+                ImGui.TextUnformatted(string.Format("Texture Conversion in progress: {0}/{1}", _conversionCurrentFileProgress, _texturesToConvert.Count));
+                UiSharedService.TextWrapped(string.Format("Current file: {0}", _conversionCurrentFileName));
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel conversion"))
                 {
                     _conversionCancellationTokenSource.Cancel();
                 }
@@ -117,7 +109,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             _sortDirty = true;
         }
 
-        UiSharedService.TextWrapped(L("Intro.Description", "This window shows you all files and their sizes that are currently in use through your character and associated entities"));
+        UiSharedService.TextWrapped("This window shows you all files and their sizes that are currently in use through your character and associated entities");
         
         if (_cachedAnalysis == null || _cachedAnalysis.Count == 0) return;
 
@@ -125,9 +117,9 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         bool needAnalysis = _cachedAnalysis!.Any(c => c.Value.Any(f => !f.Value.IsComputed));
         if (isAnalyzing)
         {
-            UiSharedService.ColorTextWrapped(string.Format(L("Analysis.Status", "Analyzing {0}/{1}"), _characterAnalyzer.CurrentFile, _characterAnalyzer.TotalFiles),
+            UiSharedService.ColorTextWrapped(string.Format("Analyzing {0}/{1}", _characterAnalyzer.CurrentFile, _characterAnalyzer.TotalFiles),
                 ImGuiColors.DalamudYellow);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, L("Analysis.Cancel", "Cancel analysis")))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
             {
                 _characterAnalyzer.CancelAnalyze();
             }
@@ -136,16 +128,16 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         {
             if (needAnalysis)
             {
-                UiSharedService.ColorTextWrapped(L("Analysis.MissingWarning", "Some entries in the analysis have file size not determined yet, press the button below to analyze your current data"),
+                UiSharedService.ColorTextWrapped("Some entries in the analysis have file size not determined yet, press the button below to analyze your current data",
                     ImGuiColors.DalamudYellow);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, L("Analysis.StartMissing", "Start analysis (missing entries)")))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
                 {
                     _ = _characterAnalyzer.ComputeAnalysis(print: false);
                 }
             }
             else
             {
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, L("Analysis.Start", "Start analysis (recalculate all entries)")))
+                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (recalculate all entries)"))
                 {
                     _ = _characterAnalyzer.ComputeAnalysis(print: false, recalculate: true);
                 }
@@ -154,7 +146,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
         ImGui.Separator();
 
-        ImGui.TextUnformatted(L("Totals.Files", "Total files:"));
+        ImGui.TextUnformatted("Total files:");
         ImGui.SameLine();
         ImGui.TextUnformatted(_cachedAnalysis!.Values.Sum(c => c.Values.Count).ToString());
         ImGui.SameLine();
@@ -167,14 +159,14 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             string text = "";
             var groupedfiles = _cachedAnalysis.Values.SelectMany(f => f.Values).GroupBy(f => f.FileType, StringComparer.Ordinal);
             text = string.Join(Environment.NewLine, groupedfiles.OrderBy(f => f.Key, StringComparer.Ordinal)
-                .Select(f => string.Format(L("Totals.FilesTooltipEntry", "{0}: {1} files, size: {2}, compressed: {3}"), f.Key, f.Count(), UiSharedService.ByteToString(f.Sum(v => v.OriginalSize)),
+                .Select(f => string.Format("{0}: {1} files, size: {2}, compressed: {3}", f.Key, f.Count(), UiSharedService.ByteToString(f.Sum(v => v.OriginalSize)),
                     UiSharedService.ByteToString(f.Sum(v => v.CompressedSize)))));
             ImGui.SetTooltip(text);
         }
-        ImGui.TextUnformatted(L("Totals.SizeActual", "Total size (actual):"));
+        ImGui.TextUnformatted("Total size (actual):");
         ImGui.SameLine();
         ImGui.TextUnformatted(UiSharedService.ByteToString(_cachedAnalysis!.Sum(c => c.Value.Sum(c => c.Value.OriginalSize))));
-        ImGui.TextUnformatted(L("Totals.SizeDownload", "Total size (download size):"));
+        ImGui.TextUnformatted("Total size (download size):");
         ImGui.SameLine();
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow, needAnalysis))
         {
@@ -184,11 +176,11 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 using (ImRaii.PushFont(UiBuilder.IconFont))
                     ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                UiSharedService.AttachToolTip(L("Analysis.Hint", "Click \"Start analysis\" to calculate download size"));
+                UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
                 
             }
         }
-        ImGui.TextUnformatted(string.Format(L("Totals.Triangles", "Total modded model triangles: {0}"), UiSharedService.TrisToString(_cachedAnalysis.Sum(c => c.Value.Sum(f => f.Value.Triangles)))));
+        ImGui.TextUnformatted(string.Format("Total modded model triangles: {0}", UiSharedService.TrisToString(_cachedAnalysis.Sum(c => c.Value.Sum(f => f.Value.Triangles)))));
         ImGui.Separator();
 
         using var tabbar = ImRaii.TabBar("objectSelection");
@@ -202,7 +194,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 var groupedfiles = kvp.Value.Select(v => v.Value).GroupBy(f => f.FileType, StringComparer.Ordinal)
                     .OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
 
-                ImGui.TextUnformatted(string.Format(L("Totals.FilesFor", "Files for {0}"), kvp.Key));
+                ImGui.TextUnformatted(string.Format("Files for {0}", kvp.Key));
                 ImGui.SameLine();
                 ImGui.TextUnformatted(kvp.Value.Count.ToString());
                 ImGui.SameLine();
@@ -215,14 +207,14 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 {
                     string text = "";
                     text = string.Join(Environment.NewLine, groupedfiles
-                        .Select(f => string.Format(L("Totals.FilesTooltipEntry", "{0}: {1} files, size: {2}, compressed: {3}"), f.Key, f.Count(), UiSharedService.ByteToString(f.Sum(v => v.OriginalSize)),
+                        .Select(f => string.Format("{0}: {1} files, size: {2}, compressed: {3}", f.Key, f.Count(), UiSharedService.ByteToString(f.Sum(v => v.OriginalSize)),
                             UiSharedService.ByteToString(f.Sum(v => v.CompressedSize)))));
                     ImGui.SetTooltip(text);
                 }
-                ImGui.TextUnformatted(string.Format(L("Totals.SizeActualFor", "{0} size (actual):"), kvp.Key));
+                ImGui.TextUnformatted(string.Format("{0} size (actual):", kvp.Key));
                 ImGui.SameLine();
                 ImGui.TextUnformatted(UiSharedService.ByteToString(kvp.Value.Sum(c => c.Value.OriginalSize)));
-                ImGui.TextUnformatted(string.Format(L("Totals.SizeDownloadFor", "{0} size (download size):"), kvp.Key));
+                ImGui.TextUnformatted(string.Format("{0} size (download size):", kvp.Key));
                 ImGui.SameLine();
                 using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow, needAnalysis))
                 {
@@ -232,17 +224,17 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.SameLine();
                         using (ImRaii.PushFont(UiBuilder.IconFont))
                             ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                        UiSharedService.AttachToolTip(L("Analysis.Hint", "Click \"Start analysis\" to calculate download size"));
+                        UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
                     }
                 }
-                ImGui.TextUnformatted(string.Format(L("Totals.VramUsage", "{0} VRAM usage:"), kvp.Key));
+                ImGui.TextUnformatted(string.Format("{0} VRAM usage:", kvp.Key));
                 ImGui.SameLine();
                 var vramUsage = groupedfiles.SingleOrDefault(v => string.Equals(v.Key, "tex", StringComparison.Ordinal));
                 if (vramUsage != null)
                 {
                     ImGui.TextUnformatted(UiSharedService.ByteToString(vramUsage.Sum(f => f.OriginalSize)));
                 }
-                ImGui.TextUnformatted(string.Format(L("Totals.TrianglesFor", "{0} modded model triangles: {1}"), kvp.Key, UiSharedService.TrisToString(kvp.Value.Sum(f => f.Value.Triangles))));
+                ImGui.TextUnformatted(string.Format("{0} modded model triangles: {1}", kvp.Key, UiSharedService.TrisToString(kvp.Value.Sum(f => f.Value.Triangles))));
                 ImGui.Separator();
                 if (_selectedObjectTab != kvp.Key)
                 {
@@ -257,7 +249,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
                 foreach (IGrouping<string, CharacterAnalyzer.FileDataEntry>? fileGroup in groupedfiles)
                 {
-                    string fileGroupText = string.Format(L("Tabs.FileGroup", "{0} [{1}]"), fileGroup.Key, fileGroup.Count());
+                    string fileGroupText = string.Format("{0} [{1}]", fileGroup.Key, fileGroup.Count());
                     var requiresCompute = fileGroup.Any(k => !k.IsComputed);
                     using var tabcol = ImRaii.PushColor(ImGuiCol.Tab, UiSharedService.Color(ImGuiColors.DalamudYellow), requiresCompute);
                     ImRaii.IEndObject fileTab;
@@ -277,34 +269,34 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         _texturesToConvert.Clear();
                     }
 
-                    ImGui.TextUnformatted(string.Format(L("Tabs.FileGroupHeader", "{0} files"), fileGroup.Key));
+                    ImGui.TextUnformatted(string.Format("{0} files", fileGroup.Key));
                     ImGui.SameLine();
                     ImGui.TextUnformatted(fileGroup.Count().ToString());
 
-                    ImGui.TextUnformatted(string.Format(L("Tabs.FileGroupActual", "{0} files size (actual):"), fileGroup.Key));
+                    ImGui.TextUnformatted(string.Format("{0} files size (actual):", fileGroup.Key));
                     ImGui.SameLine();
                     ImGui.TextUnformatted(UiSharedService.ByteToString(fileGroup.Sum(c => c.OriginalSize)));
 
-                    ImGui.TextUnformatted(string.Format(L("Tabs.FileGroupDownload", "{0} files size (download size):"), fileGroup.Key));
+                    ImGui.TextUnformatted(string.Format("{0} files size (download size):", fileGroup.Key));
                     ImGui.SameLine();
                     ImGui.TextUnformatted(UiSharedService.ByteToString(fileGroup.Sum(c => c.CompressedSize)));
 
                     if (string.Equals(_selectedFileTypeTab, "tex", StringComparison.Ordinal))
                     {
-                        ImGui.Checkbox(L("Conversion.EnableMode", "Enable Texture Conversion Mode"), ref _enableTextureConversionMode);
+                        ImGui.Checkbox("Enable Texture Conversion Mode", ref _enableTextureConversionMode);
                         if (_enableTextureConversionMode)
                         {
-                            UiSharedService.ColorText(L("Conversion.WarningTitle", "WARNING REGARDING TEXTURE CONVERSION:"), ImGuiColors.DalamudYellow);
+                            UiSharedService.ColorText("WARNING REGARDING TEXTURE CONVERSION:", ImGuiColors.DalamudYellow);
                             ImGui.SameLine();
-                            UiSharedService.ColorText(L("Conversion.Irreversible", "Converting textures is irreversible!"), ImGuiColors.DalamudRed);
-                            UiSharedService.ColorTextWrapped(L("Conversion.Bullet", "- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
+                            UiSharedService.ColorText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
+                            UiSharedService.ColorTextWrapped("- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
                                     Environment.NewLine + "- Format selection is automatic based on texture traits: greyscale -> BC4, normal maps -> BC5, opaque RGB -> BC1, otherwise -> BC7." + 
                                     Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
                             Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
                             Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
-                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete."),
+                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
                                 ImGuiColors.DalamudYellow);
-                            if (_texturesToConvert.Count > 0 && _uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, string.Format(L("Conversion.Start", "Start conversion of {0} texture(s)"), _texturesToConvert.Count)))
+                            if (_texturesToConvert.Count > 0 && _uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
                             {
                                 _conversionCancellationTokenSource = _conversionCancellationTokenSource.CancelRecreate();
                                 _conversionTask = _ipcManager.Penumbra.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
@@ -322,33 +314,33 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
         ImGui.Separator();
 
-        ImGui.TextUnformatted(L("Selection.SelectedFile", "Selected file:"));
+        ImGui.TextUnformatted("Selected file:");
         ImGui.SameLine();
         UiSharedService.ColorText(_selectedHash, ImGuiColors.DalamudYellow);
 
         if (_cachedAnalysis[_selectedObjectTab].TryGetValue(_selectedHash, out CharacterAnalyzer.FileDataEntry? item))
         {
             var filePaths = item.FilePaths;
-            ImGui.TextUnformatted(L("Selection.LocalFilePath", "Local file path:"));
+            ImGui.TextUnformatted("Local file path:");
             ImGui.SameLine();
             UiSharedService.TextWrapped(filePaths[0]);
             if (filePaths.Count > 1)
             {
                 ImGui.SameLine();
-                ImGui.TextUnformatted(string.Format(L("Selection.MorePaths", "(and {0} more)"), filePaths.Count - 1));
+                ImGui.TextUnformatted(string.Format("(and {0} more)", filePaths.Count - 1));
                 ImGui.SameLine();
                 _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, filePaths.Skip(1)));
             }
 
             var gamepaths = item.GamePaths;
-            ImGui.TextUnformatted(L("Selection.GamePath", "Used by game path:"));
+            ImGui.TextUnformatted("Used by game path:");
             ImGui.SameLine();
             UiSharedService.TextWrapped(gamepaths[0]);
             if (gamepaths.Count > 1)
             {
                 ImGui.SameLine();
-                ImGui.TextUnformatted(string.Format(L("Selection.MoreGamePaths", "(and {0} more)"), gamepaths.Count - 1));
+                ImGui.TextUnformatted(string.Format("(and {0} more)", gamepaths.Count - 1));
                 ImGui.SameLine();
                 _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
@@ -357,14 +349,14 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             if (string.Equals(item.FileType, "tex", StringComparison.OrdinalIgnoreCase) && item.TextureTraits != null)
             {
                 var traits = item.TextureTraits;
-                ImGui.TextUnformatted(L("Selection.TextureTraits", "Texture traits:"));
+                ImGui.TextUnformatted("Texture traits:");
                 ImGui.SameLine();
                 UiSharedService.TextWrapped(traits.FormatSummary);
-                UiSharedService.TextWrapped(string.Format(L("Selection.ChannelVariance", "Channel variance (RGB): {0}/{1}/{2}"), traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
-                UiSharedService.TextWrapped(string.Format(L("Selection.AlphaTransitions", "Alpha transitions: {0}"), traits.AlphaTransitionDensity.ToString("P1")));
+                UiSharedService.TextWrapped(string.Format("Channel variance (RGB): {0}/{1}/{2}", traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
+                UiSharedService.TextWrapped(string.Format("Alpha transitions: {0}", traits.AlphaTransitionDensity.ToString("P1")));
                 if (IsRiskyConversion(item))
                 {
-                    UiSharedService.ColorTextWrapped(L("Conversion.RiskFlag", "Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map)."), ImGuiColors.DalamudOrange);
+                    UiSharedService.ColorTextWrapped("Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
                 }
             }
         }
@@ -398,19 +390,19 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         using var table = ImRaii.Table("Analysis", tableColumns, ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit,
             new Vector2(0, 300));
         if (!table.Success) return;
-        ImGui.TableSetupColumn(L("Table.Hash", "Hash"));
-        ImGui.TableSetupColumn(L("Table.Filepaths", "Filepaths"), ImGuiTableColumnFlags.PreferSortDescending);
-        ImGui.TableSetupColumn(L("Table.Gamepaths", "Gamepaths"), ImGuiTableColumnFlags.PreferSortDescending);
-        ImGui.TableSetupColumn(L("Table.FileSize", "File Size"), ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
-        ImGui.TableSetupColumn(L("Table.DownloadSize", "Download Size"), ImGuiTableColumnFlags.PreferSortDescending);
+        ImGui.TableSetupColumn("Hash");
+        ImGui.TableSetupColumn("Filepaths", ImGuiTableColumnFlags.PreferSortDescending);
+        ImGui.TableSetupColumn("Gamepaths", ImGuiTableColumnFlags.PreferSortDescending);
+        ImGui.TableSetupColumn("File Size", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
+        ImGui.TableSetupColumn("Download Size", ImGuiTableColumnFlags.PreferSortDescending);
         if (string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal))
         {
-            ImGui.TableSetupColumn(L("Table.Format", "Format"));
-            if (_enableTextureConversionMode) ImGui.TableSetupColumn(L("Table.ConvertBc7", "Convert to BC7"));
+            ImGui.TableSetupColumn("Format");
+            if (_enableTextureConversionMode) ImGui.TableSetupColumn("Convert to BC7");
         }
         if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
         {
-            ImGui.TableSetupColumn(L("Table.Triangles", "Triangles"), ImGuiTableColumnFlags.PreferSortDescending);
+            ImGui.TableSetupColumn("Triangles", ImGuiTableColumnFlags.PreferSortDescending);
         }
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
@@ -517,7 +509,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         ImGui.SameLine();
                         _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
-                        UiSharedService.AttachToolTip(L("Conversion.RiskTooltip", "Texture flagged as risky for BC7 conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting."));
+                        UiSharedService.AttachToolTip("Texture flagged as risky for BC7 conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");
                         if (!toConvert)
                         {
                             _texturesToConvert.Remove(filePath);

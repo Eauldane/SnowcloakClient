@@ -3,14 +3,12 @@ using Dalamud.Interface.Utility;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.UI.Handlers;
 using System.Numerics;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components;
 
 public class SelectPairForGroupUi
 {
     private readonly TagHandler _tagHandler;
-    private readonly LocalisationService _localisationService;
     private readonly UidDisplayHandler _uidDisplayHandler;
     private string _filter = string.Empty;
     private bool _opened = false;
@@ -18,11 +16,10 @@ public class SelectPairForGroupUi
     private bool _show = false;
     private string _tag = string.Empty;
 
-    public SelectPairForGroupUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler, LocalisationService localisationService)
+    public SelectPairForGroupUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler)
     {
         _tagHandler = tagHandler;
         _uidDisplayHandler = uidDisplayHandler;
-        _localisationService = localisationService;
     }
 
     public void Draw(List<Pair> pairs)
@@ -31,7 +28,7 @@ public class SelectPairForGroupUi
         var minSize = new Vector2(300, workHeight < 400 ? workHeight : 400) * ImGuiHelpers.GlobalScale;
         var maxSize = new Vector2(300, 1000) * ImGuiHelpers.GlobalScale;
 
-        var popupName = string.Format(L("ChooseUsersTitle", "Choose Users for Group {0}"), _tag);
+        var popupName = string.Format("Choose Users for Group {0}", _tag);
         
         if (!_show)
         {
@@ -49,9 +46,9 @@ public class SelectPairForGroupUi
         ImGui.SetNextWindowSizeConstraints(minSize, maxSize);
         if (ImGui.BeginPopupModal(popupName, ref _show, ImGuiWindowFlags.Popup | ImGuiWindowFlags.Modal))
         {
-            ImGui.TextUnformatted(string.Format(L("SelectUsersForGroup", "Select users for group {0}"), _tag));
+            ImGui.TextUnformatted(string.Format("Select users for group {0}", _tag));
             
-            ImGui.InputTextWithHint("##filter", L("Filter", "Filter"), ref _filter, 255, ImGuiInputTextFlags.None);
+            ImGui.InputTextWithHint("##filter", "Filter", ref _filter, 255, ImGuiInputTextFlags.None);
             foreach (var item in pairs
                 .Where(p => string.IsNullOrEmpty(_filter) || PairName(p).Contains(_filter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(p => PairName(p), StringComparer.OrdinalIgnoreCase)
@@ -91,10 +88,5 @@ public class SelectPairForGroupUi
     private string PairName(Pair pair)
     {
         return _uidDisplayHandler.GetPlayerText(pair).text;
-    }
-    
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"SelectPairForGroupUi.{key}", fallback);
     }
 }

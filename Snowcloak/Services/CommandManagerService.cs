@@ -14,7 +14,6 @@ using Snowcloak.PlayerData.Pairs;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Snowcloak.Services.Venue;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.Services;
 
@@ -40,12 +39,11 @@ public sealed class CommandManagerService : IDisposable
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly PairManager _pairManager;
     private readonly VenueRegistrationService _venueRegistrationService;
-    private readonly LocalisationService _localisationService;
 
     public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
         ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager,
-        VenueRegistrationService venueRegistrationService, LocalisationService localisationService)
+        VenueRegistrationService venueRegistrationService)
     {
         _commandManager = commandManager;
         _chatGui = chatGui;
@@ -59,7 +57,6 @@ public sealed class CommandManagerService : IDisposable
         _snowcloakConfigService = snowcloakConfigService;
         _pairManager = pairManager;
         _venueRegistrationService = venueRegistrationService;
-        _localisationService = localisationService;
         _commandManager.AddHandler(_commandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Opens the Snowcloak UI. Aliases include /snowcloak and /sync."
@@ -90,11 +87,6 @@ public sealed class CommandManagerService : IDisposable
                 ShowInHelp = false
             });
         }
-    }
-
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"Services.CommandManagerService.{key}", fallback);
     }
     
     public void Dispose()
@@ -134,8 +126,8 @@ public sealed class CommandManagerService : IDisposable
             if (_apiController.ServerState == WebAPI.SignalR.Utils.ServerState.Disconnecting)
             {
                 _mediator.Publish(new NotificationMessage(
-                    L("ToggleErrorTitle", "Snowcloak disconnecting"),
-                    L("ToggleErrorMessage", "Cannot use /toggle while Snowcloak is still disconnecting"),
+                    "Snowcloak disconnecting",
+                    "Cannot use /toggle while Snowcloak is still disconnecting",
                     NotificationType.Error));
             }
 
@@ -279,7 +271,7 @@ public sealed class CommandManagerService : IDisposable
         #if DEBUG
         _chatGui.Print(new XivChatEntry
         {
-            Message = string.Format(CultureInfo.InvariantCulture, L("AnimationSyncRequested", "Requested animation sync with {0}."), refreshedNames),
+            Message = string.Format(CultureInfo.InvariantCulture, "Requested animation sync with {0}.", refreshedNames),
             Type = XivChatType.SystemMessage
         });
         #endif

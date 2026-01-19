@@ -6,14 +6,12 @@ using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components;
 
 public class PairGroupsUi
 {
     private readonly ApiController _apiController;
-    private readonly LocalisationService _localisationService;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly SelectPairForGroupUi _selectGroupForPairUi;
     private readonly TagHandler _tagHandler;
@@ -21,7 +19,7 @@ public class PairGroupsUi
     private readonly UiSharedService _uiSharedService;
 
     public PairGroupsUi(SnowcloakConfigService snowcloakConfig, TagHandler tagHandler, UidDisplayHandler uidDisplayHandler, ApiController apiController,
-        SelectPairForGroupUi selectGroupForPairUi, UiSharedService uiSharedService, LocalisationService localisationService)
+        SelectPairForGroupUi selectGroupForPairUi, UiSharedService uiSharedService)
     {
         _snowcloakConfig = snowcloakConfig;
         _tagHandler = tagHandler;
@@ -29,7 +27,6 @@ public class PairGroupsUi
         _apiController = apiController;
         _selectGroupForPairUi = selectGroupForPairUi;
         _uiSharedService = uiSharedService;
-        _localisationService = localisationService;
     }
 
     public void Draw<T>(List<T> visibleUsers, List<T> onlineUsers, List<T> pausedUsers, List<T> offlineUsers) where T : DrawPairBase
@@ -74,21 +71,21 @@ public class PairGroupsUi
         }
         if (allArePaused)
         {
-            UiSharedService.AttachToolTip(LF("ResumePairing", "Resume pairing with all pairs in {0}", tag));
+            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Resume pairing with all pairs in {0}", tag));
         }
         else
         {
-            UiSharedService.AttachToolTip(LF("PausePairing", "Pause pairing with all pairs in {0}", tag));
+            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Pause pairing with all pairs in {0}", tag));
         }
 
         var buttonDeleteOffset = windowX + windowWidth - flyoutMenuX;
         ImGui.SameLine(buttonDeleteOffset);
         if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
         {
-            ImGui.OpenPopup(L("GroupFlyoutMenu", "Group Flyout Menu"));
+            ImGui.OpenPopup("Group Flyout Menu");
         }
 
-        if (ImGui.BeginPopup(L("GroupFlyoutMenu", "Group Flyout Menu")))
+        if (ImGui.BeginPopup("Group Flyout Menu"))
         {
             using (ImRaii.PushId($"buttons-{tag}")) DrawGroupMenu(tag);
             ImGui.EndPopup();
@@ -147,34 +144,34 @@ public class PairGroupsUi
 
     private void DrawGroupMenu(string tag)
     {
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Users, LF("AddPeopleToGroup", "Add people to {0}", tag)))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Users, string.Format(CultureInfo.CurrentCulture, "Add people to {0}", tag)))
         {
             _selectGroupForPairUi.Open(tag);
         }
-        UiSharedService.AttachToolTip(LF("AddMoreUsers", "Add more users to Group {0}", tag));
+        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Add more users to Group {0}", tag));
         
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, LF("DeleteGroup", "Delete {0}", tag)) && UiSharedService.CtrlPressed())
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, string.Format(CultureInfo.CurrentCulture, "Delete {0}", tag)) && UiSharedService.CtrlPressed())
         {
             _tagHandler.RemoveTag(tag);
         }
-        UiSharedService.AttachToolTip(LF("DeleteGroupTooltip", "Delete Group {0} (Will not delete the pairs){1}Hold CTRL to delete", tag, Environment.NewLine));
+        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Delete Group {0} (Will not delete the pairs){1}Hold CTRL to delete", tag, Environment.NewLine));
     }
 
     private void DrawName(string tag, bool isSpecialTag, int visible, int online, int paused, int? total)
     {
         string displayedName = tag switch
         {
-            TagHandler.CustomUnpairedTag => L("Unpaired", "Unpaired"),
-            TagHandler.CustomOfflineTag => L("Offline", "Offline"),
-            TagHandler.CustomOnlineTag => _snowcloakConfig.Current.ShowOfflineUsersSeparately ? L("Online", "Online") : L("Contacts", "Contacts"),
-            TagHandler.CustomPausedTag => L("Paused", "Paused"),
-            TagHandler.CustomVisibleTag => L("Visible", "Visible"),
+            TagHandler.CustomUnpairedTag => "Unpaired",
+            TagHandler.CustomOfflineTag => "Offline",
+            TagHandler.CustomOnlineTag => _snowcloakConfig.Current.ShowOfflineUsersSeparately ? "Online" : "Contacts",
+            TagHandler.CustomPausedTag => "Paused",
+            TagHandler.CustomVisibleTag => "Visible",
             _ => tag
         };
 
         string resultFolderName = !isSpecialTag
-            ? string.Format(CultureInfo.CurrentCulture, L("GroupCounts", "{0} ({1}/{2}/{3}/{4} Pairs)"), displayedName, visible, online, paused, total)
-            : string.Format(CultureInfo.CurrentCulture, L("GroupCountsSimple", "{0} ({1} Pairs)"), displayedName, online);
+            ? string.Format(CultureInfo.CurrentCulture, "{0} ({1}/{2}/{3}/{4} Pairs)", displayedName, visible, online, paused, total)
+            : string.Format(CultureInfo.CurrentCulture, "{0} ({1} Pairs)", displayedName, online);
         //  FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight
         var icon = _tagHandler.IsTagOpen(tag) ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
         _uiSharedService.IconText(icon);
@@ -192,12 +189,12 @@ public class PairGroupsUi
         if (!isSpecialTag && ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
-            ImGui.TextUnformatted(LF("GroupName", "Group {0}", tag));
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Group {0}", tag));
             ImGui.Separator();
-            ImGui.TextUnformatted(LF("PairsVisible", "{0} Pairs visible", visible));
-            ImGui.TextUnformatted(LF("PairsOnline", "{0} Pairs online", online));
-            ImGui.TextUnformatted(LF("PairsPaused", "{0} Pairs paused", paused));
-            ImGui.TextUnformatted(LF("PairsTotal", "{0} Pairs total", total));
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} Pairs visible", visible));
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} Pairs online", online));
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} Pairs paused", paused));
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} Pairs total", total));
             ImGui.EndTooltip();
         }
     }
@@ -272,15 +269,5 @@ public class PairGroupsUi
     {
         bool open = !_tagHandler.IsTagOpen(tag);
         _tagHandler.SetTagOpen(tag, open);
-    }
-    
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"PairGroupsUi.{key}", fallback);
-    }
-
-    private string LF(string key, string fallback, params object[] args)
-    {
-        return string.Format(CultureInfo.CurrentCulture, L(key, fallback), args);
     }
 }

@@ -25,7 +25,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Snowcloak.UI.Components.BbCode;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -53,7 +52,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     private readonly SnowcloakConfigService _configService;
     private readonly BbCodeRenderer _bbCodeRenderer;
     private readonly DalamudUtilService _dalamudUtil;
-    private readonly LocalisationService _localisationService;
     private readonly IpcManager _ipcManager;
     private readonly IDalamudPluginInterface _pluginInterface;
     private readonly ITextureProvider _textureProvider;
@@ -88,7 +86,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         CacheMonitor cacheMonitor, FileDialogManager fileDialogManager,
         SnowcloakConfigService configService, DalamudUtilService dalamudUtil, IDalamudPluginInterface pluginInterface,
         ITextureProvider textureProvider, BbCodeRenderer bbCodeRenderer,
-        ServerConfigurationManager serverManager, SnowMediator mediator, LocalisationService localisationService) : base(logger, mediator)
+        ServerConfigurationManager serverManager, SnowMediator mediator) : base(logger, mediator)
     {
         _ipcManager = ipcManager;
         _apiController = apiController;
@@ -100,7 +98,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         _textureProvider = textureProvider;
         _bbCodeRenderer = bbCodeRenderer;
         _serverConfigurationManager = serverManager;
-        _localisationService = localisationService;
 
         _isDirectoryWritable = IsDirectoryWritable(_configService.Current.CacheFolder);
 
@@ -126,10 +123,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         });
         GameFont = _pluginInterface.UiBuilder.FontAtlas.NewGameFontHandle(new(GameFontFamilyAndSize.Axis12));
         IconFont = _pluginInterface.UiBuilder.IconFontFixedWidthHandle;
-    }
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"GroupPanel.{key}", fallback);
     }
     
     public ApiController ApiController => _apiController;
@@ -545,16 +538,16 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public void DrawCacheDirectorySetting()
     {
-        ColorTextWrapped(L("StorageFolderNote", "Note: The storage folder should be somewhere close to root (i.e. C\\SnowcloakStorage) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder."), ImGuiColors.DalamudYellow);
+        ColorTextWrapped("Note: The storage folder should be somewhere close to root (i.e. C\\SnowcloakStorage) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder.", ImGuiColors.DalamudYellow);
         var cacheDirectory = _configService.Current.CacheFolder;
         ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        ImGui.InputText(L("StorageFolderLabel", "Storage Folder") + "##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
+        ImGui.InputText("Storage Folder" + "##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
         ImGui.SameLine();
         using (ImRaii.Disabled(_cacheMonitor.SnowWatcher != null))
         {
             if (IconButton(FontAwesomeIcon.Folder))
             {
-                FileDialogManager.OpenFolderDialog(L("PickStorageFolder", "Pick Snowcloak Storage Folder"), (success, path) =>
+                FileDialogManager.OpenFolderDialog( "Pick Snowcloak Storage Folder", (success, path) =>
                 {
                     if (!success) return;
 
@@ -609,53 +602,53 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         }
         if (_cacheMonitor.SnowWatcher != null)
         {
-            AttachToolTip(L("StopMonitoringTooltip", "Stop the Monitoring before changing the Storage folder. As long as monitoring is active, you cannot change the Storage folder location."));
+            AttachToolTip("Stop the Monitoring before changing the Storage folder. As long as monitoring is active, you cannot change the Storage folder location.");
         }
 
         if (_isPenumbraDirectory)
         {
-            ColorTextWrapped(L("PenumbraPathWarning", "Do not point the storage path directly to the Penumbra directory. If necessary, make a subfolder in it."), ImGuiColors.DalamudRed);
+            ColorTextWrapped("Do not point the storage path directly to the Penumbra directory. If necessary, make a subfolder in it.", ImGuiColors.DalamudRed);
         }
         else if (_isOneDrive)
         {
-            ColorTextWrapped(L("OneDriveWarning", "Do not point the storage path to a folder in OneDrive. Do not use OneDrive folders for any Mod related functionality."), ImGuiColors.DalamudRed);
+            ColorTextWrapped("Do not point the storage path to a folder in OneDrive. Do not use OneDrive folders for any Mod related functionality.", ImGuiColors.DalamudRed);
         }
         else if (!_isDirectoryWritable)
         {
-            ColorTextWrapped(L("FolderNotWritable", "The folder you selected does not exist or cannot be written to. Please provide a valid path."), ImGuiColors.DalamudRed);
+            ColorTextWrapped("The folder you selected does not exist or cannot be written to. Please provide a valid path.", ImGuiColors.DalamudRed);
         }
         else if (_cacheDirectoryHasOtherFilesThanCache)
         {
-            ColorTextWrapped(L("FolderContainsOtherFiles", "Your selected directory has files or directories inside that are not Snowcloak related. Use an empty directory or a previous storage directory only."), ImGuiColors.DalamudRed);
+            ColorTextWrapped("Your selected directory has files or directories inside that are not Snowcloak related. Use an empty directory or a previous storage directory only.", ImGuiColors.DalamudRed);
         }
         else if (!_cacheDirectoryIsValidPath)
         {
-            ColorTextWrapped(L("InvalidPathCharacters", "Your selected directory contains illegal characters unreadable by FFXIV. Restrict yourself to latin letters (A-Z), underscores (_), dashes (-) and arabic numbers (0-9)."), ImGuiColors.DalamudRed);
+            ColorTextWrapped("Your selected directory contains illegal characters unreadable by FFXIV. Restrict yourself to latin letters (A-Z), underscores (_), dashes (-) and arabic numbers (0-9).", ImGuiColors.DalamudRed);
         }
 
         float maxCacheSize = (float)_configService.Current.MaxLocalCacheInGiB;
         ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat(L("MaximumStorageSize", "Maximum Storage Size"), ref maxCacheSize, 1f, 200f, "%.2f GiB"))
+        if (ImGui.SliderFloat("Maximum Storage Size", ref maxCacheSize, 1f, 200f, "%.2f GiB"))
         {
             _configService.Current.MaxLocalCacheInGiB = maxCacheSize;
             _configService.Save();
         }
-        DrawHelpText(L("StorageAutoManagement", "The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself."));
+        DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");
         ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        DrawCombo(L("EvictionStrategy", "Eviction Strategy"), Enum.GetValues<CacheEvictionMode>(),
+        DrawCombo( "Eviction Strategy", Enum.GetValues<CacheEvictionMode>(),
             mode => mode switch
             {
-                CacheEvictionMode.LeastRecentlyUsed => L("EvictionLeastRecentlyUsed", "Least Recently Used (LRU)"),
-                CacheEvictionMode.LeastFrequentlyUsed => L("EvictionLeastFrequentlyUsed", "Least Frequently Used (LFU)"),
-                CacheEvictionMode.ExpirationDate => L("EvictionTimeToLive", "30-Day Time To Live (TTL)"),
-                _ => L("EvictionUnknown", "Unknown"),
+                CacheEvictionMode.LeastRecentlyUsed => "Least Recently Used (LRU)",
+                CacheEvictionMode.LeastFrequentlyUsed => "Least Frequently Used (LFU)",
+                CacheEvictionMode.ExpirationDate => "30-Day Time To Live (TTL)",
+                _ => "Unknown",
             },
             mode =>
             {
                 _configService.Current.CacheEvictionMode = mode;
                 _configService.Save();
             }, _configService.Current.CacheEvictionMode);
-        DrawHelpText(L("EvictionHelp", "Choose how Snowcloak removes files when the storage exceeds the configured size. TTL automatically purges files that have not been used in the last 30 days."));
+        DrawHelpText("Choose how Snowcloak removes files when the storage exceeds the configured size. TTL automatically purges files that have not been used in the last 30 days.");
     }
     
     public T? DrawCombo<T>(string comboName, IEnumerable<T> comboItems, Func<T, string> toName,
@@ -745,38 +738,38 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     public void DrawFileScanState()
     {
         ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted(L("FileScannerStatus", "File Scanner Status"));
+        ImGui.TextUnformatted("File Scanner Status");
         ImGui.SameLine();
         if (_cacheMonitor.IsScanRunning)
         {
             ImGui.AlignTextToFramePadding();
 
-            ImGui.TextUnformatted(L("ScanRunning", "Scan is running"));
-            ImGui.TextUnformatted(L("CurrentProgress", "Current Progress:"));
+            ImGui.TextUnformatted("Scan is running");
+            ImGui.TextUnformatted("Current Progress:");
             ImGui.SameLine();
             ImGui.TextUnformatted(_cacheMonitor.TotalFiles == 1
-                ? L("CollectingFiles", "Collecting files")
-                : string.Format(L("ProcessingStorage", "Processing {0}/{1} from storage ({2} scanned in)"), _cacheMonitor.CurrentFileProgress, _cacheMonitor.TotalFilesStorage, _cacheMonitor.TotalFiles));
-            AttachToolTip(L("StorageScanNote", "Note: it is possible to have more files in storage than scanned in, this is due to the scanner normally ignoring those files but the game loading them in and using them on your character, so they get added to the local storage."));
+                ? "Collecting files"
+                : string.Format("Processing {0}/{1} from storage ({2} scanned in)", _cacheMonitor.CurrentFileProgress, _cacheMonitor.TotalFilesStorage, _cacheMonitor.TotalFiles));
+            AttachToolTip("Note: it is possible to have more files in storage than scanned in, this is due to the scanner normally ignoring those files but the game loading them in and using them on your character, so they get added to the local storage.");
         }
         else if (_cacheMonitor.HaltScanLocks.Any(f => f.Value.Value > 0))
         {
             ImGui.AlignTextToFramePadding();
 
-            ImGui.TextUnformatted(string.Format(L("ScanHalted", "Halted ({0})"), string.Join(", ", _cacheMonitor.HaltScanLocks.Where(f => f.Value.Value > 0).Select(locker => locker.Key + ": " + locker.Value.Value))));
+            ImGui.TextUnformatted(string.Format("Halted ({0})", string.Join(", ", _cacheMonitor.HaltScanLocks.Where(f => f.Value.Value > 0).Select(locker => locker.Key + ": " + locker.Value.Value))));
             ImGui.SameLine();
-            if (ImGui.Button(L("ResetHaltRequests", "Reset halt requests") + "##clearlocks"))
+            if (ImGui.Button("Reset halt requests" + "##clearlocks"))
             {
                 _cacheMonitor.ResetLocks();
             }
         }
         else
         {
-            ImGui.TextUnformatted(L("ScannerIdle", "Idle"));
+            ImGui.TextUnformatted("Idle");
             if (_configService.Current.InitialScanComplete)
             {
                 ImGui.SameLine();
-                if (IconTextButton(FontAwesomeIcon.Play, L("ForceRescan", "Force rescan")))
+                if (IconTextButton(FontAwesomeIcon.Play, "Force rescan"))
                 {
                     _cacheMonitor.InvokeScan();
                 }
@@ -798,12 +791,12 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         if (intro)
         {
             ImGui.SetWindowFontScale(0.8f);
-            BigText(L("MandatoryPluginsHeader", "Mandatory Plugins"));
+            BigText("Mandatory Plugins");
             ImGui.SetWindowFontScale(1.0f);
         }
         else
         {
-            ImGui.TextUnformatted(L("MandatoryPluginsLabel", "Mandatory Plugins:"));
+            ImGui.TextUnformatted("Mandatory Plugins:");
             ImGui.SameLine();
         }
 
@@ -811,23 +804,23 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_penumbraExists ? check : cross, GetBoolColor(_penumbraExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("PenumbraStatus", "Penumbra is {0}"), _penumbraExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Penumbra is {0}", _penumbraExists ? "available and up to date." : "unavailable or not up to date."));
         
         ImGui.TextUnformatted("Glamourer");
         ImGui.SameLine();
         IconText(_glamourerExists ? check : cross, GetBoolColor(_glamourerExists));
-        AttachToolTip(string.Format(L("GlamourerStatus", "Glamourer is {0}"), _glamourerExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Glamourer is {0}", _glamourerExists ? "available and up to date." : "unavailable or not up to date."));
         
         if (intro)
         {
             ImGui.SetWindowFontScale(0.8f);
-            BigText(L("OptionalAddonsHeader", "Optional Addons"));
+            BigText("Optional Addons");
             ImGui.SetWindowFontScale(1.0f);
-            UiSharedService.TextWrapped(L("OptionalAddonsDescription", "These addons are not required for basic operation, but without them you may not see others as intended."));
+            UiSharedService.TextWrapped("These addons are not required for basic operation, but without them you may not see others as intended.");
         }
         else
         {
-            ImGui.TextUnformatted(L("OptionalAddonsLabel", "Optional Addons:"));
+            ImGui.TextUnformatted("Optional Addons:");
             ImGui.SameLine();
         }
 
@@ -837,7 +830,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_heelsExists ? check : cross, GetBoolColor(_heelsExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("SimpleHeelsStatus", "SimpleHeels is {0}"), _heelsExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("SimpleHeels is {0}", _heelsExists ? "available and up to date." :"unavailable or not up to date."));
         ImGui.Spacing();
 
         ImGui.SameLine();
@@ -845,7 +838,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_customizePlusExists ? check : cross, GetBoolColor(_customizePlusExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("CustomizePlusStatus", "Customize+ is {0}"), _customizePlusExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Customize+ is {0}", _customizePlusExists ? "available and up to date." : "unavailable or not up to date."));
         ImGui.Spacing();
 
         ImGui.SameLine();
@@ -853,7 +846,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_honorificExists ? check : cross, GetBoolColor(_honorificExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("HonorificStatus", "Honorific is {0}"), _honorificExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Honorific is {0}", _honorificExists ? "available and up to date." :  "unavailable or not up to date."));
         ImGui.Spacing();
 
         ImGui.SameLine();
@@ -861,7 +854,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_petNamesExists ? check : cross, GetBoolColor(_petNamesExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("PetNicknamesStatus", "PetNicknames is {0}"), _petNamesExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("PetNicknames is {0}", _petNamesExists ? "available and up to date." : "unavailable or not up to date."));
         ImGui.Spacing();
 
         ImGui.SetCursorPosX(alignPos);
@@ -869,7 +862,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_moodlesExists ? check : cross, GetBoolColor(_moodlesExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("MoodlesStatus", "Moodles is {0}"), _moodlesExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Moodles is {0}", _moodlesExists ? "available and up to date." :  "unavailable or not up to date."));
         ImGui.Spacing();
 
         ImGui.SameLine();
@@ -877,12 +870,12 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         IconText(_brioExists ? check : cross, GetBoolColor(_brioExists));
         ImGui.SameLine();
-        AttachToolTip(string.Format(L("BrioStatus", "Brio is {0}"), _moodlesExists ? L("AvailableUpToDate", "available and up to date.") : L("UnavailableOrOutdated", "unavailable or not up to date.")));
+        AttachToolTip(string.Format("Brio is {0}", _moodlesExists ? "available and up to date." : "unavailable or not up to date."));
         ImGui.Spacing();
 
         if (!_penumbraExists || !_glamourerExists)
         {
-            ImGui.TextColored(ImGuiColors.DalamudRed, L("MandatoryPluginsMissing", "You need to install both Penumbra and Glamourer and keep them up to date to use Snowcloak."));
+            ImGui.TextColored(ImGuiColors.DalamudRed, "You need to install both Penumbra and Glamourer and keep them up to date to use Snowcloak.");
             return false;
         }
 
@@ -904,10 +897,10 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         for (int i = 0; i < comboEntries.Length; i++)
         {
             if (string.Equals(_serverConfigurationManager.CurrentServer?.ServerName, comboEntries[i], StringComparison.OrdinalIgnoreCase))
-                comboEntries[i] += L("CurrentServerSuffix", " [Current]");
+                comboEntries[i] += " [Current]";
         }
         ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo(L("SelectService", "Select Service"), comboEntries[_serverSelectionIndex]))
+        if (ImGui.BeginCombo("Select Service", comboEntries[_serverSelectionIndex]))
         {
             for (int i = 0; i < comboEntries.Length; i++)
             {
@@ -935,20 +928,20 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
         ImGui.SameLine();
         var text = "Connect";
-        if (_serverSelectionIndex == _serverConfigurationManager.CurrentServerIndex) text = L("Reconnect", "Reconnect");
+        if (_serverSelectionIndex == _serverConfigurationManager.CurrentServerIndex) text = "Reconnect";
         if (IconTextButton(FontAwesomeIcon.Link, text))
         {
             _serverConfigurationManager.SelectServer(_serverSelectionIndex);
             _ = _apiController.CreateConnections();
         }
 
-        if (ImGui.TreeNode(L("AddCustomService", "Add Custom Service")))
+        if (ImGui.TreeNode( "Add Custom Service"))
         {
             ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
-            ImGui.InputText(L("CustomServiceUri", "Custom Service URI"), ref _customServerUri, 255);
+            ImGui.InputText("Custom Service URI", ref _customServerUri, 255);
             ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
-            ImGui.InputText(L("CustomServiceName", "Custom Service Name"), ref _customServerName, 255);
-            if (IconTextButton(FontAwesomeIcon.Plus, L("AddCustomService", "Add Custom Service"))
+            ImGui.InputText("Custom Service Name", ref _customServerName, 255);
+            if (IconTextButton(FontAwesomeIcon.Plus, "Add Custom Service")
                 && !string.IsNullOrEmpty(_customServerUri)
                 && !string.IsNullOrEmpty(_customServerName))
             {

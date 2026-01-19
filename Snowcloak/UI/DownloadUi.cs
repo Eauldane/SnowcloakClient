@@ -9,7 +9,6 @@ using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
 using System.Collections.Concurrent;
 using System.Numerics;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -21,18 +20,16 @@ public class DownloadUi : WindowMediatorSubscriberBase
     private readonly FileUploadManager _fileTransferManager;
     private readonly UiSharedService _uiShared;
     private readonly ConcurrentDictionary<GameObjectHandler, bool> _uploadingPlayers = new();
-    private readonly LocalisationService _localisationService;
 
     public DownloadUi(ILogger<DownloadUi> logger, DalamudUtilService dalamudUtilService, SnowcloakConfigService configService,
-        FileUploadManager fileTransferManager, SnowMediator mediator, UiSharedService uiShared, PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
+        FileUploadManager fileTransferManager, SnowMediator mediator, UiSharedService uiShared, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Downloads", performanceCollectorService)
     {
         _dalamudUtilService = dalamudUtilService;
         _configService = configService;
         _fileTransferManager = fileTransferManager;
         _uiShared = uiShared;
-        _localisationService = localisationService;
-        WindowName = L("Window.Title", "Snowcloak Downloads");
+        WindowName = "Snowcloak Downloads";
 
         SizeConstraints = new WindowSizeConstraints()
         {
@@ -72,8 +69,6 @@ public class DownloadUi : WindowMediatorSubscriberBase
             }
         });
     }
-
-    private string L(string key, string fallback) => _localisationService.GetString($"Download.{key}", fallback);
     
     protected override void DrawInternal()
     {
@@ -93,7 +88,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
                     UiSharedService.DrawOutlinedFont($"▲", ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
-                    UiSharedService.DrawOutlinedFont(string.Format(L("Upload.Status", "Compressing+Uploading {0}/{1}"), doneUploads, totalUploads),
+                    UiSharedService.DrawOutlinedFont(string.Format("Compressing+Uploading {0}/{1}", doneUploads, totalUploads),
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();
                     ImGui.SameLine(xDistance);
@@ -197,7 +192,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
                     try
                     {
                         using var _ = _uiShared.UidFont.Push();
-                        var uploadText = L("Upload.Uploading", "Uploading");
+                        var uploadText = "Uploading";
                         
                         var textSize = ImGui.CalcTextSize(uploadText);
 

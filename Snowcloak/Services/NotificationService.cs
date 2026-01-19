@@ -8,7 +8,6 @@ using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
 using NotificationType = Snowcloak.Configuration.Models.NotificationType;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.Services;
 
@@ -18,25 +17,18 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
     private readonly INotificationManager _notificationManager;
     private readonly IChatGui _chatGui;
     private readonly SnowcloakConfigService _configurationService;
-    private readonly LocalisationService _localisationService;
 
     public NotificationService(ILogger<NotificationService> logger, SnowMediator mediator,
         DalamudUtilService dalamudUtilService,
         INotificationManager notificationManager,
-        IChatGui chatGui, SnowcloakConfigService configurationService, LocalisationService localisationService) : base(logger, mediator)
+        IChatGui chatGui, SnowcloakConfigService configurationService) : base(logger, mediator)
     {
         _dalamudUtilService = dalamudUtilService;
         _notificationManager = notificationManager;
         _chatGui = chatGui;
         _configurationService = configurationService;
-        _localisationService = localisationService;
     }
-
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"Services.NotificationService.{key}", fallback);
-    }
-
+    
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Mediator.Subscribe<NotificationMessage>(this, ShowNotification);
@@ -50,22 +42,22 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
 
     private void PrintErrorChat(string? message)
     {
-        var content = L("ErrorPrefix", "[Snowcloak] Error: {0}");
+        var content = "[Snowcloak] Error: {0}";
         SeStringBuilder se = new SeStringBuilder().AddText(string.Format(CultureInfo.InvariantCulture, content, message));
         _chatGui.PrintError(se.BuiltString);
     }
 
     private void PrintInfoChat(string? message)
     {
-        var prefix = L("InfoPrefix", "[Snowcloak] Info: ");
+        var prefix = "[Snowcloak] Info: ";
         SeStringBuilder se = new SeStringBuilder().AddText(prefix).AddItalics(message ?? string.Empty);
         _chatGui.Print(se.BuiltString);
     }
 
     private void PrintWarnChat(string? message)
     {
-        var prefix = L("WarningPrefix", "[SnowcloakSync] ");
-        var warningText = L("WarningLabel", "Warning: {0}");
+        var prefix = "[SnowcloakSync] ";
+        var warningText = "Warning: {0}";
         SeStringBuilder se = new SeStringBuilder().AddText(prefix).AddUiForeground(string.Format(CultureInfo.InvariantCulture, warningText, message ?? string.Empty), 31).AddUiForegroundOff();
         _chatGui.Print(se.BuiltString);
     }

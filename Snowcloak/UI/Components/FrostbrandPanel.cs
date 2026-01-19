@@ -7,7 +7,6 @@ using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
-using Snowcloak.Services.Localisation;
 using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components;
@@ -25,7 +24,6 @@ public class FrostbrandPanel
     private readonly PairRequestService _pairRequestService;
     private readonly UiSharedService _uiShared;
     private readonly GuiHookService _guiHookService;
-    private readonly LocalisationService _localisationService;
     private readonly PendingPairRequestSection _pendingPairRequestSection;
     private readonly string _localisationPrefix;
     private readonly (byte RaceId, string RaceLabel, (byte ClanId, string ClanLabel)[] Clans)[] _raceClanOptions;
@@ -39,14 +37,13 @@ public class FrostbrandPanel
     private bool _wasPairingEnabled;
 
     public FrostbrandPanel(SnowcloakConfigService configService, PairRequestService pairRequestService,
-        UiSharedService uiShared, GuiHookService guiHookService, LocalisationService localisationService, 
+        UiSharedService uiShared, GuiHookService guiHookService, 
         PendingPairRequestSection pendingPairRequestSection, string localisationPrefix = "SettingsUi")
     {
         _configService = configService;
         _pairRequestService = pairRequestService;
         _uiShared = uiShared;
         _guiHookService = guiHookService;
-        _localisationService = localisationService;
         _pendingPairRequestSection = pendingPairRequestSection;
         _localisationPrefix = localisationPrefix;
         _raceClanOptions = GetRaceClanOptions();
@@ -56,22 +53,17 @@ public class FrostbrandPanel
     {
         return
         [
-            (1, L("Frostbrand.Races.Hyur", "Hyur"), new (byte, string)[] { (1, L("Frostbrand.Clans.Midlander", "Midlander")), (2, L("Frostbrand.Clans.Highlander", "Highlander")) }),
-            (2, L("Frostbrand.Races.Elezen", "Elezen"), new (byte, string)[] { (3, L("Frostbrand.Clans.Wildwood", "Wildwood")), (4, L("Frostbrand.Clans.Duskwight", "Duskwight")) }),
-            (3, L("Frostbrand.Races.Lalafell", "Lalafell"), new (byte, string)[] { (5, L("Frostbrand.Clans.Plainsfolk", "Plainsfolk")), (6, L("Frostbrand.Clans.Dunesfolk", "Dunesfolk")) }),
-            (4, L("Frostbrand.Races.Miqote", "Miqo'te"), new (byte, string)[] { (7, L("Frostbrand.Clans.SeekerOfTheSun", "Seeker of the Sun")), (8, L("Frostbrand.Clans.KeeperOfTheMoon", "Keeper of the Moon")) }),
-            (5, L("Frostbrand.Races.Roegadyn", "Roegadyn"), new (byte, string)[] { (9, L("Frostbrand.Clans.SeaWolf", "Sea Wolf")), (10, L("Frostbrand.Clans.Hellsguard", "Hellsguard")) }),
-            (6, L("Frostbrand.Races.AuRa", "Au Ra"), new (byte, string)[] { (11, L("Frostbrand.Clans.Raen", "Raen")), (12, L("Frostbrand.Clans.Xaela", "Xaela")) }),
-            (7, L("Frostbrand.Races.Hrothgar", "Hrothgar"), new (byte, string)[] { (13, L("Frostbrand.Clans.Helions", "Helions")), (14, L("Frostbrand.Clans.TheLost", "The Lost")) }),
-            (8, L("Frostbrand.Races.Viera", "Viera"), new (byte, string)[] { (15, L("Frostbrand.Clans.Rava", "Rava")), (16, L("Frostbrand.Clans.Veena", "Veena")) }),
+            (1, "Hyur", new (byte, string)[] { (1, "Midlander"), (2, "Highlander") }),
+            (2, "Elezen", new (byte, string)[] { (3, "Wildwood"), (4, "Duskwight") }),
+            (3, "Lalafell", new (byte, string)[] { (5, "Plainsfolk"), (6, "Dunesfolk") }),
+            (4, "Miqo'te", new (byte, string)[] { (7, "Seeker of the Sun"), (8, "Keeper of the Moon") }),
+            (5, "Roegadyn", new (byte, string)[] { (9, "Sea Wolf"), (10, "Hellsguard") }),
+            (6, "Au Ra", new (byte, string)[] { (11, "Raen"), (12, "Xaela") }),
+            (7, "Hrothgar", new (byte, string)[] { (13, "Helions"), (14, "The Lost") }),
+            (8, "Viera", new (byte, string)[] { (15, "Rava"), (16, "Veena") }),
         ];
     }
-
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"{_localisationPrefix}.{key}", fallback);
-    }
-
+    
     private void SetPairingSystemEnabled(bool enabled)
     {
         _configService.Current.PairingSystemEnabled = enabled;
@@ -84,24 +76,24 @@ public class FrostbrandPanel
 
     public void Draw()
     {
-        _uiShared.BigText(L("Frostbrand.Header", "Frostbrand Pairing"));
+        _uiShared.BigText("Frostbrand Pairing");
 
         var pairingEnabled = _configService.Current.PairingSystemEnabled;
         var requestedPairingEnabled = pairingEnabled;
-        if (ImGui.Checkbox(L("Frostbrand.Enable", "Enable Frostbrand pairing features"), ref requestedPairingEnabled))
+        if (ImGui.Checkbox("Enable Frostbrand pairing features", ref requestedPairingEnabled))
         {
             if (requestedPairingEnabled && !pairingEnabled)
             {
                 _frostbrandEnablePopupModalJustShown = true;
                 _frostbrandEnablePopupModalShown = true;
-                ImGui.OpenPopup(L("Frostbrand.Enable.PopupTitle", "Enable Frostbrand pairing?"));
+                ImGui.OpenPopup("Enable Frostbrand pairing?");
             }
             else
             {
                 SetPairingSystemEnabled(requestedPairingEnabled);
             }
         }
-        _uiShared.DrawHelpText(L("Frostbrand.Enable.Help", "Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection."));
+        _uiShared.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
 
         if (pairingEnabled != _wasPairingEnabled)
         {
@@ -115,7 +107,7 @@ public class FrostbrandPanel
             _defaultViewInitialised = true;
         }
 
-        if (ImGui.BeginPopupModal(L("Frostbrand.Enable.PopupTitle", "Enable Frostbrand pairing?"), ref _frostbrandEnablePopupModalShown, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal("Enable Frostbrand pairing?", ref _frostbrandEnablePopupModalShown, UiSharedService.PopupWindowFlags))
         {
             if (_frostbrandEnablePopupModalJustShown)
             {
@@ -126,21 +118,21 @@ public class FrostbrandPanel
             if (!_useUriangerText)
             {
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Body1", "Frostbrand is a system that, when opted-in to, shows other nearby users who've opted in that you're open to pairing."));
+                    "Frostbrand is a system that, when opted-in to, shows other nearby users who've opted in that you're open to pairing.");
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Body2", "Whilst Snowcloak provides filters to automatically reject those you're not interested in pairing with, please be aware that " +
-                                                       "while you have it enabled, anyone using Frostbrand will be able to see that you're using Snowcloak."));
+                    "Whilst Snowcloak provides filters to automatically reject those you're not interested in pairing with, please be aware that " +
+                                                       "while you have it enabled, anyone using Frostbrand will be able to see that you're using Snowcloak.");
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Body3", "Please take the time to understand the privacy risk this introduces, and if you choose to enable the system, " +
-                                                       "you're advised to configure filters immediately, preferably in a quiet area."));
-                UiSharedService.TextWrapped(L("Frostbrand.Enable.Popup.Continue", "Continue?"));
+                    "Please take the time to understand the privacy risk this introduces, and if you choose to enable the system, " +
+                                                       "you're advised to configure filters immediately, preferably in a quiet area.");
+                UiSharedService.TextWrapped("Continue?");
                 ImGui.Separator();
                 ImGui.Spacing();
 
                 var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
                                   ImGui.GetStyle().ItemSpacing.X) / 2;
 
-                if (ImGui.Button(L("Frostbrand.Enable.Popup.Confirm", "Confirm"), new Vector2(buttonSize, 0)))
+                if (ImGui.Button("Confirm", new Vector2(buttonSize, 0)))
                 {
                     SetPairingSystemEnabled(true);
                     _frostbrandEnablePopupModalShown = false;
@@ -149,7 +141,7 @@ public class FrostbrandPanel
 
                 ImGui.SameLine();
 
-                if (ImGui.Button(L("Frostbrand.Enable.Popup.Cancel", "Cancel##cancelFrostbrandEnable"), new Vector2(buttonSize, 0)))
+                if (ImGui.Button("Cancel##cancelFrostbrandEnable", new Vector2(buttonSize, 0)))
                 {
                     _frostbrandEnablePopupModalShown = false;
                     ImGui.CloseCurrentPopup();
@@ -158,24 +150,24 @@ public class FrostbrandPanel
             else
             {
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Urianger1", "Frostbrand be a covenant of mutual accord, whereby those who do willingly partake therein may perceive, " +
-                                                           "among the souls nearby, others likewise disposed unto pairing."));
+                    "Frostbrand be a covenant of mutual accord, whereby those who do willingly partake therein may perceive, " +
+                                                           "among the souls nearby, others likewise disposed unto pairing.");
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Urianger2", "Know this also: though Snowcloak doth grant thee wards and strictures, by which thou mayest " +
+                    "Know this also: though Snowcloak doth grant thee wards and strictures, by which thou mayest " +
                                                            "deny communion with those thou wouldst not suffer, yet whilst Frostbrand remaineth enabled," +
-                                                           " any who wield its sight shall discern that thou makest use of Snowcloak."));
+                                                           " any who wield its sight shall discern that thou makest use of Snowcloak.");
                 UiSharedService.TextWrapped(
-                    L("Frostbrand.Enable.Popup.Urianger3", "Ponder well, then, the peril to thine own privacy that this revelation entailest. Shouldst " +
+                    "Ponder well, then, the peril to thine own privacy that this revelation entailest. Shouldst " +
                                                            "thou resolve to walk this path regardless, thou art strongly counseled to set thy filters " +
-                                                           "with all haste - best done where few eyes linger and fewer ears attend."));
-                UiSharedService.TextWrapped(L("Frostbrand.Enable.Popup.Urianger4", "Wilt thou press on?"));
+                                                           "with all haste - best done where few eyes linger and fewer ears attend.");
+                UiSharedService.TextWrapped("Wilt thou press on?");
                 ImGui.Separator();
                 ImGui.Spacing();
 
                 var buttonSize = (ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X -
                                   ImGui.GetStyle().ItemSpacing.X) / 2;
 
-                if (ImGui.Button(L("Frostbrand.Enable.Popup.UriangerConfirm", "Thus do I assent"), new Vector2(buttonSize, 0)))
+                if (ImGui.Button("Thus do I assent", new Vector2(buttonSize, 0)))
                 {
                     SetPairingSystemEnabled(true);
                     _frostbrandEnablePopupModalShown = false;
@@ -184,7 +176,7 @@ public class FrostbrandPanel
 
                 ImGui.SameLine();
 
-                if (ImGui.Button(L("Frostbrand.Enable.Popup.UriangerCancel", "I shall refrain##cancelFrostbrandEnable"), new Vector2(buttonSize, 0)))
+                if (ImGui.Button("I shall refrain##cancelFrostbrandEnable", new Vector2(buttonSize, 0)))
                 {
                     _frostbrandEnablePopupModalShown = false;
                     ImGui.CloseCurrentPopup();
@@ -234,12 +226,12 @@ public class FrostbrandPanel
         var pendingCount = _pendingPairRequestSection.PendingCount;
         var buttonWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2;
         var pendingLabel = pendingCount > 0
-            ? $"{L("Frostbrand.Layout.PendingTab", "Pending requests")} ({pendingCount})"
-            : L("Frostbrand.Layout.PendingTab", "Pending requests");
+            ? $"{"Pending requests"} ({pendingCount})"
+            : "Pending requests";
 
         DrawTabButton(FrostbrandPanelView.Pending, pendingLabel, buttonWidth);
         ImGui.SameLine();
-        DrawTabButton(FrostbrandPanelView.Settings, L("Frostbrand.Layout.SettingsTab", "Frostbrand settings"), buttonWidth);
+        DrawTabButton(FrostbrandPanelView.Settings, "Frostbrand settings", buttonWidth);
     }
 
     private void DrawTabButton(FrostbrandPanelView view, string label, float width)
@@ -257,18 +249,18 @@ public class FrostbrandPanel
 
     private void DrawWelcomeSection()
     {
-        _uiShared.BigText(L("Frostbrand.Welcome.Header", "Welcome to Frostbrand"));
-        ImGui.TextWrapped(L("Frostbrand.Welcome.Body1", "You've opted into Frostbrand. Pending pair requests will be listed here, and you can manage filters from the Frostbrand settings tab."));
+        _uiShared.BigText("Welcome to Frostbrand");
+        ImGui.TextWrapped("You've opted into Frostbrand. Pending pair requests will be listed here, and you can manage filters from the Frostbrand settings tab.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
-        ImGui.TextWrapped(L("Frostbrand.Welcome.Body2", "Remember: other opted-in Frostbrand users can see that you're using Snowcloak while Frostbrand is enabled. Configure your filters to stay in control."));
+        ImGui.TextWrapped("Remember: other opted-in Frostbrand users can see that you're using Snowcloak while Frostbrand is enabled. Configure your filters to stay in control.");
     }
 
     private void DrawPendingTab()
     {
-        _uiShared.BigText(L("Frostbrand.Pending.Header", "Pending pair requests"));
+        _uiShared.BigText("Pending pair requests");
         if (_pendingPairRequestSection.PendingCount == 0)
         {
-            ImGui.TextDisabled(L("Frostbrand.Pending.Empty", "No pending pair requests right now."));
+            ImGui.TextDisabled("No pending pair requests right now.");
             return;
         }
 
@@ -288,31 +280,31 @@ public class FrostbrandPanel
 
     private void DrawHighlightingSection()
     {
-        _uiShared.BigText(L("Frostbrand.Highlighting.Header", "Highlighting"));
+        _uiShared.BigText("Highlighting");
 
         var pairRequestColor = _configService.Current.PairRequestNameColors;
-        if (InputDtrColors(L("Frostbrand.Highlighting.Color", "Highlight color"), ref pairRequestColor))
+        if (InputDtrColors("Highlight color", ref pairRequestColor))
         {
             _configService.Current.PairRequestNameColors = pairRequestColor;
             _configService.Save();
             _guiHookService.RequestRedraw();
         }
-        _uiShared.DrawHelpText(L("Frostbrand.Highlighting.Color.Help", "Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled."));
+        _uiShared.DrawHelpText("Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled.");
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
-        ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), L("Frostbrand.Highlighting.Preview", "Opted-in user preview"));
+        ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Opted-in user preview");
     }
 
     private void DrawFilterColumn()
     {
-        _uiShared.BigText(L("Frostbrand.Filters.Header", "Auto-reject filters"));
-        ImGui.TextWrapped(L("Frostbrand.Filters.Description", "Snowcloak will automatically filter pair requests from the following characters if they're within"
+        _uiShared.BigText("Auto-reject filters");
+        ImGui.TextWrapped("Snowcloak will automatically filter pair requests from the following characters if they're within"
                                                               + " inspection range.\n\n Note: If the sender is not within visible range, the request will show as pending and will"
-                                                              + " be checked when they're next in range."));
+                                                              + " be checked when they're next in range.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
 
         var minimumLevel = _configService.Current.PairRequestMinimumLevel;
-        ImGui.TextUnformatted(L("Frostbrand.Filters.MinimumLevel", "Reject requests below level"));
+        ImGui.TextUnformatted("Reject requests below level");
         ImGui.SameLine();
         ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
         if (ImGui.InputInt("##FrostbrandMinLevel", ref minimumLevel))
@@ -321,24 +313,24 @@ public class FrostbrandPanel
             _configService.Current.PairRequestMinimumLevel = minimumLevel;
             _configService.Save();
         }
-        _uiShared.DrawHelpText(L("Frostbrand.Filters.MinimumLevel.Help", "Set to 0 to disable level-based rejection."));
+        _uiShared.DrawHelpText("Set to 0 to disable level-based rejection.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
         var friendsOnly = _configService.Current.PairRequestFriendsOnly;
-        if (ImGui.Checkbox(L("Frostbrand.Filters.FriendsOnly", "Friends only"), ref friendsOnly))
+        if (ImGui.Checkbox("Friends only", ref friendsOnly))
         {
             _configService.Current.PairRequestFriendsOnly = friendsOnly;
             _configService.Save();
         }
-        _uiShared.DrawHelpText(L("Frostbrand.Filters.FriendsOnly.Help", "Only allow pairing with characters marked as friends in your nameplates."));
+        _uiShared.DrawHelpText("Only allow pairing with characters marked as friends in your nameplates.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
-        ImGui.TextWrapped(L("Frostbrand.Filters.ClanDescription", "If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box"
-                                                                  + " below. Requests from matching characters will be rejected."));
+        ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box"
+                                                                  + " below. Requests from matching characters will be rejected.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
-        ImGui.TextWrapped(L("Frostbrand.Filters.PlateNotice", "Please note: Snowcloak can only make determinations for this feature based on their unpaired, unglamoured state. For your safety,"
-                                                              + " the client does not attempt to automatically load adventurer plates."));
+        ImGui.TextWrapped("Please note: Snowcloak can only make determinations for this feature based on their unpaired, unglamoured state. For your safety,"
+                                                              + " the client does not attempt to automatically load adventurer plates.");
         foreach (var (raceId, raceLabel, clans) in _raceClanOptions)
         {
             ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
@@ -352,9 +344,9 @@ public class FrostbrandPanel
 
             if (ImGui.BeginTable($"FrostbrandRaceRow_{raceId}", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
             {
-                ImGui.TableSetupColumn(L("Frostbrand.Filters.Clan", "Clan"));
-                ImGui.TableSetupColumn(L("Frostbrand.Filters.Male", "Male"), ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn(L("Frostbrand.Filters.Female", "Female"), ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Clan");
+                ImGui.TableSetupColumn("Male", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Female", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
                 ImGui.TableHeadersRow();
 
                 foreach (var (clanId, clanLabel) in clans)
@@ -389,13 +381,13 @@ public class FrostbrandPanel
         }
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
-        _uiShared.BigText(L("Frostbrand.HomeworldFilters.Header", "Homeworld filters"));
-        ImGui.TextWrapped(L("Frostbrand.HomeworldFilters.Description", "Reject requests from specific homeworlds."));
-        _uiShared.DrawHelpText(L("Frostbrand.HomeworldFilters.Help", "Checked homeworlds are filtered out when Frostbrand pairing is enabled."));
+        _uiShared.BigText("Homeworld filters");
+        ImGui.TextWrapped("Reject requests from specific homeworlds.");
+        _uiShared.DrawHelpText("Checked homeworlds are filtered out when Frostbrand pairing is enabled.");
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##FrostbrandHomeworldSearch", L("Frostbrand.HomeworldFilters.Search", "Search homeworlds..."), ref _homeworldFilterSearch, 64);
+        ImGui.InputTextWithHint("##FrostbrandHomeworldSearch", "Search homeworlds...", ref _homeworldFilterSearch, 64);
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
 
         var rejectedHomeworlds = _configService.Current.PairRequestRejectedHomeworlds;
@@ -440,14 +432,14 @@ public class FrostbrandPanel
 
         if (rejectedHomeworlds.Count == 0)
         {
-            ImGui.TextDisabled(L("Frostbrand.HomeworldFilters.Empty", "No homeworld filters configured."));
+            ImGui.TextDisabled("No homeworld filters configured.");
         }
         else
         {
             var filteredNames = rejectedHomeworlds
                 .Select(id => _uiShared.WorldData.GetValueOrDefault(id, id.ToString()))
                 .OrderBy(name => name, StringComparer.Ordinal);
-            ImGui.TextWrapped(L("Frostbrand.HomeworldFilters.Active", "Rejecting pair requests from: ") + string.Join(", ", filteredNames));
+            ImGui.TextWrapped("Rejecting pair requests from: " + string.Join(", ", filteredNames));
         }
     }
     private bool InputDtrColors(string label, ref DtrEntry.Colors colors)
@@ -459,12 +451,12 @@ public class FrostbrandPanel
 
         var ret = ImGui.ColorEdit3("###foreground", ref foregroundColor, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoLabel | ImGuiColorEditFlags.Uint8);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(L("General.Ui.ColorTooltip.Foreground", "Foreground Color - Set to pure black (#000000) to use the default color"));
+            ImGui.SetTooltip("Foreground Color - Set to pure black (#000000) to use the default color");
 
         ImGui.SameLine(0.0f, innerSpacing);
         ret |= ImGui.ColorEdit3("###glow", ref glowColor, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoLabel | ImGuiColorEditFlags.Uint8);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(L("General.Ui.ColorTooltip.Glow", "Glow Color - Set to pure black (#000000) to use the default color"));
+            ImGui.SetTooltip("Glow Color - Set to pure black (#000000) to use the default color");
 
         ImGui.SameLine(0.0f, innerSpacing);
         ImGui.TextUnformatted(label);

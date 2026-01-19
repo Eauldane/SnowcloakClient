@@ -9,7 +9,6 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.Services;
 
@@ -20,20 +19,18 @@ public class SnowProfileManager : MediatorSubscriberBase
     private readonly Lazy<ApiController> _apiController;
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _snowProfiles = new(new ProfileRequestKeyComparer());
-    private readonly LocalisationService _localisationService;
     private readonly SnowProfileData _defaultProfileData;
     private readonly SnowProfileData _loadingProfileData;
     private readonly SnowProfileData _nsfwProfileData;
 
     public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService snowcloakConfigService,
-        SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager, LocalisationService localisationService) : base(logger, mediator)
+        SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
     {
         _snowcloakConfigService = snowcloakConfigService;
-        _localisationService = localisationService;
-        _noDescription = L("NoDescription", "-- User has no description set --");
-        _nsfw = L("NsfwNotice", "Profile not displayed - NSFW");
+        _noDescription = "-- User has no description set --";
+        _nsfw = "Profile not displayed - The profile is NSFW, but you have this disabled in settings.";
         _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private);
-        _loadingProfileData = new(null, false, false, string.Empty, L("LoadingData", "Loading Data from server..."), ProfileVisibility.Private);
+        _loadingProfileData = new(null, false, false, string.Empty, "Loading Data from server...", ProfileVisibility.Private);
         _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private);
 
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
@@ -56,11 +53,6 @@ public class SnowProfileManager : MediatorSubscriberBase
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => _snowProfiles.Clear());
     }
     
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"Services.PluginWarningNotificationService.{key}", fallback);
-    }
-
     public SnowProfileData GetSnowProfile(UserData data, ProfileVisibility? visibilityOverride = null)
     {
         return GetSnowProfileInternal(new ProfileRequestKey(data, null, visibilityOverride));

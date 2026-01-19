@@ -21,7 +21,6 @@ using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Venue;
 using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.Services.Localisation;
 using Snowcloak.UI.Components.Popup;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
@@ -121,7 +120,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<PluginWatcherService>();
             collection.AddSingleton<PlayerPerformanceService>();
             collection.AddSingleton<BbCodeRenderer>();
-            collection.AddSingleton<LocalisationService>();
 
             collection.AddSingleton<CharaDataManager>();
             collection.AddSingleton<CharaDataFileHandler>();

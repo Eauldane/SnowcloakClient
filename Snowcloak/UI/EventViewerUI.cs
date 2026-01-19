@@ -11,7 +11,6 @@ using Snowcloak.Services.Mediator;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI;
 
@@ -20,7 +19,6 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
     private readonly EventAggregator _eventAggregator;
     private readonly UiSharedService _uiSharedService;
     private readonly SnowcloakConfigService _configService;
-    private readonly LocalisationService _localisationService;
     private List<Event> _currentEvents = new();
     private Lazy<List<Event>> _filteredEvents;
     private string _filterFreeText = string.Empty;
@@ -41,24 +39,18 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
 
     public EventViewerUI(ILogger<EventViewerUI> logger, SnowMediator mediator,
         EventAggregator eventAggregator, UiSharedService uiSharedService, SnowcloakConfigService configService,
-        PerformanceCollectorService performanceCollectorService, LocalisationService localisationService)
+        PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Event Viewer###SnowcloakEventViewerUI", performanceCollectorService)
     {
         _eventAggregator = eventAggregator;
         _uiSharedService = uiSharedService;
         _configService = configService;
-        _localisationService = localisationService;
         SizeConstraints = new()
         {
             MinimumSize = new(700, 400)
         };
         _filteredEvents = RecreateFilter();
-        WindowName = $"{L("Title", "Event Viewer")}###SnowcloakEventViewerUI";
-    }
-
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"EventViewerUi.{key}", fallback);
+        WindowName = "Event Viewer###SnowcloakEventViewerUI";
     }
 
     private Lazy<List<Event>> RecreateFilter()
@@ -88,17 +80,17 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
 
     protected override void DrawInternal()
     {
-        var unfreezeLabel = L("UnfreezeView", "Unfreeze View");
-        var freezeLabel = L("FreezeView", "Freeze View");
-        var newEventsTooltip = L("NewEventsAvailable", "New events are available. Click to resume updating.");
-        var filterLabel = L("FilterLines", "Filter lines");
-        var openFolderLabel = L("OpenEventLogFolder", "Open EventLog folder");
-        var timeColumnLabel = L("TimeColumn", "Time");
-        var sourceColumnLabel = L("SourceColumn", "Source");
-        var uidColumnLabel = L("UidColumn", "UID");
-        var characterColumnLabel = L("CharacterColumn", "Character");
-        var eventColumnLabel = L("EventColumn", "Event");
-        var noValueLabel = L("NoValue", "--");
+        var unfreezeLabel = "Unfreeze View";
+        var freezeLabel ="Freeze View";
+        var newEventsTooltip = "New events are available. Click to resume updating.";
+        var filterLabel = "Filter lines";
+        var openFolderLabel = "Open EventLog folder";
+        var timeColumnLabel = "Time";
+        var sourceColumnLabel = "Source";
+        var uidColumnLabel = "UID";
+        var characterColumnLabel = "Character";
+        var eventColumnLabel = "Event";
+        var noValueLabel = "--";
         var newEventsAvailable = _eventAggregator.NewEventsAvailable;
 
         var freezeSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.PlayCircle, unfreezeLabel);

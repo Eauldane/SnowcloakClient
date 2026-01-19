@@ -10,25 +10,22 @@ using Dalamud.Utility;
 using Snowcloak.Utils;
 using Snowcloak.Services.Housing;
 using System.Text;
-using Snowcloak.Services.Localisation;
 
 namespace Snowcloak.UI.Components.Popup;
 
 internal class VenueSyncshellPopupHandler : IPopupHandler
 {
     private readonly UiSharedService _uiSharedService;
-    private readonly LocalisationService _localisationService;
     private readonly VenueSyncshellService _venueSyncshellService;
     private bool _closeOnSuccess;
     private bool _isJoining;
     private bool _joinFailed;
     private VenueSyncshellPrompt? _prompt;
 
-    public VenueSyncshellPopupHandler(UiSharedService uiSharedService, VenueSyncshellService venueSyncshellService, LocalisationService localisationService)
+    public VenueSyncshellPopupHandler(UiSharedService uiSharedService, VenueSyncshellService venueSyncshellService)
     {
         _uiSharedService = uiSharedService;
         _venueSyncshellService = venueSyncshellService;
-        _localisationService = localisationService;
     }
 
     public Vector2 PopupSize => new(550, 450);
@@ -53,16 +50,16 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
 
         if (ImGui.BeginTable("venue_info_table", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.PadOuterX))
         {
-            AddInfoRow(FontAwesomeIcon.MapMarkedAlt, L("VenueLocation", "Venue location"), GetHousingPlotName(_prompt.Location));
-            AddInfoRow(FontAwesomeIcon.User, L("Host", "Host"), venue.VenueHost);
-            AddInfoRow(FontAwesomeIcon.Globe, L("Website", "Website"), venue.VenueWebsite, isLink: true);
+            AddInfoRow(FontAwesomeIcon.MapMarkedAlt, "Venue location", GetHousingPlotName(_prompt.Location));
+            AddInfoRow(FontAwesomeIcon.User, "Host", venue.VenueHost);
+            AddInfoRow(FontAwesomeIcon.Globe, "Website", venue.VenueWebsite, isLink: true);
             ImGui.EndTable();        
         }
 
         if (!string.IsNullOrWhiteSpace(venue.VenueDescription))
         {
             ImGuiHelpers.ScaledDummy(8f);
-            UiSharedService.TextWrapped(L("AboutVenue", "About this venue"));
+            UiSharedService.TextWrapped("About this venue");
             using var child = ImRaii.Child("##venue_description",
                 new Vector2(-1, MathF.Max(100f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().Y - ImGui.GetFrameHeightWithSpacing() * 3.75f)),
                 true,
@@ -73,18 +70,18 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 
             }
         }
-        UiSharedService.TextWrapped(L("VenueRegistered", "This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings."));
-        UiSharedService.TextWrapped(L("VenueDisclaimer", "Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff are not responsible for the content of this venue."));
+        UiSharedService.TextWrapped("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");
+        UiSharedService.TextWrapped("Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff are not responsible for the content of this venue.");
 
 
         if (_joinFailed)
         {
-            UiSharedService.ColorTextWrapped(L("JoinFailed", "Failed to join syncshell. Please try again."), ImGuiColors.DalamudRed);
+            UiSharedService.ColorTextWrapped("Failed to join syncshell. Please try again.", ImGuiColors.DalamudRed);
         }
 
         using (ImRaii.Disabled(_isJoining))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.SignInAlt, _isJoining ? L("Joining", "Joining...") : L("JoinSyncshell", "Join syncshell")))
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.SignInAlt, _isJoining ? "Joining..." : "Join syncshell"))
             {
                 _joinFailed = false;
                 _isJoining = true;
@@ -99,7 +96,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
             }
         }
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, L("Close", "Close")))
+        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
         {
             ImGui.CloseCurrentPopup();
         }
@@ -169,11 +166,5 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         }
 
         return builder.ToString();
-    }
-    
-    
-    private string L(string key, string fallback)
-    {
-        return _localisationService.GetString($"VenueSyncshellPopup.{key}", fallback);
     }
 }
