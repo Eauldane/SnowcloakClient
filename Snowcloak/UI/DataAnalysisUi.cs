@@ -10,6 +10,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Numerics;
 using Snowcloak.Services.Localisation;
+using Penumbra.Api.Enums;
 
 namespace Snowcloak.UI;
 
@@ -20,13 +21,13 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     private readonly IpcManager _ipcManager;
     private readonly UiSharedService _uiSharedService;
     private readonly LocalisationService _localisationService;
-    private readonly Dictionary<string, string[]> _texturesToConvert = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (TextureType TextureType, string[] Duplicates)> _texturesToConvert = new(StringComparer.Ordinal);
     private Dictionary<ObjectKind, Dictionary<string, CharacterAnalyzer.FileDataEntry>>? _cachedAnalysis;
     private CancellationTokenSource _conversionCancellationTokenSource = new();
     private string _conversionCurrentFileName = string.Empty;
     private int _conversionCurrentFileProgress = 0;
     private Task? _conversionTask;
-    private bool _enableBc7ConversionMode = false;
+    private bool _enableTextureConversionMode = false;
     private bool _hasUpdate = false;
     private bool _sortDirty = true;
     private bool _modalOpen = false;
@@ -74,13 +75,13 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
     protected override void DrawInternal()
     {
-        var conversionPopupTitle = L("Conversion.PopupTitle", "BC7 Conversion in Progress");
+        var conversionPopupTitle = "Texture Conversion in Progress";
         if (_conversionTask != null && !_conversionTask.IsCompleted)
         {
             _showModal = true;
             if (ImGui.BeginPopupModal(conversionPopupTitle))
             {
-                ImGui.TextUnformatted(string.Format(L("Conversion.Progress", "BC7 Conversion in progress: {0}/{1}"), _conversionCurrentFileProgress, _texturesToConvert.Count));
+                ImGui.TextUnformatted(string.Format(L("Conversion.Progress", "Texture Conversion in progress: {0}/{1}"), _conversionCurrentFileProgress, _texturesToConvert.Count));
                 UiSharedService.TextWrapped(string.Format(L("Conversion.CurrentFile", "Current file: {0}"), _conversionCurrentFileName));
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, L("Conversion.Cancel", "Cancel conversion")))
                 {
@@ -100,7 +101,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             _texturesToConvert.Clear();
             _showModal = false;
             _modalOpen = false;
-            _enableBc7ConversionMode = false;
+            _enableTextureConversionMode = false;
         }
 
         if (_showModal && !_modalOpen)
@@ -248,7 +249,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     _selectedHash = string.Empty;
                     _selectedObjectTab = kvp.Key;
                     _selectedFileTypeTab = string.Empty;
-                    _enableBc7ConversionMode = false;
+                    _enableTextureConversionMode = false;
                     _texturesToConvert.Clear();
                 }
 
@@ -272,7 +273,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         _selectedFileTypeTab = fileGroup.Key;
                         _selectedHash = string.Empty;
-                        _enableBc7ConversionMode = false;
+                        _enableTextureConversionMode = false;
                         _texturesToConvert.Clear();
                     }
 
@@ -290,17 +291,18 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
                     if (string.Equals(_selectedFileTypeTab, "tex", StringComparison.Ordinal))
                     {
-                        ImGui.Checkbox(L("Conversion.EnableMode", "Enable BC7 Conversion Mode"), ref _enableBc7ConversionMode);
-                        if (_enableBc7ConversionMode)
+                        ImGui.Checkbox(L("Conversion.EnableMode", "Enable Texture Conversion Mode"), ref _enableTextureConversionMode);
+                        if (_enableTextureConversionMode)
                         {
-                            UiSharedService.ColorText(L("Conversion.WarningTitle", "WARNING BC7 CONVERSION:"), ImGuiColors.DalamudYellow);
+                            UiSharedService.ColorText(L("Conversion.WarningTitle", "WARNING REGARDING TEXTURE CONVERSION:"), ImGuiColors.DalamudYellow);
                             ImGui.SameLine();
-                            UiSharedService.ColorText(L("Conversion.Irreversible", "Converting textures to BC7 is irreversible!"), ImGuiColors.DalamudRed);
-                            UiSharedService.ColorTextWrapped(L("Conversion.Bullet", "- Converting textures to BC7 will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
-                            Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for BC7 conversion and might produce visual artifacts." +
+                            UiSharedService.ColorText(L("Conversion.Irreversible", "Converting textures is irreversible!"), ImGuiColors.DalamudRed);
+                            UiSharedService.ColorTextWrapped(L("Conversion.Bullet", "- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
+                                    Environment.NewLine + "- Format selection is automatic based on texture traits: greyscale -> BC4, normal maps -> BC5, opaque RGB -> BC1, otherwise -> BC7." + 
+                                    Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
                             Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
                             Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
-                            Environment.NewLine + "- Converting textures to BC7 is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete."),
+                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete."),
                                 ImGuiColors.DalamudYellow);
                             if (_texturesToConvert.Count > 0 && _uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, string.Format(L("Conversion.Start", "Start conversion of {0} texture(s)"), _texturesToConvert.Count)))
                             {
@@ -360,9 +362,9 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 UiSharedService.TextWrapped(traits.FormatSummary);
                 UiSharedService.TextWrapped(string.Format(L("Selection.ChannelVariance", "Channel variance (RGB): {0}/{1}/{2}"), traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
                 UiSharedService.TextWrapped(string.Format(L("Selection.AlphaTransitions", "Alpha transitions: {0}"), traits.AlphaTransitionDensity.ToString("P1")));
-                if (traits.IsRisky)
+                if (IsRiskyConversion(item))
                 {
-                    UiSharedService.ColorTextWrapped(L("Conversion.RiskFlag", "Flagged as risky for BC7 conversion (colorset/dye path, high alpha transitions, or greyscale map)."), ImGuiColors.DalamudOrange);
+                    UiSharedService.ColorTextWrapped(L("Conversion.RiskFlag", "Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map)."), ImGuiColors.DalamudOrange);
                 }
             }
         }
@@ -372,7 +374,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     {
         _hasUpdate = true;
         _selectedHash = string.Empty;
-        _enableBc7ConversionMode = false;
+        _enableTextureConversionMode = false;
         _texturesToConvert.Clear();
     }
 
@@ -391,7 +393,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     private void DrawTable(IGrouping<string, CharacterAnalyzer.FileDataEntry> fileGroup)
     {
         var tableColumns = string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal)
-            ? (_enableBc7ConversionMode ? 7 : 6)
+            ? (_enableTextureConversionMode ? 7 : 6)
             : (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal) ? 6 : 5);
         using var table = ImRaii.Table("Analysis", tableColumns, ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit,
             new Vector2(0, 300));
@@ -404,7 +406,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         if (string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal))
         {
             ImGui.TableSetupColumn(L("Table.Format", "Format"));
-            if (_enableBc7ConversionMode) ImGui.TableSetupColumn(L("Table.ConvertBc7", "Convert to BC7"));
+            if (_enableTextureConversionMode) ImGui.TableSetupColumn(L("Table.ConvertBc7", "Convert to BC7"));
         }
         if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
         {
@@ -481,7 +483,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(item.Format.Value);
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
-                if (_enableBc7ConversionMode)
+                if (_enableTextureConversionMode)
                 {
                     ImGui.TableNextColumn();
                     if (item.Format.Value.StartsWith("BC", StringComparison.Ordinal) || item.Format.Value.StartsWith("DXT", StringComparison.Ordinal)
@@ -490,24 +492,32 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.TextUnformatted("");
                         continue;
                     }
+                    var conversionType = GetConversionType(item);
+                    var conversionLabel = GetConversionLabel(conversionType);
                     var filePath = item.FilePaths[0];
                     bool toConvert = _texturesToConvert.ContainsKey(filePath);
                     if (ImGui.Checkbox("###convert" + item.Hash, ref toConvert))
                     {
-                        if (toConvert && !_texturesToConvert.ContainsKey(filePath))
+                        if (toConvert)
                         {
-                            _texturesToConvert[filePath] = item.FilePaths.Skip(1).ToArray();
+                            _texturesToConvert[filePath] = (conversionType, item.FilePaths.Skip(1).ToArray());
                         }
                         else if (!toConvert && _texturesToConvert.ContainsKey(filePath))
                         {
                             _texturesToConvert.Remove(filePath);
                         }
                     }
-                    if (item.IsRiskyTexture)
+                    if (toConvert)
+                    {
+                        _texturesToConvert[filePath] = (conversionType, item.FilePaths.Skip(1).ToArray());
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted(conversionLabel);
+                    if (IsRiskyConversion(item))
                     {
                         ImGui.SameLine();
                         _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
-                        UiSharedService.AttachToolTip(L("Conversion.RiskTooltip", "Texture flagged as risky (alpha/detail patterns or dye/colorset path). Proceed with caution when converting."));
+                        UiSharedService.AttachToolTip(L("Conversion.RiskTooltip", "Texture flagged as risky for BC7 conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting."));
                         if (!toConvert)
                         {
                             _texturesToConvert.Remove(filePath);
@@ -522,5 +532,40 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
             }
         }
+    }
+
+    private static TextureType GetConversionType(CharacterAnalyzer.FileDataEntry item)
+    {
+        var traits = item.TextureTraits;
+        if (traits?.IsGreyscale == true)
+        {
+            return TextureType.Bc4Tex;
+        }
+        if (traits?.IsNormalMapStyle == true)
+        {
+            return TextureType.Bc5Tex;
+        }
+        if (traits != null && !traits.HasAlpha)
+        {
+            return TextureType.Bc1Tex;
+        }
+        return TextureType.Bc7Tex;
+    }
+
+    private static bool IsRiskyConversion(CharacterAnalyzer.FileDataEntry item)
+    {
+        return item.IsRiskyTexture && GetConversionType(item) == TextureType.Bc7Tex;
+    }
+
+    private static string GetConversionLabel(TextureType textureType)
+    {
+        return textureType switch
+        {
+            TextureType.Bc1Tex => "BC1",
+            TextureType.Bc4Tex => "BC4",
+            TextureType.Bc5Tex => "BC5",
+            TextureType.Bc7Tex => "BC7",
+            _ => textureType.ToString()
+        };
     }
 }

@@ -285,6 +285,7 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
     {
         public string FormatSummary => $"{Format} ({Width}x{Height})";
         public bool IsGreyscale => AverageChannelSpread < 2 && Math.Max(RedVariance, Math.Max(GreenVariance, BlueVariance)) < 150;
+        public bool IsNormalMapStyle => !HasAlpha && BlueVariance < 50 && (RedVariance > 100 || GreenVariance > 100);
         public bool HasHighFrequencyAlpha => AlphaTransitionDensity > 0.25f && HasAlpha;
         public bool IsRisky => HasHighFrequencyAlpha || IsGreyscale || ColorsetPath;
 

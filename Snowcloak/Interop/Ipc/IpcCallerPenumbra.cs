@@ -169,7 +169,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         }).ConfigureAwait(false);
     }
 
-    public async Task ConvertTextureFiles(ILogger logger, Dictionary<string, string[]> textures, IProgress<(string, int)> progress, CancellationToken token)
+    public async Task ConvertTextureFiles(ILogger logger, Dictionary<string, (TextureType TextureType, string[] Duplicates)> textures, IProgress<(string, int)> progress, CancellationToken token)
     {
         if (!APIAvailable) return;
 
@@ -181,12 +181,12 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
 
             progress.Report((texture.Key, ++currentTexture));
 
-            logger.LogInformation("Converting Texture {path} to {type}", texture.Key, TextureType.Bc7Tex);
-            var convertTask = _penumbraConvertTextureFile.Invoke(texture.Key, texture.Key, TextureType.Bc7Tex, mipMaps: true);
+            logger.LogInformation("Converting Texture {path} to {type}", texture.Key, texture.Value.TextureType);
+            var convertTask = _penumbraConvertTextureFile.Invoke(texture.Key, texture.Key, texture.Value.TextureType, mipMaps: true);
             await convertTask.ConfigureAwait(false);
-            if (convertTask.IsCompletedSuccessfully && texture.Value.Any())
+            if (convertTask.IsCompletedSuccessfully && texture.Value.Duplicates.Any())
             {
-                foreach (var duplicatedTexture in texture.Value)
+                foreach (var duplicatedTexture in texture.Value.Duplicates)
                 {
                     logger.LogInformation("Migrating duplicate {dup}", duplicatedTexture);
                     try
