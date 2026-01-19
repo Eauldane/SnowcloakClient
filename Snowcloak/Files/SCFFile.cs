@@ -20,8 +20,9 @@ public enum FileExtension : byte
     MDL = 0,  TEX = 1, MTRL = 2, TMB = 3, PAP = 4, AVFX = 5, ATEX = 6, SKLB = 7, EID = 8, PHYB = 9, PBD = 10, SCD = 11,
     SKP = 12, SHPK = 13,
     // Plugin specific ones (may or may not actually be sent through Snowcloak, but may as well include them just in case)
-    MCDF = 14, PCP = 15
+    MCDF = 14, PCP = 15,
     // Anything added later
+    DDS = 16
 }
 
 public static class SCFFile
@@ -349,6 +350,7 @@ public static class SCFFile
             "scd"  => FileExtension.SCD,
             "skp"  => FileExtension.SKP,
             "shpk" => FileExtension.SHPK,
+            "dds"  => FileExtension.DDS,
             "mcdf" => FileExtension.MCDF,
             "pcp"  => FileExtension.PCP,
             _ => throw new NotSupportedException($"Unsupported extension: {ext}")

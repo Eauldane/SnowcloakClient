@@ -281,22 +281,25 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
         double BlueVariance,
         double AverageChannelSpread,
         float AlphaTransitionDensity,
+        bool HasPerceptualDarkDetailRisk,
         bool ColorsetPath)
     {
         public string FormatSummary => $"{Format} ({Width}x{Height})";
         public bool IsGreyscale => AverageChannelSpread < 2 && Math.Max(RedVariance, Math.Max(GreenVariance, BlueVariance)) < 150;
         public bool IsNormalMapStyle => !HasAlpha && BlueVariance < 50 && (RedVariance > 100 || GreenVariance > 100);
         public bool HasHighFrequencyAlpha => AlphaTransitionDensity > 0.25f && HasAlpha;
-        public bool IsRisky => HasHighFrequencyAlpha || IsGreyscale || ColorsetPath;
+        public bool IsRisky => HasHighFrequencyAlpha || IsGreyscale || HasPerceptualDarkDetailRisk || ColorsetPath;
 
         public static TextureTraits Create(TexFile.TextureFormat format, ushort width, ushort height, ReadOnlySpan<byte> data, IEnumerable<string> gamePaths)
         {
             var stats = TextureChannelStatistics.Create(data);
             var alphaStats = TextureAlphaStatistics.Create(data);
+            var luminanceStats = TextureLuminanceStatistics.Create(data);
             var colorsetPath = gamePaths.Any(IsColorsetOrDyePath);
+            var hasPerceptualRisk = luminanceStats.LowLuminanceCoverage >= 0.35f && luminanceStats.HighDeltaDensity >= 0.2f;
 
             return new TextureTraits(format, width, height, alphaStats.HasAlpha, stats.RedVariance, stats.GreenVariance, stats.BlueVariance,
-                stats.AverageChannelSpread, alphaStats.TransitionDensity, colorsetPath);
+                stats.AverageChannelSpread, alphaStats.TransitionDensity, hasPerceptualRisk, colorsetPath);
         }
 
         private static bool IsColorsetOrDyePath(string path)
@@ -386,6 +389,50 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
             bool hasAlpha = minAlpha < 250 && maxAlpha > 0;
             float density = processed > 0 ? transitions / (float)processed : 0f;
             return new TextureAlphaStatistics(hasAlpha, density);
+        }
+    }
+
+    internal readonly record struct TextureLuminanceStatistics(float LowLuminanceCoverage, float HighDeltaDensity)
+    {
+        public static TextureLuminanceStatistics Create(ReadOnlySpan<byte> data)
+        {
+            if (data.Length < 4) return new TextureLuminanceStatistics(0, 0);
+
+            long sampleCount = data.Length / 4;
+            int step = sampleCount > 250_000 ? (int)(sampleCount / 250_000) : 1;
+
+            double? previousLuma = null;
+            long lowLuminanceSamples = 0;
+            long highDeltaSamples = 0;
+            long processed = 0;
+
+            for (long i = 0; i < sampleCount; i += step)
+            {
+                int index = (int)(i * 4);
+                byte r = data[index];
+                byte g = data[index + 1];
+                byte b = data[index + 2];
+
+                double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                if (luma < 64)
+                {
+                    lowLuminanceSamples++;
+                }
+
+                if (previousLuma.HasValue && Math.Abs(luma - previousLuma.Value) > 3)
+                {
+                    highDeltaSamples++;
+                }
+
+                previousLuma = luma;
+                processed++;
+            }
+
+            if (processed == 0) return new TextureLuminanceStatistics(0, 0);
+
+            float lowLuminanceCoverage = lowLuminanceSamples / (float)processed;
+            float highDeltaDensity = processed > 1 ? highDeltaSamples / (float)(processed - 1) : 0f;
+            return new TextureLuminanceStatistics(lowLuminanceCoverage, highDeltaDensity);
         }
     }
 }

@@ -9,6 +9,8 @@ using Snowcloak.Files;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using Lumina.Data;
+using Lumina.Data.Files;
 using Snowcloak.Interop.GameModel;
 
 namespace Snowcloak.FileCache;
@@ -176,8 +178,19 @@ public sealed class FileCacheManager : IHostedService
         var extension = Path.GetExtension(fileCache.ResolvedFilepath);
         var fileExtension = SCFFile.GetExtensionEnum(extension);
         var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
-        
-        var header = await SCFFile.CreateSCFFile(fs, ms, fileExtension, null, uploadToken, _configService.Current.CompressionLevel, _configService.Current.UseMultithreadedCompression, metadata.TriangleCount, metadata.VramUsage).ConfigureAwait(false);
+        var compressionType = ChooseCompressionType(fileCache.ResolvedFilepath, fileExtension);
+
+        var header = await SCFFile.CreateSCFFile(
+            fs,
+            ms,
+            fileExtension,
+            null,
+            uploadToken,
+            _configService.Current.CompressionLevel,
+            _configService.Current.UseMultithreadedCompression,
+            metadata.TriangleCount,
+            metadata.VramUsage,
+            compressionType).ConfigureAwait(false);
         fileCache.CompressedSize = header.CompressedSize + SCFFile.GetHeaderLength();
         return (fileHash, ms.ToArray());
     }
@@ -207,11 +220,147 @@ public sealed class FileCacheManager : IHostedService
         return (triangleCount, vramUsage);
     }
 
+    private CompressionType ChooseCompressionType(string filePath, FileExtension fileExtension)
+    {
+        switch (fileExtension)
+        {
+            case FileExtension.TEX:
+                return IsBcnTex(filePath) ? CompressionType.LZ4 : CompressionType.ZSTD;
+            case FileExtension.DDS:
+                return IsBcnDds(filePath) ? CompressionType.LZ4 : CompressionType.ZSTD;
+            default:
+                return CompressionType.ZSTD;
+        }
+    }
+
+    private bool IsBcnTex(string filePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            using var reader = new LuminaBinaryReader(stream);
+            var header = reader.ReadStructure<TexFile.TexHeader>();
+            return IsBcnTextureFormat(header.Format);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read texture header for {file}", filePath);
+            return false;
+        }
+    }
+
+    private static bool IsBcnTextureFormat(TexFile.TextureFormat format)
+    {
+        var name = format.ToString();
+        return name.Contains("Dxt", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Bc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsBcnDds(string filePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            return IsBcnDdsHeader(stream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read DDS header for {file}", filePath);
+            return false;
+        }
+    }
+
+    private static bool IsBcnDdsHeader(Stream stream)
+    {
+        const uint ddsMagic = 0x20534444;
+        const int ddsHeaderSize = 124;
+        const int ddsFourCcOffset = 84;
+        const int ddsDx10HeaderOffset = 128;
+        const uint dx10FourCc = 0x30315844;
+
+        if (!stream.CanSeek || stream.Length < ddsDx10HeaderOffset)
+        {
+            return false;
+        }
+
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        stream.Seek(0, SeekOrigin.Begin);
+        if (reader.ReadUInt32() != ddsMagic)
+        {
+            return false;
+        }
+
+        if (reader.ReadUInt32() != ddsHeaderSize)
+        {
+            return false;
+        }
+
+        stream.Seek(ddsFourCcOffset, SeekOrigin.Begin);
+        uint fourCc = reader.ReadUInt32();
+        if (BcnFourCcCodes.Contains(fourCc))
+        {
+            return true;
+        }
+
+        if (fourCc != dx10FourCc || stream.Length < ddsDx10HeaderOffset + 4)
+        {
+            return false;
+        }
+
+        stream.Seek(ddsDx10HeaderOffset, SeekOrigin.Begin);
+        uint dxgiFormat = reader.ReadUInt32();
+        return BcnDxgiFormats.Contains(dxgiFormat);
+    }
+
+    private static readonly HashSet<uint> BcnFourCcCodes =
+    [
+        MakeFourCc("DXT1"),
+        MakeFourCc("DXT3"),
+        MakeFourCc("DXT5"),
+        MakeFourCc("BC4U"),
+        MakeFourCc("BC4S"),
+        MakeFourCc("ATI1"),
+        MakeFourCc("BC5U"),
+        MakeFourCc("BC5S"),
+        MakeFourCc("ATI2")
+    ];
+
+    private static readonly HashSet<uint> BcnDxgiFormats =
+    [
+        71, // BC1_UNORM
+        72, // BC1_UNORM_SRGB
+        74, // BC2_UNORM
+        75, // BC2_UNORM_SRGB
+        77, // BC3_UNORM
+        78, // BC3_UNORM_SRGB
+        80, // BC4_UNORM
+        81, // BC4_SNORM
+        83, // BC5_UNORM
+        84, // BC5_SNORM
+        95, // BC6H_UF16
+        96, // BC6H_SF16
+        98, // BC7_UNORM
+        99  // BC7_UNORM_SRGB
+    ];
+
+    private static uint MakeFourCc(string fourCc)
+    {
+        if (fourCc is null || fourCc.Length != 4)
+        {
+            throw new ArgumentException("FourCC codes must be exactly 4 characters.", nameof(fourCc));
+        }
+
+        return (uint)fourCc[0]
+               | ((uint)fourCc[1] << 8)
+               | ((uint)fourCc[2] << 16)
+               | ((uint)fourCc[3] << 24);
+    }
+
     private long CalculateTriangleCount(string filePath)
     {
         try
         {
-            var file = new MdlFile(filePath);
+            var file = new Interop.GameModel.MdlFile(filePath);
             if (file.LodCount <= 0)
                 return -1;
 
