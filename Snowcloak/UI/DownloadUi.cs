@@ -143,7 +143,13 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
             foreach (var transfer in _currentDownloads.ToList())
             {
-                var screenPos = _dalamudUtilService.WorldToScreen(transfer.Key.GetGameObject());
+                var handler = transfer.Key;
+                if (handler == null) continue;
+
+                var gameObject = handler.GetGameObject();
+                if (gameObject == null) continue;
+
+                var screenPos = _dalamudUtilService.WorldToScreen(gameObject);
                 if (screenPos == Vector2.Zero) continue;
 
                 var totalBytes = transfer.Value.Sum(c => c.Value.TotalBytes);
@@ -167,7 +173,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
                     UiSharedService.Color(220, 220, 255, transparency), 1);
                 drawList.AddRectFilled(dlBarStart, dlBarEnd,
                     UiSharedService.Color(0, 0, 0, transparency), 1);
-                var dlProgressPercent = transferredBytes / (double)totalBytes;
+                var dlProgressPercent = totalBytes > 0 ? transferredBytes / (double)totalBytes : 0d;
                 drawList.AddRectFilled(dlBarStart,
                     dlBarEnd with { X = dlBarStart.X + (float)(dlProgressPercent * dlBarWidth) },
                     UiSharedService.Color(100, 100, 255, transparency), 1);
@@ -186,7 +192,12 @@ public class DownloadUi : WindowMediatorSubscriberBase
             {
                 foreach (var player in _uploadingPlayers.Select(p => p.Key).ToList())
                 {
-                    var screenPos = _dalamudUtilService.WorldToScreen(player.GetGameObject());
+                    if (player == null) continue;
+
+                    var gameObject = player.GetGameObject();
+                    if (gameObject == null) continue;
+
+                    var screenPos = _dalamudUtilService.WorldToScreen(gameObject);
                     if (screenPos == Vector2.Zero) continue;
 
                     try
