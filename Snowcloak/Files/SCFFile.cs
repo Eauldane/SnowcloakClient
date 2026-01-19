@@ -1,4 +1,5 @@
 using Blake3;
+using K4os.Compression.LZ4.Streams;
 using System.Text;
 using ZstdSharp;
 using ZstdSharp.Unsafe;
@@ -8,7 +9,9 @@ namespace Snowcloak.Files;
 
 public enum CompressionType : byte
 {
-    ZSTD = 0
+    ZSTD = 0,
+    LZ4 = 1,
+    None = 2
 }
 
 public enum FileExtension : byte
@@ -64,7 +67,8 @@ public static class SCFFile
 
     public static async Task<SCFFileHeader> CreateSCFFile(Stream rawInput, Stream scfOutput, FileExtension ext,
         IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default, int compressionLevel = 3,
-        bool multithreaded = false, long triangleCount = -1, long vramUsage = -1)
+        bool multithreaded = false, long triangleCount = -1, long vramUsage = -1,
+        CompressionType compressionType = CompressionType.ZSTD)
     {
         if (!rawInput.CanRead)
         {
@@ -92,7 +96,7 @@ public static class SCFFile
         }
 
         // Placeholder header. TODO: Add validation to read/write methods that the placeholders aren't still placeholders
-        SCFFileHeader placeholder = CreateHeader(new string('0', 64), CompressionType.ZSTD, ext, 0, 0, triangleCount,
+        SCFFileHeader placeholder = CreateHeader(new string('0', 64), compressionType, ext, 0, 0, triangleCount,
             vramUsage);
         WriteHeader(scfOutput, placeholder);
 
@@ -107,31 +111,61 @@ public static class SCFFile
         // As long as this is never set above 10 we should be fine. Server can recompress to level 19
         // or 22 if it really wants to eke out that last 5% compression.
         var level = Math.Clamp(compressionLevel, 3, 9);
-        using (var zstd = new CompressionStream(scfOutput, level: level, leaveOpen: true))
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
         {
-            if (multithreaded && Environment.ProcessorCount > 1)
+            int read;
+            switch (compressionType)
             {
-                zstd.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
-            }
-            var buffer = ArrayPool<byte>.Shared.Rent(81920);
-            try
-            {
-                int read;
-                while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
-                {
-                    hasher.Update(buffer.AsSpan(0, read));
-                    await zstd.WriteAsync(buffer.AsMemory(0, read), ct);
-                    uncompressed += read;
-                    progress?.Report(("Compressing", uncompressed));
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+                case CompressionType.ZSTD:
+                    using (var zstd = new CompressionStream(scfOutput, level: level, leaveOpen: true))
+                    {
+                        if (multithreaded && Environment.ProcessorCount > 1)
+                        {
+                            zstd.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers, Environment.ProcessorCount);
+                        }
 
-            }
+                        while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        {
+                            hasher.Update(buffer.AsSpan(0, read));
+                            await zstd.WriteAsync(buffer.AsMemory(0, read), ct);
+                            uncompressed += read;
+                            progress?.Report(("Compressing", uncompressed));
+                        }
 
-            await zstd.FlushAsync(ct);
+                        await zstd.FlushAsync(ct);
+                    }
+                    break;
+                case CompressionType.LZ4:
+                    using (var lz4 = LZ4Stream.Encode(scfOutput, leaveOpen: true))
+                    {
+                        while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        {
+                            hasher.Update(buffer.AsSpan(0, read));
+                            await lz4.WriteAsync(buffer.AsMemory(0, read), ct);
+                            uncompressed += read;
+                            progress?.Report(("Compressing", uncompressed));
+                        }
+
+                        await lz4.FlushAsync(ct);
+                    }
+                    break;
+                case CompressionType.None:
+                    while ((read = await rawInput.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                    {
+                        hasher.Update(buffer.AsSpan(0, read));
+                        await scfOutput.WriteAsync(buffer.AsMemory(0, read), ct);
+                        uncompressed += read;
+                        progress?.Report(("Copying", uncompressed));
+                    }
+                    break;
+                default:
+                    throw new NotSupportedException($"SCF: Compression type {compressionType} not supported.");
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
 
         long dataEnd = scfOutput.Position;
@@ -141,7 +175,7 @@ public static class SCFFile
         // Patch header
         scfOutput.Position = 0;
         SCFFileHeader finalHeader =
-            CreateHeader(hash, CompressionType.ZSTD, ext, uncompressedSize, compressedSize, triangleCount, vramUsage);
+            CreateHeader(hash, compressionType, ext, uncompressedSize, compressedSize, triangleCount, vramUsage);
         WriteHeader(scfOutput, finalHeader); // Overwrite placeholder. Compressed data should be after the header for decoding
         scfOutput.Position = dataEnd;
         return finalHeader; // For validation
@@ -178,6 +212,37 @@ public static class SCFFile
                             {
                                 hasher.Update(buf.AsSpan(0, read));
                                 await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                            }
+
+                            break;
+                        }
+                    case CompressionType.LZ4:
+                        {
+                            using var lz4 = LZ4Stream.Decode(scfInput, leaveOpen: true);
+                            int read;
+                            while ((read = await lz4.ReadAsync(buf.AsMemory(0, buf.Length), ct)) > 0)
+                            {
+                                hasher.Update(buf.AsSpan(0, read));
+                                await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                            }
+
+                            break;
+                        }
+                    case CompressionType.None:
+                        {
+                            long remaining = header.CompressedSize;
+                            while (remaining > 0)
+                            {
+                                int read = await scfInput.ReadAsync(
+                                    buf.AsMemory(0, (int)Math.Min(buf.Length, remaining)), ct);
+                                if (read == 0)
+                                {
+                                    throw new EndOfStreamException("SCF: Unexpected end of stream while copying raw data.");
+                                }
+
+                                hasher.Update(buf.AsSpan(0, read));
+                                await outFile.WriteAsync(buf.AsMemory(0, read), ct);
+                                remaining -= read;
                             }
 
                             break;
@@ -300,4 +365,3 @@ public static class SCFFile
         };
     }
 }
-
