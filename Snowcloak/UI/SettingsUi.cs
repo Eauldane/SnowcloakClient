@@ -52,7 +52,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private readonly AccountRegistrationService _registerService;
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly UiSharedService _uiShared;
-    private readonly CapabilityRegistry _capabilityRegistry;
     private readonly LocalisationService _localisationService;
     private bool _deleteAccountPopupModalShown = false;
     private string _lastTab = string.Empty;
@@ -83,7 +82,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         FileCacheManager fileCacheManager,
         FileCompactor fileCompactor, ApiController apiController,
         IpcManager ipcManager, IpcProvider ipcProvider, CacheMonitor cacheMonitor,
-        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService, CapabilityRegistry capabilityRegistry, LocalisationService localisationService) 
+        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService, LocalisationService localisationService) 
         : base(logger, mediator, localisationService.GetString("SettingsUi.WindowTitle", "Snowcloak Settings"), performanceCollector)
     {
         _localisationService = localisationService;
@@ -107,7 +106,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _registerService = registerService;
         _fileCompactor = fileCompactor;
         _uiShared = uiShared;
-        _capabilityRegistry = capabilityRegistry;
         AllowClickthrough = false;
         AllowPinning = false;
         _validationProgress = new Progress<(int, int, FileCacheEntity)>(v => _currentProgress = v);
@@ -701,30 +699,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     ImGui.TextUnformatted(string.Join(", ", pair.HoldApplicationReasons));
                 }
             }
-        }
-        ImGui.Separator();
-        _uiShared.BigText(L("Advanced.Capabilities.Header", "Client Capability Levels"));
-        ImGui.TextWrapped(L("Advanced.Capabilities.Description", "This section details the current capability levels of your client. This information is " +
-                                                                 "primarily used for debugging purposes, and will be used in future version to " +
-                                                                 "ensure servers communicate with your client in a way it can understand."));
-        var capabilities = _capabilityRegistry.GetCapabilities();
-        if (ImGui.BeginTable("capabilities", 2))
-        {
-            ImGui.TableSetupColumn(
-                L("Advanced.Capabilities.Function", "Function"));
-            ImGui.TableSetupColumn(L("Advanced.Capabilities.Level", "Capability Level"));
-
-            ImGui.TableHeadersRow();
-            foreach (var item in capabilities)
-            {
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(_capabilityRegistry.GetCapabilityFullName(item.Key));
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(item.Value.ToString());
-            }
-
-            ImGui.EndTable();
         }
     }
 

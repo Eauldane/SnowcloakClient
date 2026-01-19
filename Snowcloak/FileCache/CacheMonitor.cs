@@ -18,7 +18,6 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     private readonly FileCompactor _fileCompactor;
     private readonly FileCacheManager _fileDbManager;
     private readonly IpcManager _ipcManager;
-    private readonly CapabilityRegistry _capabilityRegistry;
     private readonly DatabaseService _databaseService;
     private readonly IChatGui _chatGui;
     private readonly PerformanceCollectorService _performanceCollector;
@@ -29,7 +28,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
 
     public CacheMonitor(ILogger<CacheMonitor> logger, IpcManager ipcManager, SnowcloakConfigService configService,
         FileCacheManager fileDbManager, SnowMediator mediator, PerformanceCollectorService performanceCollector, DalamudUtilService dalamudUtil,
-        FileCompactor fileCompactor, CapabilityRegistry capabilityRegistry, DatabaseService databaseService,
+        FileCompactor fileCompactor, DatabaseService databaseService,
         IChatGui chatGui) : base(logger, mediator)
     {
         _ipcManager = ipcManager;
@@ -38,7 +37,6 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         _performanceCollector = performanceCollector;
         _dalamudUtil = dalamudUtil;
         _fileCompactor = fileCompactor;
-        _capabilityRegistry = capabilityRegistry;
         _databaseService = databaseService;
         _chatGui = chatGui;
 
@@ -97,10 +95,6 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                 await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
             }
         }, token);
-        capabilityRegistry.RegisterCapability("SCF", 2.0f);
-        capabilityRegistry.RegisterCapability("Hash", 2.0f);
-        capabilityRegistry.RegisterCapability("Compress", 2.0f);
-
     }
 
     public long CurrentFileProgress => _currentFileProgress;

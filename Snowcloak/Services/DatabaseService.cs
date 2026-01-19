@@ -11,7 +11,6 @@ namespace Snowcloak.Services;
 
 public class DatabaseService : IAsyncDisposable
 {
-    private readonly CapabilityRegistry _capabilityRegistry;
     private readonly SnowcloakConfigService _configService;
     private readonly ILogger<DatabaseService> _logger;
     private readonly string _databasePath;
@@ -41,10 +40,9 @@ public class DatabaseService : IAsyncDisposable
     private readonly Task _queueWorker;
 
 
-    public DatabaseService(CapabilityRegistry capabilityRegistry, SnowcloakConfigService configService,
+    public DatabaseService(SnowcloakConfigService configService,
         ILogger<DatabaseService> logger)
     {
-        _capabilityRegistry = capabilityRegistry;
         _logger = logger;
         _configService = configService;
         _databasePath = Path.Combine(configService.ConfigurationDirectory, "Snowcloak.sqlite");
@@ -55,7 +53,6 @@ public class DatabaseService : IAsyncDisposable
         _connectionString = connStringBuilder.ToString();
 
         InitDB();
-        _capabilityRegistry.RegisterCapability("ClientDB", _clientDBVersion);
         _cleanupTask = Task.Run(() => PeriodicCleanupAsync(_cleanupCts.Token));
         _queueWorker = Task.Run(() => ProcessFileSeenQueueAsync(_queueCts.Token));
     }

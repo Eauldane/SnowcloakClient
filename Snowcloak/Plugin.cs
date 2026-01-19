@@ -93,8 +93,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton(_ => partyList);
 
             // add snow related singletons
-            collection.AddSingleton<CapabilityRegistry>();
-
             collection.AddSingleton<SnowMediator>();
             collection.AddSingleton<FileCacheManager>();
             collection.AddSingleton<DatabaseService>();
