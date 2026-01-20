@@ -128,12 +128,32 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         {
             if (needAnalysis)
             {
-                UiSharedService.ColorTextWrapped("Some entries in the analysis have file size not determined yet, press the button below to analyze your current data",
-                    ImGuiColors.DalamudYellow);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
+                var drawList = ImGui.GetWindowDrawList();
+                var cursorPos = ImGui.GetCursorPos();
+                var padding = new Vector2(10f, 8f);
+                ImGui.SetCursorPos(cursorPos + padding);
+                drawList.ChannelsSplit(2);
+                drawList.ChannelsSetCurrent(1);
+                using (ImRaii.Group())
                 {
-                    _ = _characterAnalyzer.ComputeAnalysis(print: false);
+                    using (ImRaii.PushFont(UiBuilder.IconFont))
+                    {
+                        ImGui.TextUnformatted(FontAwesomeIcon.ExclamationTriangle.ToIconString());
+                    }
+                    ImGui.SameLine();
+                    UiSharedService.ColorText("Analysis incomplete", ImGuiColors.DalamudYellow);
+                    UiSharedService.ColorTextWrapped("Run the analysis to fill missing file sizes and calculate accurate download totals.", ImGuiColors.DalamudGrey);
+                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
+                    {
+                        _ = _characterAnalyzer.ComputeAnalysis(print: false);
+                    }
                 }
+                var min = ImGui.GetItemRectMin();
+                var max = ImGui.GetItemRectMax();
+                drawList.ChannelsSetCurrent(0);
+                drawList.AddRectFilled(min - padding, max + padding, UiSharedService.Color(new Vector4(0.16f, 0.16f, 0.16f, 0.9f)), 6f);
+                drawList.AddRect(min - padding, max + padding, UiSharedService.Color(ImGuiColors.DalamudYellow), 6f);
+                drawList.ChannelsMerge();
             }
             else
             {
