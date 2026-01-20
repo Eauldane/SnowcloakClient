@@ -3,6 +3,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
@@ -12,6 +13,7 @@ using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
+using System.Numerics;
 
 namespace Snowcloak.UI.Components;
 
@@ -131,8 +133,8 @@ public class DrawGroupPair : DrawPairBase
     protected override float DrawRightSide(float textPosY, float originalY)
     {
         var pauseIcon = _pair.IsPaused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
-        var pauseIconSize = _uiSharedService.GetIconButtonSize(pauseIcon);
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
+        var actionSpacing = spacingX + (6f * ImGuiHelpers.GlobalScale);
         var entryUID = _fullInfoDto.UserAliasOrUID;
         var entryIsMod = _fullInfoDto.GroupPairStatusInfo.IsModerator();
         var entryIsOwner = string.Equals(_pair.UserData.UID, _group.OwnerUID, StringComparison.Ordinal);
@@ -152,7 +154,6 @@ public class DrawGroupPair : DrawPairBase
         bool showPlus = _pair.UserPair == null;
         bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !_pair.IsPaused;
         bool showPause = true; 
-        var spacing = ImGui.GetStyle().ItemSpacing.X;
         var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled) ? FontAwesomeIcon.ExclamationTriangle
             : ((soundsDisabled || animDisabled || vfxDisabled) ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
         var runningIconWidth = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Running).X;
@@ -161,20 +162,16 @@ public class DrawGroupPair : DrawPairBase
         var pauseButtonWidth = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus).X;
 
         var barButtonWidth = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Bars).X;
-        var barButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Bars);
-
-        var windowEndX = ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth();
-        var rightSidePos = windowEndX - barButtonSize.X;
-
-
-        var pos = ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() + spacing
-            - (showShared ? (runningIconWidth + spacing) : 0)
-            - (showInfo ? (infoIconWidth + spacing) : 0)
-            - (showPlus ? (plusButtonWidth + spacing) : 0)
-            - (showPause ? (pauseButtonWidth + spacing) : 0)
-            - (showBars ? (barButtonWidth + spacing) : 0);
+        var pos = ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() + actionSpacing
+            - (showShared ? (runningIconWidth + actionSpacing) : 0)
+            - (showInfo ? (infoIconWidth + actionSpacing) : 0)
+            - (showPlus ? (plusButtonWidth + actionSpacing) : 0)
+            - (showPause ? (pauseButtonWidth + actionSpacing) : 0)
+            - (showBars ? (barButtonWidth + actionSpacing) : 0);
 
         ImGui.SameLine(pos);
+
+        using var actionSpacingStyle = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(actionSpacing, ImGui.GetStyle().ItemSpacing.Y));
 
         if (showShared)
         {
@@ -325,10 +322,14 @@ public class DrawGroupPair : DrawPairBase
         {
             ImGui.SetCursorPosY(originalY);
 
-            if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
+            using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
             {
-                ImGui.OpenPopup("Popup");
+                if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
+                {
+                    ImGui.OpenPopup("Popup");
+                }
             }
+            UiSharedService.AttachToolTip("More actions");
         }
         if (ImGui.BeginPopup("Popup"))
         {
@@ -470,6 +471,6 @@ public class DrawGroupPair : DrawPairBase
             ImGui.EndPopup();
         }
 
-        return pos - spacing;
+        return pos - spacingX;
     }
 }

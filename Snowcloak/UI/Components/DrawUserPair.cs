@@ -108,6 +108,7 @@ public class DrawUserPair : DrawPairBase
         var barButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Bars);
         var entryUID = _pair.UserData.AliasOrUID;
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
+        var actionSpacing = spacingX + (6f * ImGuiHelpers.GlobalScale);
         var windowEndX = ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth();
         var rightSidePos = windowEndX - barButtonSize.X;
 
@@ -116,10 +117,14 @@ public class DrawUserPair : DrawPairBase
         ImGui.SetCursorPosY(originalY);
         
         var flyoutMenuTitle = "User Flyout Menu";
-        if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
+        using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
         {
-            ImGui.OpenPopup(flyoutMenuTitle);
+            if (_uiSharedService.IconButton(FontAwesomeIcon.Bars))
+            {
+                ImGui.OpenPopup(flyoutMenuTitle);
+            }
         }
+        UiSharedService.AttachToolTip("More actions");
         if (ImGui.BeginPopup(flyoutMenuTitle))
         {
             using (ImRaii.PushId($"buttons-{_pair.UserData.UID}")) DrawPairedClientMenu(_pair);
@@ -129,7 +134,7 @@ public class DrawUserPair : DrawPairBase
         // Pause (mutual pairs only)
         if (_pair.UserPair!.OwnPermissions.IsPaired() && _pair.UserPair!.OtherPermissions.IsPaired())
         {
-            rightSidePos -= pauseIconSize.X + spacingX;
+            rightSidePos -= pauseIconSize.X + actionSpacing;
             ImGui.SameLine(rightSidePos);
             ImGui.SetCursorPosY(originalY);
             if (_uiSharedService.IconButton(pauseIcon))
@@ -153,7 +158,7 @@ public class DrawUserPair : DrawPairBase
                 var icon = FontAwesomeIcon.ExclamationTriangle;
                 var iconwidth = _uiSharedService.GetIconButtonSize(icon);
 
-                rightSidePos -= iconwidth.X + spacingX / 2f;
+                rightSidePos -= iconwidth.X + spacingX;
                 ImGui.SameLine(rightSidePos);
 
                 ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
@@ -208,7 +213,7 @@ public class DrawUserPair : DrawPairBase
         {
             var icon = FontAwesomeIcon.Running;
             var iconwidth = _uiSharedService.GetIconButtonSize(icon);
-            rightSidePos -= iconwidth.X + spacingX / 2f;
+            rightSidePos -= iconwidth.X + spacingX;
             ImGui.SameLine(rightSidePos);
             _uiSharedService.IconText(icon);
 
