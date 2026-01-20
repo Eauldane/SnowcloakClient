@@ -290,8 +290,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                             ImGui.SameLine();
                             UiSharedService.ColorText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
                             UiSharedService.ColorTextWrapped("- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
-                                    Environment.NewLine + "- Format selection is automatic based on texture traits: greyscale -> BC4, normal maps -> BC5, opaque RGB -> BC1, otherwise -> BC7." + 
-                                    Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
+                            Environment.NewLine + "- Snowcloak automatically selects a recommended format based on texture traits." +
+                            Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
                             Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
                             Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
                             Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
@@ -398,7 +398,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         if (string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal))
         {
             ImGui.TableSetupColumn("Format");
-            if (_enableTextureConversionMode) ImGui.TableSetupColumn("Convert to BC7");
+            if (_enableTextureConversionMode) ImGui.TableSetupColumn("Convert to...");
         }
         if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
         {
@@ -509,8 +509,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         ImGui.SameLine();
                         _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
-                        UiSharedService.AttachToolTip("Texture flagged as risky for BC7 conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");
-                        if (!toConvert)
+                        UiSharedService.AttachToolTip("Texture flagged as risky for conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");                        if (!toConvert)
                         {
                             _texturesToConvert.Remove(filePath);
                         }
@@ -546,7 +545,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
     private static bool IsRiskyConversion(CharacterAnalyzer.FileDataEntry item)
     {
-        return item.IsRiskyTexture && GetConversionType(item) == TextureType.Bc7Tex;
+        return item.IsRiskyTexture;
     }
 
     private static string GetConversionLabel(TextureType textureType)

@@ -255,7 +255,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                 new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Nameplates are now coloured with vanity colours if a user has one set.",
-                    "Server restarts should be handled a bit more fgracefully by the client now.",
+                    "Server restarts should be handled a bit more gracefully by the client now.",
                     "Fixed the wrong error message being shown sometimes in a certain place."
                 ])
             ]),
