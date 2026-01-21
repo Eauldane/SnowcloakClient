@@ -78,7 +78,7 @@ public sealed class PendingPairRequestSection
         if (indent)
             ImGui.Indent(20 * ImGuiHelpers.GlobalScale);
 
-        ImGui.TextUnformatted("Notes will be auto-filled with the sender's name when you accept.");
+        ImGui.TextWrapped("Notes will be auto-filled with the sender's name when you accept.");
 
         if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
         {

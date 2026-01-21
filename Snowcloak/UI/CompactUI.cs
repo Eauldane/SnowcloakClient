@@ -530,10 +530,30 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private void DrawAddPair()
     {
+        var framePadding = ImGui.GetStyle().FramePadding;
+        var tallPadding = new Vector2(framePadding.X, framePadding.Y + 4f * ImGuiHelpers.GlobalScale);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, tallPadding);
         var buttonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X - buttonSize.X);
+        var clearButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Times);
+        var searchIconWidth = _uiSharedService.GetIconData(FontAwesomeIcon.Search).X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        ImGui.AlignTextToFramePadding();
+        _uiSharedService.IconText(FontAwesomeIcon.Search);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth()
+            - ImGui.GetWindowContentRegionMin().X
+            - searchIconWidth
+            - clearButtonSize.X
+            - buttonSize.X
+            - spacing * 3);
         ImGui.InputTextWithHint("##otheruid", "Other players UID/Alias", ref _pairToAdd, 20);
-        ImGui.SameLine(ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() - buttonSize.X);
+        ImGui.SameLine();
+        if (_uiSharedService.IconButton(FontAwesomeIcon.Times))
+        {
+            _pairToAdd = string.Empty;
+        }
+        UiSharedService.AttachToolTip("Clear");
+        ImGui.SameLine();
         var canAdd = !_pairManager.DirectPairs.Any(p => string.Equals(p.UserData.UID, _pairToAdd, StringComparison.Ordinal) || string.Equals(p.UserData.Alias, _pairToAdd, StringComparison.Ordinal));
         using (ImRaii.Disabled(!canAdd))
         {
@@ -542,8 +562,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _ = _apiController.UserAddPair(new(new(_pairToAdd)));
                 _pairToAdd = string.Empty;
             }
-            UiSharedService.AttachToolTip(string.Format("Pair with {0}", _pairToAdd.IsNullOrEmpty() ? "other user" : _pairToAdd));
+            UiSharedService.AttachToolTip(string.Format("Send pair request to {0}", _pairToAdd.IsNullOrEmpty() ? "another player" : _pairToAdd));
         }
+        ImGui.PopStyleVar();
 
         ImGuiHelpers.ScaledDummy(2);
     }

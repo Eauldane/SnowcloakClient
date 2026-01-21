@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
@@ -260,8 +261,21 @@ public class FrostbrandPanel
         _uiShared.BigText("Pending pair requests");
         if (_pendingPairRequestSection.PendingCount == 0)
         {
-            ImGui.TextDisabled("No pending pair requests right now.");
-            return;
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 6));
+            ImGui.BeginGroup();
+            _uiShared.IconText(FontAwesomeIcon.UserPlus, ImGui.GetColorU32(ImGuiCol.TextDisabled));
+            ImGui.SameLine();
+            ImGui.BeginGroup();
+            ImGui.TextUnformatted("No pending pair requests right now.");
+            ImGui.TextWrapped("Pair requests appear here when a nearby Frostbrand user sends you a request while you're opted in.");
+            ImGui.TextDisabled("Need to fine-tune who can send a request? Head to the settings tab and set some filters.");
+            ImGui.EndGroup();
+            ImGui.EndGroup();
+            ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
+            if (_uiShared.IconTextButton(FontAwesomeIcon.Cog, "Open Frostbrand settings"))
+            {
+                _activeView = FrostbrandPanelView.Settings;
+            }            return;
         }
 
         _pendingPairRequestSection.Draw(tagHandler: null, localisationPrefix: _localisationPrefix, indent: false);

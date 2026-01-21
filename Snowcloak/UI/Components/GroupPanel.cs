@@ -91,10 +91,30 @@ internal sealed class GroupPanel
 
     private void DrawAddSyncshell()
     {
+        var framePadding = ImGui.GetStyle().FramePadding;
+        var tallPadding = new Vector2(framePadding.X, framePadding.Y + 4f * ImGuiHelpers.GlobalScale);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, tallPadding);
         var buttonSize = _uiShared.GetIconButtonSize(FontAwesomeIcon.Plus);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X - buttonSize.X);
+        var clearButtonSize = _uiShared.GetIconButtonSize(FontAwesomeIcon.Times);
+        var searchIconWidth = _uiShared.GetIconData(FontAwesomeIcon.Search).X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        ImGui.AlignTextToFramePadding();
+        _uiShared.IconText(FontAwesomeIcon.Search);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth()
+            - ImGui.GetWindowContentRegionMin().X
+            - searchIconWidth
+            - clearButtonSize.X
+            - buttonSize.X
+            - spacing * 3);
         ImGui.InputTextWithHint("##syncshellid", "Syncshell GID/Alias (leave empty to create)", ref _syncShellToJoin, 20);
-        ImGui.SameLine(ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth() - buttonSize.X);
+        ImGui.SameLine();
+        if (_uiShared.IconButton(FontAwesomeIcon.Times))
+        {
+            _syncShellToJoin = string.Empty;
+        }
+        UiSharedService.AttachToolTip("Clear");
+        ImGui.SameLine();
 
         bool userCanJoinMoreGroups = _pairManager.GroupPairs.Count < ApiController.ServerInfo.MaxGroupsJoinedByUser;
         bool userCanCreateMoreGroups = _pairManager.GroupPairs.Count(u => string.Equals(u.Key.Owner.UID, ApiController.UID, StringComparison.Ordinal)) < ApiController.ServerInfo.MaxGroupsCreatedByUser;
@@ -125,10 +145,11 @@ internal sealed class GroupPanel
             }
         }
         UiSharedService.AttachToolTip(_syncShellToJoin.IsNullOrEmpty()
-            ? (userCanCreateMoreGroups ? "Create Syncshell" : string.Format(CultureInfo.CurrentCulture, "You cannot create more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsCreatedByUser))
-            : (userCanJoinMoreGroups ? string.Format(CultureInfo.CurrentCulture, "Join Syncshell{0}", _syncShellToJoin) : string.Format(CultureInfo.CurrentCulture, "You cannot join more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsJoinedByUser)));
+            ? (userCanCreateMoreGroups ? "Create a new Syncshell" : string.Format(CultureInfo.CurrentCulture, "You cannot create more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsCreatedByUser))
+            : (userCanJoinMoreGroups ? string.Format(CultureInfo.CurrentCulture, "Join Syncshell {0}", _syncShellToJoin) : string.Format(CultureInfo.CurrentCulture, "You cannot join more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsJoinedByUser)));
 
         if (alreadyInGroup) ImGui.EndDisabled();
+        ImGui.PopStyleVar();
 
         var enterPasswordTitle = "Enter Syncshell Password";
         if (ImGui.BeginPopupModal(enterPasswordTitle, ref _showModalEnterPassword, UiSharedService.PopupWindowFlags))
