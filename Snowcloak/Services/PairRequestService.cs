@@ -54,7 +54,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private DateTime _lastNearbyAvailabilityCheck = DateTime.MinValue;
     private string _localPlayerIdent = string.Empty;
     // Fallback frequency for polling when the push channel is unavailable; capped to once per minute.
-    private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan NearbyAvailabilityPollInterval = TimeSpan.FromSeconds(5);
     private const int MaxNearbySnapshot = 1024;
     private bool _advertisingPairing;
     private bool _pushChannelAvailable;
