@@ -268,7 +268,7 @@ public class FrostbrandPanel
             ImGui.BeginGroup();
             ImGui.TextUnformatted("No pending pair requests right now.");
             ImGui.TextWrapped("Pair requests appear here when a nearby Frostbrand user sends you a request while you're opted in.");
-            ImGui.TextDisabled("Need to fine-tune who can send a request? Head to the settings tab and set some filters.");
+            ImGui.TextColoredWrapped(ImGuiColors.DalamudGrey, "Need to fine-tune who can send a request? Head to the settings tab and set some filters.");
             ImGui.EndGroup();
             ImGui.EndGroup();
             ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
