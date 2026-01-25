@@ -28,9 +28,9 @@
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
-        "requested": "[1.2.39, )",
-        "resolved": "1.2.39",
-        "contentHash": "fcFN01tDTIQqDuTwr1jUQK/geofiwjG5DycJQOnC72i1SsLAk1ELe+apBOuZ11UMQG8YKFZG1FgvjZPbqHyatg=="
+        "requested": "[2.0.1, )",
+        "resolved": "2.0.1",
+        "contentHash": "8rbExxnDIsdpJ16tmX7jwXZYA864OXQhAvQRPX+LLaxDPI1eCTWg6AZP85dJrOLv1Ib9fp0KGKY+zHgnSBSamQ=="
       },
       "Downloader": {
         "type": "Direct",
@@ -85,9 +85,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[2.0.283, )",
-        "resolved": "2.0.283",
-        "contentHash": "Z18QNFDMAMcqEQh9+VzmN9Pv1QkaE3//QlMxausDG2MLwXOn9XayzOUxlb2yh+l2gEEzsTleF9UOAgSPLM+vlw=="
+        "requested": "[2.0.285, )",
+        "resolved": "2.0.285",
+        "contentHash": "4tOIGeAfpYsjccmKnA+rEXImeBd7waFotQoJH9MOXeQ+2vE+joitXaItH9hHt8zgKTx9J6ptvEYNF2kO8guSYw=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",

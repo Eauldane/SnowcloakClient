@@ -93,5 +93,4 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public string LastSeenPatchNotesVersion { get; set; } = "1.0.0";
     public bool PairRequestFriendsOnly { get; set; } = false;
     public bool HoldUploadsUntilInRange { get; set; } = false;
-    public bool ForceZstdCompressionForScf { get; set; } = true;
 }

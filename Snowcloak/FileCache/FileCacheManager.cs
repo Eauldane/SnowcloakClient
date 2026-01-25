@@ -222,11 +222,6 @@ public sealed class FileCacheManager : IHostedService
 
     private CompressionType ChooseCompressionType(string filePath, FileExtension fileExtension)
     {
-        if (_configService.Current.ForceZstdCompressionForScf)
-        {
-            return CompressionType.ZSTD;
-        }
-
         switch (fileExtension)
         {
             case FileExtension.TEX:
