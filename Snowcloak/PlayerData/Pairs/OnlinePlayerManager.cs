@@ -4,6 +4,7 @@ using System.Linq;
 using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Handlers;
+using Snowcloak.API.Data.Comparer;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
@@ -19,6 +20,7 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
     private readonly DalamudUtilService _dalamudUtil;
     private readonly FileUploadManager _fileTransferManager;
     private readonly HashSet<PairHandler> _newVisiblePlayers = [];
+    private readonly HashSet<UserData> _pendingVisibleUsers = new(UserDataComparer.Instance);
     private readonly PairManager _pairManager;
     private readonly SnowcloakConfigService _configService;
     private CharacterData? _lastSentData;
@@ -40,14 +42,29 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
             {
                 Logger.LogDebug("Pushing data for visible players");
                 _lastSentData = newData;
-                PushCharacterData(_pairManager.GetVisibleUsers());
+                var visibleUsers = _pairManager.GetVisibleUsers();
+                var pendingVisibleUsers = ConsumePendingVisibleUsers();
+                if (pendingVisibleUsers.Any())
+                {
+                    visibleUsers = visibleUsers.Union(pendingVisibleUsers, UserDataComparer.Instance).ToList();
+                }
+                PushCharacterData(visibleUsers);
+                
             }
             else
             {
                 Logger.LogDebug("Not sending data for {hash}", newData.DataHash.Value);
             }
         });
-        Mediator.Subscribe<PairHandlerVisibleMessage>(this, (msg) => _newVisiblePlayers.Add(msg.Player));
+        Mediator.Subscribe<PairHandlerVisibleMessage>(this, (msg) =>
+        {
+            if (_lastSentData == null)
+            {
+                _pendingVisibleUsers.Add(msg.Player.Pair.UserData);
+                return;
+            }
+            _newVisiblePlayers.Add(msg.Player);
+        });
         Mediator.Subscribe<ConnectedMessage>(this, (_) => PushCharacterData(_pairManager.GetVisibleUsers()));
     }
 
@@ -81,5 +98,15 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
             if (visiblePlayers.Any())
                 await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false); 
         });
+    }
+    
+    
+    private List<UserData> ConsumePendingVisibleUsers()
+    {
+        if (!_pendingVisibleUsers.Any())
+            return [];
+        var pending = _pendingVisibleUsers.ToList();
+        _pendingVisibleUsers.Clear();
+        return pending;
     }
 }
