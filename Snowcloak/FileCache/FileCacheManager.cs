@@ -224,10 +224,17 @@ public sealed class FileCacheManager : IHostedService
     {
         switch (fileExtension)
         {
+            // BCn are already block compressed, use LZ4 to save watts
             case FileExtension.TEX:
                 return IsBcnTex(filePath) ? CompressionType.LZ4 : CompressionType.ZSTD;
             case FileExtension.DDS:
                 return IsBcnDds(filePath) ? CompressionType.LZ4 : CompressionType.ZSTD;
+            // SCD is usually OGG, so no savings from ZSTD
+            case FileExtension.SCD:
+                return CompressionType.LZ4;
+            // Shader packs... probably compiled binaries? Google is being a bitch, correct this later if needed.
+            case FileExtension.SHPK:
+                return CompressionType.LZ4;
             default:
                 return CompressionType.ZSTD;
         }
