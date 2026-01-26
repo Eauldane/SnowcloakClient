@@ -124,5 +124,6 @@ public record PluginChangeMessage(string InternalName, Version Version, bool IsL
 public record PairingAvailabilityChangedMessage : MessageBase;
 public record PairingRequestReceivedMessage(PairingRequestDto Request) : MessageBase;
 public record PairingRequestListChangedMessage : MessageBase;
+public record StandardChannelMembershipChangedMessage(ChatChannelData Channel, bool IsJoined) : MessageBase;
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name

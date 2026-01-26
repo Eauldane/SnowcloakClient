@@ -78,6 +78,8 @@ public interface ISnowHub
     Task ChannelUnban(ChannelUnbanDto unbanDto);
     Task ChannelSetMode(ChannelModeUpdateDto modeUpdateDto);
     Task ChannelSetRole(ChannelRoleUpdateDto roleUpdateDto);
+    Task ChannelSetTopic(ChannelTopicUpdateDto topicUpdateDto);
+    Task<List<ChannelDto>> ChannelList();
 
     Task GroupBanUser(GroupPairDto dto, string reason);
 

@@ -59,4 +59,16 @@ public partial class ApiController
         CheckConnection();
         await _snowHub!.SendAsync(nameof(ChannelSetRole), roleUpdateDto).ConfigureAwait(false);
     }
+
+    public async Task ChannelSetTopic(ChannelTopicUpdateDto topicUpdateDto)
+    {
+        CheckConnection();
+        await _snowHub!.SendAsync(nameof(ChannelSetTopic), topicUpdateDto).ConfigureAwait(false);
+    }
+
+    public async Task<List<ChannelDto>> ChannelList()
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<List<ChannelDto>>(nameof(ChannelList)).ConfigureAwait(false);
+    }
 }
