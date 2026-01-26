@@ -1,4 +1,5 @@
-﻿using Snowcloak.API.Dto;
+﻿using Snowcloak.API.Data;
+using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.Chat;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -70,5 +71,17 @@ public partial class ApiController
     {
         CheckConnection();
         return await _snowHub!.InvokeAsync<List<ChannelDto>>(nameof(ChannelList)).ConfigureAwait(false);
+    }
+
+    public async Task<List<ChannelMemberDto>> ChannelGetMembers(ChannelDto channel)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<List<ChannelMemberDto>>(nameof(ChannelGetMembers), channel).ConfigureAwait(false);
+    }
+
+    public async Task ChannelChatSendMsg(ChannelDto channel, ChatMessage message)
+    {
+        CheckConnection();
+        await _snowHub!.SendAsync(nameof(ChannelChatSendMsg), channel, message).ConfigureAwait(false);
     }
 }

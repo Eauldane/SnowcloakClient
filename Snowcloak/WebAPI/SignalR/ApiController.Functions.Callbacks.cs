@@ -35,6 +35,27 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_ChannelChatMsg(ChannelChatMsgDto channelChatMsgDto)
+    {
+        Logger.LogDebug("Client_ChannelChatMsg: {msg}", channelChatMsgDto.Message);
+        Mediator.Publish(new ChannelChatMsgMessage(channelChatMsgDto.Channel, channelChatMsgDto.Message));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_ChannelMemberJoined(ChannelMemberJoinedDto channelMemberJoinedDto)
+    {
+        Logger.LogDebug("Client_ChannelMemberJoined: {member}", channelMemberJoinedDto.User);
+        Mediator.Publish(new ChannelMemberJoinedMessage(channelMemberJoinedDto));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_ChannelMemberLeft(ChannelMemberLeftDto channelMemberLeftDto)
+    {
+        Logger.LogDebug("Client_ChannelMemberLeft: {member}", channelMemberLeftDto.User);
+        Mediator.Publish(new ChannelMemberLeftMessage(channelMemberLeftDto));
+        return Task.CompletedTask;
+    }
+
     public Task Client_GroupPairChangePermissions(GroupPairUserPermissionDto dto)
     {
         Logger.LogTrace("Client_GroupPairChangePermissions: {dto}", dto);
@@ -294,6 +315,24 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_GroupChatMsg), act);
+    }
+
+    public void OnChannelChatMsg(Action<ChannelChatMsgDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_ChannelChatMsg), act);
+    }
+
+    public void OnChannelMemberJoined(Action<ChannelMemberJoinedDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_ChannelMemberJoined), act);
+    }
+
+    public void OnChannelMemberLeft(Action<ChannelMemberLeftDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_ChannelMemberLeft), act);
     }
 
     public void OnGroupPairChangePermissions(Action<GroupPairUserPermissionDto> act)

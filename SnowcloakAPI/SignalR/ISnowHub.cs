@@ -21,6 +21,9 @@ public interface ISnowHub
     Task Client_GroupChangePermissions(GroupPermissionDto groupPermission);
 
     Task Client_GroupChatMsg(GroupChatMsgDto groupChatMsgDto);
+    Task Client_ChannelChatMsg(ChannelChatMsgDto channelChatMsgDto);
+    Task Client_ChannelMemberJoined(ChannelMemberJoinedDto channelMemberJoinedDto);
+    Task Client_ChannelMemberLeft(ChannelMemberLeftDto channelMemberLeftDto);
 
     Task Client_GroupDelete(GroupDto groupDto);
 
@@ -80,6 +83,7 @@ public interface ISnowHub
     Task ChannelSetRole(ChannelRoleUpdateDto roleUpdateDto);
     Task ChannelSetTopic(ChannelTopicUpdateDto topicUpdateDto);
     Task<List<ChannelDto>> ChannelList();
+    Task<List<ChannelMemberDto>> ChannelGetMembers(ChannelDto channel);
 
     Task GroupBanUser(GroupPairDto dto, string reason);
 
@@ -121,6 +125,8 @@ public interface ISnowHub
     Task UserAddPair(UserDto user);
 
     Task UserChatSendMsg(UserDto user, ChatMessage message);
+
+    Task ChannelChatSendMsg(ChannelDto channel, ChatMessage message);
 
     Task UserDelete();
 

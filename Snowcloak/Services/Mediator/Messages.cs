@@ -15,6 +15,7 @@ using Snowcloak.Services.Housing;
 using Snowcloak.Services.Venue;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.Chat;
 
 namespace Snowcloak.Services.Mediator;
 
@@ -100,6 +101,9 @@ public record PenumbraDirectoryChangedMessage(string? ModDirectory) : MessageBas
 public record PenumbraRedrawCharacterMessage(ICharacter Character) : SameThreadMessage;
 public record UserChatMsgMessage(SignedChatMessage ChatMsg) : MessageBase;
 public record GroupChatMsgMessage(GroupDto GroupInfo, SignedChatMessage ChatMsg) : MessageBase;
+public record ChannelChatMsgMessage(ChannelDto ChannelInfo, SignedChatMessage ChatMsg) : MessageBase;
+public record ChannelMemberJoinedMessage(ChannelMemberJoinedDto Member) : MessageBase;
+public record ChannelMemberLeftMessage(ChannelMemberLeftDto Member) : MessageBase;
 public record RecalculatePerformanceMessage(string? UID) : MessageBase;
 public record NameplateRedrawMessage : MessageBase;
 public record HoldPairApplicationMessage(string UID, string Source) : KeyedMessage(UID);

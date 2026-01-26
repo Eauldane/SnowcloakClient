@@ -74,8 +74,6 @@ public class ChatService : DisposableMediatorSubscriberBase
         var senderDisplay = ResolveChatDisplayName(chatMsg.Sender);
         var prefix = new SeStringBuilder();
         prefix.AddText("[SnowChat] ");
-        prefix.AddText(senderDisplay);
-        prefix.AddText(": ");
         _chatGui.Print(new XivChatEntry{
             MessageBytes = [..prefix.Build().Encode(), ..message.ChatMsg.PayloadContent],
             Name = senderDisplay,

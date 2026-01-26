@@ -38,14 +38,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly List<ChatChannelData> _standardChannels = [];
     private readonly Dictionary<string, ChatChannelData> _standardChannelLookup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _joinedStandardChannels = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<ChannelMemberDto>> _standardChannelMembers = new(StringComparer.Ordinal);
     private ChatChannelKey? _selectedChannel;
     private string _pendingMessage = string.Empty;
     private bool _autoScroll = true;
-    private string _standardChannelNameInput = string.Empty;
-    private string _standardChannelTopicInput = string.Empty;
-    private bool _standardChannelPrivateInput;
     private string _standardChannelTopicDraft = string.Empty;
-    private bool _standardChannelListLoading;
+    private bool _isEditingStandardChannelTopic;
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ApiController apiController,
         PairManager pairManager, ServerConfigurationManager serverManager, PerformanceCollectorService performanceCollectorService)
@@ -63,14 +61,21 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         Mediator.Subscribe<GroupChatMsgMessage>(this, message => AddGroupMessage(message));
         Mediator.Subscribe<UserChatMsgMessage>(this, message => AddDirectMessage(message.ChatMsg));
+        Mediator.Subscribe<ChannelChatMsgMessage>(this, message => AddStandardChannelMessage(message));
+        Mediator.Subscribe<ChannelMemberJoinedMessage>(this, message => HandleStandardChannelMemberJoined(message.Member));
+        Mediator.Subscribe<ChannelMemberLeftMessage>(this, message => HandleStandardChannelMemberLeft(message.Member));
         Mediator.Subscribe<ConnectedMessage>(this, _message =>
         {
             _ = RefreshStandardChannels();
+            _ = AutoJoinStandardChannels();
         });
         Mediator.Subscribe<DisconnectedMessage>(this, message =>
         {
             ClearStandardChannels();
         });
+        Mediator.Subscribe<StandardChannelMembershipChangedMessage>(this, message => OnStandardChannelMembershipChanged(message));
+
+        LoadSavedStandardChannels();
     }
 
     protected override void DrawInternal()
@@ -102,9 +107,16 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         DrawChannelList(listWidth);
         ImGui.SameLine();
-        DrawChatLog(centerWidth);
+        DrawChatCenter(centerWidth);
         ImGui.SameLine();
         DrawMemberList(memberWidth);
+    }
+
+    private void DrawChatCenter(float width)
+    {
+        using var _ = ImRaii.Child("ChatCenter", new Vector2(width, -1), false);
+        DrawChannelHeader();
+        DrawChatLog();
     }
 
     private void DrawChannelList(float width)
@@ -113,12 +125,57 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.TextUnformatted("Channels");
         ImGui.Separator();
 
-        DrawStandardChannelControls();
-        DrawChannelSection("Standard Channels", ChannelKind.Standard, GetStandardChannels());
+        DrawStandardChannelSection();
         ImGui.Separator();
         DrawChannelSection("Syncshells", ChannelKind.Syncshell, GetSyncshellChannels());
         ImGui.Separator();
         DrawChannelSection("Direct Messages", ChannelKind.Direct, GetDirectChannels());
+    }
+
+    private void DrawStandardChannelSection()
+    {
+        using (var header = ImRaii.TreeNode("Standard Channels"))
+        {
+            if (header.Success)
+            {
+                var channels = GetJoinedStandardChannels();
+                if (channels.Count == 0)
+                {
+                    UiSharedService.ColorTextWrapped("No joined standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+                }
+                else
+                {
+                    foreach (var channel in channels)
+                    {
+                        var key = new ChatChannelKey(ChannelKind.Standard, channel.Id);
+                        var displayName = GetChannelDisplayName(ChannelKind.Standard, channel.Id, channel.Name);
+                        var isSelected = _selectedChannel.HasValue && _selectedChannel.Value.Equals(key);
+                        if (ImGui.Selectable(displayName, isSelected))
+                        {
+                            SetSelectedChannel(key);
+                        }
+                    }
+                }
+            }
+        }
+
+        var buttonWidth = ImGui.GetContentRegionAvail().X;
+        if (ImGui.Button("Browse Channels", new Vector2(buttonWidth, 0)))
+        {
+            Mediator.Publish(new UiToggleMessage(typeof(StandardChannelDirectoryWindow)));
+        }
+
+        if (ImGui.Button("Create Channel", new Vector2(buttonWidth, 0)))
+        {
+            Mediator.Publish(new UiToggleMessage(typeof(StandardChannelCreateWindow)));
+        }
+
+        var joinedChannels = GetJoinedStandardChannels();
+        if (_selectedChannel == null && joinedChannels.Count > 0)
+        {
+            var first = joinedChannels[0];
+            SetSelectedChannel(new ChatChannelKey(ChannelKind.Standard, first.Id));
+        }
     }
 
     private void DrawChannelSection(string label, ChannelKind kind, List<(string Id, string Name)> channels)
@@ -145,9 +202,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawChatLog(float width)
+    private void DrawChatLog()
     {
-        using var _ = ImRaii.Child("ChatLog", new Vector2(width, -1), true, ImGuiWindowFlags.HorizontalScrollbar);
+        using var _ = ImRaii.Child("ChatLog", new Vector2(-1, -1), true, ImGuiWindowFlags.HorizontalScrollbar);
         if (_selectedChannel == null)
         {
             UiSharedService.ColorTextWrapped("Select a channel to start chatting.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
@@ -177,6 +234,83 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             ImGui.SetScrollHereY(1.0f);
         }
+    }
+
+    private void DrawChannelHeader()
+    {
+        if (_selectedChannel == null)
+        {
+            ImGui.TextUnformatted("No channel selected");
+            ImGui.Separator();
+            return;
+        }
+
+        var key = _selectedChannel.Value;
+        var displayName = GetChannelDisplayName(key.Kind, key.Id, GetChannelDisplayLabel(key));
+        ImGui.TextUnformatted(displayName);
+
+        if (key.Kind == ChannelKind.Standard)
+        {
+            var channel = GetStandardChannel(key.Id);
+            var topic = channel?.Topic ?? "No topic set.";
+            ImGui.TextUnformatted("Topic");
+            if (CanEditStandardChannelTopic(key.Id))
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton(_isEditingStandardChannelTopic ? "Cancel" : "Edit Topic"))
+                {
+                    _isEditingStandardChannelTopic = !_isEditingStandardChannelTopic;
+                }
+            }
+
+            UiSharedService.ColorTextWrapped(topic, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+
+            if (_isEditingStandardChannelTopic)
+            {
+                ImGui.SetNextItemWidth(-1);
+                ImGui.InputTextWithHint("##StandardChannelTopicEdit", "Update topic", ref _standardChannelTopicDraft, 200);
+                using (ImRaii.Disabled(!_apiController.IsConnected))
+                {
+                    if (ImGui.Button("Update Topic"))
+                    {
+                        if (channel != null)
+                        {
+                            _ = UpdateStandardChannelTopic(channel, _standardChannelTopicDraft);
+                        }
+                    }
+                }
+            }
+
+            if (channel != null)
+            {
+                var joined = _joinedStandardChannels.Contains(channel.ChannelId);
+                using (ImRaii.Disabled(!_apiController.IsConnected))
+                {
+                    if (!joined)
+                    {
+                        if (ImGui.Button("Join Channel"))
+                        {
+                            _ = JoinStandardChannel(channel);
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui.Button("Leave Channel"))
+                        {
+                            _ = LeaveStandardChannel(channel);
+                        }
+
+                        ImGui.SameLine();
+                        if (ImGui.Button("Refresh Members"))
+                        {
+                            _ = RefreshStandardChannelMembers(channel.ChannelId);
+                        }
+                    }
+                }
+            }
+        }
+
+        ImGui.Separator();
     }
 
     private void DrawMemberList(float width)
@@ -258,7 +392,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private void DrawChatInput()
     {
-        var canSend = _selectedChannel != null && _apiController.IsConnected && _selectedChannel.Value.Kind != ChannelKind.Standard;
+        var canSend = _selectedChannel != null
+                      && _apiController.IsConnected
+                      && (_selectedChannel.Value.Kind != ChannelKind.Standard || _joinedStandardChannels.Contains(_selectedChannel.Value.Id));
         using var disabled = ImRaii.Disabled(!canSend);
 
         var inputWidth = ImGui.GetContentRegionAvail().X - (70f * ImGuiHelpers.GlobalScale);
@@ -299,7 +435,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
         else if (channel.Kind == ChannelKind.Standard)
         {
-            return;
+            if (!_joinedStandardChannels.Contains(channel.Id)) return;
+            var standardChannel = GetStandardChannel(channel.Id);
+            if (standardChannel == null) return;
+            _ = _apiController.ChannelChatSendMsg(new ChannelDto(standardChannel), chatMessage);
         }
         else
         {
@@ -332,6 +471,54 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var text = DecodeMessage(message.PayloadContent);
         var displayName = FormatSenderName(channel, message.Sender);
         AppendMessage(channel, displayName, text, ResolveTimestamp(message.Timestamp));
+    }
+
+    private void AddStandardChannelMessage(ChannelChatMsgMessage message)
+    {
+        var channelData = message.ChannelInfo.Channel;
+        TrackStandardChannel(channelData);
+        if (!_standardChannelMembers.ContainsKey(channelData.ChannelId))
+        {
+            _ = RefreshStandardChannelMembers(channelData.ChannelId);
+        }
+        var channel = new ChatChannelKey(ChannelKind.Standard, channelData.ChannelId);
+        var text = DecodeMessage(message.ChatMsg.PayloadContent);
+        var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
+        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp));
+    }
+
+    private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
+    {
+        TrackStandardChannel(member.Channel);
+        if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
+        {
+            var existing = members.FindIndex(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
+            if (existing >= 0)
+            {
+                members[existing] = new ChannelMemberDto(member.Channel, member.User, member.Roles);
+            }
+            else
+            {
+                members.Add(new ChannelMemberDto(member.Channel, member.User, member.Roles));
+            }
+        }
+        else if (_joinedStandardChannels.Contains(member.Channel.ChannelId))
+        {
+            _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
+        }
+    }
+
+    private void HandleStandardChannelMemberLeft(ChannelMemberLeftDto member)
+    {
+        TrackStandardChannel(member.Channel);
+        if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
+        {
+            members.RemoveAll(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
+        }
+        else if (_joinedStandardChannels.Contains(member.Channel.ChannelId))
+        {
+            _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
+        }
     }
 
     private void AppendMessage(ChatChannelKey channel, string sender, string message, DateTime timestamp)
@@ -375,9 +562,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private string FormatSenderName(ChatChannelKey channel, UserData user)
     {
-        var prefix = channel.Kind == ChannelKind.Syncshell
-            ? GetRolePrefix(GetGroupInfo(channel.Id), user)
-            : string.Empty;
+        var prefix = channel.Kind switch
+        {
+            ChannelKind.Syncshell => GetRolePrefix(GetGroupInfo(channel.Id), user),
+            ChannelKind.Standard => GetStandardChannelRolePrefix(channel.Id, user.UID),
+            _ => string.Empty
+        };
         return prefix + GetUserDisplayName(user);
     }
 
@@ -388,6 +578,59 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var pair = _pairManager.GetPairByUID(user.UID);
         if (pair != null && IsModerator(pair, groupInfo)) return "@";
         return string.Empty;
+    }
+
+    private string GetStandardChannelRolePrefix(string channelId, string uid)
+    {
+        var roles = GetStandardChannelMemberRoles(channelId, uid);
+        return GetChannelRolePrefix(roles);
+    }
+
+    private string GetChannelRolePrefix(ChannelUserRole roles)
+    {
+        if (roles.HasFlag(ChannelUserRole.Owner)) return "~";
+        if (roles.HasFlag(ChannelUserRole.Admin)) return "&";
+        if (roles.HasFlag(ChannelUserRole.Operator)) return "@";
+        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return "%";
+        if (roles.HasFlag(ChannelUserRole.Voice)) return "+";
+        return string.Empty;
+    }
+
+    private int GetChannelRoleRank(ChannelUserRole roles)
+    {
+        if (roles.HasFlag(ChannelUserRole.Owner)) return 5;
+        if (roles.HasFlag(ChannelUserRole.Admin)) return 4;
+        if (roles.HasFlag(ChannelUserRole.Operator)) return 3;
+        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return 2;
+        if (roles.HasFlag(ChannelUserRole.Voice)) return 1;
+        return 0;
+    }
+
+    private ChannelUserRole GetStandardChannelMemberRoles(string channelId, string uid)
+    {
+        if (!_standardChannelMembers.TryGetValue(channelId, out var members))
+        {
+            return ChannelUserRole.None;
+        }
+
+        var member = members.FirstOrDefault(entry => string.Equals(entry.User.UID, uid, StringComparison.Ordinal));
+        return member?.Roles ?? ChannelUserRole.None;
+    }
+
+    private ChannelUserRole GetStandardChannelSelfRoles(string channelId)
+    {
+        if (string.IsNullOrWhiteSpace(_apiController.UID))
+        {
+            return ChannelUserRole.None;
+        }
+
+        return GetStandardChannelMemberRoles(channelId, _apiController.UID);
+    }
+
+    private bool CanEditStandardChannelTopic(string channelId)
+    {
+        var roles = GetStandardChannelSelfRoles(channelId);
+        return GetChannelRoleRank(roles) >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
     }
 
     private bool IsModerator(Pair pair, GroupFullInfoDto groupInfo)
@@ -424,9 +667,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
             .ToList();
     }
 
-    private List<(string Id, string Name)> GetStandardChannels()
+    private List<(string Id, string Name)> GetJoinedStandardChannels()
     {
         return _standardChannels
+            .Where(channel => _joinedStandardChannels.Contains(channel.ChannelId))
             .Select(channel => (channel.ChannelId, channel.Name))
             .OrderBy(channel => channel.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -438,6 +682,22 @@ public class ChatWindow : WindowMediatorSubscriberBase
             .Select(pair => (pair.UserData.UID, GetUserDisplayName(pair.UserData)))
             .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private string GetChannelDisplayLabel(ChatChannelKey key)
+    {
+        if (key.Kind == ChannelKind.Syncshell)
+        {
+            var group = GetGroupData(key.Id);
+            return group != null ? GetChannelName(group) : key.Id;
+        }
+
+        if (key.Kind == ChannelKind.Standard)
+        {
+            return GetStandardChannel(key.Id)?.Name ?? key.Id;
+        }
+
+        return GetUserDisplayName(new UserData(key.Id));
     }
 
     private string GetChannelName(GroupData group)
@@ -459,8 +719,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             var channel = GetStandardChannel(id);
             var privateSuffix = channel?.IsPrivate == true ? " (private)" : string.Empty;
-            var joinedSuffix = _joinedStandardChannels.Contains(id) ? " (joined)" : string.Empty;
-            return string.Format(CultureInfo.InvariantCulture, "# {0}{1}{2}", name, privateSuffix, joinedSuffix);
+            return string.Format(CultureInfo.InvariantCulture, "# {0}{1}", name, privateSuffix);
         }
 
         return name;
@@ -478,40 +737,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             var channel = GetStandardChannel(key.Id);
             _standardChannelTopicDraft = channel?.Topic ?? string.Empty;
-        }
-    }
-
-    private void DrawStandardChannelControls()
-    {
-        ImGui.TextUnformatted("Standard Channels");
-        using (ImRaii.Disabled(!_apiController.IsConnected))
-        {
-            if (ImGui.Button("Refresh List"))
+            _isEditingStandardChannelTopic = false;
+            if (_joinedStandardChannels.Contains(key.Id))
             {
-                _ = RefreshStandardChannels();
-            }
-        }
-
-        if (_standardChannelListLoading)
-        {
-            ImGui.SameLine();
-            UiSharedService.ColorTextWrapped("Loading...", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        }
-
-        using var header = ImRaii.TreeNode("Create Channel");
-        if (!header.Success) return;
-
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##StandardChannelName", "Channel name", ref _standardChannelNameInput, 80);
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##StandardChannelTopic", "Topic (optional)", ref _standardChannelTopicInput, 200);
-        ImGui.Checkbox("Private", ref _standardChannelPrivateInput);
-
-        using (ImRaii.Disabled(!_apiController.IsConnected || string.IsNullOrWhiteSpace(_standardChannelNameInput)))
-        {
-            if (ImGui.Button("Create"))
-            {
-                _ = CreateStandardChannel();
+                _ = RefreshStandardChannelMembers(key.Id);
             }
         }
     }
@@ -528,35 +757,107 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.TextUnformatted(channel.Name);
         UiSharedService.ColorTextWrapped(channel.IsPrivate ? "Private channel" : "Public channel", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
 
-        var joined = _joinedStandardChannels.Contains(channel.ChannelId);
-        using (ImRaii.Disabled(!_apiController.IsConnected))
+        if (!_joinedStandardChannels.Contains(channel.ChannelId))
         {
-            if (!joined)
-            {
-                if (ImGui.Button("Join"))
-                {
-                    _ = JoinStandardChannel(channel);
-                }
-            }
-            else
-            {
-                if (ImGui.Button("Leave"))
-                {
-                    _ = LeaveStandardChannel(channel);
-                }
-            }
+            ImGui.Separator();
+            UiSharedService.ColorTextWrapped("Join this channel to view members.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            return;
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("Topic");
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##StandardChannelTopicEdit", "Set topic", ref _standardChannelTopicDraft, 200);
-        using (ImRaii.Disabled(!_apiController.IsConnected))
+        DrawStandardChannelMembers(channel.ChannelId);
+    }
+
+    private void DrawStandardChannelMembers(string channelId)
+    {
+        if (!_standardChannelMembers.TryGetValue(channelId, out var members) || members.Count == 0)
         {
-            if (ImGui.Button("Update Topic"))
+            UiSharedService.ColorTextWrapped("No members loaded.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            return;
+        }
+
+        var selfRoles = GetStandardChannelSelfRoles(channelId);
+        var selfRank = GetChannelRoleRank(selfRoles);
+
+        foreach (var member in members
+                     .GroupBy(member => member.User.UID)
+                     .Select(group => group.OrderByDescending(entry => GetChannelRoleRank(entry.Roles)).First())
+                     .OrderByDescending(member => GetChannelRoleRank(member.Roles))
+                     .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))
+        {
+            var label = GetChannelRolePrefix(member.Roles) + GetUserDisplayName(member.User);
+            ImGui.PushID(member.User.UID);
+            ImGui.Selectable(label);
+            DrawStandardChannelMemberContextMenu(channelId, member, selfRoles, selfRank);
+            ImGui.PopID();
+        }
+    }
+
+    private void DrawStandardChannelMemberContextMenu(string channelId, ChannelMemberDto member, ChannelUserRole selfRoles, int selfRank)
+    {
+        if (!ImGui.BeginPopupContextItem("##StandardChannelMemberMenu"))
+        {
+            return;
+        }
+
+        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
+        var memberRank = GetChannelRoleRank(member.Roles);
+        var canModerate = selfRank >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
+        var canAssignRoles = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
+        var canModerateTarget = !isSelf && selfRank > memberRank;
+        var hasActions = false;
+
+        if (canModerate && canModerateTarget)
+        {
+            if (ImGui.MenuItem("Kick"))
             {
-                _ = UpdateStandardChannelTopic(channel, _standardChannelTopicDraft);
+                _ = KickStandardChannelMember(channelId, member.User);
             }
+
+            if (ImGui.MenuItem("Ban"))
+            {
+                _ = BanStandardChannelMember(channelId, member.User);
+            }
+
+            hasActions = true;
+        }
+
+        if (canAssignRoles && canModerateTarget)
+        {
+            if (ImGui.BeginMenu("Roles"))
+            {
+                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Voice, selfRank);
+                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.HalfOperator, selfRank);
+                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Operator, selfRank);
+                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Admin, selfRank);
+                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Owner, selfRank);
+                ImGui.EndMenu();
+            }
+
+            hasActions = true;
+        }
+
+        if (!hasActions)
+        {
+            UiSharedService.ColorTextWrapped("No actions available.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawStandardChannelRoleToggle(string channelId, ChannelMemberDto member, ChannelUserRole role, int selfRank)
+    {
+        var roleRank = GetChannelRoleRank(role);
+        if (roleRank <= 0 || selfRank < roleRank)
+        {
+            return;
+        }
+
+        var hasRole = member.Roles.HasFlag(role);
+        if (ImGui.MenuItem(role.ToString(), string.Empty, hasRole))
+        {
+            var newRoles = hasRole ? member.Roles & ~role : member.Roles | role;
+            _ = UpdateStandardChannelRole(channelId, member.User, newRoles);
         }
     }
 
@@ -565,17 +866,13 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (!_joinedStandardChannels.Contains(key.Id))
         {
             UiSharedService.ColorTextWrapped("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
         }
-
-        UiSharedService.ColorTextWrapped("Standard channel chat is not yet available in the client.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
     }
 
     private async Task RefreshStandardChannels()
     {
         if (!_apiController.IsConnected) return;
 
-        _standardChannelListLoading = true;
         try
         {
             var channels = await _apiController.ChannelList().ConfigureAwait(false);
@@ -587,16 +884,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 _standardChannels.Add(channel);
                 _standardChannelLookup[channel.ChannelId] = channel;
             }
-
-            _joinedStandardChannels.RemoveWhere(id => !_standardChannelLookup.ContainsKey(id));
+            MergeSavedStandardChannels();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to refresh standard channels.");
-        }
-        finally
-        {
-            _standardChannelListLoading = false;
         }
     }
 
@@ -604,34 +896,168 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         _standardChannels.Clear();
         _standardChannelLookup.Clear();
-        _joinedStandardChannels.Clear();
+        _standardChannelMembers.Clear();
+        LoadSavedStandardChannels();
     }
 
-    private async Task CreateStandardChannel()
+    private void LoadSavedStandardChannels()
+    {
+        _joinedStandardChannels.Clear();
+        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        {
+            _joinedStandardChannels.Add(channel.ChannelId);
+            if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
+            {
+                _standardChannels.Add(channel);
+                _standardChannelLookup[channel.ChannelId] = channel;
+            }
+        }
+    }
+
+    private void MergeSavedStandardChannels()
+    {
+        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        {
+            if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
+            {
+                _standardChannels.Add(channel);
+                _standardChannelLookup[channel.ChannelId] = channel;
+            }
+        }
+
+        _joinedStandardChannels.Clear();
+        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        {
+            _joinedStandardChannels.Add(channel.ChannelId);
+        }
+    }
+
+    private void TrackStandardChannel(ChatChannelData channel)
+    {
+        _standardChannels.RemoveAll(existing => string.Equals(existing.ChannelId, channel.ChannelId, StringComparison.Ordinal));
+        _standardChannels.Add(channel);
+        _standardChannelLookup[channel.ChannelId] = channel;
+    }
+
+    private void UpdateJoinedStandardChannel(ChatChannelData channel, bool isJoined)
+    {
+        if (isJoined)
+        {
+            _joinedStandardChannels.Add(channel.ChannelId);
+            _serverManager.UpsertJoinedStandardChannel(channel);
+        }
+        else
+        {
+            _joinedStandardChannels.Remove(channel.ChannelId);
+            _serverManager.RemoveJoinedStandardChannel(channel.ChannelId);
+        }
+    }
+
+    private void OnStandardChannelMembershipChanged(StandardChannelMembershipChangedMessage message)
+    {
+        if (message.IsJoined)
+        {
+            TrackStandardChannel(message.Channel);
+            UpdateJoinedStandardChannel(message.Channel, true);
+        }
+        else
+        {
+            UpdateJoinedStandardChannel(message.Channel, false);
+            _standardChannelMembers.Remove(message.Channel.ChannelId);
+        }
+    }
+
+    private async Task AutoJoinStandardChannels()
     {
         if (!_apiController.IsConnected) return;
 
-        var name = _standardChannelNameInput.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return;
+        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        {
+            await JoinStandardChannel(channel).ConfigureAwait(false);
+        }
+    }
 
-        var createDto = new ChannelCreateDto(name, ChannelType.Standard, string.IsNullOrWhiteSpace(_standardChannelTopicInput) ? null : _standardChannelTopicInput.Trim(), _standardChannelPrivateInput);
+    private async Task RefreshStandardChannelMembers(string channelId)
+    {
+        if (!_apiController.IsConnected) return;
+
+        var channel = GetStandardChannel(channelId);
+        if (channel == null) return;
+
         try
         {
-            var created = await _apiController.ChannelCreate(createDto).ConfigureAwait(false);
-            var channel = created.Channel;
-            _standardChannels.RemoveAll(existing => string.Equals(existing.ChannelId, channel.ChannelId, StringComparison.Ordinal));
-            _standardChannels.Add(channel);
-            _standardChannelLookup[channel.ChannelId] = channel;
-            _joinedStandardChannels.Add(channel.ChannelId);
-            SetSelectedChannel(new ChatChannelKey(ChannelKind.Standard, channel.ChannelId));
-
-            _standardChannelNameInput = string.Empty;
-            _standardChannelTopicInput = string.Empty;
-            _standardChannelPrivateInput = false;
+            var members = await _apiController.ChannelGetMembers(new ChannelDto(channel)).ConfigureAwait(false);
+            _standardChannelMembers[channelId] = members;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to create standard channel.");
+            _logger.LogWarning(ex, "Failed to refresh standard channel members.");
+        }
+    }
+
+    private async Task KickStandardChannelMember(string channelId, UserData user)
+    {
+        if (!_apiController.IsConnected) return;
+
+        var channel = GetStandardChannel(channelId);
+        if (channel == null) return;
+
+        try
+        {
+            await _apiController.ChannelKick(new ChannelKickDto(channel, user)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to kick channel member.");
+        }
+    }
+
+    private async Task BanStandardChannelMember(string channelId, UserData user)
+    {
+        if (!_apiController.IsConnected) return;
+
+        var channel = GetStandardChannel(channelId);
+        if (channel == null) return;
+
+        try
+        {
+            await _apiController.ChannelBan(new ChannelBanDto(channel, user, 0)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ban channel member.");
+        }
+    }
+
+    private async Task UpdateStandardChannelRole(string channelId, UserData user, ChannelUserRole roles)
+    {
+        if (!_apiController.IsConnected) return;
+
+        var channel = GetStandardChannel(channelId);
+        if (channel == null) return;
+
+        try
+        {
+            await _apiController.ChannelSetRole(new ChannelRoleUpdateDto(channel, user, roles)).ConfigureAwait(false);
+            ApplyStandardChannelRoleUpdate(channelId, user.UID, roles);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update channel member role.");
+        }
+    }
+
+    private void ApplyStandardChannelRoleUpdate(string channelId, string uid, ChannelUserRole roles)
+    {
+        if (!_standardChannelMembers.TryGetValue(channelId, out var members)) return;
+
+        for (var i = 0; i < members.Count; i++)
+        {
+            if (string.Equals(members[i].User.UID, uid, StringComparison.Ordinal))
+            {
+                members[i] = members[i] with { Roles = roles };
+                break;
+            }
         }
     }
 
@@ -644,7 +1070,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
             var member = await _apiController.ChannelJoin(new ChannelDto(channel)).ConfigureAwait(false);
             if (member != null)
             {
-                _joinedStandardChannels.Add(channel.ChannelId);
+                TrackStandardChannel(member.Channel);
+                _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
+                Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, true));
             }
         }
         catch (Exception ex)
@@ -660,7 +1088,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
         try
         {
             await _apiController.ChannelLeave(new ChannelDto(channel)).ConfigureAwait(false);
-            _joinedStandardChannels.Remove(channel.ChannelId);
+            _standardChannelMembers.Remove(channel.ChannelId);
+            Mediator.Publish(new StandardChannelMembershipChangedMessage(channel, false));
         }
         catch (Exception ex)
         {
@@ -671,12 +1100,21 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private async Task UpdateStandardChannelTopic(ChatChannelData channel, string? topic)
     {
         if (!_apiController.IsConnected) return;
+        if (!CanEditStandardChannelTopic(channel.ChannelId)) return;
 
         try
         {
-            await _apiController.ChannelSetTopic(new ChannelTopicUpdateDto(channel, string.IsNullOrWhiteSpace(topic) ? null : topic.Trim()))
+            var trimmedTopic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim();
+            await _apiController.ChannelSetTopic(new ChannelTopicUpdateDto(channel, trimmedTopic))
                 .ConfigureAwait(false);
-            channel.Topic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim();
+            channel.Topic = trimmedTopic;
+            TrackStandardChannel(channel);
+            if (_joinedStandardChannels.Contains(channel.ChannelId))
+            {
+                _serverManager.UpsertJoinedStandardChannel(channel);
+            }
+            _standardChannelTopicDraft = trimmedTopic ?? string.Empty;
+            _isEditingStandardChannelTopic = false;
         }
         catch (Exception ex)
         {

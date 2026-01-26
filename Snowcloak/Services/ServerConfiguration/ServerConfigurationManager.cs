@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
+using Snowcloak.API.Data;
 using Snowcloak.WebAPI;
 using System.Diagnostics;
 
@@ -162,6 +163,32 @@ public class ServerConfigurationManager
     {
         _configService.Current.CurrentServer = idx;
         CurrentServer!.FullPause = false;
+        Save();
+    }
+
+    public IReadOnlyList<ChatChannelData> GetJoinedStandardChannels()
+    {
+        return CurrentServer.JoinedChannels;
+    }
+
+    public void UpsertJoinedStandardChannel(ChatChannelData channel)
+    {
+        var existing = CurrentServer.JoinedChannels.FindIndex(entry => string.Equals(entry.ChannelId, channel.ChannelId, StringComparison.Ordinal));
+        if (existing >= 0)
+        {
+            CurrentServer.JoinedChannels[existing] = channel;
+        }
+        else
+        {
+            CurrentServer.JoinedChannels.Add(channel);
+        }
+
+        Save();
+    }
+
+    public void RemoveJoinedStandardChannel(string channelId)
+    {
+        CurrentServer.JoinedChannels.RemoveAll(channel => string.Equals(channel.ChannelId, channelId, StringComparison.Ordinal));
         Save();
     }
 
