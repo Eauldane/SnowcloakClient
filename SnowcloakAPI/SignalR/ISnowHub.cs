@@ -178,6 +178,7 @@ public interface ISnowHub
     Task Client_RequestPairingAvailabilitySubscription(PairingAvailabilityResumeRequestDto resumeRequest);
     Task Client_UserPairingRequest(PairingRequestDto dto);
     Task UserSetPairingOptIn(PairingOptInDto dto);
+    Task<bool> UserGetPairingOptIn();
     Task UserQueryPairingAvailability(PairingAvailabilityQueryDto query);
     Task UserSendPairRequest(PairingRequestTargetDto dto);
 

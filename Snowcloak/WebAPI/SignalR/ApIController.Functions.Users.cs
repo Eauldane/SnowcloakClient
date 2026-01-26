@@ -120,6 +120,12 @@ public partial class ApiController
         if (!IsConnected) return;
         await _snowHub!.InvokeAsync(nameof(UserSetPairingOptIn), optInDto).ConfigureAwait(false);
     }
+
+    public async Task<bool> UserGetPairingOptIn()
+    {
+        if (!IsConnected) return false;
+        return await _snowHub!.InvokeAsync<bool>(nameof(UserGetPairingOptIn)).ConfigureAwait(false);
+    }
     
     public async Task UserQueryPairingAvailability(PairingAvailabilityQueryDto query)
     {

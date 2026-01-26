@@ -67,6 +67,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private bool _statusIsError;
     private AdsTab? _requestedTab;
     private bool _openCreateOnNextDraw;
+    private bool _refreshBrowseOnNextOpen = true;
+    private bool _refreshOwnedOnNextOpen = true;
 
     private sealed record BrowseAdEntry(VenueRegistryEntryDto Venue, VenueAdvertisementDto Advertisement);
 
@@ -97,8 +99,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
     public override void OnOpen()
     {
-        _ = RefreshBrowseAsync();
-        _ = RefreshOwnedAsync();
+        _refreshBrowseOnNextOpen = true;
+        _refreshOwnedOnNextOpen = true;
     }
 
     protected override void Dispose(bool disposing)
@@ -132,6 +134,11 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             if (browseTab)
             {
+                if (_refreshBrowseOnNextOpen || ImGui.IsItemActivated())
+                {
+                    _refreshBrowseOnNextOpen = false;
+                    _ = RefreshBrowseAsync();
+                }
                 DrawBrowseTab();
             }
         }
@@ -140,6 +147,11 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             if (manageTab)
             {
+                if (_refreshOwnedOnNextOpen || ImGui.IsItemActivated())
+                {
+                    _refreshOwnedOnNextOpen = false;
+                    _ = RefreshOwnedAsync();
+                }
                 DrawManageTab();
             }
         }
@@ -196,7 +208,13 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             "Stand on the plot you want to register and use the /venue command to open the registration window. "
             + "Make sure you create a syncshell first to associate with your venue!",
             ImGuiColors.DalamudGrey);
-        if (_dalamudUtilService.TryGetLastHousingPlot(out _))
+        if (_venueRegistrationService.IsRegistrationPending)
+        {
+            UiSharedService.ColorTextWrapped(
+                "Venue registration is already in progress. Open the placard for your plot to verify ownership.",
+                ImGuiColors.DalamudGrey);
+        }
+        else if (_dalamudUtilService.TryGetLastHousingPlot(out _))
         {
             if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
             {
@@ -492,9 +510,16 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private bool TryResolveWorldId(string worldName, out uint worldId)
     {
         worldId = 0;
+        var trimmed = worldName.Trim();
+        if (ushort.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var numericWorld))
+        {
+            worldId = numericWorld;
+            return worldId > 0;
+        }
+
         var match = _uiSharedService.WorldData.FirstOrDefault(kvp =>
-            string.Equals(kvp.Value, worldName, StringComparison.OrdinalIgnoreCase));
-        if (match.Key == 0 && !string.Equals(match.Value, worldName, StringComparison.OrdinalIgnoreCase))
+            string.Equals(kvp.Value, trimmed, StringComparison.OrdinalIgnoreCase));
+        if (match.Key == 0 && !string.Equals(match.Value, trimmed, StringComparison.OrdinalIgnoreCase))
             return false;
 
         worldId = match.Key;
@@ -750,6 +775,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                     .Where(ad => ad.IsActive)
                     .Select(ad => new BrowseAdEntry(venue, ad)))
                 .ToList();
+            var playerDataCenter = GetPlayerDataCenter();
+            if (!string.IsNullOrWhiteSpace(playerDataCenter))
+            {
+                activeAds = activeAds
+                    .Where(entry => TryGetAdDataCenter(entry.Advertisement, out var adDataCenter)
+                                    && string.Equals(adDataCenter, playerDataCenter, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
             ShuffleAds(activeAds);
             _browseAds.AddRange(activeAds);
             
@@ -764,6 +797,36 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             _isLoadingBrowse = false;
         }
+    }
+
+    private string GetPlayerDataCenter()
+    {
+        var worldId = _uiSharedService.WorldId;
+        if (worldId == 0 || worldId > ushort.MaxValue)
+            return string.Empty;
+
+        return _uiSharedService.WorldInfoData.TryGetValue((ushort)worldId, out var info)
+            ? info.DataCenter
+            : string.Empty;
+    }
+
+    private bool TryGetAdDataCenter(VenueAdvertisementDto ad, out string dataCenter)
+    {
+        dataCenter = string.Empty;
+        if (string.IsNullOrWhiteSpace(ad.World))
+            return false;
+
+        if (!TryResolveWorldId(ad.World, out var worldId))
+            return false;
+
+        if (worldId == 0 || worldId > ushort.MaxValue)
+            return false;
+
+        if (!_uiSharedService.WorldInfoData.TryGetValue((ushort)worldId, out var info))
+            return false;
+
+        dataCenter = info.DataCenter;
+        return !string.IsNullOrWhiteSpace(dataCenter);
     }
 
     private void ShuffleAds(List<BrowseAdEntry> entries)

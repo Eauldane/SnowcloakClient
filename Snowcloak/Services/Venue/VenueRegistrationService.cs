@@ -70,6 +70,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _framework.Update -= OnFrameworkUpdate;
     }
 
+    public bool IsRegistrationPending => _pendingPlot != null;
+
     public void BeginRegistrationFromCommand()
     {
         if (!_dalamudUtilService.TryGetLastHousingPlot(out var location))

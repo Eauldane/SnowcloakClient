@@ -108,6 +108,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private Task OnPlayerLoggedInAsync()
     {
         _lastSubscriptionLocation = null;
+        ClearPendingRequests();
         return RefreshNearbyAvailabilityWithRetriesAsync();
     }
     
@@ -116,6 +117,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     {
         await StopAvailabilitySubscriptionAsync().ConfigureAwait(false);
         _lastNearbyIdentSnapshot.Clear();
+        ClearPendingRequests();
         ClearAvailability();
     }
     
@@ -152,6 +154,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         _lastSubscriptionLocation = null;
         _lastNearbyAvailabilityCheck = DateTime.MinValue;
 
+        await RefreshPairingOptInFromServerAsync().ConfigureAwait(false);
         await SyncAdvertisingAsync(force: true).ConfigureAwait(false);
         await RefreshNearbyAvailabilityWithRetriesAsync().ConfigureAwait(false);
     }
@@ -273,6 +276,38 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             _logger.LogWarning(ex, "Failed to send pairing availability update");
         }
+    }
+
+    private async Task RefreshPairingOptInFromServerAsync()
+    {
+        if (!_apiController.Value.IsConnected)
+            return;
+
+        try
+        {
+            var optIn = await _apiController.Value.UserGetPairingOptIn().ConfigureAwait(false);
+            if (_configService.Current.PairingSystemEnabled == optIn)
+                return;
+
+            _configService.Current.PairingSystemEnabled = optIn;
+            _configService.Save();
+
+            if (!optIn)
+                ClearAvailability();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query pairing opt-in status");
+        }
+    }
+
+    private void ClearPendingRequests()
+    {
+        if (_pendingRequests.IsEmpty)
+            return;
+
+        _pendingRequests.Clear();
+        Mediator.Publish(new PairingRequestListChangedMessage());
     }
 
     public void UpdateAvailability(IEnumerable<PairingAvailabilityDto> available,
