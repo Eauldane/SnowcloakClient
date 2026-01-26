@@ -11,7 +11,7 @@ namespace Snowcloak.API.SignalR;
 
 public interface ISnowHub
 {
-    const int ApiVersion = 1028;
+    const int ApiVersion = 1030;
     const string Path = "/snow";
 
     Task<bool> CheckClientHealth();
@@ -168,6 +168,12 @@ public interface ISnowHub
     
     Task<VenueInfoResponseDto> VenueGetInfoForPlot(VenueInfoRequestDto request);
     Task<VenueRegistrationResponseDto> VenueRegister(VenueRegistrationRequestDto request);
+    Task<VenueRegistryGetResponseDto> VenueRegistryGet(VenueRegistryGetRequestDto request);
+    Task<VenueRegistryListResponseDto> VenueRegistryList(VenueRegistryListRequestDto request);
+    Task<VenueRegistryListResponseDto> VenueRegistryListOwned(VenueRegistryListOwnedRequestDto request);
+    Task<VenueRegistryUpsertResponseDto> VenueRegistryUpsert(VenueRegistryUpsertRequestDto request);
+    Task<VenueAdvertisementUpsertResponseDto> VenueAdvertisementUpsert(VenueAdvertisementUpsertRequestDto request);
+    Task<VenueAdvertisementDeleteResponseDto> VenueAdvertisementDelete(VenueAdvertisementDeleteRequestDto request);
     Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability);
     Task Client_RequestPairingAvailabilitySubscription(PairingAvailabilityResumeRequestDto resumeRequest);
     Task Client_UserPairingRequest(PairingRequestDto dto);

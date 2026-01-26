@@ -124,6 +124,8 @@ public record GPoseLobbyReceiveWorldData(UserData UserData, WorldData WorldData)
 public record VenueSyncshellJoinAcceptedMessage(VenueSyncshellDto Venue, VenueLocationDto Location) : MessageBase;
 public record OpenBbCodeLinkPopupMessage(string Url) : MessageBase;
 public record OpenVenueRegistrationWindowMessage(VenueRegistrationContext Context) : MessageBase;
+public record OpenVenueRegistryWindowMessage : MessageBase;
+public record OpenVenueAdsWindowMessage(bool OpenCreate) : MessageBase;
 public record PluginChangeMessage(string InternalName, Version Version, bool IsLoaded) : KeyedMessage(InternalName);
 public record PairingAvailabilityChangedMessage : MessageBase;
 public record PairingRequestReceivedMessage(PairingRequestDto Request) : MessageBase;

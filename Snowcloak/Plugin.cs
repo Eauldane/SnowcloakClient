@@ -194,6 +194,8 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddScoped<WindowMediatorSubscriberBase, CharaDataHubUi>();
             collection.AddScoped<WindowMediatorSubscriberBase, EditProfileUi>();
             collection.AddScoped<WindowMediatorSubscriberBase, VenueRegistrationUi>();
+            collection.AddScoped<WindowMediatorSubscriberBase, VenueRegistryWindow>();
+            collection.AddScoped<WindowMediatorSubscriberBase, VenueAdsWindow>();
             collection.AddScoped<WindowMediatorSubscriberBase, ChatWindow>();
             collection.AddScoped<WindowMediatorSubscriberBase, StandardChannelDirectoryWindow>();
             collection.AddScoped<WindowMediatorSubscriberBase, StandardChannelCreateWindow>();

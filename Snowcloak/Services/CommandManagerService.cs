@@ -9,6 +9,7 @@ using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI;
 using Snowcloak.WebAPI;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using Snowcloak.PlayerData.Pairs;
 using System.Threading.Tasks;
@@ -75,7 +76,7 @@ public sealed class CommandManagerService : IDisposable
         });
         _commandManager.AddHandler(_venueCommand, new CommandInfo(OnVenueCommand)
         {
-            HelpMessage = "Register your housing plot for a venue syncshell."
+            HelpMessage = "Manage your venues or ads. Use /venue ad to manage advertisements."
         });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
 
@@ -179,13 +180,31 @@ public sealed class CommandManagerService : IDisposable
         }
         else if (string.Equals(splitArgs[0], "venue", StringComparison.OrdinalIgnoreCase))
         {
-            _venueRegistrationService.BeginRegistrationFromCommand();
+            HandleVenueCommand(splitArgs.Skip(1).ToArray());
         }
     }
 
     private void OnVenueCommand(string command, string args)
     {
-        _venueRegistrationService.BeginRegistrationFromCommand();
+        var splitArgs = args.ToLowerInvariant().Trim().Split(" ", StringSplitOptions.RemoveEmptyEntries);
+        HandleVenueCommand(splitArgs);
+    }
+
+    private void HandleVenueCommand(string[] args)
+    {
+        if (args.Length > 0 && string.Equals(args[0], "ad", StringComparison.OrdinalIgnoreCase))
+        {
+            _mediator.Publish(new OpenVenueAdsWindowMessage(true));
+            return;
+        }
+
+        if (args.Length > 0 && string.Equals(args[0], "register", StringComparison.OrdinalIgnoreCase))
+        {
+            _venueRegistrationService.BeginRegistrationFromCommand();
+            return;
+        }
+
+        _mediator.Publish(new OpenVenueRegistryWindowMessage());
     }
 
     private void OnVenueFindCommand(string command, string args)
