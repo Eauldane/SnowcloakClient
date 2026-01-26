@@ -8,19 +8,16 @@ using Dalamud.Interface.Utility.Raii;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.API.Routes;
-using Snowcloak.FileCache;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
-using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Numerics;
 using System.Threading.Tasks;
 
@@ -41,23 +38,18 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private readonly ApiController _apiController;
     private readonly UiSharedService _uiSharedService;
     private readonly FileDialogManager _fileDialogManager;
-    private readonly FileCacheManager _fileCacheManager;
-    private readonly FileUploadManager _fileUploadManager;
-    private readonly FileTransferOrchestrator _fileTransferOrchestrator;
-    private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, Task<byte[]?>> _bannerDownloadTasks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte[]> _bannerBytes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte[]> _bannerBytes = new(StringComparer.Ordinal);
 
     private readonly List<VenueRegistryEntryDto> _browseVenues = [];
     private readonly List<VenueRegistryEntryDto> _ownedVenues = [];
     private int _selectedOwnedVenueIndex = -1;
     private Guid? _selectedAdId;
     private string _adText = string.Empty;
-    private string? _bannerHash;
+    private string? _bannerBase64;
     private int? _bannerWidth;
     private int? _bannerHeight;
     private bool _adIsActive = true;
-    private bool _bannerNeedsUpload;
     private bool _isSaving;
     private bool _isLoadingBrowse;
     private bool _isLoadingOwned;
@@ -67,17 +59,13 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private bool _openCreateOnNextDraw;
 
     public VenueAdsWindow(ILogger<VenueAdsWindow> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        ApiController apiController, FileDialogManager fileDialogManager, FileCacheManager fileCacheManager,
-        FileUploadManager fileUploadManager, FileTransferOrchestrator fileTransferOrchestrator,
+        ApiController apiController, FileDialogManager fileDialogManager,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Venue Ads###SnowcloakVenueAds", performanceCollectorService)
     {
         _apiController = apiController;
         _uiSharedService = uiSharedService;
         _fileDialogManager = fileDialogManager;
-        _fileCacheManager = fileCacheManager;
-        _fileUploadManager = fileUploadManager;
-        _fileTransferOrchestrator = fileTransferOrchestrator;
 
         SizeConstraints = new WindowSizeConstraints()
         {
@@ -183,7 +171,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         foreach (var venue in _browseVenues)
         {
             var activeAds = venue.Advertisements?
-                .Where(ad => ad.IsActive ?? true)
+                .Where(ad => ad.IsActive)
                 .ToList() ?? [];
             if (activeAds.Count == 0)
                 continue;
@@ -273,7 +261,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         for (var i = 0; i < venue.Advertisements.Count; i++)
         {
             var ad = venue.Advertisements[i];
-            var isActive = ad.IsActive ?? true;
+            var isActive = ad.IsActive;
             var label = $"{(isActive ? "Active" : "Inactive")} ad {(string.IsNullOrWhiteSpace(ad.Text) ? "(Banner only)" : "(Text)" )}";
             if (ImGui.Selectable(label, _selectedAdId == ad.Id))
             {
@@ -347,26 +335,26 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             ImGui.TextWrapped(ad.Text);
         }
 
-        if (!string.IsNullOrWhiteSpace(ad.BannerFileHash))
+        if (!string.IsNullOrWhiteSpace(ad.BannerBase64))
         {
-            DrawBannerImage(ad.BannerFileHash, ad.BannerWidth, ad.BannerHeight);
+            DrawBannerImage(ad.BannerBase64, ad.BannerWidth, ad.BannerHeight);
         }
     }
 
     private void DrawBannerPreview()
     {
-        if (!string.IsNullOrWhiteSpace(_bannerHash))
+        if (!string.IsNullOrWhiteSpace(_bannerBase64))
         {
-            DrawBannerImage(_bannerHash!, _bannerWidth, _bannerHeight);
+            DrawBannerImage(_bannerBase64!, _bannerWidth, _bannerHeight);
             return;
         }
 
         UiSharedService.ColorTextWrapped("No banner selected.", ImGuiColors.DalamudGrey);
     }
 
-    private void DrawBannerImage(string bannerHash, int? width, int? height)
+    private void DrawBannerImage(string bannerBase64, int? width, int? height)
     {
-        if (_bannerTextures.TryGetValue(bannerHash, out var texture))
+        if (_bannerTextures.TryGetValue(bannerBase64, out var texture))
         {
             var availableWidth = Math.Max(0f, ImGui.GetContentRegionAvail().X);
             var targetWidth = width ?? BannerWidth;
@@ -377,67 +365,39 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             return;
         }
 
-        EnsureBannerBytesRequested(bannerHash);
-        if (_bannerBytes.TryGetValue(bannerHash, out var bytes))
+        if (!_bannerBytes.TryGetValue(bannerBase64, out var bytes))
+        {
+            try
+            {
+                bytes = Convert.FromBase64String(bannerBase64);
+                _bannerBytes[bannerBase64] = bytes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to decode banner image");
+                UiSharedService.ColorTextWrapped("Failed to decode banner image.", ImGuiColors.DalamudRed);
+                return;
+            }
+        }
+
+        if (bytes.Length > 0)
         {
             try
             {
                 var tex = _uiSharedService.LoadImage(bytes);
-                _bannerTextures[bannerHash] = tex;
-                _bannerBytes.TryRemove(bannerHash, out _);
-                DrawBannerImage(bannerHash, width, height);
+                _bannerTextures[bannerBase64] = tex;
+                _bannerBytes.TryRemove(bannerBase64, out _);
+                DrawBannerImage(bannerBase64, width, height);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load banner image {hash}", bannerHash);
+                _logger.LogWarning(ex, "Failed to load banner image");
                 UiSharedService.ColorTextWrapped("Failed to load banner image.", ImGuiColors.DalamudRed);
             }
             return;
         }
 
         UiSharedService.ColorTextWrapped("Loading banner...", ImGuiColors.DalamudGrey);
-    }
-
-    private void EnsureBannerBytesRequested(string bannerHash)
-    {
-        if (_bannerDownloadTasks.ContainsKey(bannerHash))
-            return;
-
-        _bannerDownloadTasks[bannerHash] = Task.Run(async () =>
-        {
-            var bytes = await LoadBannerBytesAsync(bannerHash).ConfigureAwait(false);
-            if (bytes != null)
-            {
-                _bannerBytes[bannerHash] = bytes;
-            }
-            _bannerDownloadTasks.TryRemove(bannerHash, out _);
-            return bytes;
-        });
-    }
-
-    private async Task<byte[]?> LoadBannerBytesAsync(string bannerHash)
-    {
-        try
-        {
-            var cacheEntry = _fileCacheManager.GetFileCacheByHash(bannerHash);
-            if (cacheEntry != null && File.Exists(cacheEntry.ResolvedFilepath))
-            {
-                return await File.ReadAllBytesAsync(cacheEntry.ResolvedFilepath).ConfigureAwait(false);
-            }
-
-            if (_fileTransferOrchestrator.FilesCdnUri == null)
-                return null;
-
-            var uri = SnowFiles.DistributionGetFullPath(_fileTransferOrchestrator.FilesCdnUri, bannerHash);
-            var response = await _fileTransferOrchestrator.SendRequestAsync(HttpMethod.Get, uri).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to download banner {hash}", bannerHash);
-            return null;
-        }
     }
 
     private void SelectOwnedVenue(int index)
@@ -453,11 +413,10 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         _selectedAdId = null;
         _adText = string.Empty;
-        _bannerHash = null;
+        _bannerBase64 = null;
         _bannerWidth = null;
         _bannerHeight = null;
         _adIsActive = true;
-        _bannerNeedsUpload = false;
         _statusMessage = null;
     }
 
@@ -465,11 +424,10 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         _selectedAdId = ad.Id;
         _adText = ad.Text ?? string.Empty;
-        _bannerHash = ad.BannerFileHash;
+        _bannerBase64 = ad.BannerBase64;
         _bannerWidth = ad.BannerWidth;
         _bannerHeight = ad.BannerHeight;
-        _adIsActive = ad.IsActive ?? true;
-        _bannerNeedsUpload = false;
+        _adIsActive = ad.IsActive;
         _statusMessage = null;
     }
 
@@ -477,7 +435,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         var text = _adText.Trim();
         var hasText = !string.IsNullOrWhiteSpace(text);
-        var hasBanner = !string.IsNullOrWhiteSpace(_bannerHash);
+        var hasBanner = !string.IsNullOrWhiteSpace(_bannerBase64);
 
         if (!hasText && !hasBanner)
             return "Ads must include text or a banner image.";
@@ -513,28 +471,9 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 return;
             }
 
-            var tempPath = Path.Combine(_fileCacheManager.CacheFolder, $"venue-ad-{Guid.NewGuid():N}.png");
-            await File.WriteAllBytesAsync(tempPath, fileBytes).ConfigureAwait(false);
-            var hash = await Crypto.GetFileHashAsync(tempPath).ConfigureAwait(false);
-            var destinationPath = Path.Combine(_fileCacheManager.CacheFolder, $"{hash}.png");
-
-            if (!string.Equals(tempPath, destinationPath, StringComparison.OrdinalIgnoreCase))
-            {
-                if (File.Exists(destinationPath))
-                {
-                    File.Delete(tempPath);
-                }
-                else
-                {
-                    File.Move(tempPath, destinationPath);
-                }
-            }
-
-            _fileCacheManager.CreateCacheEntry(destinationPath, hash);
-            _bannerHash = hash;
+            _bannerBase64 = Convert.ToBase64String(fileBytes);
             _bannerWidth = BannerWidth;
             _bannerHeight = BannerHeight;
-            _bannerNeedsUpload = true;
             _statusMessage = "Banner loaded. Remember to save the ad.";
             _statusIsError = false;
         }
@@ -548,10 +487,9 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
     private void ClearBanner()
     {
-        _bannerHash = null;
+        _bannerBase64 = null;
         _bannerWidth = null;
         _bannerHeight = null;
-        _bannerNeedsUpload = false;
     }
 
     private async Task RefreshBrowseAsync()
@@ -568,7 +506,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 IncludeUnlisted = false
             }).ConfigureAwait(false);
             _browseVenues.Clear();
-            _browseVenues.AddRange(response.Registries.Where(v => v.Advertisements.Any(ad => ad.IsActive ?? true)));
+            _browseVenues.AddRange(response.Registries.Where(v => v.Advertisements.Any(ad => ad.IsActive)));
             
         }
         catch (Exception ex)
@@ -634,30 +572,11 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         try
         {
-            if (_bannerNeedsUpload && !string.IsNullOrWhiteSpace(_bannerHash))
-            {
-                var progress = new Progress<string>(msg =>
-                {
-                    _statusMessage = msg;
-                    _statusIsError = false;
-                });
-                var missing = await _fileUploadManager.UploadFiles([_bannerHash], progress).ConfigureAwait(false);
-                if (missing.Count > 0)
-                {
-                    _statusMessage = "Banner upload failed.";
-                    _statusIsError = true;
-                    return;
-                }
-                _bannerNeedsUpload = false;
-            }
-
             var venue = _ownedVenues[_selectedOwnedVenueIndex];
             var request = new VenueAdvertisementUpsertRequestDto(venue.Id, _selectedAdId)
             {
                 Text = string.IsNullOrWhiteSpace(_adText) ? null : _adText.Trim(),
-                BannerFileHash = _bannerHash,
-                BannerWidth = _bannerWidth,
-                BannerHeight = _bannerHeight,
+                BannerBase64 = _bannerBase64,
                 IsActive = _adIsActive
             };
 
