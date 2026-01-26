@@ -775,7 +775,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                     .Where(ad => ad.IsActive)
                     .Select(ad => new BrowseAdEntry(venue, ad)))
                 .ToList();
-            var playerDataCenter = GetPlayerDataCenter();
+            var playerDataCenter = await GetPlayerDataCenterAsync().ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(playerDataCenter))
             {
                 activeAds = activeAds
@@ -799,9 +799,9 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private string GetPlayerDataCenter()
+    private async Task<string> GetPlayerDataCenterAsync()
     {
-        var worldId = _uiSharedService.WorldId;
+        var worldId = await _dalamudUtilService.GetHomeWorldIdAsync().ConfigureAwait(false);
         if (worldId == 0 || worldId > ushort.MaxValue)
             return string.Empty;
 

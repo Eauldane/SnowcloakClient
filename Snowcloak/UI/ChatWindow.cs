@@ -125,11 +125,23 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.TextUnformatted("Channels");
         ImGui.Separator();
 
-        DrawStandardChannelSection();
+        var buttonAreaHeight = ImGui.GetFrameHeight() * 2 + ImGui.GetStyle().ItemSpacing.Y;
+        var listHeight = Math.Max(0f, ImGui.GetContentRegionAvail().Y - buttonAreaHeight - ImGui.GetStyle().ItemSpacing.Y);
+
+        using (var list = ImRaii.Child("ChannelListContent", new Vector2(-1, listHeight), false))
+        {
+            if (list.Success)
+            {
+                DrawStandardChannelSection();
+                ImGui.Separator();
+                DrawChannelSection("Syncshells", ChannelKind.Syncshell, GetSyncshellChannels());
+                ImGui.Separator();
+                DrawChannelSection("Direct Messages", ChannelKind.Direct, GetDirectChannels());
+            }
+        }
+
         ImGui.Separator();
-        DrawChannelSection("Syncshells", ChannelKind.Syncshell, GetSyncshellChannels());
-        ImGui.Separator();
-        DrawChannelSection("Direct Messages", ChannelKind.Direct, GetDirectChannels());
+        DrawStandardChannelButtons();
     }
 
     private void DrawStandardChannelSection()
@@ -159,6 +171,16 @@ public class ChatWindow : WindowMediatorSubscriberBase
             }
         }
 
+        var joinedChannels = GetJoinedStandardChannels();
+        if (_selectedChannel == null && joinedChannels.Count > 0)
+        {
+            var first = joinedChannels[0];
+            SetSelectedChannel(new ChatChannelKey(ChannelKind.Standard, first.Id));
+        }
+    }
+
+    private void DrawStandardChannelButtons()
+    {
         var buttonWidth = ImGui.GetContentRegionAvail().X;
         if (ImGui.Button("Browse Channels", new Vector2(buttonWidth, 0)))
         {
@@ -168,13 +190,6 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (ImGui.Button("Create Channel", new Vector2(buttonWidth, 0)))
         {
             Mediator.Publish(new UiToggleMessage(typeof(StandardChannelCreateWindow)));
-        }
-
-        var joinedChannels = GetJoinedStandardChannels();
-        if (_selectedChannel == null && joinedChannels.Count > 0)
-        {
-            var first = joinedChannels[0];
-            SetSelectedChannel(new ChatChannelKey(ChannelKind.Standard, first.Id));
         }
     }
 
@@ -662,6 +677,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private List<(string Id, string Name)> GetSyncshellChannels()
     {
         return _pairManager.GroupPairs.Keys
+            .Where(group => _serverManager.GetShellConfigForGid(group.GID).Enabled)
             .Select(group => (group.GID, GetChannelName(group.Group)))
             .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -802,19 +818,20 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
         var memberRank = GetChannelRoleRank(member.Roles);
-        var canModerate = selfRank >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
+        var canKick = selfRank >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
+        var canBan = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
         var canAssignRoles = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
         var canModerateTarget = !isSelf && selfRank > memberRank;
         var hasActions = false;
 
-        if (canModerate && canModerateTarget)
+        if (canModerateTarget && (canKick || canBan))
         {
-            if (ImGui.MenuItem("Kick"))
+            if (canKick && ImGui.MenuItem("Kick"))
             {
                 _ = KickStandardChannelMember(channelId, member.User);
             }
 
-            if (ImGui.MenuItem("Ban"))
+            if (canBan && ImGui.MenuItem("Ban"))
             {
                 _ = BanStandardChannelMember(channelId, member.User);
             }
