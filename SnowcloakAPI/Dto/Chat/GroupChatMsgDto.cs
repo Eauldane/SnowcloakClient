@@ -1,4 +1,3 @@
-using Snowcloak.API.Dto.User;
 using MessagePack;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Group;

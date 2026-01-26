@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.Gui.ContextMenu;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Comparer;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
@@ -58,6 +59,7 @@ public class Pair : DisposableMediatorSubscriberBase
     public Dictionary<GroupFullInfoDto, GroupPairFullInfoDto> GroupPair { get; set; } = new(GroupDtoComparer.Instance);
     public bool HasCachedPlayer => CachedPlayer != null && !string.IsNullOrEmpty(CachedPlayer.PlayerName) && _onlineUserIdentDto != null;
     public bool IsOnline => CachedPlayer != null;
+    public bool IsChatOnly => _onlineUserIdentDto?.Mode == ConnectionMode.ChatOnly;
 
     public bool IsPaused => UserPair != null && UserPair.OtherPermissions.IsPaired() ? UserPair.OtherPermissions.IsPaused() || UserPair.OwnPermissions.IsPaused()
             : GroupPair.All(p => p.Key.GroupUserPermissions.IsPaused() || p.Value.GroupUserPermissions.IsPaused());

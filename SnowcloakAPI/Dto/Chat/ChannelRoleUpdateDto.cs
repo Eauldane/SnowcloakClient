@@ -1,11 +1,12 @@
 ﻿using MessagePack;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.User;
 
 namespace Snowcloak.API.Dto.Chat;
 
 [MessagePackObject(keyAsPropertyName: true)]
-public record ChannelRoleUpdateDto(ChatChannelData Channel, UserData User, ChannelUserRole Roles)
+public record ChannelRoleUpdateDto(ChatChannelData Channel, UserData User, ChannelUserRole Roles) : UserDto(User)
 {
     public ChatChannelData Channel { get; set; } = Channel;
     public UserData User { get; set; } = User;

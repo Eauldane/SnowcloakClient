@@ -1,5 +1,4 @@
-﻿using Snowcloak.API.Data;
-using MessagePack;
+﻿using MessagePack;
 
 namespace Snowcloak.API.Dto;
 

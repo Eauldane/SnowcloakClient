@@ -63,7 +63,7 @@ public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
         if (string.IsNullOrWhiteSpace(name)) return;
 
         var topic = string.IsNullOrWhiteSpace(_channelTopic) ? null : _channelTopic.Trim();
-        var createDto = new ChannelCreateDto(name, ChannelType.Standard, topic, _isPrivate);
+        var createDto = new ChannelCreateDto(name, topic, _isPrivate, ChannelType.Standard);
         try
         {
             var created = await _apiController.ChannelCreate(createDto).ConfigureAwait(false);

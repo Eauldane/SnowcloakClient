@@ -48,8 +48,8 @@ public class DrawUserPair : DrawPairBase
 
         if (_pair.UserPair!.OwnPermissions.IsPaired() && _pair.UserPair!.OtherPermissions.IsPaired())
         {
-            connectionIcon = FontAwesomeIcon.Snowflake;
-            connectionText = string.Format(CultureInfo.CurrentCulture, "You are paired with {0}", _pair.UserData.AliasOrUID);
+            connectionIcon = _pair.IsChatOnly ? FontAwesomeIcon.Comment : FontAwesomeIcon.Snowflake;
+            connectionText = string.Format(CultureInfo.CurrentCulture, "You are paired with {0}{1}", _pair.UserData.AliasOrUID, _pair.IsChatOnly ? " (chat only)" : string.Empty);
             connectionColor = _pair.IsOnline ? Colours._snowcloakOnline : ImGuiColors.DalamudGrey;
         }
         else

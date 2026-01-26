@@ -1,4 +1,4 @@
-using MessagePack;
+﻿using MessagePack;
 using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.API.Dto.User;

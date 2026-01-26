@@ -859,6 +859,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
             var newRoles = hasRole ? member.Roles & ~role : member.Roles | role;
             _ = UpdateStandardChannelRole(channelId, member.User, newRoles);
         }
+
+        if (role == ChannelUserRole.Owner && !hasRole && ImGui.IsItemHovered())
+        {
+            UiSharedService.AttachToolTip("Warning: assigning Owner will transfer channel ownership.");
+        }
     }
 
     private void DrawStandardChannelLogHint(ChatChannelKey key)

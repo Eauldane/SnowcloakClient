@@ -56,7 +56,7 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
 
     private void PrintWarnChat(string? message)
     {
-        var prefix = "[SnowcloakSync] ";
+        var prefix = "[Snowcloak] ";
         var warningText = "Warning: {0}";
         SeStringBuilder se = new SeStringBuilder().AddText(prefix).AddUiForeground(string.Format(CultureInfo.InvariantCulture, warningText, message ?? string.Empty), 31).AddUiForegroundOff();
         _chatGui.Print(se.BuiltString);
