@@ -775,12 +775,12 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                     .Where(ad => ad.IsActive)
                     .Select(ad => new BrowseAdEntry(venue, ad)))
                 .ToList();
-            var playerDataCenter = await GetPlayerDataCenterAsync().ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(playerDataCenter))
+            var playerRegion = await GetPlayerRegionAsync().ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(playerRegion))
             {
                 activeAds = activeAds
-                    .Where(entry => TryGetAdDataCenter(entry.Advertisement, out var adDataCenter)
-                                    && string.Equals(adDataCenter, playerDataCenter, StringComparison.OrdinalIgnoreCase))
+                    .Where(entry => TryGetAdRegion(entry.Advertisement, out var adRegion)
+                                    && IsRegionVisible(playerRegion, adRegion))
                     .ToList();
             }
             ShuffleAds(activeAds);
@@ -799,20 +799,20 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private async Task<string> GetPlayerDataCenterAsync()
+    private async Task<string> GetPlayerRegionAsync()
     {
         var worldId = await _dalamudUtilService.GetHomeWorldIdAsync().ConfigureAwait(false);
         if (worldId == 0 || worldId > ushort.MaxValue)
             return string.Empty;
 
-        return _uiSharedService.WorldInfoData.TryGetValue((ushort)worldId, out var info)
-            ? info.DataCenter
+        return _dalamudUtilService.TryGetWorldRegion((ushort)worldId, out var region)
+            ? region
             : string.Empty;
     }
 
-    private bool TryGetAdDataCenter(VenueAdvertisementDto ad, out string dataCenter)
+    private bool TryGetAdRegion(VenueAdvertisementDto ad, out string region)
     {
-        dataCenter = string.Empty;
+        region = string.Empty;
         if (string.IsNullOrWhiteSpace(ad.World))
             return false;
 
@@ -822,11 +822,16 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         if (worldId == 0 || worldId > ushort.MaxValue)
             return false;
 
-        if (!_uiSharedService.WorldInfoData.TryGetValue((ushort)worldId, out var info))
-            return false;
+        return _dalamudUtilService.TryGetWorldRegion((ushort)worldId, out region);
+    }
 
-        dataCenter = info.DataCenter;
-        return !string.IsNullOrWhiteSpace(dataCenter);
+    private static bool IsRegionVisible(string playerRegion, string adRegion)
+    {
+        if (string.Equals(playerRegion, adRegion, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !string.Equals(playerRegion, "Oceania", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(adRegion, "Oceania", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ShuffleAds(List<BrowseAdEntry> entries)

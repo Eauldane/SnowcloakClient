@@ -250,6 +250,45 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.1.0"),
+                [
+                new ChangelogSection("New Feature: Venue Ads",
+                    ["A button has been added in the main window to open the venue panel.", 
+                     "This panel will show any active venue advertisements for any region your current character has access to (e.g. NA and OCE).",
+                     "This panel also simplifies venue registration rather than having to remember a command.",
+                     "Venue ads support a short burst of text, and a 700x320 banner ad. You can also set a day and start time, which is localised to the viewer's time.",
+                     "The order of ads shown is randomised on each load.",
+                     "Venue ads auto-clear after an event ends.",
+                     "This feature will be iterated on in subsequent patches, so feel free to give feedback!",
+                     "We've also removed the XIVAuth requirement for registering a venue."
+                    ]),
+                new ChangelogSection("New Feature: Chat",
+                    ["An upgraded chat feature has been added.",
+                        "This replaces the existing syncshell chat, and extends it to support 1-on-1 chats with paired users, as well as standard chat channels.",
+                        "Channels support unlimited users, allowing you to bypass CWLS member caps.",
+                        "You do not need to be on the same datacentre to talk to people through Snowcloak chat.",
+                        "You do not need to be subscribed to the game to use Snowcloak chat.",
+                        "A desktop app is available so that you can chat out of game, without having to give out your Discord. The desktop app uses your Snowcloak secret key, and will automatically retrieve paired users and syncshell chats.",
+                        "This feature is considered BETA."
+                    ]),
+                new ChangelogSection("Misc New Features",
+                [
+                    "Additional texture compression options have been added. Snowcloak will automatically choose the optimal format to convert to.",
+                    "The UI has been tweaked."
+                    ]),
+                new ChangelogSection("Changes and Bug Fixes",
+                    [
+                    "Snowcloak's texture heuristics have been improved.",
+                    "Texture analysis now handles things like dark skin tones better.",
+                    "Texture analysis now handles alpha channels better.",
+                    "SCFs have been extended with new compression options; Snowcloak will automatically choose the best format for an upload.",
+                    "Improved pairing stability for new pairs and syncshell members.",
+                    "Frostbrand will send checkpoints every 5 seconds instead of 15.",
+                    "Fixed some UI issues.",
+                    "You no longer need to be standing on your plot to update an existing venue's infoplate or ad.",
+                    "Removed code that's no longer needed."
+                    ])
+            ]),
             new(VersionFromString("2.0.8"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
