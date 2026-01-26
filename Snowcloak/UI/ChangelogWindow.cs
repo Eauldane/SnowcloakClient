@@ -286,7 +286,8 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                     "Frostbrand will send checkpoints every 5 seconds instead of 15.",
                     "Fixed some UI issues.",
                     "You no longer need to be standing on your plot to update an existing venue's infoplate or ad.",
-                    "Removed code that's no longer needed."
+                    "Removed code that's no longer needed.",
+                    "Frostbrand is now per character instead of global."
                     ])
             ]),
             new(VersionFromString("2.0.8"),
