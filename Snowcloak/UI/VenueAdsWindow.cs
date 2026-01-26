@@ -9,13 +9,17 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.API.Routes;
 using Snowcloak.Services;
+using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.Venue;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System;
 using System.Collections.Concurrent;
+using Snowcloak.UI.Components.BbCode;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -34,14 +38,18 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private const int MaxAdTextLength = 600;
     private const int BannerWidth = 720;
     private const int BannerHeight = 300;
-
+    private static readonly string[] DayOptions = ["None", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    
     private readonly ApiController _apiController;
     private readonly UiSharedService _uiSharedService;
     private readonly FileDialogManager _fileDialogManager;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly VenueRegistrationService _venueRegistrationService;
+    
     private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte[]> _bannerBytes = new(StringComparer.Ordinal);
 
-    private readonly List<VenueRegistryEntryDto> _browseVenues = [];
+    private readonly List<BrowseAdEntry> _browseAds = [];
     private readonly List<VenueRegistryEntryDto> _ownedVenues = [];
     private int _selectedOwnedVenueIndex = -1;
     private Guid? _selectedAdId;
@@ -49,6 +57,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private string? _bannerBase64;
     private int? _bannerWidth;
     private int? _bannerHeight;
+    private int _startDayIndex;
+    private string _startTimeText = string.Empty;
     private bool _adIsActive = true;
     private bool _isSaving;
     private bool _isLoadingBrowse;
@@ -58,14 +68,19 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private AdsTab? _requestedTab;
     private bool _openCreateOnNextDraw;
 
+    private sealed record BrowseAdEntry(VenueRegistryEntryDto Venue, VenueAdvertisementDto Advertisement);
+
     public VenueAdsWindow(ILogger<VenueAdsWindow> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        ApiController apiController, FileDialogManager fileDialogManager,
+        ApiController apiController, FileDialogManager fileDialogManager, DalamudUtilService dalamudUtilService,
+        VenueRegistrationService venueRegistrationService,
         PerformanceCollectorService performanceCollectorService)
-        : base(logger, mediator, "Snowcloak Venue Ads###SnowcloakVenueAds", performanceCollectorService)
+        : base(logger, mediator, "Snowcloak Venues###SnowcloakVenueAds", performanceCollectorService)
     {
         _apiController = apiController;
         _uiSharedService = uiSharedService;
         _fileDialogManager = fileDialogManager;
+        _dalamudUtilService = dalamudUtilService;
+        _venueRegistrationService = venueRegistrationService;
 
         SizeConstraints = new WindowSizeConstraints()
         {
@@ -113,7 +128,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         var browseFlags = _requestedTab == AdsTab.Browse ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
         var manageFlags = _requestedTab == AdsTab.Manage ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
 
-        using (var browseTab = ImRaii.TabItem("Browse Ads", browseFlags))
+        using (var browseTab = ImRaii.TabItem("Ads", browseFlags))
         {
             if (browseTab)
             {
@@ -121,7 +136,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             }
         }
 
-        using (var manageTab = ImRaii.TabItem("Manage Your Ads", manageFlags))
+        using (var manageTab = ImRaii.TabItem("Venue Management", manageFlags))
         {
             if (manageTab)
             {
@@ -137,13 +152,6 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         _uiSharedService.BigText("Venue Advertisements");
         UiSharedService.ColorTextWrapped("Browse active venue ads or manage your own listings.", ImGuiColors.DalamudGrey);
         ImGui.Separator();
-
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.SyncAlt, "Refresh"))
-        {
-            _ = RefreshBrowseAsync();
-            _ = RefreshOwnedAsync();
-        }
-        UiSharedService.AttachToolTip("Reload ads and owned venues.");
 
         if (!string.IsNullOrWhiteSpace(_statusMessage))
         {
@@ -161,36 +169,17 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             return;
         }
 
-        if (_browseVenues.Count == 0)
+        if (_browseAds.Count == 0)
         {
             UiSharedService.ColorTextWrapped("No active venue ads were found.", ImGuiColors.DalamudGrey);
             return;
         }
 
         using var child = ImRaii.Child("VenueAdsBrowse", new Vector2(-1, -1), false);
-        foreach (var venue in _browseVenues)
+        foreach (var entry in _browseAds)
         {
-            var activeAds = venue.Advertisements?
-                .Where(ad => ad.IsActive)
-                .ToList() ?? [];
-            if (activeAds.Count == 0)
-                continue;
-
-            var headerLabel = venue.VenueName ?? "Venue";
-            var headerOpen = ImGui.CollapsingHeader(headerLabel, ImGuiTreeNodeFlags.DefaultOpen);
-            if (!headerOpen)
-                continue;
-
-            if (!string.IsNullOrWhiteSpace(venue.VenueDescription))
-            {
-                UiSharedService.ColorTextWrapped(venue.VenueDescription, ImGuiColors.DalamudGrey);
-            }
-
-            foreach (var ad in activeAds)
-            {
-                DrawAdCard(ad);
-                ImGui.Separator();
-            }
+            DrawAdCard(entry.Venue, entry.Advertisement);
+            ImGui.Separator();
         }
     }
 
@@ -202,6 +191,30 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             return;
         }
 
+        _uiSharedService.BigText("Register a venue");
+        UiSharedService.ColorTextWrapped(
+            "Stand on the plot you want to register and use the /venue command to open the registration window. "
+            + "Make sure you create a syncshell first to associate with your venue!",
+            ImGuiColors.DalamudGrey);
+        if (_dalamudUtilService.TryGetLastHousingPlot(out _))
+        {
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
+            {
+                _venueRegistrationService.BeginRegistrationFromCommand();
+            }
+            UiSharedService.AttachToolTip("Open the placard for your plot to verify ownership.");
+        }
+        UiSharedService.DistanceSeparator();
+        if (_ownedVenues.Count != 0)
+        {
+            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Edit, "Edit venue details"))
+            {
+                Mediator.Publish(new OpenVenueRegistryWindowMessage());
+            }
+            UiSharedService.AttachToolTip("Open the venue manager to edit your listing details.");
+            UiSharedService.DistanceSeparator();
+
+        }
         if (_ownedVenues.Count == 0)
         {
             UiSharedService.ColorTextWrapped("No owned venues were found. Register a venue before creating ads.", ImGuiColors.DalamudGrey);
@@ -217,9 +230,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         DrawOwnedVenueSelector();
         UiSharedService.DistanceSeparator();
-
-        DrawOwnedAdsList();
-        UiSharedService.DistanceSeparator();
+        
         DrawAdEditor();
     }
 
@@ -242,34 +253,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             ImGui.EndCombo();
         }
     }
-
-    private void DrawOwnedAdsList()
-    {
-        if (_selectedOwnedVenueIndex < 0 || _selectedOwnedVenueIndex >= _ownedVenues.Count)
-            return;
-
-        var venue = _ownedVenues[_selectedOwnedVenueIndex];
-        _uiSharedService.BigText("Existing Ads");
-
-        if (venue.Advertisements == null || venue.Advertisements.Count == 0)
-        {
-            UiSharedService.ColorTextWrapped("No ads yet. Create one below.", ImGuiColors.DalamudGrey);
-            return;
-        }
-
-        using var listChild = ImRaii.Child("OwnedAdsList", new Vector2(-1, 140), true);
-        for (var i = 0; i < venue.Advertisements.Count; i++)
-        {
-            var ad = venue.Advertisements[i];
-            var isActive = ad.IsActive;
-            var label = $"{(isActive ? "Active" : "Inactive")} ad {(string.IsNullOrWhiteSpace(ad.Text) ? "(Banner only)" : "(Text)" )}";
-            if (ImGui.Selectable(label, _selectedAdId == ad.Id))
-            {
-                LoadAdForEdit(ad);
-            }
-        }
-    }
-
+    
     private void DrawAdEditor()
     {
         _uiSharedService.BigText("Ad Editor");
@@ -278,6 +262,24 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             ImGui.InputTextMultiline("##VenueAdText", ref _adText, MaxAdTextLength, ImGuiHelpers.ScaledVector2(-1, 140));
         }
+
+        ImGuiHelpers.ScaledDummy(4);
+        ImGui.TextUnformatted("Schedule (Local Time)");
+        ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo("Day", DayOptions[Math.Clamp(_startDayIndex, 0, DayOptions.Length - 1)]))
+        {
+            for (var i = 0; i < DayOptions.Length; i++)
+            {
+                if (ImGui.Selectable(DayOptions[i], i == _startDayIndex))
+                {
+                    _startDayIndex = i;
+                }
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+        ImGui.InputText("Start Time (HH:MM)", ref _startTimeText, 5);
 
         ImGuiHelpers.ScaledDummy(4);
         ImGui.TextUnformatted($"Banner ({BannerWidth}x{BannerHeight})");
@@ -328,17 +330,194 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawAdCard(VenueAdvertisementDto ad)
+    private void DrawAdCard(VenueRegistryEntryDto venue, VenueAdvertisementDto ad)
     {
+        var venueName = venue.VenueName ?? "Venue";
+        _uiSharedService.BigText(venueName);
+        if (ImGui.IsItemClicked())
+        {
+            _ = OpenVenueInfoAsync(ad);
+        }
+        UiSharedService.AttachToolTip("Open venue details.");
+
+        DrawAdMetadata(ad);
+
         if (!string.IsNullOrWhiteSpace(ad.Text))
         {
-            ImGui.TextWrapped(ad.Text);
+            _uiSharedService.RenderBbCode(ad.Text, ImGui.GetContentRegionAvail().X,
+                new BbCodeRenderOptions(AllowImages: false));
         }
 
         if (!string.IsNullOrWhiteSpace(ad.BannerBase64))
         {
             DrawBannerImage(ad.BannerBase64, ad.BannerWidth, ad.BannerHeight);
         }
+    }
+
+    private void DrawAdMetadata(VenueAdvertisementDto ad)
+    {
+        var hasDateRange = ad.StartsAt.HasValue || ad.EndsAt.HasValue;
+        var locationText = BuildPrettyLocationText(ad);
+        if (!string.IsNullOrWhiteSpace(locationText))
+        {
+            UiSharedService.ColorTextWrapped($"Location: {locationText}", ImGuiColors.DalamudGrey);
+        }
+
+        if (hasDateRange || !string.IsNullOrWhiteSpace(locationText))
+        {
+            var start = ad.StartsAt.HasValue
+                ? DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                : "TBD";
+            UiSharedService.ColorTextWrapped($"When: {start}", ImGuiColors.DalamudGrey);
+        }
+
+        if (hasDateRange)
+        {
+            ImGuiHelpers.ScaledDummy(2);
+        }
+    }
+    
+    private string BuildPrettyLocationText(VenueAdvertisementDto ad)
+    {
+        var locationParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ad.World))
+            locationParts.Add(ResolveDisplayName(ad.World, _uiSharedService.WorldData));
+        if (!string.IsNullOrWhiteSpace(ad.Territory))
+            locationParts.Add(ResolveDisplayName(ad.Territory, _uiSharedService.TerritoryData));
+        locationParts.Add(FormatNumericSegment("Ward", ad.Ward));
+        if (!string.IsNullOrWhiteSpace(ad.Plot))
+            locationParts.Add(FormatNumericSegment("Plot", ad.Plot));
+        
+        return string.Join(" • ", locationParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string ResolveDisplayName(string input, IReadOnlyDictionary<ushort, string> data)
+    {
+        var trimmed = input.Trim();
+        if (ushort.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var numeric)
+            && data.TryGetValue(numeric, out var numericMatch))
+        {
+            return numericMatch;
+        }
+        var match = data.FirstOrDefault(kvp => string.Equals(kvp.Value, trimmed, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(match.Value))
+            return match.Value;
+
+        return trimmed;
+    }
+
+    private static string ResolveDisplayName(string input, IReadOnlyDictionary<uint, string> data)
+    {
+        var trimmed = input.Trim();
+        if (uint.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var numeric)
+            && data.TryGetValue(numeric, out var numericMatch))
+        {
+            return numericMatch;
+        }
+        var match = data.FirstOrDefault(kvp => string.Equals(kvp.Value, trimmed, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(match.Value))
+            return match.Value;
+
+        return trimmed;
+    }
+
+    private static string FormatNumericSegment(string label, string value)
+    {
+        if (TryResolveNumeric(value, out var numeric))
+            return $"{label} {numeric}";
+
+        return $"{label} {value.Trim()}";
+    }
+
+    private async Task OpenVenueInfoAsync(VenueAdvertisementDto ad)
+    {
+        if (!_apiController.IsConnected)
+            return;
+
+        if (!TryResolveAdLocation(ad, out var location, out var errorMessage))
+        {
+            _statusMessage = errorMessage ?? "Venue location could not be resolved.";
+            _statusIsError = true;
+            return;
+        }
+
+        try
+        {
+            var response = await _apiController.VenueGetInfoForPlot(new VenueInfoRequestDto(
+                new VenueLocationDto(location.WorldId, location.TerritoryId, location.DivisionId, location.WardId, location.PlotId,
+                    location.RoomId, location.IsApartment))).ConfigureAwait(false);
+            if (response?.HasVenue != true || response.Venue == null)
+            {
+                _statusMessage = "No venue was found for that location.";
+                _statusIsError = true;
+                return;
+            }
+
+            var prompt = new VenueSyncshellPrompt(response.Venue, location);
+            Mediator.Publish(new OpenVenueSyncshellPopupMessage(prompt));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load venue info");
+            _statusMessage = "Failed to load venue info.";
+            _statusIsError = true;
+        }
+    }
+
+    private bool TryResolveAdLocation(VenueAdvertisementDto ad, out HousingPlotLocation location, out string? errorMessage)
+    {
+        location = default;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(ad.World) || string.IsNullOrWhiteSpace(ad.Territory)
+            || string.IsNullOrWhiteSpace(ad.Ward) || string.IsNullOrWhiteSpace(ad.Plot))
+        {
+            errorMessage = "Venue location is incomplete for this ad.";
+            return false;
+        }
+
+        if (!TryResolveWorldId(ad.World, out var worldId)
+            || !TryResolveTerritoryId(ad.Territory, out var territoryId)
+            || !TryResolveNumeric(ad.Ward, out var wardId)
+            || !TryResolveNumeric(ad.Plot, out var plotId))
+        {
+            errorMessage = "Venue location could not be resolved for this ad.";
+            return false;
+        }
+
+        location = new HousingPlotLocation(worldId, territoryId, 0, wardId, plotId, 0, false);
+        return true;
+    }
+
+    private bool TryResolveWorldId(string worldName, out uint worldId)
+    {
+        worldId = 0;
+        var match = _uiSharedService.WorldData.FirstOrDefault(kvp =>
+            string.Equals(kvp.Value, worldName, StringComparison.OrdinalIgnoreCase));
+        if (match.Key == 0 && !string.Equals(match.Value, worldName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        worldId = match.Key;
+        return worldId > 0;
+    }
+
+    private bool TryResolveTerritoryId(string territoryName, out uint territoryId)
+    {
+        territoryId = 0;
+        var match = _uiSharedService.TerritoryData.FirstOrDefault(kvp =>
+            string.Equals(kvp.Value, territoryName, StringComparison.OrdinalIgnoreCase));
+        if (match.Key == 0 && !string.Equals(match.Value, territoryName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        territoryId = match.Key;
+        return territoryId > 0;
+    }
+
+    private static bool TryResolveNumeric(string value, out uint result)
+    {
+        result = 0;
+        var digits = new string(value.Where(char.IsDigit).ToArray());
+        return uint.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out result);
     }
 
     private void DrawBannerPreview()
@@ -406,7 +585,16 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             return;
 
         _selectedOwnedVenueIndex = index;
-        ResetAdEditor();
+        var venue = _ownedVenues[index];
+        var ad = venue.Advertisements?.FirstOrDefault();
+        if (ad != null)
+        {
+            LoadAdForEdit(ad);
+        }
+        else
+        {
+            ResetAdEditor();
+        }
     }
 
     private void ResetAdEditor()
@@ -416,6 +604,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         _bannerBase64 = null;
         _bannerWidth = null;
         _bannerHeight = null;
+        _startDayIndex = 0;
+        _startTimeText = string.Empty;
         _adIsActive = true;
         _statusMessage = null;
     }
@@ -427,6 +617,17 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         _bannerBase64 = ad.BannerBase64;
         _bannerWidth = ad.BannerWidth;
         _bannerHeight = ad.BannerHeight;
+        if (ad.StartsAt.HasValue)
+        {
+            var localStart = DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc).ToLocalTime();
+            _startDayIndex = (int)localStart.DayOfWeek + 1;
+            _startTimeText = localStart.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            _startDayIndex = 0;
+            _startTimeText = string.Empty;
+        }
         _adIsActive = ad.IsActive;
         _statusMessage = null;
     }
@@ -446,7 +647,45 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         if (hasBanner && (_bannerWidth != BannerWidth || _bannerHeight != BannerHeight))
             return $"Banner must be exactly {BannerWidth}x{BannerHeight}.";
 
+        if (!TryResolveStartDateTimeLocal(out _, out var dateError))
+            return dateError;
+
         return null;
+    }
+
+    private bool TryResolveStartDateTimeLocal(out DateTime? startLocal, out string? errorMessage)
+    {
+        startLocal = null;
+        errorMessage = null;
+
+        var hasDay = _startDayIndex > 0;
+        var hasTime = !string.IsNullOrWhiteSpace(_startTimeText);
+        if (!hasDay && !hasTime)
+            return true;
+
+        if (!hasDay || !hasTime)
+        {
+            errorMessage = "Provide both a day and start time or leave both empty.";
+            return false;
+        }
+        
+        if (!DateTime.TryParseExact(_startTimeText.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var timePart))
+        {
+            errorMessage = "Start time must be in 24h HH:MM format.";
+            return false;
+        }
+
+        var selectedDay = (DayOfWeek)(_startDayIndex - 1);
+        var now = DateTime.Now;
+        var today = now.Date;
+        var dayOffset = ((int)selectedDay - (int)today.DayOfWeek + 7) % 7;
+        var candidate = today.AddDays(dayOffset).Add(new TimeSpan(timePart.Hour, timePart.Minute, 0));
+        if (candidate < now)
+        {
+            candidate = candidate.AddDays(7);
+        }
+        startLocal = DateTime.SpecifyKind(candidate, DateTimeKind.Local);
+        return true;
     }
 
     private async Task HandleBannerSelectionAsync(string filePath)
@@ -505,8 +744,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 IncludeAds = true,
                 IncludeUnlisted = false
             }).ConfigureAwait(false);
-            _browseVenues.Clear();
-            _browseVenues.AddRange(response.Registries.Where(v => v.Advertisements.Any(ad => ad.IsActive)));
+            _browseAds.Clear();
+            var activeAds = response.Registries
+                .SelectMany(venue => venue.Advertisements
+                    .Where(ad => ad.IsActive)
+                    .Select(ad => new BrowseAdEntry(venue, ad)))
+                .ToList();
+            ShuffleAds(activeAds);
+            _browseAds.AddRange(activeAds);
             
         }
         catch (Exception ex)
@@ -518,6 +763,19 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         finally
         {
             _isLoadingBrowse = false;
+        }
+    }
+
+    private void ShuffleAds(List<BrowseAdEntry> entries)
+    {
+        if (entries.Count <= 1)
+            return;
+
+        var rng = new Random();
+        for (var i = entries.Count - 1; i > 0; i--)
+        {
+            var swapIndex = rng.Next(i + 1);
+            (entries[i], entries[swapIndex]) = (entries[swapIndex], entries[i]);
         }
     }
 
@@ -539,6 +797,10 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             if (_selectedOwnedVenueIndex < 0 && _ownedVenues.Count > 0)
             {
                 SelectOwnedVenue(0);
+            }
+            else if (_selectedOwnedVenueIndex >= 0 && _selectedOwnedVenueIndex < _ownedVenues.Count)
+            {
+                SelectOwnedVenue(_selectedOwnedVenueIndex);
             }
         }
         catch (Exception ex)
@@ -573,10 +835,17 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         try
         {
             var venue = _ownedVenues[_selectedOwnedVenueIndex];
+            if (!TryResolveStartDateTimeLocal(out var startLocal, out var dateError))
+            {
+                _statusMessage = dateError;
+                _statusIsError = true;
+                return;
+            }
             var request = new VenueAdvertisementUpsertRequestDto(venue.Id, _selectedAdId)
             {
                 Text = string.IsNullOrWhiteSpace(_adText) ? null : _adText.Trim(),
                 BannerBase64 = _bannerBase64,
+                StartsAt = startLocal?.ToUniversalTime(),
                 IsActive = _adIsActive
             };
 
