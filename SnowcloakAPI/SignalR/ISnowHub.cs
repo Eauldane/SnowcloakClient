@@ -11,7 +11,7 @@ namespace Snowcloak.API.SignalR;
 
 public interface ISnowHub
 {
-    const int ApiVersion = 1027;
+    const int ApiVersion = 1028;
     const string Path = "/snow";
 
     Task<bool> CheckClientHealth();
@@ -68,6 +68,16 @@ public interface ISnowHub
     Task Client_GposeLobbyPushWorldData(UserData userData, WorldData worldData);
 
     Task<ConnectionDto> GetConnectionDto();
+    Task UserSetConnectionMode(ConnectionModeDto mode);
+
+    Task<ChannelDto> ChannelCreate(ChannelCreateDto createDto);
+    Task<ChannelMemberDto?> ChannelJoin(ChannelDto channel);
+    Task ChannelLeave(ChannelDto channel);
+    Task ChannelKick(ChannelKickDto kickDto);
+    Task ChannelBan(ChannelBanDto banDto);
+    Task ChannelUnban(ChannelUnbanDto unbanDto);
+    Task ChannelSetMode(ChannelModeUpdateDto modeUpdateDto);
+    Task ChannelSetRole(ChannelRoleUpdateDto roleUpdateDto);
 
     Task GroupBanUser(GroupPairDto dto, string reason);
 

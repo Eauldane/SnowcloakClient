@@ -256,6 +256,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             //Abbrivated because Character Data Hub is too long and loogs ugly in the lables
             DrawSidebarAction(FontAwesomeIcon.Running, "Character Hub",
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+            DrawSidebarAction(FontAwesomeIcon.Comments, "Chat",
+                () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
             DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
             ImGui.Separator();

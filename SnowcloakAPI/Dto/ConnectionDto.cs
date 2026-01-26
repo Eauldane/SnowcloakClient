@@ -24,4 +24,6 @@ public record ServerInfo
     public int MaxGroupsJoinedByUser { get; set; }
     public Uri FileServerAddress { get; set; } = new Uri("http://nonemptyuri");
     public int MaxCharaData { get; set; }
+    public int ChatLogRetentionDays { get; set; }
+    public int ChatHistoryReplayDays { get; set; }
 }
