@@ -119,7 +119,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         WindowName = $"{devTitle}###SnowcloakSyncMainUIDev";
         Toggle();
 #else
-       var windowTitle = string.Format(L("Window.Title", "Snowcloak Sync {0}"), $"{ver.Major}.{ver.Minor}.{ver.Build}");
+       var windowTitle = string.Format("Snowcloak Sync {0}", $"{ver.Major}.{ver.Minor}.{ver.Build}");
         WindowName = $"{windowTitle}###SnowcloakSyncMainUI";
 #endif
         Mediator.Subscribe<SwitchToMainUiMessage>(this, (_) => IsOpen = true);

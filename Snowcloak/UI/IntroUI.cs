@@ -129,7 +129,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 {
                     for (int i = 10; i > 0; i--)
                     {
-                        _timeoutLabel = string.Format(CultureInfo.InvariantCulture, L("Agreement.Timeout", "'I agree' button will be available in {0}s"), i);
+                        _timeoutLabel = string.Format(CultureInfo.InvariantCulture, "'I agree' button will be available in {0}s", i);
                         await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
                     }
                 });
