@@ -257,8 +257,8 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                      "This panel will show any active venue advertisements for any region your current character has access to (e.g. NA and OCE).",
                      "This panel also simplifies venue registration rather than having to remember a command.",
                      "Venue ads support a short burst of text, and a 700x320 banner ad. You can also set a day and start time, which is localised to the viewer's time.",
-                     "The order of ads shown is randomised on each load.",
-                     "Venue ads auto-clear after an event ends.",
+                     "Venues with an event that's in progress will show at the top, followed by the venues with events starting soonest.",
+                     "Venue ads auto-clear three hours after an event starts.",
                      "This feature will be iterated on in subsequent patches, so feel free to give feedback!",
                      "We've also removed the XIVAuth requirement for registering a venue."
                     ]),

@@ -383,10 +383,18 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         if (hasDateRange || !string.IsNullOrWhiteSpace(locationText))
         {
-            var start = ad.StartsAt.HasValue
-                ? DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
-                : "TBD";
-            UiSharedService.ColorTextWrapped($"When: {start}", ImGuiColors.DalamudGrey);
+            if (IsRecentlyStarted(ad))
+            {
+                UiSharedService.ColorTextWrapped("When: Now!", ImGuiColors.HealerGreen);
+            }
+            else
+            {
+                var start = ad.StartsAt.HasValue
+                    ? DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc).ToLocalTime()
+                        .ToString("g", CultureInfo.CurrentCulture)
+                    : "TBD";
+                UiSharedService.ColorTextWrapped($"When: {start}", ImGuiColors.DalamudGrey);
+            }
         }
 
         if (hasDateRange)
@@ -407,6 +415,16 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             locationParts.Add(FormatNumericSegment("Plot", ad.Plot));
         
         return string.Join(" • ", locationParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static bool IsRecentlyStarted(VenueAdvertisementDto ad)
+    {
+        if (!ad.StartsAt.HasValue)
+            return false;
+
+        var startUtc = DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc);
+        var nowUtc = DateTime.UtcNow;
+        return startUtc <= nowUtc && startUtc >= nowUtc.AddHours(-3);
     }
 
     private static string ResolveDisplayName(string input, IReadOnlyDictionary<ushort, string> data)
@@ -783,8 +801,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                                     && IsRegionVisible(playerRegion, adRegion))
                     .ToList();
             }
-            ShuffleAds(activeAds);
-            _browseAds.AddRange(activeAds);
+            var orderedAds = activeAds
+                .OrderByDescending(entry => IsRecentlyStarted(entry.Advertisement))
+                .ThenByDescending(entry => IsRecentlyStarted(entry.Advertisement)
+                    ? entry.Advertisement.StartsAt
+                    : DateTime.MinValue)
+                .ThenBy(entry => entry.Advertisement.StartsAt ?? DateTime.MaxValue)
+                .ToList();
+            _browseAds.AddRange(orderedAds);
             
         }
         catch (Exception ex)
