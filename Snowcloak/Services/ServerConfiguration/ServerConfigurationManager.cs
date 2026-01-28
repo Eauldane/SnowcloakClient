@@ -334,6 +334,14 @@ public class ServerConfigurationManager
         return CurrentSyncshellStorage().GidShellConfig[gid];
     }
 
+    internal bool HasShellConfigForGid(string gid)
+    {
+        if (string.IsNullOrEmpty(gid))
+            return false;
+
+        return CurrentSyncshellStorage().GidShellConfig.ContainsKey(gid);
+    }
+
     internal int GetShellNumberForGid(string gid)
     {
         return GetShellConfigForGid(gid).ShellNumber;

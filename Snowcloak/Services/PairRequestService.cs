@@ -40,7 +40,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private readonly SnowProfileManager _snowProfileManager;
     private readonly ConcurrentDictionary<Guid, PendingRequest> _pendingRequests = new();
     private readonly HashSet<string> _availableIdents = new(StringComparer.Ordinal);
-    private readonly object _availabilityFilterLock = new();
+    private readonly Lock _availabilityFilterLock = new();
     private HashSet<string> _filteredAvailableIdents = new(StringComparer.Ordinal);
     private HashSet<string> _unfilteredAvailableIdents = new(StringComparer.Ordinal);
     private CancellationTokenSource? _availabilityFilterCts;
@@ -61,7 +61,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private bool _availabilitySubscriptionActive;
     private LocationInfo? _lastSubscriptionLocation;
     private readonly SemaphoreSlim _availabilitySubscriptionSemaphore = new(1, 1);
-    private readonly object _availabilityUpdateLock = new();
+    private readonly Lock _availabilityUpdateLock = new();
     private readonly record struct PendingRequest(PairingRequestDto Request, bool DeferredAutoFilter);
     private readonly record struct AutoRejectResult(bool ShouldReject, string Reason, bool WasDeferred);
 

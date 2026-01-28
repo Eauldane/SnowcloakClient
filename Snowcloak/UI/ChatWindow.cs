@@ -39,6 +39,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly Dictionary<string, ChatChannelData> _standardChannelLookup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _joinedStandardChannels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<ChannelMemberDto>> _standardChannelMembers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _syncshellChatMembers = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _joinedSyncshellChats = new(StringComparer.Ordinal);
     private ChatChannelKey? _selectedChannel;
     private string _pendingMessage = string.Empty;
     private bool _autoScroll = true;
@@ -64,14 +66,17 @@ public class ChatWindow : WindowMediatorSubscriberBase
         Mediator.Subscribe<ChannelChatMsgMessage>(this, message => AddStandardChannelMessage(message));
         Mediator.Subscribe<ChannelMemberJoinedMessage>(this, message => HandleStandardChannelMemberJoined(message.Member));
         Mediator.Subscribe<ChannelMemberLeftMessage>(this, message => HandleStandardChannelMemberLeft(message.Member));
+        Mediator.Subscribe<GroupChatMemberStateMessage>(this, message => HandleSyncshellChatMemberState(message.MemberState));
         Mediator.Subscribe<ConnectedMessage>(this, _message =>
         {
             _ = RefreshStandardChannels();
             _ = AutoJoinStandardChannels();
+            _ = AutoJoinSyncshellChats();
         });
         Mediator.Subscribe<DisconnectedMessage>(this, message =>
         {
             ClearStandardChannels();
+            ClearSyncshellChatMembers();
         });
         Mediator.Subscribe<StandardChannelMembershipChangedMessage>(this, message => OnStandardChannelMembershipChanged(message));
 
@@ -239,11 +244,24 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         var shouldScroll = _autoScroll && ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 10f;
 
+        var channelLabel = string.Empty;
+        if (key.Kind == ChannelKind.Syncshell || key.Kind == ChannelKind.Standard)
+        {
+            channelLabel = GetChannelDisplayName(key.Kind, key.Id, GetChannelDisplayLabel(key));
+        }
+
         ImGui.PushTextWrapPos(0f);
         foreach (var entry in log)
         {
             var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
-            ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
+            if (!string.IsNullOrEmpty(channelLabel))
+            {
+                ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1} {2}: {3}", timestamp, channelLabel, entry.Sender, entry.Message));
+            }
+            else
+            {
+                ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
+            }
         }
         ImGui.PopTextWrapPos();
 
@@ -321,6 +339,42 @@ public class ChatWindow : WindowMediatorSubscriberBase
                         if (ImGui.Button("Refresh Members"))
                         {
                             _ = RefreshStandardChannelMembers(channel.ChannelId);
+                        }
+                    }
+                }
+            }
+        }
+        else if (key.Kind == ChannelKind.Syncshell)
+        {
+            var shellConfig = _serverManager.GetShellConfigForGid(key.Id);
+            using (ImRaii.Disabled(!_apiController.IsConnected))
+            {
+                if (shellConfig.Enabled)
+                {
+                    if (ImGui.Button("Leave Chat"))
+                    {
+                        shellConfig.Enabled = false;
+                        _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
+                        _joinedSyncshellChats.Remove(key.Id);
+                        var group = GetGroupData(key.Id);
+                        if (group != null)
+                        {
+                            _ = _apiController.GroupChatLeave(new GroupDto(group));
+                        }
+                        _selectedChannel = null;
+                    }
+                }
+                else
+                {
+                    if (ImGui.Button("Join Chat"))
+                    {
+                        shellConfig.Enabled = true;
+                        _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
+                        var group = GetGroupData(key.Id);
+                        if (group != null)
+                        {
+                            _ = _apiController.GroupChatJoin(new GroupDto(group));
+                            _ = RefreshSyncshellChatMembers(group.GID);
                         }
                     }
                 }
@@ -476,6 +530,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private void AddGroupMessage(GroupChatMsgMessage message)
     {
+        var shellConfig = _serverManager.GetShellConfigForGid(message.GroupInfo.GID);
+        if (!shellConfig.Enabled)
+        {
+            return;
+        }
+
         var channel = new ChatChannelKey(ChannelKind.Syncshell, message.GroupInfo.GID);
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
@@ -535,6 +595,53 @@ public class ChatWindow : WindowMediatorSubscriberBase
         else if (_joinedStandardChannels.Contains(member.Channel.ChannelId))
         {
             _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
+        }
+    }
+
+    private void HandleSyncshellChatMemberState(GroupChatMemberStateDto memberState)
+    {
+        if (!_syncshellChatMembers.TryGetValue(memberState.Group.GID, out var members))
+        {
+            members = new HashSet<string>(StringComparer.Ordinal);
+            _syncshellChatMembers[memberState.Group.GID] = members;
+        }
+
+        if (memberState.IsJoined)
+        {
+            members.Add(memberState.User.UID);
+        }
+        else
+        {
+            members.Remove(memberState.User.UID);
+        }
+
+        if (string.Equals(memberState.User.UID, _apiController.UID, StringComparison.Ordinal))
+        {
+            if (memberState.IsJoined)
+            {
+                var groupInfo = GetGroupInfo(memberState.Group.GID);
+                if (!_serverManager.HasShellConfigForGid(memberState.Group.GID)
+                    && (groupInfo == null || !string.Equals(groupInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal)))
+                {
+                    var shellConfig = _serverManager.GetShellConfigForGid(memberState.Group.GID);
+                    shellConfig.Enabled = false;
+                    _serverManager.SaveShellConfigForGid(memberState.Group.GID, shellConfig);
+                }
+
+                var config = _serverManager.GetShellConfigForGid(memberState.Group.GID);
+                if (!config.Enabled)
+                {
+                    _joinedSyncshellChats.Remove(memberState.Group.GID);
+                    _ = _apiController.GroupChatLeave(memberState.Group);
+                    return;
+                }
+
+                _joinedSyncshellChats.Add(memberState.Group.GID);
+            }
+            else
+            {
+                _joinedSyncshellChats.Remove(memberState.Group.GID);
+            }
         }
     }
 
@@ -891,6 +998,81 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             UiSharedService.ColorTextWrapped("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         }
+    }
+
+    private async Task AutoJoinSyncshellChats()
+    {
+        if (!_apiController.IsConnected) return;
+
+        foreach (var group in _pairManager.GroupPairs.Keys)
+        {
+            if (!string.Equals(group.OwnerUID, _apiController.UID, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var shellConfig = _serverManager.GetShellConfigForGid(group.GID);
+            if (!shellConfig.Enabled)
+            {
+                continue;
+            }
+
+            try
+            {
+                await _apiController.GroupChatJoin(new GroupDto(group.Group)).ConfigureAwait(false);
+                await RefreshSyncshellChatMembers(group.GID).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to auto-join syncshell chat {Gid}", group.GID);
+            }
+        }
+    }
+
+    private async Task RefreshSyncshellChatMembers(string gid)
+    {
+        if (!_apiController.IsConnected) return;
+
+        var group = GetGroupData(gid);
+        if (group == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var members = await _apiController.GroupChatGetMembers(new GroupDto(group)).ConfigureAwait(false);
+            var memberIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var member in members)
+            {
+                if (!member.IsJoined)
+                {
+                    continue;
+                }
+
+                memberIds.Add(member.User.UID);
+            }
+
+            _syncshellChatMembers[gid] = memberIds;
+            if (memberIds.Contains(_apiController.UID))
+            {
+                _joinedSyncshellChats.Add(gid);
+            }
+            else
+            {
+                _joinedSyncshellChats.Remove(gid);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh syncshell chat members for {Gid}", gid);
+        }
+    }
+
+    private void ClearSyncshellChatMembers()
+    {
+        _syncshellChatMembers.Clear();
+        _joinedSyncshellChats.Clear();
     }
 
     private async Task RefreshStandardChannels()

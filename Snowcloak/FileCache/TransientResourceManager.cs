@@ -23,7 +23,7 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase
     private ConcurrentDictionary<IntPtr, ObjectKind> _cachedFrameAddresses = [];
     private ConcurrentDictionary<ObjectKind, HashSet<string>>? _semiTransientResources = null;
     private uint _lastClassJobId = uint.MaxValue;
-    private readonly object _playerPointersLock = new();
+    private readonly Lock _playerPointersLock = new();
     public bool IsTransientRecording { get; private set; } = false;
 
     public TransientResourceManager(ILogger<TransientResourceManager> logger, TransientConfigService configurationService,

@@ -428,6 +428,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
         OnUserChatMsg((dto) => _ = Client_UserChatMsg(dto));
         OnGroupChatMsg((dto) => _ = Client_GroupChatMsg(dto));
+        OnGroupChatMemberState((dto) => _ = Client_GroupChatMemberState(dto));
         OnChannelChatMsg((dto) => _ = Client_ChannelChatMsg(dto));
         OnChannelMemberJoined((dto) => _ = Client_ChannelMemberJoined(dto));
         OnChannelMemberLeft((dto) => _ = Client_ChannelMemberLeft(dto));

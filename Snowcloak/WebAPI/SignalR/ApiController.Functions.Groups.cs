@@ -47,6 +47,24 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(GroupChatSendMsg), group, message).ConfigureAwait(false);
     }
 
+    public Task GroupChatJoin(GroupDto group)
+    {
+        CheckConnection();
+        return _snowHub!.InvokeAsync(nameof(GroupChatJoin), group);
+    }
+
+    public Task GroupChatLeave(GroupDto group)
+    {
+        CheckConnection();
+        return _snowHub!.InvokeAsync(nameof(GroupChatLeave), group);
+    }
+
+    public Task<List<GroupChatMemberStateDto>> GroupChatGetMembers(GroupDto group)
+    {
+        CheckConnection();
+        return _snowHub!.InvokeAsync<List<GroupChatMemberStateDto>>(nameof(GroupChatGetMembers), group);
+    }
+
     public async Task GroupClear(GroupDto group)
     {
         CheckConnection();

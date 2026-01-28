@@ -709,6 +709,7 @@ internal sealed class GroupPanel
     {
         var infoIcon = FontAwesomeIcon.InfoCircle;
 
+        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(groupDto.GID);
         bool invitesEnabled = !groupDto.GroupPermissions.IsDisableInvites();
         var soundsDisabled = groupDto.GroupPermissions.IsDisableSounds();
         var animDisabled = groupDto.GroupPermissions.IsDisableAnimations();
@@ -856,6 +857,27 @@ internal sealed class GroupPanel
                 ImGui.SetClipboardText(UiSharedService.GetNotes(groupPairs));
             }
             UiSharedService.AttachToolTip("Copies all your notes for all users in this Syncshell to the clipboard." + Environment.NewLine + "They can be imported via Settings -> General -> Notes -> Import notes from clipboard");
+
+            var chatText = shellConfig.Enabled ? "Leave chat" : "Join chat";
+            using (ImRaii.Disabled(!ApiController.IsConnected))
+            {
+                if (_uiShared.IconTextButton(FontAwesomeIcon.Comments, chatText))
+                {
+                    ImGui.CloseCurrentPopup();
+                    shellConfig.Enabled = !shellConfig.Enabled;
+                    _serverConfigurationManager.SaveShellConfigForGid(groupDto.GID, shellConfig);
+
+                    if (shellConfig.Enabled)
+                    {
+                        _ = ApiController.GroupChatJoin(new GroupDto(groupDto.Group));
+                    }
+                    else
+                    {
+                        _ = ApiController.GroupChatLeave(new GroupDto(groupDto.Group));
+                    }
+                }
+            }
+            UiSharedService.AttachToolTip("Toggle whether this syncshell appears in your chat window and receives chat messages.");
             
             var soundsText = userSoundsDisabled ? "Enable sound sync" : "Disable sound sync";
             if (_uiShared.IconTextButton(userSoundsIcon, soundsText))

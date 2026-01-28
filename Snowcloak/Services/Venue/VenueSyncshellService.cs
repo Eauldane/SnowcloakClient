@@ -7,6 +7,7 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System.Linq;
 using System.Threading;
@@ -20,17 +21,19 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
     private readonly PairManager _pairManager;
+    private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly Dictionary<string, AutoJoinedVenue> _autoJoinedVenues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _pendingRemovalTokens = new(StringComparer.Ordinal);
     private readonly Lock _syncRoot = new();
     private VenueSyncshellPrompt? _activePrompt;
 
     public VenueSyncshellService(ILogger<VenueSyncshellService> logger, SnowMediator mediator, ApiController apiController,
-        SnowcloakConfigService configService, PairManager pairManager) : base(logger, mediator)
+        SnowcloakConfigService configService, PairManager pairManager, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
     {
         _apiController = apiController;
         _configService = configService;
         _pairManager = pairManager;
+        _serverConfigurationManager = serverConfigurationManager;
 
         Mediator.Subscribe<HousingPlotEnteredMessage>(this, msg => _ = HandleHousingPlotEntered(msg.Location));
         Mediator.Subscribe<HousingPlotLeftMessage>(this, msg => HandleHousingPlotLeft(msg.Location));
@@ -64,6 +67,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             if (joined)
             {
                 Logger.LogInformation("Joined venue syncshell {GID} for {Venue}", joinGroupId, prompt.Venue.VenueName);
+                DisableAutoJoinedSyncshellChat(joinGroupId);
                 lock (_syncRoot)
                 {
                     _autoJoinedVenues[joinGroupId] = new(prompt.Venue.JoinInfo.Group, prompt.Location);
@@ -79,6 +83,18 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             Logger.LogWarning(ex, "Failed to join venue syncshell {GID}", joinGroupId);
             return false;
         }
+    }
+
+    private void DisableAutoJoinedSyncshellChat(string joinGroupId)
+    {
+        if (_serverConfigurationManager.HasShellConfigForGid(joinGroupId))
+        {
+            return;
+        }
+
+        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(joinGroupId);
+        shellConfig.Enabled = false;
+        _serverConfigurationManager.SaveShellConfigForGid(joinGroupId, shellConfig);
     }
 
     internal bool IsAutoJoined(GroupData group)

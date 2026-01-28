@@ -35,6 +35,13 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_GroupChatMemberState(GroupChatMemberStateDto groupChatMemberStateDto)
+    {
+        Logger.LogDebug("Client_GroupChatMemberState: {dto}", groupChatMemberStateDto);
+        Mediator.Publish(new GroupChatMemberStateMessage(groupChatMemberStateDto));
+        return Task.CompletedTask;
+    }
+
     public Task Client_ChannelChatMsg(ChannelChatMsgDto channelChatMsgDto)
     {
         Logger.LogDebug("Client_ChannelChatMsg: {msg}", channelChatMsgDto.Message);
@@ -88,7 +95,26 @@ public partial class ApiController
     public Task Client_GroupPairJoined(GroupPairFullInfoDto groupPairInfoDto)
     {
         Logger.LogTrace("Client_GroupPairJoined: {dto}", groupPairInfoDto);
-        ExecuteSafely(() => _pairManager.AddGroupPair(groupPairInfoDto));
+        ExecuteSafely(() =>
+        {
+            _pairManager.AddGroupPair(groupPairInfoDto);
+
+            if (string.Equals(groupPairInfoDto.User.UID, UID, StringComparison.Ordinal))
+            {
+                if (!_serverManager.HasShellConfigForGid(groupPairInfoDto.Group.GID))
+                {
+                    var shellConfig = _serverManager.GetShellConfigForGid(groupPairInfoDto.Group.GID);
+                    shellConfig.Enabled = false;
+                    _serverManager.SaveShellConfigForGid(groupPairInfoDto.Group.GID, shellConfig);
+                }
+
+                var config = _serverManager.GetShellConfigForGid(groupPairInfoDto.Group.GID);
+                if (!config.Enabled)
+                {
+                    _ = GroupChatLeave(new GroupDto(groupPairInfoDto.Group));
+                }
+            }
+        });
         return Task.CompletedTask;
     }
 
@@ -315,6 +341,12 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_GroupChatMsg), act);
+    }
+
+    public void OnGroupChatMemberState(Action<GroupChatMemberStateDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_GroupChatMemberState), act);
     }
 
     public void OnChannelChatMsg(Action<ChannelChatMsgDto> act)

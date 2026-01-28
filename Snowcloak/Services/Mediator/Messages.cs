@@ -101,6 +101,7 @@ public record PenumbraDirectoryChangedMessage(string? ModDirectory) : MessageBas
 public record PenumbraRedrawCharacterMessage(ICharacter Character) : SameThreadMessage;
 public record UserChatMsgMessage(SignedChatMessage ChatMsg) : MessageBase;
 public record GroupChatMsgMessage(GroupDto GroupInfo, SignedChatMessage ChatMsg) : MessageBase;
+public record GroupChatMemberStateMessage(GroupChatMemberStateDto MemberState) : MessageBase;
 public record ChannelChatMsgMessage(ChannelDto ChannelInfo, SignedChatMessage ChatMsg) : MessageBase;
 public record ChannelMemberJoinedMessage(ChannelMemberJoinedDto Member) : MessageBase;
 public record ChannelMemberLeftMessage(ChannelMemberLeftDto Member) : MessageBase;
