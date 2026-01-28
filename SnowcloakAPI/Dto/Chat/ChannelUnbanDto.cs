@@ -8,5 +8,5 @@ namespace Snowcloak.API.Dto.Chat;
 public record ChannelUnbanDto(ChatChannelData Channel, UserData User) : UserDto(User)
 {
     public ChatChannelData Channel { get; set; } = Channel;
-    public UserData User { get; set; } = User;
+    public new UserData User { get; set; } = User;
 }

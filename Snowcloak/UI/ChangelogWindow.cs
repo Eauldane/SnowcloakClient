@@ -250,6 +250,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.1.2"),
+                [
+                new ChangelogSection("Changes and Bug Fixes",
+                    [
+                        "Added a clarifier on the chat button that's it's beta.",
+                        
+                        "Miscellaneous internal code cleanup."
+                    ])
+            ]),
             new(VersionFromString("2.1.1"),
             [
             new ChangelogSection("Changes and Bug Fixes",

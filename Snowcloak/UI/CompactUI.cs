@@ -258,7 +258,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
             DrawSidebarAction(FontAwesomeIcon.Cocktail, "Venues",
                 () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
-            DrawSidebarAction(FontAwesomeIcon.Comments, "Chat",
+            DrawSidebarAction(FontAwesomeIcon.Comments, "Chat [BETA]",
                 () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
             DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));

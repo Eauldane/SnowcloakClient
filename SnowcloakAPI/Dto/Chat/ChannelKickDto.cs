@@ -8,6 +8,6 @@ namespace Snowcloak.API.Dto.Chat;
 public record ChannelKickDto(ChatChannelData Channel, UserData User, string? Reason = null) : UserDto(User)
 {
     public ChatChannelData Channel { get; set; } = Channel;
-    public UserData User { get; set; } = User;
+    public new UserData User { get; set; } = User;
     public string? Reason { get; set; } = Reason;
 }

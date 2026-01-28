@@ -9,6 +9,6 @@ namespace Snowcloak.API.Dto.Chat;
 public record ChannelMemberDto(ChatChannelData Channel, UserData User, ChannelUserRole Roles) : UserDto(User)
 {
     public ChatChannelData Channel { get; set; } = Channel;
-    public UserData User { get; set; } = User;
+    public new UserData User { get; set; } = User;
     public ChannelUserRole Roles { get; set; } = Roles;
 }

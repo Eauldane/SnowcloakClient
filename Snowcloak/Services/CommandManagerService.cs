@@ -226,11 +226,6 @@ public sealed class CommandManagerService : IDisposable
             var targetPair = _pairManager.GetPairByObjectId(targetId.Value);
             if (targetPair != null)
                 pairsToRefresh.Add(targetPair);
-            
-            else
-            {
-                //_chatGui.PrintError("Target is not a synced player; attempting party sync instead.");
-            }
         }
         
 
@@ -251,7 +246,6 @@ public sealed class CommandManagerService : IDisposable
         
         if (pairsToRefresh.Count == 0)
         {
-            //_chatGui.PrintError("No synced targets or party members found for animation sync.");
             return;
         }
         var refreshedObjectIds = pairsToRefresh
