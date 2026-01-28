@@ -239,11 +239,13 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         var shouldScroll = _autoScroll && ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 10f;
 
+        ImGui.PushTextWrapPos(0f);
         foreach (var entry in log)
         {
             var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
-            ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
+            ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
         }
+        ImGui.PopTextWrapPos();
 
         if (shouldScroll)
         {

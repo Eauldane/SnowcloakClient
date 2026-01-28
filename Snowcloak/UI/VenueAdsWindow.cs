@@ -35,7 +35,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         Manage
     }
 
-    private const int MaxAdTextLength = 600;
+    private const int MaxAdTextLength = 2000;
     private const int BannerWidth = 720;
     private const int BannerHeight = 300;
     private static readonly string[] DayOptions = ["None", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -351,7 +351,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private void DrawAdCard(VenueRegistryEntryDto venue, VenueAdvertisementDto ad)
     {
         var venueName = venue.VenueName ?? "Venue";
-        _uiSharedService.BigText(venueName);
+        if (!string.IsNullOrWhiteSpace(ad.HexString))
+        {
+            _uiSharedService.BigText(venueName, Colours.Hex2Vector4(ad.HexString));
+        }
+        else
+        {
+            _uiSharedService.BigText(venueName);
+        }
         if (ImGui.IsItemClicked())
         {
             _ = OpenVenueInfoAsync(ad);
@@ -360,15 +367,15 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         DrawAdMetadata(ad);
 
+        if (!string.IsNullOrWhiteSpace(ad.BannerBase64))
+        {
+            DrawBannerImage(ad.BannerBase64, ad.BannerWidth, ad.BannerHeight);
+        }
+
         if (!string.IsNullOrWhiteSpace(ad.Text))
         {
             _uiSharedService.RenderBbCode(ad.Text, ImGui.GetContentRegionAvail().X,
                 new BbCodeRenderOptions(AllowImages: false));
-        }
-
-        if (!string.IsNullOrWhiteSpace(ad.BannerBase64))
-        {
-            DrawBannerImage(ad.BannerBase64, ad.BannerWidth, ad.BannerHeight);
         }
     }
 

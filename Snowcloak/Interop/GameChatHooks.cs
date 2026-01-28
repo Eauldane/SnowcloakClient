@@ -32,9 +32,10 @@ public unsafe sealed class GameChatHooks : IDisposable
     #pragma warning disable CS0649
     // I do not know what kind of black magic this function performs
     // Client::UI::Misc::PronounModule::???
+    
     [Signature("E8 ?? ?? ?? ?? 44 88 74 24 ?? 4C 8D 45")]
     private readonly delegate* unmanaged<PronounModule*, Utf8String*, byte, Utf8String*> _processStringStep2;
-
+    
     // Component::Shell::ShellCommandModule::ExecuteCommandInner
     private delegate void SendMessageDelegate(ShellCommandModule* module, Utf8String* message, UIModule* uiModule);
     [Signature(

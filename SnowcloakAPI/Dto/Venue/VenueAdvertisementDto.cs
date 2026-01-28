@@ -17,5 +17,6 @@ public record VenueAdvertisementDto(Guid Id)
     public string? BannerBase64 { get; set; }
     public int? BannerWidth { get; set; }
     public int? BannerHeight { get; set; }
+    public string? HexString { get; set; }
     public bool IsActive { get; set; } = true;
 }

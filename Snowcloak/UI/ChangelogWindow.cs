@@ -250,6 +250,16 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.1.1"),
+            [
+            new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Venue ads now correctly show vanity colours for the venue.",
+                    "Venue ad text limit changed to 2,000 characters.",
+                    "Changed venue ads to show the banner above the text instead of below.",
+                    "Remembered that people sometimes send more than two words at a time through chat, and added text wrapping. Idiot."
+                    ])
+                ]),
             new(VersionFromString("2.1.0"),
                 [
                 new ChangelogSection("New Feature: Venue Ads",
