@@ -132,7 +132,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         }
         if (color != 0)
             msg.AddUiForeground((ushort)color);
-        msg.AddText($"[SS{shellNumber}]<");
+        msg.AddText("[SnowChat] ");
         if (message.ChatMsg.Sender.UID.Equals(_apiController.UID, StringComparison.Ordinal))
         {
             // Don't link to your own character
@@ -140,9 +140,10 @@ public class ChatService : DisposableMediatorSubscriberBase
         }
         else
         {
-            msg.Add(new PlayerPayload(chatMsg.SenderName, chatMsg.SenderHomeWorldId));
+            msg.Add(new PlayerPayload(chatMsg.Sender.AliasOrUID, chatMsg.SenderHomeWorldId));
         }
-        msg.AddText("> ");
+        var shellName = _serverConfigurationManager.GetNoteForGid(message.GroupInfo.GID) ?? message.GroupInfo.Group.AliasOrGID;
+        msg.AddText($"@{shellName}: ");
         msg.Append(SeString.Parse(message.ChatMsg.PayloadContent));
         if (color != 0)
             msg.AddUiForegroundOff();

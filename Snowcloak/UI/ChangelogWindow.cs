@@ -255,7 +255,9 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                 new ChangelogSection("Changes and Bug Fixes",
                     [
                         "Added a clarifier on the chat button that's it's beta.",
-                        
+                        "Syncshell chats now require users to explicitly join rather than dumping them in automatically.",
+                        "Chat user lists now properly update.",
+                        "Users who go offline are now properly 'disconnected' from the chat.",
                         "Miscellaneous internal code cleanup."
                     ])
             ]),

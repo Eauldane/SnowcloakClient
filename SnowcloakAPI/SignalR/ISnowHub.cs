@@ -11,7 +11,7 @@ namespace Snowcloak.API.SignalR;
 
 public interface ISnowHub
 {
-    const int ApiVersion = 1030;
+    const int ApiVersion = 1032;
     const string Path = "/snow";
 
     Task<bool> CheckClientHealth();

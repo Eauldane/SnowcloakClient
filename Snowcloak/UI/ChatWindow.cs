@@ -39,7 +39,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly Dictionary<string, ChatChannelData> _standardChannelLookup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _joinedStandardChannels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<ChannelMemberDto>> _standardChannelMembers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HashSet<string>> _syncshellChatMembers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, UserData>> _syncshellChatMembers = new(StringComparer.Ordinal);
     private readonly HashSet<string> _joinedSyncshellChats = new(StringComparer.Ordinal);
     private ChatChannelKey? _selectedChannel;
     private string _pendingMessage = string.Empty;
@@ -254,14 +254,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         foreach (var entry in log)
         {
             var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
-            if (!string.IsNullOrEmpty(channelLabel))
-            {
-                ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1} {2}: {3}", timestamp, channelLabel, entry.Sender, entry.Message));
-            }
-            else
-            {
                 ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
-            }
         }
         ImGui.PopTextWrapPos();
 
@@ -356,6 +349,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                         shellConfig.Enabled = false;
                         _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
                         _joinedSyncshellChats.Remove(key.Id);
+                        _syncshellChatMembers.Remove(key.Id);
                         var group = GetGroupData(key.Id);
                         if (group != null)
                         {
@@ -370,6 +364,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                     {
                         shellConfig.Enabled = true;
                         _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
+                        _joinedSyncshellChats.Add(key.Id);
                         var group = GetGroupData(key.Id);
                         if (group != null)
                         {
@@ -420,26 +415,21 @@ public class ChatWindow : WindowMediatorSubscriberBase
             return;
         }
 
-        var members = new List<(UserData User, int Rank)>();
-        if (groupInfo.Owner != null)
+        if (!_syncshellChatMembers.TryGetValue(key.Id, out var members) || members.Count == 0)
         {
-            members.Add((groupInfo.Owner, 3));
+            var message = _joinedSyncshellChats.Contains(key.Id)
+                ? "No chat members loaded."
+                : "Join this chat to view members.";
+            UiSharedService.ColorTextWrapped(message, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            return;
         }
 
-        if (_pairManager.GroupPairs.TryGetValue(groupInfo, out var pairs))
-        {
-            foreach (var pair in pairs)
-            {
-                var rank = IsModerator(pair, groupInfo) ? 2 : 1;
-                members.Add((pair.UserData, rank));
-            }
-        }
-
-        foreach (var entry in members
-                     .GroupBy(m => m.User.UID)
-                     .Select(g => g.OrderByDescending(x => x.Rank).First())
-                     .OrderByDescending(m => m.Rank)
-                     .ThenBy(m => GetUserDisplayName(m.User), StringComparer.OrdinalIgnoreCase))
+        foreach (var entry in members.Values
+                     .GroupBy(user => user.UID)
+                     .Select(group => group.First())
+                     .Select(user => (User: user, Rank: GetSyncshellChatMemberRank(groupInfo, user)))
+                     .OrderByDescending(member => member.Rank)
+                     .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))
         {
             var prefix = GetRolePrefix(groupInfo, entry.User);
             ImGui.TextUnformatted(prefix + GetUserDisplayName(entry.User));
@@ -600,48 +590,57 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private void HandleSyncshellChatMemberState(GroupChatMemberStateDto memberState)
     {
-        if (!_syncshellChatMembers.TryGetValue(memberState.Group.GID, out var members))
-        {
-            members = new HashSet<string>(StringComparer.Ordinal);
-            _syncshellChatMembers[memberState.Group.GID] = members;
-        }
-
-        if (memberState.IsJoined)
-        {
-            members.Add(memberState.User.UID);
-        }
-        else
-        {
-            members.Remove(memberState.User.UID);
-        }
-
-        if (string.Equals(memberState.User.UID, _apiController.UID, StringComparison.Ordinal))
+        var gid = memberState.Group.GID;
+        var isSelf = string.Equals(memberState.User.UID, _apiController.UID, StringComparison.Ordinal);
+        if (isSelf)
         {
             if (memberState.IsJoined)
             {
-                var groupInfo = GetGroupInfo(memberState.Group.GID);
-                if (!_serverManager.HasShellConfigForGid(memberState.Group.GID)
+                var groupInfo = GetGroupInfo(gid);
+                if (!_serverManager.HasShellConfigForGid(gid)
                     && (groupInfo == null || !string.Equals(groupInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal)))
                 {
-                    var shellConfig = _serverManager.GetShellConfigForGid(memberState.Group.GID);
+                    var shellConfig = _serverManager.GetShellConfigForGid(gid);
                     shellConfig.Enabled = false;
-                    _serverManager.SaveShellConfigForGid(memberState.Group.GID, shellConfig);
+                    _serverManager.SaveShellConfigForGid(gid, shellConfig);
                 }
 
-                var config = _serverManager.GetShellConfigForGid(memberState.Group.GID);
+                var config = _serverManager.GetShellConfigForGid(gid);
                 if (!config.Enabled)
                 {
-                    _joinedSyncshellChats.Remove(memberState.Group.GID);
+                    _joinedSyncshellChats.Remove(gid);
+                    _syncshellChatMembers.Remove(gid);
                     _ = _apiController.GroupChatLeave(memberState.Group);
                     return;
                 }
 
-                _joinedSyncshellChats.Add(memberState.Group.GID);
+                _joinedSyncshellChats.Add(gid);
             }
             else
             {
-                _joinedSyncshellChats.Remove(memberState.Group.GID);
+                _joinedSyncshellChats.Remove(gid);
+                _syncshellChatMembers.Remove(gid);
             }
+        }
+
+        if (!_joinedSyncshellChats.Contains(gid))
+        {
+            return;
+        }
+
+        if (!_syncshellChatMembers.TryGetValue(gid, out var members))
+        {
+            members = new Dictionary<string, UserData>(StringComparer.Ordinal);
+            _syncshellChatMembers[gid] = members;
+        }
+
+        if (memberState.IsJoined)
+        {
+            members[memberState.User.UID] = memberState.User;
+        }
+        else
+        {
+            members.Remove(memberState.User.UID);
         }
     }
 
@@ -1006,12 +1005,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         foreach (var group in _pairManager.GroupPairs.Keys)
         {
-            if (!string.Equals(group.OwnerUID, _apiController.UID, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var shellConfig = _serverManager.GetShellConfigForGid(group.GID);
+          var shellConfig = _serverManager.GetShellConfigForGid(group.GID);
             if (!shellConfig.Enabled)
             {
                 continue;
@@ -1042,7 +1036,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         try
         {
             var members = await _apiController.GroupChatGetMembers(new GroupDto(group)).ConfigureAwait(false);
-            var memberIds = new HashSet<string>(StringComparer.Ordinal);
+            var memberMap = new Dictionary<string, UserData>(StringComparer.Ordinal);
             foreach (var member in members)
             {
                 if (!member.IsJoined)
@@ -1050,11 +1044,19 @@ public class ChatWindow : WindowMediatorSubscriberBase
                     continue;
                 }
 
-                memberIds.Add(member.User.UID);
+                memberMap[member.User.UID] = member.User;
             }
 
-            _syncshellChatMembers[gid] = memberIds;
-            if (memberIds.Contains(_apiController.UID))
+            if (memberMap.Count == 0)
+            {
+                _syncshellChatMembers.Remove(gid);
+            }
+            else
+            {
+                _syncshellChatMembers[gid] = memberMap;
+            }
+
+            if (memberMap.ContainsKey(_apiController.UID))
             {
                 _joinedSyncshellChats.Add(gid);
             }
@@ -1073,6 +1075,27 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         _syncshellChatMembers.Clear();
         _joinedSyncshellChats.Clear();
+    }
+
+    private int GetSyncshellChatMemberRank(GroupFullInfoDto? groupInfo, UserData user)
+    {
+        if (groupInfo == null)
+        {
+            return 1;
+        }
+
+        if (groupInfo.Owner != null && string.Equals(groupInfo.Owner.UID, user.UID, StringComparison.Ordinal))
+        {
+            return 3;
+        }
+
+        var pair = _pairManager.GetPairByUID(user.UID);
+        if (pair != null && IsModerator(pair, groupInfo))
+        {
+            return 2;
+        }
+
+        return 1;
     }
 
     private async Task RefreshStandardChannels()
