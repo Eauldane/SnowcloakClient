@@ -75,8 +75,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         });
         Mediator.Subscribe<DisconnectedMessage>(this, message =>
         {
-            ClearStandardChannels();
-            ClearSyncshellChatMembers();
+            ResetChatState();
         });
         Mediator.Subscribe<StandardChannelMembershipChangedMessage>(this, message => OnStandardChannelMembershipChanged(message));
 
@@ -1350,4 +1349,17 @@ public class ChatWindow : WindowMediatorSubscriberBase
             _logger.LogWarning(ex, "Failed to update standard channel topic.");
         }
     }
+    
+    private void ResetChatState()
+    {
+        _channelLogs.Clear();
+        _selectedChannel = null;
+        _pendingMessage = string.Empty;
+        _standardChannelTopicDraft = string.Empty;
+        _isEditingStandardChannelTopic = false;
+        ClearStandardChannels();
+        ClearSyncshellChatMembers();
+    }
+
+
 }

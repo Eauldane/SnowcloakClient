@@ -250,6 +250,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.1.3"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Added settings option to disable changelog popups in the general tab.",
+                    "Cleaned up some unused settings options."
+                ])
+            ]),
             new(VersionFromString("2.1.2"),
                 [
                 new ChangelogSection("Changes and Bug Fixes",
