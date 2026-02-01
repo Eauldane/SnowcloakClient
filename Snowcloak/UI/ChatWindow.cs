@@ -802,6 +802,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private List<(string Id, string Name)> GetDirectChannels()
     {
         return _pairManager.DirectPairs
+            .Where(pair => pair.IsOnline)
             .Select(pair => (pair.UserData.UID, GetUserDisplayName(pair.UserData)))
             .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
             .ToList();
