@@ -58,7 +58,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
         
         LoadHeaderLogo();
 
-        if (_shouldMarkVersionSeen)
+        if (_shouldMarkVersionSeen && configService.Current.ShowChangelog)
         {
             IsOpen = true;
         }

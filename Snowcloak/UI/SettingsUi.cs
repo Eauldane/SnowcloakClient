@@ -947,7 +947,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
         var dtrColorsNotConnected = _configService.Current.DtrColorsNotConnected;
         var dtrColorsPairsInRange = _configService.Current.DtrColorsPairsInRange;
         var dtrColorsPendingRequests = _configService.Current.DtrColorsPendingRequests;
-
+        var showChangelog = _configService.Current.ShowChangelog;
+        if (ImGui.Checkbox("Show changelogs on update", ref showChangelog))
+        {
+            _configService.Current.ShowChangelog = showChangelog;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
         if (ImGui.Checkbox("Enable Game Right Click Menu Entries", ref enableRightClickMenu))
         {
             _configService.Current.EnableRightClickMenus = enableRightClickMenu;
