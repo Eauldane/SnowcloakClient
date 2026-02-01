@@ -53,7 +53,6 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ShowOfflineUsersSeparately { get; set; } = true;
     public bool ShowSyncshellOfflineUsersSeparately { get; set; } = true;
     public bool GroupUpSyncshells { get; set; } = true;
-    public bool SerialApplication { get; set; } = false;
     public bool ShowOnlineNotifications { get; set; } = false;
     public bool ShowOnlineNotificationsOnlyForIndividualPairs { get; set; } = true;
     public bool ShowOnlineNotificationsOnlyForNamedPairs { get; set; } = false;

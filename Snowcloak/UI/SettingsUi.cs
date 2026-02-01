@@ -616,14 +616,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.HoldCombatApplication = holdCombatApplication;
             _configService.Save();
         }
-
-        bool serializedApplications = _configService.Current.SerialApplication;
-        if (ImGui.Checkbox("Serialized player applications", ref serializedApplications))
-        {
-            _configService.Current.SerialApplication = serializedApplications;
-            _configService.Save();
-        }
-        _uiShared.DrawHelpText("Experimental - May reduce issues in crowded areas");
         
         ImGui.Separator();
         _uiShared.BigText("Debug");
