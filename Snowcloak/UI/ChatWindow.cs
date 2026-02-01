@@ -45,6 +45,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly HashSet<string> _pinnedDirectChannels = new(StringComparer.Ordinal);
     private string _pendingMessage = string.Empty;
     private bool _autoScroll = true;
+    private readonly HashSet<ChatChannelKey> _unreadChannels = [];
     private string _standardChannelTopicDraft = string.Empty;
     private bool _isEditingStandardChannelTopic;
 
@@ -167,6 +168,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
                         var key = new ChatChannelKey(ChannelKind.Standard, channel.Id);
                         var displayName = GetChannelDisplayName(ChannelKind.Standard, channel.Id, channel.Name);
                         var isSelected = _selectedChannel.HasValue && _selectedChannel.Value.Equals(key);
+                        var unread = _unreadChannels.Contains(key);
+                        using var unreadStyle = ImRaii.PushColor(ImGuiCol.Text, GetUnreadChannelColor(), unread);
+
                         if (ImGui.Selectable(displayName, isSelected))
                         {
                             SetSelectedChannel(key);
@@ -208,6 +212,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 var key = new ChatChannelKey(kind, channel.Id);
                 var displayName = GetChannelDisplayName(kind, channel.Id, channel.Name);
                 var isSelected = _selectedChannel.HasValue && _selectedChannel.Value.Equals(key);
+                var unread = _unreadChannels.Contains(key);
+                using var unreadStyle = ImRaii.PushColor(ImGuiCol.Text, GetUnreadChannelColor(), unread);
+
                 if (ImGui.Selectable(displayName, isSelected))
                 {
                     SetSelectedChannel(key);
@@ -516,7 +523,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         var selfUser = new UserData(_apiController.UID, _apiController.VanityId);
         var displayName = FormatSenderName(channel, selfUser);
-        AppendMessage(channel, displayName, message, DateTime.UtcNow);
+        AppendMessage(channel, displayName, message, DateTime.UtcNow, markUnread: false);
     }
 
     private void AddGroupMessage(GroupChatMsgMessage message)
@@ -530,7 +537,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = new ChatChannelKey(ChannelKind.Syncshell, message.GroupInfo.GID);
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp));
+        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true);
     }
 
     private void AddDirectMessage(SignedChatMessage message)
@@ -538,7 +545,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = new ChatChannelKey(ChannelKind.Direct, message.Sender.UID);
         var text = DecodeMessage(message.PayloadContent);
         var displayName = FormatSenderName(channel, message.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.Timestamp));
+        AppendMessage(channel, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: true);
+        _pinnedDirectChannels.Add(channel.Id);
+
     }
 
     private void AddStandardChannelMessage(ChannelChatMsgMessage message)
@@ -552,7 +561,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = new ChatChannelKey(ChannelKind.Standard, channelData.ChannelId);
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp));
+        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true);
     }
 
     private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
@@ -645,7 +654,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private void AppendMessage(ChatChannelKey channel, string sender, string message, DateTime timestamp)
+    private void AppendMessage(ChatChannelKey channel, string sender, string message, DateTime timestamp, bool markUnread)
     {
         if (!_channelLogs.TryGetValue(channel, out var log))
         {
@@ -654,6 +663,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
 
         log.Add(new ChatLine(timestamp, sender, message));
+        if (markUnread && (!_selectedChannel.HasValue || !_selectedChannel.Value.Equals(channel)))
+        {
+            _unreadChannels.Add(channel);
+        }
+
         if (_selectedChannel == null)
         {
             _selectedChannel = channel;
@@ -859,6 +873,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private void SetSelectedChannel(ChatChannelKey key)
     {
         _selectedChannel = key;
+        _unreadChannels.Remove(key);
         if (key.Kind == ChannelKind.Standard)
         {
             var channel = GetStandardChannel(key.Id);
@@ -1365,5 +1380,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ClearSyncshellChatMembers();
     }
 
+    private static Vector4 GetUnreadChannelColor()
+    {
+        return ImGui.GetStyle().Colors[(int)ImGuiCol.PlotHistogram];
+    }
 
 }

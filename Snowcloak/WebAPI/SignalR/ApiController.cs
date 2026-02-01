@@ -204,7 +204,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 await _snowHub.StartAsync(token).ConfigureAwait(false);
 
-                _connectionDto = await GetConnectionDto().ConfigureAwait(false);
+                _connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
 
                 await CheckClientHealth().ConfigureAwait(false);
 
@@ -249,6 +249,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 await LoadIninitialPairs().ConfigureAwait(false);
                 await LoadOnlinePairs().ConfigureAwait(false);
+                Mediator.Publish(new ConnectedMessage(_connectionDto));
             }
             catch (OperationCanceledException ex)
             {
@@ -524,6 +525,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _healthCheckTokenSource?.Cancel();
         ServerState = ServerState.Reconnecting;
         Logger.LogWarning(arg, "Connection closed... Reconnecting");
+        Mediator.Publish(new DisconnectedMessage());
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Warning,
             $"Connection interrupted, reconnecting to {_serverManager.CurrentServer.ServerName}")));
 
