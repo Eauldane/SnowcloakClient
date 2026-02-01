@@ -42,6 +42,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly Dictionary<string, Dictionary<string, UserData>> _syncshellChatMembers = new(StringComparer.Ordinal);
     private readonly HashSet<string> _joinedSyncshellChats = new(StringComparer.Ordinal);
     private ChatChannelKey? _selectedChannel;
+    private readonly HashSet<string> _pinnedDirectChannels = new(StringComparer.Ordinal);
     private string _pendingMessage = string.Empty;
     private bool _autoScroll = true;
     private string _standardChannelTopicDraft = string.Empty;
@@ -505,6 +506,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             var userData = GetUserData(channel.Id);
             if (userData == null) return;
             _ = _apiController.UserChatSendMsg(new UserDto(userData), chatMessage);
+            _pinnedDirectChannels.Add(channel.Id);
         }
 
         AddLocalMessage(channel, trimmed);
@@ -802,7 +804,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private List<(string Id, string Name)> GetDirectChannels()
     {
         return _pairManager.DirectPairs
-            .Where(pair => pair.IsOnline)
+            .Where(pair => pair.IsOnline || _pinnedDirectChannels.Contains(pair.UserData.UID))
             .Select(pair => (pair.UserData.UID, GetUserDisplayName(pair.UserData)))
             .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1358,6 +1360,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         _pendingMessage = string.Empty;
         _standardChannelTopicDraft = string.Empty;
         _isEditingStandardChannelTopic = false;
+        _pinnedDirectChannels.Clear();
         ClearStandardChannels();
         ClearSyncshellChatMembers();
     }

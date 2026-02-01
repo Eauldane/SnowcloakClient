@@ -257,7 +257,8 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                     "Added settings option to disable changelog popups in the general tab.",
                     "Cleaned up some unused settings options.",
                     "Chat will now properly \"reset\" to handle connection interruptions and UID switches.",
-                    "DM list in the chat window now only show users who are online or using the desktop app."
+                    "DM list in the chat window now only show users who are online or using the desktop app.",
+                    "Users you've sent a message to in the current \"session\" will not be removed from the DM list if they go offline."
                 ])
             ]),
             new(VersionFromString("2.1.2"),
