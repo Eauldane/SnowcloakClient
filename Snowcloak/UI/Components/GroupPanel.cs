@@ -447,7 +447,7 @@ internal sealed class GroupPanel
         if (!string.Equals(_editGroupEntry, groupDto.GID, StringComparison.Ordinal))
         {
             var shellConfig = _serverConfigurationManager.GetShellConfigForGid(groupDto.GID);
-            if (!_snowcloakConfig.Current.DisableSyncshellChat && shellConfig.Enabled)
+            if (!_snowcloakConfig.Current.DisableChat && shellConfig.Enabled)
             {
                 ImGui.TextUnformatted($"[{shellNumber}]");
                 UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellNumber));

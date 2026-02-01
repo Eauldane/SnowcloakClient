@@ -402,191 +402,21 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
     private void DrawChatConfig()
     {
-        _lastTab = "Chat";
+        _lastTab = "Chat [BETA]";
 
         _uiShared.BigText("Chat Settings");
         
-        var disableSyncshellChat = _configService.Current.DisableSyncshellChat;
+        var disableChat = _configService.Current.DisableChat;
 
-        if (ImGui.Checkbox("Disable chat globally", ref disableSyncshellChat))
+        if (ImGui.Checkbox("Disable chat globally", ref disableChat))
         {
-            _configService.Current.DisableSyncshellChat = disableSyncshellChat;
+            _configService.Current.DisableChat = disableChat;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Global setting to disable chat for all syncshells.");
+        _uiShared.DrawHelpText("Global setting to disable chat.");
+        ImGui.TextWrapped("The chat system is currently under active development. If you use it, you're encouraged to check back here often" +
+                          "to see if there's any new settings to play with!");
         
-        using var pushDisableGlobal = ImRaii.Disabled(disableSyncshellChat);
-
-        var uiColors = _dalamudUtilService.UiColors.Value;
-        int globalChatColor = _configService.Current.ChatColor;
-
-        if (globalChatColor != 0 && !uiColors.ContainsKey(globalChatColor))
-        {
-            globalChatColor = 0;
-            _configService.Current.ChatColor = 0;
-            _configService.Save();
-        }
-
-        ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
-        _uiShared.DrawColorCombo("Chat text color", Enumerable.Concat([0], uiColors.Keys),
-            i => i switch
-        {
-            0 => (uiColors[ChatService.DefaultColor].Dark, "Plugin Default"),
-            _ => (uiColors[i].Dark, $"[{i}] Sample Text")
-        },
-        i => {
-            _configService.Current.ChatColor = i;
-            _configService.Save();
-        }, globalChatColor);
-
-        var syncshellChatTypes = GetSyncshellChatTypes();
-        int globalChatType = _configService.Current.ChatLogKind;
-        int globalChatTypeIdx = syncshellChatTypes.FindIndex(x => globalChatType == (int)x.Item1);
-        
-        if (globalChatTypeIdx == -1)
-            globalChatTypeIdx = 0;
-
-        ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
-        _uiShared.DrawCombo("Chat channel", Enumerable.Range(1, syncshellChatTypes.Count - 1), i => $"{syncshellChatTypes[i].Item2}",
-            i => {
-            if (_configService.Current.ChatLogKind == (int)syncshellChatTypes[i].Item1)
-                return;
-            _configService.Current.ChatLogKind = (int)syncshellChatTypes[i].Item1;
-            _chatService.PrintChannelExample(string.Format(CultureInfo.InvariantCulture, "Selected channel: {0}", syncshellChatTypes[i].Item2));
-            _configService.Save();
-        }, globalChatTypeIdx);
-        _uiShared.DrawHelpText("FFXIV chat channel to output chat messages on.");
-        
-        ImGui.SetWindowFontScale(0.6f);
-        _uiShared.BigText("\"Chat 2\" Plugin Integration");
-        ImGui.SetWindowFontScale(1.0f);
-
-        var extraChatTags = _configService.Current.ExtraChatTags;
-        if (ImGui.Checkbox("Tag messages as ExtraChat", ref extraChatTags))
-        {
-            _configService.Current.ExtraChatTags = extraChatTags;
-            if (!extraChatTags)
-                _configService.Current.ExtraChatAPI = false;
-            _configService.Save();
-        }
-        _uiShared.DrawHelpText("If enabled, messages will be filtered under the category \"ExtraChat channels: All\".\n\nThis works even if ExtraChat is also installed and enabled.");
-        
-        ImGui.Separator();
-
-        _uiShared.BigText("Syncshell Settings");
-        if (!ApiController.ServerAlive)
-        {
-            ImGui.TextUnformatted("Connect to the server to configure individual syncshell settings.");
-            return;
-        }
-
-        if (_pairManager.Groups.Count == 0)
-        {
-            ImGui.TextUnformatted("Once you join a syncshell you can configure its chat settings here.");
-            return;
-        }
-
-        foreach (var group in _pairManager.Groups.OrderBy(k => k.Key.GID, StringComparer.Ordinal))
-        {
-            var gid = group.Key.GID;
-            using var pushId = ImRaii.PushId(gid);
-
-            var shellConfig = _serverConfigurationManager.GetShellConfigForGid(gid);
-            var shellNumber = shellConfig.ShellNumber;
-            var shellEnabled = shellConfig.Enabled;
-            var shellName = _serverConfigurationManager.GetNoteForGid(gid) ?? group.Key.AliasOrGID;
-
-            if (shellEnabled)
-                shellName = $"[{shellNumber}] {shellName}";
-
-            ImGui.SetWindowFontScale(0.6f);
-            _uiShared.BigText(shellName);
-            ImGui.SetWindowFontScale(1.0f);
-
-            using var pushIndent = ImRaii.PushIndent();
-
-            if (ImGui.Checkbox(string.Format(CultureInfo.InvariantCulture, "Enable chat for this syncshell##{0}", gid), ref shellEnabled))
-            {
-                // If there is an active group with the same syncshell number, pick a new one
-                int nextNumber = 1;
-                bool conflict = false;
-                foreach (var otherGroup in _pairManager.Groups)
-                {
-                    if (gid.Equals(otherGroup.Key.GID, StringComparison.Ordinal)) continue;
-                    var otherShellConfig = _serverConfigurationManager.GetShellConfigForGid(otherGroup.Key.GID);
-                    if (otherShellConfig.Enabled && otherShellConfig.ShellNumber == shellNumber)
-                        conflict = true;
-                    nextNumber = Math.Max(nextNumber, otherShellConfig.ShellNumber) + 1;
-                }
-                if (conflict)
-                    shellConfig.ShellNumber = nextNumber;
-                shellConfig.Enabled = shellEnabled;
-                _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);
-            }
-
-            using var pushDisabled = ImRaii.Disabled(!shellEnabled);
-
-            ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
-
-            // _uiShared.DrawCombo() remembers the selected option -- we don't want that, because the value can change
-            if (ImGui.BeginCombo("Syncshell number##{gid}", $"{shellNumber}"))
-            {
-                // Same hard-coded number in CommandManagerService
-                for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
-                {
-                    if (ImGui.Selectable($"{i}", i == shellNumber))
-                    {
-                        // Find an active group with the same syncshell number as selected, and swap it
-                        // This logic can leave duplicate IDs present in the config but its not critical
-                        foreach (var otherGroup in _pairManager.Groups)
-                        {
-                            if (gid.Equals(otherGroup.Key.GID, StringComparison.Ordinal)) continue;
-                            var otherShellConfig = _serverConfigurationManager.GetShellConfigForGid(otherGroup.Key.GID);
-                            if (otherShellConfig.Enabled && otherShellConfig.ShellNumber == i)
-                            {
-                                otherShellConfig.ShellNumber = shellNumber;
-                                _serverConfigurationManager.SaveShellConfigForGid(otherGroup.Key.GID, otherShellConfig);
-                                break;
-                            }
-                        }
-                        shellConfig.ShellNumber = i;
-                        _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);
-                    }
-                }
-                ImGui.EndCombo();
-            }
-
-            if (shellConfig.Color != 0 && !uiColors.ContainsKey(shellConfig.Color))
-            {
-                shellConfig.Color = 0;
-                _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);
-            }
-
-            ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
-            _uiShared.DrawColorCombo(string.Format(CultureInfo.InvariantCulture, "Chat text color##{0}", gid), Enumerable.Concat([0], uiColors.Keys),
-                i => i switch
-            {
-                0 => (uiColors[globalChatColor > 0 ? globalChatColor : ChatService.DefaultColor].Dark, "(use global setting)"),
-                _ => (uiColors[i].Dark, $"[{i}] Sample Text")
-            },
-            i => {
-                shellConfig.Color = i;
-                _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);
-            }, shellConfig.Color);
-
-            int shellChatTypeIdx = syncshellChatTypes.FindIndex(x => shellConfig.LogKind == (int)x.Item1);
-
-            if (shellChatTypeIdx == -1)
-                shellChatTypeIdx = 0;
-
-            ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
-            _uiShared.DrawCombo(string.Format(CultureInfo.InvariantCulture, "Chat channel##{0}", gid), Enumerable.Range(0, syncshellChatTypes.Count), i => $"{syncshellChatTypes[i].Item2}",
-                i => {
-                shellConfig.LogKind = (int)syncshellChatTypes[i].Item1;
-                _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);
-            }, shellChatTypeIdx);
-            _uiShared.DrawHelpText("Override the FFXIV chat channel used for this syncshell.");
-        }
     }
 
     private void DrawAdvanced()

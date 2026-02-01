@@ -26,7 +26,6 @@ public sealed class CommandManagerService : IDisposable
     private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
     private const string _venueCommand = "/venue";
-    private const string _ssCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
     private readonly ICommandManager _commandManager;
@@ -79,15 +78,7 @@ public sealed class CommandManagerService : IDisposable
             HelpMessage = "Manage your venues or ads. Use /venue ad to manage advertisements."
         });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
-
-        // Lazy registration of all possible /ss# commands which tbf is what the game does for linkshells anyway
-        for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
-        {
-            _commandManager.AddHandler($"{_ssCommandPrefix}{i}", new CommandInfo(OnChatCommand)
-            {
-                ShowInHelp = false
-            });
-        }
+        
     }
     
     public void Dispose()
@@ -98,9 +89,6 @@ public sealed class CommandManagerService : IDisposable
         _commandManager.RemoveHandler(_animSyncCommand);
         _commandManager.RemoveHandler(_venueFinder);
         _commandManager.RemoveHandler(_venueCommand);
-        
-        for (int i = 1; i <= ChatService.CommandMaxNumber; ++i)
-            _commandManager.RemoveHandler($"{_ssCommandPrefix}{i}");
     }
 
     private void OnCommand(string command, string args)
@@ -288,24 +276,5 @@ public sealed class CommandManagerService : IDisposable
             Type = XivChatType.SystemMessage
         });
         #endif
-    }
-    
-    private void OnChatCommand(string command, string args)
-    {
-        if (_snowcloakConfigService.Current.DisableSyncshellChat)
-            return;
-
-        int shellNumber = int.Parse(command[_ssCommandPrefix.Length..]);
-
-        if (args.Length == 0)
-        {
-            _chatService.SwitchChatShell(shellNumber);
-        }
-        else
-        {
-            // FIXME: Chat content seems to already be stripped of any special characters here?
-            byte[] chatBytes = Encoding.UTF8.GetBytes(args);
-            _chatService.SendChatShell(shellNumber, chatBytes);
-        }
     }
 }

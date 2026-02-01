@@ -110,7 +110,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     private void HandleGroupChat(GroupChatMsgMessage message)
     {
-        if (_snowcloakConfig.Current.DisableSyncshellChat)
+        if (_snowcloakConfig.Current.DisableChat)
             return;
 
         var chatMsg = message.ChatMsg;
@@ -180,7 +180,7 @@ public class ChatService : DisposableMediatorSubscriberBase
     // Called to update the active chat shell name if its renamed
     public void MaybeUpdateShellName(int shellNumber)
     {
-        if (_snowcloakConfig.Current.DisableSyncshellChat)
+        if (_snowcloakConfig.Current.DisableChat)
             return;
 
         foreach (var group in _pairManager.Groups)
@@ -200,7 +200,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     public void SwitchChatShell(int shellNumber)
     {
-        if (_snowcloakConfig.Current.DisableSyncshellChat)
+        if (_snowcloakConfig.Current.DisableChat)
             return;
 
         foreach (var group in _pairManager.Groups)
@@ -225,7 +225,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     public void SendChatShell(int shellNumber, byte[] chatBytes)
     {
-        if (_snowcloakConfig.Current.DisableSyncshellChat)
+        if (_snowcloakConfig.Current.DisableChat)
             return;
 
         foreach (var group in _pairManager.Groups)
