@@ -2,7 +2,7 @@
 using Snowcloak.Configuration.Models;
 using Snowcloak.FileCache;
 using Snowcloak.UI;
-
+using ElezenTools.UI;
 namespace Snowcloak.Configuration.Configurations;
 
 [Serializable]
@@ -19,13 +19,13 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ShowUidInDtrTooltip { get; set; } = true;
     public bool PreferNoteInDtrTooltip { get; set; } = false;
     public bool UseColorsInDtr { get; set; } = true;
-    public DtrEntry.Colors DtrColorsDefault { get; set; } = default;
-    public DtrEntry.Colors DtrColorsNotConnected { get; set; } = new(Glow: 0x0428FFu);
-    public DtrEntry.Colors DtrColorsPairsInRange { get; set; } = new(Glow: 0xFFBA47u);
-    public DtrEntry.Colors DtrColorsPendingRequests { get; set; } = new(Foreground: 0xFFB790u, Glow: 0xFF6347u);
+    public ElezenStrings.Colour DtrColorsDefault { get; set; } = default;
+    public ElezenStrings.Colour DtrColorsNotConnected { get; set; } = new(Glow: 0x0428FFu);
+    public ElezenStrings.Colour DtrColorsPairsInRange { get; set; } = new(Glow: 0xFFBA47u);
+    public ElezenStrings.Colour DtrColorsPendingRequests { get; set; } = new(Foreground: 0xFFB790u, Glow: 0xFF6347u);
     public bool UseNameColors { get; set; } = false;
-    public DtrEntry.Colors NameColors { get; set; } = new(Foreground: 0x67EBF5u, Glow: 0x00303Cu);
-    public DtrEntry.Colors BlockedNameColors { get; set; } = new(Foreground: 0x8AADC7, Glow: 0x000080u);
+    public ElezenStrings.Colour NameColors { get; set; } = new(Foreground: 0x67EBF5u, Glow: 0x00303Cu);
+    public ElezenStrings.Colour BlockedNameColors { get; set; } = new(Foreground: 0x8AADC7, Glow: 0x000080u);
     public bool EnableRightClickMenus { get; set; } = true;
     public NotificationLocation ErrorNotification { get; set; } = NotificationLocation.Both;
     public string ExportFolder { get; set; } = string.Empty;
@@ -83,7 +83,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int CompressionLevel { get; set; } = 3;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
     public bool AllowBbCodeImages { get; set; } = true;
-    public DtrEntry.Colors PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
+    public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = false;
     public bool FrostbrandWelcomeSeen { get; set; } = false;
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];

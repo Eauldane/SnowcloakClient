@@ -2,6 +2,7 @@ using Dalamud.Game.Gui.NamePlate;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
@@ -12,6 +13,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Snowcloak.WebAPI;
+using ElezenTools.UI;
 
 namespace Snowcloak.Services;
 
@@ -118,8 +120,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
             if (handler != null && hasSelfVanityColor && handler.GameObject?.Address == localPlayerAddress)
             {
                 handler.NameParts.TextWrap = (
-                    BuildColorStartSeString(selfVanityColors),
-                    BuildColorEndSeString(selfVanityColors)
+                    ElezenStrings.BuildColourStartString(selfVanityColors),
+                    ElezenStrings.BuildColourEndString(selfVanityColors)
                 );
                 _isModified = true;
                 continue;
@@ -133,8 +135,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
                 {
                     var colors = pair.IsAutoPaused ? _configService.Current.BlockedNameColors : vanityColors;
                     handler.NameParts.TextWrap = (
-                        BuildColorStartSeString(colors),
-                        BuildColorEndSeString(colors)
+                        ElezenStrings.BuildColourStartString(colors),
+                        ElezenStrings.BuildColourEndString(colors)
                     );
                     _isModified = true;
                     continue;
@@ -144,8 +146,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
                 {
                     var colors = !pair.IsApplicationBlocked ? _configService.Current.NameColors : _configService.Current.BlockedNameColors;
                     handler.NameParts.TextWrap = (
-                        BuildColorStartSeString(colors),
-                        BuildColorEndSeString(colors)
+                        ElezenStrings.BuildColourStartString(colors),
+                        ElezenStrings.BuildColourEndString(colors)
                     );
                     _isModified = true;
                 }
@@ -154,8 +156,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
             {
                 var colors = _configService.Current.PairRequestNameColors;
                 handler.NameParts.TextWrap = (
-                    BuildColorStartSeString(colors),
-                    BuildColorEndSeString(colors)
+                    ElezenStrings.BuildColourStartString(colors),
+                    ElezenStrings.BuildColourEndString(colors)
                 );
                 _isModified = true;
             }
@@ -180,7 +182,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         return pair.GroupPair.Any();
     }
 
-    private static bool TryGetVanityColors(Pair pair, out DtrEntry.Colors colors)
+    private static bool TryGetVanityColors(Pair pair, out ElezenStrings.Colour colors)
     {
         colors = default;
         if (!IsPairedForVanity(pair) || pair.IsPaused)
@@ -189,7 +191,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         return TryParseVanityColor(pair.UserData.DisplayColour, out colors);
     }
 
-    private static bool TryParseVanityColor(string? hex, out DtrEntry.Colors colors)
+    private static bool TryParseVanityColor(string? hex, out ElezenStrings.Colour colors)
     {
         colors = default;
         if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6
@@ -200,7 +202,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var green = (parsed >> 8) & 0xFF;
         var blue = parsed & 0xFF;
         var bgr = (blue << 16) | (green << 8) | red;
-        colors = new DtrEntry.Colors(Foreground: bgr);
+        colors = new ElezenStrings.Colour(Foreground: bgr);
         return true;
     }
     
@@ -215,35 +217,4 @@ public class GuiHookService : DisposableMediatorSubscriberBase
             RequestRedraw(force: true);
         }
     }
-
-    #region Colored SeString
-    private const byte _colorTypeForeground = 0x13;
-    private const byte _colorTypeGlow = 0x14;
-
-    private static SeString BuildColorStartSeString(DtrEntry.Colors colors)
-    {
-        var ssb = new SeStringBuilder();
-        if (colors.Foreground != default)
-            ssb.Add(BuildColorStartPayload(_colorTypeForeground, colors.Foreground));
-        if (colors.Glow != default)
-            ssb.Add(BuildColorStartPayload(_colorTypeGlow, colors.Glow));
-        return ssb.Build();
-    }
-
-    private static SeString BuildColorEndSeString(DtrEntry.Colors colors)
-    {
-        var ssb = new SeStringBuilder();
-        if (colors.Glow != default)
-            ssb.Add(BuildColorEndPayload(_colorTypeGlow));
-        if (colors.Foreground != default)
-            ssb.Add(BuildColorEndPayload(_colorTypeForeground));
-        return ssb.Build();
-    }
-
-    private static RawPayload BuildColorStartPayload(byte colorType, uint color)
-        => new(unchecked([0x02, colorType, 0x05, 0xF6, byte.Max((byte)color, 0x01), byte.Max((byte)(color >> 8), 0x01), byte.Max((byte)(color >> 16), 0x01), 0x03]));
-
-    private static RawPayload BuildColorEndPayload(byte colorType)
-        => new([0x02, colorType, 0x02, 0xEC, 0x03]);
-    #endregion
 }

@@ -3,6 +3,7 @@ using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using ElezenTools;
 using Snowcloak.UI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -54,6 +55,7 @@ public sealed class Plugin : IDalamudPlugin
         INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList)
     {
         Plugin.Self = this;
+        ElezenTools.ElezenInit.Init(pluginInterface, this);
         _host = new HostBuilder()
         .UseContentRoot(pluginInterface.ConfigDirectory.FullName)
         .ConfigureLogging(lb =>

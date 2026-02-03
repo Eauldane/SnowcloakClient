@@ -2,6 +2,7 @@
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
+using ElezenTools.UI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
@@ -41,7 +42,7 @@ public sealed class DtrEntry : IDisposable, IHostedService
     private Task? _runTask;
     private string? _text;
     private string? _tooltip;
-    private Colors _colors;
+    private ElezenStrings.Colour _colors;
 
     public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator, PairManager pairManager, ApiController apiController)
     {
@@ -140,7 +141,7 @@ public sealed class DtrEntry : IDisposable, IHostedService
 
         string text;
         string tooltip;
-        Colors colors;
+        ElezenStrings.Colour colors;
         if (_apiController.IsConnected)
         {
             var pairCount = _pairManager.GetVisibleUserCount();
@@ -186,7 +187,7 @@ public sealed class DtrEntry : IDisposable, IHostedService
             _text = text;
             _tooltip = tooltip;
             _colors = colors;
-            _entry.Value.Text = BuildColoredSeString(text, colors);
+            _entry.Value.Text = ElezenStrings.BuildColouredString(text, colors);
             _entry.Value.Tooltip = tooltip;
         }
     }
@@ -208,33 +209,4 @@ public sealed class DtrEntry : IDisposable, IHostedService
             _ => $"\uE05D {text}"
         };
     }
-
-    #region Colored SeString
-    private const byte _colorTypeForeground = 0x13;
-    private const byte _colorTypeGlow = 0x14;
-
-    private static SeString BuildColoredSeString(string text, Colors colors)
-    {
-        var ssb = new SeStringBuilder();
-        if (colors.Foreground != default)
-            ssb.Add(BuildColorStartPayload(_colorTypeForeground, colors.Foreground));
-        if (colors.Glow != default)
-            ssb.Add(BuildColorStartPayload(_colorTypeGlow, colors.Glow));
-        ssb.AddText(text);
-        if (colors.Glow != default)
-            ssb.Add(BuildColorEndPayload(_colorTypeGlow));
-        if (colors.Foreground != default)
-            ssb.Add(BuildColorEndPayload(_colorTypeForeground));
-        return ssb.Build();
-    }
-
-    private static RawPayload BuildColorStartPayload(byte colorType, uint color)
-        => new(unchecked([0x02, colorType, 0x05, 0xF6, byte.Max((byte)color, 0x01), byte.Max((byte)(color >> 8), 0x01), byte.Max((byte)(color >> 16), 0x01), 0x03]));
-
-    private static RawPayload BuildColorEndPayload(byte colorType)
-        => new([0x02, colorType, 0x02, 0xEC, 0x03]);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public readonly record struct Colors(uint Foreground = default, uint Glow = default);
-    #endregion
 }

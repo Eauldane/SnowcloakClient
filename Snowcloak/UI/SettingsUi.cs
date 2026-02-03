@@ -5,6 +5,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Comparer;
 using Microsoft.Extensions.Logging;
@@ -1302,7 +1303,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             Mediator.Publish(new RecalculatePerformanceMessage(recalculatePerformanceUID));
     }
 
-    private bool InputDtrColors(string label, ref DtrEntry.Colors colors)
+    private bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
     {
         using var id = ImRaii.PushId(label);
         var innerSpacing = ImGui.GetStyle().ItemInnerSpacing.X;

@@ -41,6 +41,12 @@
           "Microsoft.Extensions.Logging.Abstractions": "8.0.3"
         }
       },
+      "ElezenTools": {
+        "type": "Direct",
+        "requested": "[0.0.6, )",
+        "resolved": "0.0.6",
+        "contentHash": "3yyVLT48q5CqB2o+Z26dZA9HytPj/SSW/Ly1sLAQo/PdjywhEEH2hCplzFvZ60WpSCyUoEO/ei8xV78wG5TbCg=="
+      },
       "Glamourer.Api": {
         "type": "Direct",
         "requested": "[2.8.0, )",

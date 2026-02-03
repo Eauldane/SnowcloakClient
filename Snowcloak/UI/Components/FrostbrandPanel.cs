@@ -4,6 +4,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
@@ -456,7 +457,7 @@ public class FrostbrandPanel
             ImGui.TextWrapped("Rejecting pair requests from: " + string.Join(", ", filteredNames));
         }
     }
-    private bool InputDtrColors(string label, ref DtrEntry.Colors colors)
+    private bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
     {
         using var id = ImRaii.PushId(label);
         var innerSpacing = ImGui.GetStyle().ItemInnerSpacing.X;
