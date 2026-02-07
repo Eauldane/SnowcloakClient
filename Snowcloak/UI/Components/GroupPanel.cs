@@ -454,7 +454,7 @@ internal sealed class GroupPanel
             }
             if (textIsGid) ImGui.PushFont(UiBuilder.MonoFont);
             ImGui.SameLine();
-            ImGui.TextColored(Colours.Hex2Vector4(groupDto.Group.DisplayColour), groupName);
+            ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupDto.Group.DisplayColour), groupName);
             if (textIsGid) ImGui.PopFont();
             UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Left click to switch between GID display and comment{0}Right click to change comment for {1}{0}{0}Users: {2}, Owner: {3}",
                 Environment.NewLine, groupName, validPairsInGroup.Count + 1, groupDto.OwnerAliasOrUID));

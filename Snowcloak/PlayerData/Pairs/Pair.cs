@@ -1,4 +1,5 @@
 ﻿using Dalamud.Game.Gui.ContextMenu;
+using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Comparer;
 using Snowcloak.API.Data.Enum;
@@ -50,7 +51,7 @@ public class Pair : DisposableMediatorSubscriberBase
         _serverConfigurationManager = serverConfigurationManager;
 
         UserData = userData;
-        PairColour = Colours.Hex2Vector4(UserData.DisplayColour);
+        PairColour = ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour);
 
         Mediator.SubscribeKeyed<HoldPairApplicationMessage>(this, UserData.UID, (msg) => HoldApplication(msg.Source));
         Mediator.SubscribeKeyed<UnholdPairApplicationMessage>(this, UserData.UID, (msg) => UnholdApplication(msg.Source));
@@ -105,7 +106,7 @@ public class Pair : DisposableMediatorSubscriberBase
         }
 
         UserData = userData;
-        PairColour = Colours.Hex2Vector4(UserData.DisplayColour);
+        PairColour = Colour.HexToVector4(UserData.DisplayColour);
     }
 
 

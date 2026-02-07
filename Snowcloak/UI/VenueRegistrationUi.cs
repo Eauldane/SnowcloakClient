@@ -306,7 +306,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     {
         if (hex != null && hex.Length == 6)
         {
-            var colour = Colours.Hex2Vector4(hex);
+            var colour = ElezenTools.UI.Colour.HexToVector4(hex);
             return new Vector3(colour.X, colour.Y, colour.Z);
         }
 

@@ -151,8 +151,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 var min = ImGui.GetItemRectMin();
                 var max = ImGui.GetItemRectMax();
                 drawList.ChannelsSetCurrent(0);
-                drawList.AddRectFilled(min - padding, max + padding, UiSharedService.Color(new Vector4(0.16f, 0.16f, 0.16f, 0.9f)), 6f);
-                drawList.AddRect(min - padding, max + padding, UiSharedService.Color(ImGuiColors.DalamudYellow), 6f);
+                drawList.AddRectFilled(min - padding, max + padding, ElezenTools.UI.Colour.Vector4ToColour(new Vector4(0.16f, 0.16f, 0.16f, 0.9f)), 6f);
+                drawList.AddRect(min - padding, max + padding, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudYellow), 6f);
                 drawList.ChannelsMerge();
             }
             else
@@ -271,9 +271,9 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 {
                     string fileGroupText = string.Format("{0} [{1}]", fileGroup.Key, fileGroup.Count());
                     var requiresCompute = fileGroup.Any(k => !k.IsComputed);
-                    using var tabcol = ImRaii.PushColor(ImGuiCol.Tab, UiSharedService.Color(ImGuiColors.DalamudYellow), requiresCompute);
+                    using var tabcol = ImRaii.PushColor(ImGuiCol.Tab, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudYellow), requiresCompute);
                     ImRaii.IEndObject fileTab;
-                    using (var textcol = ImRaii.PushColor(ImGuiCol.Text, UiSharedService.Color(new(0, 0, 0, 1)),
+                    using (var textcol = ImRaii.PushColor(ImGuiCol.Text, ElezenTools.UI.Colour.Vector4ToColour(new Vector4(0, 0, 0, 1)),
                         requiresCompute && !string.Equals(_selectedFileTypeTab, fileGroup.Key, StringComparison.Ordinal)))
                     {
                         fileTab = ImRaii.TabItem(fileGroupText + "###" + fileGroup.Key);
@@ -472,8 +472,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             ImGui.TableNextColumn();
             if (string.Equals(_selectedHash, item.Hash, StringComparison.Ordinal))
             {
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg1, UiSharedService.Color(ImGuiColors.DalamudYellow));
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, UiSharedService.Color(ImGuiColors.DalamudYellow));
+                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg1, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudYellow));
+                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudYellow));
             }
             ImGui.TextUnformatted(item.Hash);
             if (ImGui.IsItemClicked()) _selectedHash = item.Hash;

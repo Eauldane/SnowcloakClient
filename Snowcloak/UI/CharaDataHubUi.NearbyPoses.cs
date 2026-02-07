@@ -176,11 +176,11 @@ internal partial class CharaDataHubUi
             Vector2 coneBase2 = circleCenter + baseDir2 * circleRadius;
 
             // Draw the cone as a filled triangle
-            drawList.AddTriangleFilled(circleCenter, coneBase1, coneBase2, UiSharedService.Color(ImGuiColors.ParsedGreen));
-            drawList.AddCircle(circleCenter, circleDiameter / 2, UiSharedService.Color(ImGuiColors.DalamudWhite), 360, 2);
+            drawList.AddTriangleFilled(circleCenter, coneBase1, coneBase2, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.ParsedGreen));
+            drawList.AddCircle(circleCenter, circleDiameter / 2, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudWhite), 360, 2);
             var distance = pose.Value.Distance.ToString("0.0") + "y";
             var textSize = ImGui.CalcTextSize(distance);
-            drawList.AddText(new Vector2(circleCenter.X - textSize.X / 2, circleCenter.Y + textSize.Y / 3f), UiSharedService.Color(ImGuiColors.DalamudWhite), distance);
+            drawList.AddText(new Vector2(circleCenter.X - textSize.X / 2, circleCenter.Y + textSize.Y / 3f), ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudWhite), distance);
 
             ImGuiHelpers.ScaledDummy(3);
         }

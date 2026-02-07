@@ -167,24 +167,24 @@ public class DownloadUi : WindowMediatorSubscriberBase
                 drawList.AddRectFilled(
                     dlBarStart with { X = dlBarStart.X - dlBarBorder - 1, Y = dlBarStart.Y - dlBarBorder - 1 },
                     dlBarEnd with { X = dlBarEnd.X + dlBarBorder + 1, Y = dlBarEnd.Y + dlBarBorder + 1 },
-                    UiSharedService.Color(0, 0, 0, transparency), 1);
+                    ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 1);
                 drawList.AddRectFilled(dlBarStart with { X = dlBarStart.X - dlBarBorder, Y = dlBarStart.Y - dlBarBorder },
                     dlBarEnd with { X = dlBarEnd.X + dlBarBorder, Y = dlBarEnd.Y + dlBarBorder },
-                    UiSharedService.Color(220, 220, 255, transparency), 1);
+                    ElezenTools.UI.Colour.RgbaToColour(220, 220, 255, transparency), 1);
                 drawList.AddRectFilled(dlBarStart, dlBarEnd,
-                    UiSharedService.Color(0, 0, 0, transparency), 1);
+                    ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 1);
                 var dlProgressPercent = totalBytes > 0 ? transferredBytes / (double)totalBytes : 0d;
                 drawList.AddRectFilled(dlBarStart,
                     dlBarEnd with { X = dlBarStart.X + (float)(dlProgressPercent * dlBarWidth) },
-                    UiSharedService.Color(100, 100, 255, transparency), 1);
+                    ElezenTools.UI.Colour.RgbaToColour(100, 100, 255, transparency), 1);
 
                 if (_configService.Current.TransferBarsShowText)
                 {
                     var downloadText = $"{UiSharedService.ByteToString(transferredBytes, addSuffix: false)}/{UiSharedService.ByteToString(totalBytes)}";
                     UiSharedService.DrawOutlinedFont(drawList, downloadText,
                         screenPos with { X = screenPos.X - textSize.X / 2f - 1, Y = screenPos.Y - textSize.Y / 2f - 1 },
-                        UiSharedService.Color(255, 255, 255, transparency),
-                        UiSharedService.Color(0, 0, 0, transparency), 1);
+                        ElezenTools.UI.Colour.RgbaToColour(255, 255, 255, transparency),
+                        ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 1);
                 }
             }
 
@@ -210,8 +210,8 @@ public class DownloadUi : WindowMediatorSubscriberBase
                         var drawList = ImGui.GetBackgroundDrawList();
                         UiSharedService.DrawOutlinedFont(drawList, uploadText,
                             screenPos with { X = screenPos.X - textSize.X / 2f - 1, Y = screenPos.Y - textSize.Y / 2f - 1 },
-                            UiSharedService.Color(255, 255, 0, transparency),
-                            UiSharedService.Color(0, 0, 0, transparency), 2);
+                            ElezenTools.UI.Colour.RgbaToColour(255, 255, 0, transparency),
+                            ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 2);
                     }
                     catch
                     {

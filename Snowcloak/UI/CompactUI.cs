@@ -156,7 +156,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     protected override void DrawInternal()
     {
         if (_serverManager.CurrentApiUrl.Equals(ApiController.SnowcloakServiceUri, StringComparison.Ordinal))
-            UiSharedService.AccentColor = Colours._snowcloakOnline;
+            UiSharedService.AccentColor = _uiSharedService.SnowcloakOnline;
         else
             UiSharedService.AccentColor = ImGuiColors.ParsedGreen;
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - 1f * ImGuiHelpers.GlobalScale + ImGui.GetStyle().ItemSpacing.Y);
@@ -861,7 +861,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (!string.IsNullOrWhiteSpace(hex) && hex.Length == 6
                                             && int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
         {
-            var colour = Colours.Hex2Vector4(hex);
+            var colour = ElezenTools.UI.Colour.HexToVector4(hex);
             return new Vector3(colour.X, colour.Y, colour.Z);
         }
 
@@ -920,7 +920,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             uidColour = UiSharedService.AccentColor;
         } else
         {
-            uidColour = Colours.Hex2Vector4(uidCol);
+            uidColour = ElezenTools.UI.Colour.HexToVector4(uidCol);
         }
         return _apiController.ServerState switch
         {

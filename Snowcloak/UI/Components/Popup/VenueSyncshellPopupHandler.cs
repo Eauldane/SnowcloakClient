@@ -44,7 +44,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         var venue = _prompt.Venue;
 
         using (_uiSharedService.UidFont.Push())
-            UiSharedService.ColorText(venue.VenueName, Colours.Hex2Vector4(venue.JoinInfo.Group.DisplayColour));
+            UiSharedService.ColorText(venue.VenueName, ElezenTools.UI.Colour.HexToVector4(venue.JoinInfo.Group.DisplayColour));
 
         ImGuiHelpers.ScaledDummy(5f);
 

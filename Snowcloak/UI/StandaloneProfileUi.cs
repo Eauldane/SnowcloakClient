@@ -78,7 +78,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var headerSize = ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y;
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(UserData.AliasOrUID, Colours.Hex2Vector4(UserData.DisplayColour));
+                UiSharedService.ColorText(UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour));
 
             
             var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
@@ -164,7 +164,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                         var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
                         var groupName = groupPair.GroupAliasOrGID;
                         var groupString = string.IsNullOrEmpty(groupNote) ? groupName : $"{groupNote} ({groupName})";
-                        ImGui.TextColored(Colours.Hex2Vector4(groupPair.Group.DisplayColour), "- " + groupString);
+                        ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupPair.Group.DisplayColour), "- " + groupString);
                     }
                 }
             }

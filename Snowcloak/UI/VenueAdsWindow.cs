@@ -353,7 +353,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         var venueName = venue.VenueName ?? "Venue";
         if (!string.IsNullOrWhiteSpace(ad.HexString))
         {
-            _uiSharedService.BigText(venueName, Colours.Hex2Vector4(ad.HexString));
+            _uiSharedService.BigText(venueName, ElezenTools.UI.Colour.HexToVector4(ad.HexString));
         }
         else
         {

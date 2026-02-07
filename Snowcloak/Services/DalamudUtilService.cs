@@ -26,7 +26,6 @@ using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using Snowcloak.Services.Housing;
 using Dalamud.Game.Gui.ContextMenu;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
-using ElezenTools.Player;
 using ElezenTools.Data;
 using ElezenTools.Services;
 

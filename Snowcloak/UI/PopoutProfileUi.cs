@@ -102,7 +102,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             var rectMax = drawList.GetClipRectMax();
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(_pair.UserData.AliasOrUID, Colours.Hex2Vector4(_pair.UserData.DisplayColour));
+                UiSharedService.ColorText(_pair.UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(_pair.UserData.DisplayColour));
 
            
             ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
@@ -148,7 +148,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
                     var groupNote = _serverManager.GetNoteForGid(groupPair.GID);
                     var groupName = groupPair.GroupAliasOrGID;
                     var groupString = string.IsNullOrEmpty(groupNote) ? groupName : $"{groupNote} ({groupName})";
-                    ImGui.TextColored(Colours.Hex2Vector4(groupPair.Group.DisplayColour), "- " + groupString);
+                    ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupPair.Group.DisplayColour), "- " + groupString);
                 }
             }
 

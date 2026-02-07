@@ -49,6 +49,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     private readonly ApiController _apiController;
 
     private readonly CacheMonitor _cacheMonitor;
+    public readonly Vector4 SnowcloakOnline = new(0.4275f, 0.6863f, 1f, 1f);
 
     private readonly SnowcloakConfigService _configService;
     private readonly BbCodeRenderer _bbCodeRenderer;
@@ -189,21 +190,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SetNextWindowPos(new Vector2(center.X - width / 2, center.Y - height / 2), cond);
     }
 
-    public static uint Color(byte r, byte g, byte b, byte a)
-    { uint ret = a; ret <<= 8; ret += b; ret <<= 8; ret += g; ret <<= 8; ret += r; return ret; }
-
-    public static uint Color(Vector4 color)
-    {
-        uint ret = (byte)(color.W * 255);
-        ret <<= 8;
-        ret += (byte)(color.Z * 255);
-        ret <<= 8;
-        ret += (byte)(color.Y * 255);
-        ret <<= 8;
-        ret += (byte)(color.X * 255);
-        return ret;
-    }
-
     public static void ColorText(string text, Vector4 color)
     {
         using var raiicolor = ImRaii.PushColor(ImGuiCol.Text, color);
@@ -235,7 +221,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.GetWindowDrawList().AddRect(
             ImGui.GetItemRectMin() - ImGui.GetStyle().ItemInnerSpacing,
             ImGui.GetItemRectMax() + ImGui.GetStyle().ItemInnerSpacing,
-            Color(ImGuiColors.DalamudGrey2), rounding);
+            ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudGrey2), rounding);
     }
 
     public static void DrawGroupedCenteredColorText(string text, Vector4 color, float? maxWidth = null)

@@ -65,7 +65,7 @@ public class UidDisplayHandler
         if (!string.Equals(_editNickEntry, pair.UserData.UID, StringComparison.Ordinal))
         {
             ImGui.SetCursorPosY(originalY);
-            Vector4 pairColour = Colours.Hex2Vector4(pair.UserData.DisplayColour);
+            Vector4 pairColour = ElezenTools.UI.Colour.HexToVector4(pair.UserData.DisplayColour);
             using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid)) ImGui.TextColored(pairColour, playerText);
             if (ImGui.IsItemHovered())
             {

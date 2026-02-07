@@ -50,7 +50,7 @@ public class DrawUserPair : DrawPairBase
         {
             connectionIcon = _pair.IsChatOnly ? FontAwesomeIcon.Comment : FontAwesomeIcon.Snowflake;
             connectionText = string.Format(CultureInfo.CurrentCulture, "You are paired with {0}{1}", _pair.UserData.AliasOrUID, _pair.IsChatOnly ? " (chat only)" : string.Empty);
-            connectionColor = _pair.IsOnline ? Colours._snowcloakOnline : ImGuiColors.DalamudGrey;
+            connectionColor = _pair.IsOnline ? _uiSharedService.SnowcloakOnline : ImGuiColors.DalamudGrey;
         }
         else
         {
@@ -62,7 +62,7 @@ public class DrawUserPair : DrawPairBase
         {
             ImGui.SetCursorPosY(textPosY);
             ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(FontAwesomeIcon.Eye.ToIconString(), isPaused ? ImGuiColors.DalamudGrey : Colours._snowcloakOnline);
+            UiSharedService.ColorText(FontAwesomeIcon.Eye.ToIconString(), isPaused ? ImGuiColors.DalamudGrey : _uiSharedService.SnowcloakOnline);
             if (ImGui.IsItemClicked())
             {
                 _mediator.Publish(new TargetPairMessage(_pair));
