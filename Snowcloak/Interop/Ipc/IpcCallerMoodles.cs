@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -66,7 +67,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
 
         try
         {
-            return await _dalamudUtil.RunOnFrameworkThread(() => _moodlesGetStatus.InvokeFunc(address)).ConfigureAwait(false);
+            return await Service.UseFramework(() => _moodlesGetStatus.InvokeFunc(address)).ConfigureAwait(false);
 
         }
         catch (Exception e)
@@ -81,7 +82,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await _dalamudUtil.RunOnFrameworkThread(() => _moodlesSetStatus.InvokeAction(pointer, status)).ConfigureAwait(false);
+            await Service.UseFramework(() => _moodlesSetStatus.InvokeAction(pointer, status)).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -94,7 +95,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await _dalamudUtil.RunOnFrameworkThread(() => _moodlesRevertStatus.InvokeAction(pointer)).ConfigureAwait(false);
+            await Service.UseFramework(() => _moodlesRevertStatus.InvokeAction(pointer)).ConfigureAwait(false);
         }
         catch (Exception e)
         {

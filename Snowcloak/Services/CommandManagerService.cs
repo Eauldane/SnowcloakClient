@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.Command;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
+using ElezenTools.Services;
 using Snowcloak.FileCache;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
@@ -217,7 +218,7 @@ public sealed class CommandManagerService : IDisposable
         }
         
 
-        var partyMemberIds = await _dalamudUtilService.RunOnFrameworkThread(() =>
+        var partyMemberIds = await Service.UseFramework(() =>
         {
             return _dalamudUtilService.GetPartyPlayerCharacters()
                 .Select(member => member.EntityId)
@@ -241,7 +242,7 @@ public sealed class CommandManagerService : IDisposable
             .Where(id => id != uint.MaxValue)
             .ToHashSet();
 
-        await _dalamudUtilService.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
 
             var processedIds = new HashSet<uint>();

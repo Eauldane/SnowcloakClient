@@ -1,5 +1,6 @@
 ﻿using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -43,13 +44,13 @@ public sealed class IpcCallerHeels : IIpcCaller
     public async Task<string> GetOffsetAsync()
     {
         if (!APIAvailable) return string.Empty;
-        return await _dalamudUtil.RunOnFrameworkThread(_heelsGetOffset.InvokeFunc).ConfigureAwait(false);
+        return await Service.UseFramework(_heelsGetOffset.InvokeFunc).ConfigureAwait(false);
     }
 
     public async Task RestoreOffsetForPlayerAsync(IntPtr character)
     {
         if (!APIAvailable) return;
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj != null)
@@ -63,7 +64,7 @@ public sealed class IpcCallerHeels : IIpcCaller
     public async Task SetOffsetForPlayerAsync(IntPtr character, string data)
     {
         if (!APIAvailable) return;
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj != null)

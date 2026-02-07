@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -66,7 +67,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
     public async Task ClearTitleAsync(nint character)
     {
         if (!APIAvailable) return;
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is IPlayerCharacter c)
@@ -80,7 +81,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
     public async Task<string> GetTitle()
     {
         if (!APIAvailable) return string.Empty;
-        return await _dalamudUtil.RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             string title = _honorificGetLocalCharacterTitle.InvokeFunc();
             return string.IsNullOrEmpty(title) ? string.Empty : Convert.ToBase64String(Encoding.UTF8.GetBytes(title));
@@ -93,7 +94,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
         _logger.LogTrace("Applying Honorific data to {chara}", character.ToString("X"));
         try
         {
-            await _dalamudUtil.RunOnFrameworkThread(() =>
+            await Service.UseFramework(() =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(character);
                 if (gameObj is IPlayerCharacter pc)

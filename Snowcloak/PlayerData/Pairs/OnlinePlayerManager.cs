@@ -91,13 +91,31 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
         if (_configService.Current.HoldUploadsUntilInRange && !visiblePlayers.Any())
             return;
         
-        _ = Task.Run(async () =>
-        {
-            var dataToSend = await _fileTransferManager.UploadFiles(_lastSentData.DeepClone(), visiblePlayers).ConfigureAwait(false);
 
+        _ = Task.Run(() => PushCharacterDataInternal(_lastSentData.DeepClone(), visiblePlayers));
+    }
+
+    private async Task PushCharacterDataInternal(CharacterData data, List<UserData> visiblePlayers)
+    {
+        try
+        {
+            var dataToSend = await _fileTransferManager.UploadFiles(data, visiblePlayers).ConfigureAwait(false);
             if (visiblePlayers.Any())
-                await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false); 
-        });
+                await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogDebug("Character data upload was cancelled");
+        }
+        catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
+        {
+            Logger.LogDebug("Skipping character data upload because file transfers are not initialized yet");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Unexpected exception while pushing character data");
+        }
+
     }
     
     

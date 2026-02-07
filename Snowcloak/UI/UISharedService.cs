@@ -25,6 +25,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Snowcloak.UI.Components.BbCode;
+using ElezenTools.Data;
 
 namespace Snowcloak.UI;
 
@@ -139,7 +140,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public IFontHandle UidFont { get; init; }
     public Dictionary<ushort, string> WorldData => _dalamudUtil.WorldData.Value;
-    public Dictionary<ushort, DalamudUtilService.WorldInfo> WorldInfoData => _dalamudUtil.WorldInfoData.Value;
+    public Dictionary<ushort, WorldInfo> WorldInfoData => _dalamudUtil.WorldInfoData.Value;
     public Dictionary<uint, string> TerritoryData => _dalamudUtil.TerritoryData.Value;
     public uint WorldId => _dalamudUtil.GetHomeWorldId();
     public string DataCenterRegion => _dalamudUtil.GetDataCenterRegion();

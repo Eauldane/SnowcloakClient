@@ -24,7 +24,7 @@ public class GameObjectHandlerFactory
 
     public async Task<GameObjectHandler> Create(ObjectKind objectKind, Func<nint> getAddressFunc, bool isWatched = false)
     {
-        return await _dalamudUtilService.RunOnFrameworkThread(() => new GameObjectHandler(_loggerFactory.CreateLogger<GameObjectHandler>(),
+        return await ElezenTools.Services.Service.UseFramework(() => new GameObjectHandler(_loggerFactory.CreateLogger<GameObjectHandler>(),
             _performanceCollectorService, _snowMediator, _dalamudUtilService, objectKind, getAddressFunc, isWatched)).ConfigureAwait(false);
     }
 }

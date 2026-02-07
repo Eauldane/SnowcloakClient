@@ -1,4 +1,5 @@
 ﻿using Dalamud.Game.ClientState.Objects.Types;
+using ElezenTools.Services;
 using K4os.Compression.LZ4.Legacy;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.CharaData;
@@ -836,7 +837,7 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
             DataApplicationProgress = "Applying Penumbra information";
             penumbraCollection = await _ipcManager.Penumbra.CreateTemporaryCollectionAsync(Logger, metaInfo.Uploader.UID + metaInfo.Id).ConfigureAwait(false);
-            var idx = await _dalamudUtilService.RunOnFrameworkThread(() => tempHandler.GetGameObject()?.ObjectIndex).ConfigureAwait(false) ?? 0;
+            var idx = await Service.UseFramework(() => tempHandler.GetGameObject()?.ObjectIndex).ConfigureAwait(false) ?? 0;
             await _ipcManager.Penumbra.AssignTemporaryCollectionAsync(Logger, penumbraCollection, idx).ConfigureAwait(false);
             await _ipcManager.Penumbra.SetTemporaryModsAsync(Logger, applicationId, penumbraCollection, modPaths).ConfigureAwait(false);
             await _ipcManager.Penumbra.SetManipulationDataAsync(Logger, applicationId, penumbraCollection, manipData ?? string.Empty).ConfigureAwait(false);

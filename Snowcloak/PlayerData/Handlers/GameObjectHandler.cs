@@ -1,4 +1,5 @@
-﻿using FFXIVClientStructs.FFXIV.Client.Game.Character;
+﻿using ElezenTools.Services;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
@@ -77,7 +78,7 @@ public sealed class GameObjectHandler : DisposableMediatorSubscriberBase, IHighP
 
         Mediator.Publish(new GameObjectHandlerCreatedMessage(this, _isOwnedObject));
 
-        _dalamudUtil.RunOnFrameworkThread(CheckAndUpdateObject).GetAwaiter().GetResult();
+        Service.UseFramework(CheckAndUpdateObject).GetAwaiter().GetResult();
     }
 
     public enum DrawCondition
@@ -105,7 +106,7 @@ public sealed class GameObjectHandler : DisposableMediatorSubscriberBase, IHighP
 
     public async Task ActOnFrameworkAfterEnsureNoDrawAsync(Action<Dalamud.Game.ClientState.Objects.Types.ICharacter> act, CancellationToken token)
     {
-        while (await _dalamudUtil.RunOnFrameworkThread(() =>
+        while (await Service.UseFramework(() =>
                {
                    if (_haltProcessing) CheckAndUpdateObject();
                    if (CurrentDrawCondition != DrawCondition.None) return true;
@@ -147,7 +148,7 @@ public sealed class GameObjectHandler : DisposableMediatorSubscriberBase, IHighP
 
     public async Task<bool> IsBeingDrawnRunOnFrameworkAsync()
     {
-        return await _dalamudUtil.RunOnFrameworkThread(IsBeingDrawn).ConfigureAwait(false);
+        return await Service.UseFramework(IsBeingDrawn).ConfigureAwait(false);
     }
 
     public override string ToString()

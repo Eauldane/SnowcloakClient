@@ -2,6 +2,7 @@ using Dalamud.Game.Gui.NamePlate;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
+using ElezenTools.Services;
 using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Extensions;
@@ -66,7 +67,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         }
 
         _ = Task.Run(async () => {
-            await _dalamudUtil.RunOnFrameworkThread(() => _namePlateGui.RequestRedraw()).ConfigureAwait(false);
+            await Service.UseFramework(() => _namePlateGui.RequestRedraw()).ConfigureAwait(false);
         });
     }
 
@@ -76,7 +77,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         _namePlateGui.OnNamePlateUpdate -= OnNamePlateUpdate;
 
         _ = Task.Run(async () => {
-            await _dalamudUtil.RunOnFrameworkThread(() => _namePlateGui.RequestRedraw()).ConfigureAwait(false);
+            await Service.UseFramework(() => _namePlateGui.RequestRedraw()).ConfigureAwait(false);
         });
     }
 

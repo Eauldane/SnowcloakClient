@@ -1,4 +1,5 @@
 ﻿using Dalamud.Utility;
+using ElezenTools.Services;
 using Lumina.Excel.Sheets;
 using Snowcloak.API.Dto.CharaData;
 using System.Globalization;
@@ -37,7 +38,7 @@ public sealed record PoseEntryExtended : PoseEntry
         if (newPose.HasWorldData)
         {
             var worldData = newPose.WorldData!.Value;
-            newPose.MapCoordinates = await dalamudUtilService.RunOnFrameworkThread(() =>
+            newPose.MapCoordinates = await Service.UseFramework(() =>
                     MapUtil.WorldToMap(new Vector2(worldData.PositionX, worldData.PositionY), dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map))
                 .ConfigureAwait(false);
             newPose.Map = dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map;

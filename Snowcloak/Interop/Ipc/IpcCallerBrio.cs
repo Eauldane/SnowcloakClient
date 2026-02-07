@@ -7,6 +7,7 @@ using Snowcloak.Services;
 using System.Numerics;
 using System.Text.Json.Nodes;
 ﻿using Brio.API;
+using ElezenTools.Services;
 
 namespace Snowcloak.Interop.Ipc;
 
@@ -62,7 +63,7 @@ public sealed class IpcCallerBrio : IIpcCaller
     {
         if (!APIAvailable) return null;
         _logger.LogDebug("Spawning Brio Actor");
-        return await _dalamudUtilService.RunOnFrameworkThread(() => _spawnActor.Invoke(Brio.API.Enums.SpawnFlags.Default, true)).ConfigureAwait(false);
+        return await Service.UseFramework(() => _spawnActor.Invoke(Brio.API.Enums.SpawnFlags.Default, true)).ConfigureAwait(false);
     }
 
     public async Task<bool> DespawnActorAsync(nint address)
@@ -71,7 +72,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return false;
         _logger.LogDebug("Despawning Brio Actor {actor}", gameObject.Name.TextValue);
-        return await _dalamudUtilService.RunOnFrameworkThread(() => _despawnActor.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.UseFramework(() => _despawnActor.Invoke(gameObject)).ConfigureAwait(false);
     }
 
     public async Task<bool> ApplyTransformAsync(nint address, WorldData data)
@@ -81,7 +82,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (gameObject == null) return false;
         _logger.LogDebug("Applying Transform to Actor {actor}", gameObject.Name.TextValue);
 
-        return await _dalamudUtilService.RunOnFrameworkThread(() => _setModelTransform.Invoke(gameObject,
+        return await Service.UseFramework(() => _setModelTransform.Invoke(gameObject,
             new Vector3(data.PositionX, data.PositionY, data.PositionZ),
             new Quaternion(data.RotationX, data.RotationY, data.RotationZ, data.RotationW),
             new Vector3(data.ScaleX, data.ScaleY, data.ScaleZ), false)).ConfigureAwait(false);
@@ -92,7 +93,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return default;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return default;
-        var data = await _dalamudUtilService.RunOnFrameworkThread(() => _getModelTransform.Invoke(gameObject)).ConfigureAwait(false);
+        var data = await Service.UseFramework(() => _getModelTransform.Invoke(gameObject)).ConfigureAwait(false);
         if (data.Item1 == null || data.Item2 == null || data.Item3 == null) return default;
 
         return new WorldData()
@@ -117,7 +118,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (gameObject == null) return null;
         _logger.LogDebug("Getting Pose from Actor {actor}", gameObject.Name.TextValue);
 
-        return await _dalamudUtilService.RunOnFrameworkThread(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.UseFramework(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
     }
 
     public async Task<bool> SetPoseAsync(nint address, string pose)
@@ -128,15 +129,15 @@ public sealed class IpcCallerBrio : IIpcCaller
         _logger.LogDebug("Setting Pose to Actor {actor}", gameObject.Name.TextValue);
 
         var applicablePose = JsonNode.Parse(pose)!;
-        var currentPose = await _dalamudUtilService.RunOnFrameworkThread(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        var currentPose = await Service.UseFramework(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
         applicablePose["ModelDifference"] = JsonNode.Parse(JsonNode.Parse(currentPose)!["ModelDifference"]!.ToJsonString());
 
-        await _dalamudUtilService.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             _freezeActor.Invoke(gameObject);
             _freezePhysics.Invoke();
         }).ConfigureAwait(false);
-        return await _dalamudUtilService.RunOnFrameworkThread(() => _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false)).ConfigureAwait(false);
+        return await Service.UseFramework(() => _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false)).ConfigureAwait(false);
     }
 
     public void Dispose()

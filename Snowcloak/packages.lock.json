@@ -43,9 +43,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[0.0.6, )",
-        "resolved": "0.0.6",
-        "contentHash": "3yyVLT48q5CqB2o+Z26dZA9HytPj/SSW/Ly1sLAQo/PdjywhEEH2hCplzFvZ60WpSCyUoEO/ei8xV78wG5TbCg=="
+        "requested": "[0.0.7.9, )",
+        "resolved": "0.0.7.9",
+        "contentHash": "QAJ49gWXOjsOriBZDImuWX4tpdhBeFnipVmspFsG72VeWKwDpCgvbyEwhGKQZEWGUt5VYnk/9sU/o72Jh9k6Fw=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -91,9 +91,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[2.0.288, )",
-        "resolved": "2.0.288",
-        "contentHash": "k1TinGAOLU9wVHdN/GTPQolg+adsxMuJ8Qq2o5PnSTMB2Fhmrp7KUahZrDLcCuNBsgKytUezaNSYypL1OkpPxw=="
+        "requested": "[2.0.298, )",
+        "resolved": "2.0.298",
+        "contentHash": "i5WbIWe20IEsEv12E9eWHrrzKCBC3YRvwJmAPtPphuqFmc9277x3Msc2QcBYo9+SqNu6/1kP4Xw/3Ms60JgmZg=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",

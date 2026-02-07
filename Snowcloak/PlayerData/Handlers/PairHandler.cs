@@ -1,4 +1,5 @@
-﻿using Snowcloak.API.Data;
+﻿using ElezenTools.Services;
+using Snowcloak.API.Data;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
@@ -569,7 +570,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             {
                 try
                 {
-                    var index = await _dalamudUtil.RunOnFrameworkThread(() => handler.GetGameObject()?.ObjectIndex ?? ushort.MaxValue).ConfigureAwait(false);
+                    var index = await Service.UseFramework(() => handler.GetGameObject()?.ObjectIndex ?? ushort.MaxValue).ConfigureAwait(false);
                     return index == ushort.MaxValue ? null : index;
                 }
                 catch (Exception ex) when (ex is NullReferenceException or AccessViolationException)

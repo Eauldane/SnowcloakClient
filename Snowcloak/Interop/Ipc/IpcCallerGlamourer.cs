@@ -1,5 +1,6 @@
 ﻿using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin;
+using ElezenTools.Services;
 using Glamourer.Api.Helpers;
 using Glamourer.Api.IpcSubscribers;
 using Microsoft.Extensions.Logging;
@@ -136,7 +137,7 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
         if (!APIAvailable) return string.Empty;
         try
         {
-            return await _dalamudUtil.RunOnFrameworkThread(() =>
+            return await Service.UseFramework(() =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(character);
                 if (gameObj is ICharacter c)
@@ -186,7 +187,7 @@ public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IIpcC
     {
         if ((!APIAvailable) || _dalamudUtil.IsZoning) return;
 
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             RevertByName(logger, name, applicationId);
 

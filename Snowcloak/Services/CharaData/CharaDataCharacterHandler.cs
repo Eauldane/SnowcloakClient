@@ -1,4 +1,5 @@
-﻿using Snowcloak.API.Data.Enum;
+﻿using ElezenTools.Services;
+using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Factories;
@@ -80,7 +81,7 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
         var handled = _handledCharaData.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
         if (handled == null) return false;
         _handledCharaData.Remove(handled);
-        await _dalamudUtilService.RunOnFrameworkThread(() => RevertChara(handled.Name, handled.CustomizePlus)).ConfigureAwait(false);
+        await Service.UseFramework(() => RevertChara(handled.Name, handled.CustomizePlus)).ConfigureAwait(false);
         return true;
     }
 
@@ -88,7 +89,7 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     {
         if (handled == null) return Task.CompletedTask;
         _handledCharaData.Remove(handled);
-        return _dalamudUtilService.RunOnFrameworkThread(() => RevertChara(handled.Name, handled.CustomizePlus));
+        return Service.UseFramework(() => RevertChara(handled.Name, handled.CustomizePlus));
     }
 
     internal void AddHandledChara(HandledCharaDataEntry handledCharaDataEntry)

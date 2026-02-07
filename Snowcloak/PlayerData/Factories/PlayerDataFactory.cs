@@ -1,4 +1,5 @@
-﻿using FFXIVClientStructs.FFXIV.Client.Game.Character;
+﻿using ElezenTools.Services;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
@@ -93,7 +94,7 @@ public class PlayerDataFactory
 
     private async Task<bool> CheckForNullDrawObject(IntPtr playerPointer)
     {
-        return await _dalamudUtil.RunOnFrameworkThread(() => CheckForNullDrawObjectUnsafe(playerPointer)).ConfigureAwait(false);
+        return await Service.UseFramework(() => CheckForNullDrawObjectUnsafe(playerPointer)).ConfigureAwait(false);
     }
 
     private unsafe bool CheckForNullDrawObjectUnsafe(IntPtr playerPointer)
@@ -123,7 +124,7 @@ public class PlayerDataFactory
         Dictionary<string, List<ushort>>? boneIndices =
             objectKind != ObjectKind.Player
             ? null
-            : await _dalamudUtil.RunOnFrameworkThread(() => _modelAnalyzer.GetSkeletonBoneIndices(playerRelatedObject)).ConfigureAwait(false);
+            : await Service.UseFramework(() => _modelAnalyzer.GetSkeletonBoneIndices(playerRelatedObject)).ConfigureAwait(false);
 
         DateTime start = DateTime.UtcNow;
 
@@ -278,7 +279,7 @@ public class PlayerDataFactory
         {
             ct.ThrowIfCancellationRequested();
 
-            var skeletonIndices = await _dalamudUtil.RunOnFrameworkThread(() => _modelAnalyzer.GetBoneIndicesFromPap(file.Hash)).ConfigureAwait(false);
+            var skeletonIndices = await Service.UseFramework(() => _modelAnalyzer.GetBoneIndicesFromPap(file.Hash)).ConfigureAwait(false);
             bool validationFailed = false;
             if (skeletonIndices != null)
             {

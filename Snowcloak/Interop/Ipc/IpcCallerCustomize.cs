@@ -2,6 +2,7 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Utility;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -46,7 +47,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public async Task RevertAsync(nint character)
     {
         if (!APIAvailable) return;
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)
@@ -60,7 +61,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public async Task<Guid?> SetBodyScaleAsync(nint character, string scale)
     {
         if (!APIAvailable) return null;
-        return await _dalamudUtil.RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)
@@ -87,7 +88,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     {
         if (!APIAvailable || profileId == null) return;
 
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             _ = _customizePlusDeleteByUniqueId.InvokeFunc(profileId.Value);
         }).ConfigureAwait(false);
@@ -96,7 +97,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public async Task<string?> GetScaleAsync(nint character)
     {
         if (!APIAvailable) return null;
-        var scale = await _dalamudUtil.RunOnFrameworkThread(() =>
+        var scale = await Service.UseFramework(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)

@@ -10,6 +10,7 @@ using Dalamud.Game;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Dalamud.Game.Text.SeStringHandling;
+using ElezenTools.Services;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -182,7 +183,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         {
             await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
 
-            var evaluation = await _dalamudUtilService.RunOnFrameworkThread(() =>
+            var evaluation = await Service.UseFramework(() =>
             {
                 unsafe
                 {

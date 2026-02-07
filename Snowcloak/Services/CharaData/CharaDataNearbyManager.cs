@@ -1,4 +1,5 @@
-﻿using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
+﻿using ElezenTools.Services;
+using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
 using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Interop;
@@ -186,8 +187,8 @@ public sealed class CharaDataNearbyManager : DisposableMediatorSubscriberBase
         var previousPoses = _nearbyData.Keys.ToList();
         _nearbyData.Clear();
 
-        var ownLocation = await _dalamudUtilService.RunOnFrameworkThread(() => _dalamudUtilService.GetMapData()).ConfigureAwait(false);
-        var player = await _dalamudUtilService.RunOnFrameworkThread(() => _dalamudUtilService.GetPlayerCharacter()).ConfigureAwait(false);
+        var ownLocation = await Service.UseFramework(() => _dalamudUtilService.GetMapData()).ConfigureAwait(false);
+        var player = await Service.UseFramework(() => _dalamudUtilService.GetPlayerCharacter()).ConfigureAwait(false);
         var currentServer = player.CurrentWorld;
         var playerPos = player.Position;
 
@@ -237,7 +238,7 @@ public sealed class CharaDataNearbyManager : DisposableMediatorSubscriberBase
         }
 
         if (_charaDataConfigService.Current.NearbyDrawWisps && !_dalamudUtilService.IsInGpose && !_dalamudUtilService.IsInCombatOrPerforming)
-            await _dalamudUtilService.RunOnFrameworkThread(() => ManageWispsNearby(previousPoses)).ConfigureAwait(false);
+            await Service.UseFramework(() => ManageWispsNearby(previousPoses)).ConfigureAwait(false);
     }
 
     private unsafe void HandleFrameworkUpdate()

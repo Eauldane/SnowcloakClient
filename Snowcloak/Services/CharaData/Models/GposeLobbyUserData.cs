@@ -1,4 +1,5 @@
 ﻿using Dalamud.Utility;
+using ElezenTools.Services;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.CharaData;
 using Snowcloak.Utils;
@@ -139,7 +140,7 @@ public sealed record GposeLobbyUserData(UserData UserData)
         }
 
         var worldData = WorldData!.Value;
-        MapCoordinates = await dalamudUtilService.RunOnFrameworkThread(() =>
+        MapCoordinates = await Service.UseFramework(() =>
                 MapUtil.WorldToMap(new Vector2(worldData.PositionX, worldData.PositionY), dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map))
             .ConfigureAwait(false);
         Map = dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map;

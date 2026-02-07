@@ -1,4 +1,5 @@
 ﻿using Dalamud.Plugin;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Penumbra.Api.Enums;
 using Penumbra.Api.Helpers;
@@ -161,7 +162,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (!APIAvailable) return;
 
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             var retAssign = _penumbraAssignTemporaryCollection.Invoke(collName, idx, forceAssignment: true);
             logger.LogTrace("Assigning Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
@@ -202,7 +203,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         }
         _snowMediator.Publish(new ResumeScanMessage(nameof(ConvertTextureFiles)));
 
-        await _dalamudUtil.RunOnFrameworkThread(async () =>
+        await Service.UseFramework(async () =>
         {
             var gameObject = await _dalamudUtil.CreateGameObjectAsync(await _dalamudUtil.GetPlayerPointerAsync().ConfigureAwait(false)).ConfigureAwait(false);
             _penumbraRedraw.Invoke(gameObject!.ObjectIndex, setting: RedrawType.Redraw);
@@ -213,7 +214,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (!APIAvailable) return Guid.Empty;
 
-        return await _dalamudUtil.RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             Guid collId;
             var random = new Random();
@@ -233,7 +234,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (!APIAvailable) return null;
 
-        return await _dalamudUtil.RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             logger.LogTrace("Calling On IPC: Penumbra.GetGameObjectResourcePaths");
             var idx = handler.GetGameObject()?.ObjectIndex;
@@ -270,7 +271,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     public async Task RemoveTemporaryCollectionAsync(ILogger logger, Guid applicationId, Guid collId)
     {
         if (!APIAvailable) return;
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             logger.LogTrace("[{applicationId}] Removing temp collection for {collId}", applicationId, collId);
             var ret2 = _penumbraRemoveTemporaryCollection.Invoke(collId);
@@ -287,7 +288,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (!APIAvailable) return;
 
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             logger.LogTrace("[{applicationId}] Manip: {data}", applicationId, manipulationData);
             var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Meta", collId, [], manipulationData, 0);
@@ -299,7 +300,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (!APIAvailable) return;
 
-        await _dalamudUtil.RunOnFrameworkThread(() =>
+        await Service.UseFramework(() =>
         {
             foreach (var mod in modPaths)
             {

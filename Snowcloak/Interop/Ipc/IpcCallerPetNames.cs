@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
+using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -101,7 +102,7 @@ public sealed class IpcCallerPetNames : IIpcCaller
 
         try
         {
-            await _dalamudUtil.RunOnFrameworkThread(() =>
+            await Service.UseFramework(() =>
             {
                 if (string.IsNullOrEmpty(playerData))
                 {
@@ -128,7 +129,7 @@ public sealed class IpcCallerPetNames : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await _dalamudUtil.RunOnFrameworkThread(() =>
+            await Service.UseFramework(() =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(characterPointer);
                 if (gameObj is IPlayerCharacter pc)

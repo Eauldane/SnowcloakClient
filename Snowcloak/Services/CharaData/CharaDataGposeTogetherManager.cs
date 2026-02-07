@@ -1,4 +1,5 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
+using ElezenTools.Services;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.CharaData;
 using Microsoft.Extensions.Logging;
@@ -476,7 +477,7 @@ public class CharaDataGposeTogetherManager : DisposableMediatorSubscriberBase
                         {
                             // spawn if it doesn't exist yet
                             entry.Value.LastWorldPosition = new Vector3(entryWorldData.PositionX, entryWorldData.PositionY, entryWorldData.PositionZ);
-                            entry.Value.SpawnedVfxId = await _dalamudUtil.RunOnFrameworkThread(() => _vfxSpawnManager.SpawnObject(entry.Value.LastWorldPosition.Value,
+                            entry.Value.SpawnedVfxId = await Service.UseFramework(() => _vfxSpawnManager.SpawnObject(entry.Value.LastWorldPosition.Value,
                                 Quaternion.Identity, Vector3.One, 0.5f, 0.1f, 0.5f, 0.9f)).ConfigureAwait(false);
                         }
                         else
@@ -492,7 +493,7 @@ public class CharaDataGposeTogetherManager : DisposableMediatorSubscriberBase
                     }
                     else
                     {
-                        await _dalamudUtil.RunOnFrameworkThread(() => _vfxSpawnManager.DespawnObject(entry.Value.SpawnedVfxId)).ConfigureAwait(false);
+                        await Service.UseFramework(() => _vfxSpawnManager.DespawnObject(entry.Value.SpawnedVfxId)).ConfigureAwait(false);
                         entry.Value.SpawnedVfxId = null;
                     }
                 }
@@ -545,7 +546,7 @@ public class CharaDataGposeTogetherManager : DisposableMediatorSubscriberBase
         ResetOwnData();
         foreach (var data in _usersInLobby.Values)
         {
-            _ = _dalamudUtil.RunOnFrameworkThread(() => _vfxSpawnManager.DespawnObject(data.SpawnedVfxId));
+            _ = Service.UseFramework(() => _vfxSpawnManager.DespawnObject(data.SpawnedVfxId));
             data.Reset();
         }
     }
@@ -690,7 +691,7 @@ public class CharaDataGposeTogetherManager : DisposableMediatorSubscriberBase
         _usersInLobby.Remove(msg.UID, out var existingData);
         if (existingData != default)
         {
-            _ = _dalamudUtil.RunOnFrameworkThread(() => _vfxSpawnManager.DespawnObject(existingData.SpawnedVfxId));
+            _ = Service.UseFramework(() => _vfxSpawnManager.DespawnObject(existingData.SpawnedVfxId));
         }
     }
 }

@@ -2,6 +2,7 @@ using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
+using ElezenTools.Services;
 using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Interop;
@@ -235,7 +236,7 @@ public class ChatService : DisposableMediatorSubscriberBase
             {
                 _ = Task.Run(async () => {
                     // Should cache the name and home world instead of fetching it every time
-                    var chatMsg = await _dalamudUtil.RunOnFrameworkThread(() => {
+                    var chatMsg = await Service.UseFramework(() => {
                         return new ChatMessage()
                         {
                             SenderName = _dalamudUtil.GetPlayerName(),

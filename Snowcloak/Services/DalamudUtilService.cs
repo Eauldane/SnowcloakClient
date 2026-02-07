@@ -26,25 +26,15 @@ using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using Snowcloak.Services.Housing;
 using Dalamud.Game.Gui.ContextMenu;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
-
+using ElezenTools.Player;
+using ElezenTools.Data;
+using ElezenTools.Services;
 
 namespace Snowcloak.Services;
 
 public class DalamudUtilService : IHostedService, IMediatorSubscriber
 {
-    public struct PlayerCharacter
-    {
-        public uint ObjectId;
-        public string Name;
-        public uint HomeWorldId;
-        public nint Address;
-        public byte Level;
-        public byte ClassJob;
-        public byte Gender;
-        public byte Clan;
-    };
 
-    public readonly record struct WorldInfo(string Name, string DataCenter);
     
     private struct PlayerInfo
     {
@@ -170,7 +160,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         {
             if (clientState.IsPvP) return;
             var ident = msg.Pair.GetPlayerNameHash();
-            _ = RunOnFrameworkThread(() =>
+            _ = Service.UseFramework(() =>
             {
                 var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
                 var pc = _objectTable.LocalPlayer!;
@@ -230,7 +220,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<Dalamud.Game.ClientState.Objects.Types.IGameObject?> CreateGameObjectAsync(IntPtr reference)
     {
-        return await RunOnFrameworkThread(() => _objectTable.CreateObjectReference(reference)).ConfigureAwait(false);
+        return await Service.UseFramework(() => _objectTable.CreateObjectReference(reference)).ConfigureAwait(false);
     }
 
     public void EnsureIsOnFramework()
@@ -257,12 +247,12 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<IntPtr> GetCompanionAsync(IntPtr? playerPointer = null)
     {
-        return await RunOnFrameworkThread(() => GetCompanion(playerPointer)).ConfigureAwait(false);
+        return await Service.UseFramework(() => GetCompanion(playerPointer)).ConfigureAwait(false);
     }
 
     public async Task<ICharacter?> GetGposeCharacterFromObjectTableByNameAsync(string name, bool onlyGposeCharacters = false)
     {
-        return await RunOnFrameworkThread(() => GetGposeCharacterFromObjectTableByName(name, onlyGposeCharacters)).ConfigureAwait(false);
+        return await Service.UseFramework(() => GetGposeCharacterFromObjectTableByName(name, onlyGposeCharacters)).ConfigureAwait(false);
     }
 
     public ICharacter? GetGposeCharacterFromObjectTableByName(string name, bool onlyGposeCharacters = false)
@@ -285,7 +275,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<bool> GetIsPlayerPresentAsync()
     {
-        return await RunOnFrameworkThread(GetIsPlayerPresent).ConfigureAwait(false);
+        return await Service.UseFramework(GetIsPlayerPresent).ConfigureAwait(false);
     }
 
     public unsafe IntPtr GetMinionOrMount(IntPtr? playerPointer = null)
@@ -298,7 +288,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<IntPtr> GetMinionOrMountAsync(IntPtr? playerPointer = null)
     {
-        return await RunOnFrameworkThread(() => GetMinionOrMount(playerPointer)).ConfigureAwait(false);
+        return await Service.UseFramework(() => GetMinionOrMount(playerPointer)).ConfigureAwait(false);
     }
 
     public unsafe IntPtr GetPet(IntPtr? playerPointer = null)
@@ -313,17 +303,17 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<IntPtr> GetPetAsync(IntPtr? playerPointer = null)
     {
-        return await RunOnFrameworkThread(() => GetPet(playerPointer)).ConfigureAwait(false);
+        return await Service.UseFramework(() => GetPet(playerPointer)).ConfigureAwait(false);
     }
 
     public async Task<IPlayerCharacter> GetPlayerCharacterAsync()
     {
-        return await RunOnFrameworkThread(GetPlayerCharacter).ConfigureAwait(false);
+        return await Service.UseFramework(GetPlayerCharacter).ConfigureAwait(false);
     }
 
     public async Task<bool> TargetPlayerByIdentAsync(string ident)
     {
-        return await RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             var addr = GetPlayerCharacterFromCachedTableByIdent(ident);
             if (addr == IntPtr.Zero)
@@ -340,7 +330,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     
     public async Task<bool> ExaminePlayerByIdentAsync(string ident)
     {
-        return await RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             unsafe
             {
@@ -360,7 +350,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<bool> OpenAdventurerPlateByIdentAsync(string ident)
     {
-        return await RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             unsafe
             {
@@ -416,7 +406,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<bool> IsFriendByIdentAsync(string ident)
     {
-        return await RunOnFrameworkThread(() => IsFriendByIdent(ident)).ConfigureAwait(false);
+        return await Service.UseFramework(() => IsFriendByIdent(ident)).ConfigureAwait(false);
     }
     
     public string GetPlayerName()
@@ -428,17 +418,17 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<string> GetPlayerNameAsync()
     {
-        return await RunOnFrameworkThread(GetPlayerName).ConfigureAwait(false);
+        return await Service.UseFramework(GetPlayerName).ConfigureAwait(false);
     }
 
     public async Task<string> GetPlayerNameHashedAsync()
     {
-        return await RunOnFrameworkThread(() => (GetPlayerName() + GetHomeWorldId()).GetHash256()).ConfigureAwait(false);
+        return await Service.UseFramework(() => (GetPlayerName() + GetHomeWorldId()).GetHash256()).ConfigureAwait(false);
     }
     
     public async Task<IReadOnlyList<string>> GetNearbyPlayerNameHashesAsync(int maxPlayers = 0)
     {
-        return await RunOnFrameworkThread(() =>
+        return await Service.UseFramework(() =>
         {
             var hashes = _playerCharas.Keys;
 
@@ -470,7 +460,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<IntPtr> GetPlayerPointerAsync()
     {
-        return await RunOnFrameworkThread(GetPlayerPointer).ConfigureAwait(false);
+        return await Service.UseFramework(GetPlayerPointer).ConfigureAwait(false);
     }
 
     public uint GetHomeWorldId()
@@ -607,17 +597,17 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<LocationInfo> GetMapDataAsync()
     {
-        return await RunOnFrameworkThread(GetMapData).ConfigureAwait(false);
+        return await Service.UseFramework(GetMapData).ConfigureAwait(false);
     }
 
     public async Task<uint> GetWorldIdAsync()
     {
-        return await RunOnFrameworkThread(GetWorldId).ConfigureAwait(false);
+        return await Service.UseFramework(GetWorldId).ConfigureAwait(false);
     }
 
     public async Task<uint> GetHomeWorldIdAsync()
     {
-        return await RunOnFrameworkThread(GetHomeWorldId).ConfigureAwait(false);
+        return await Service.UseFramework(GetHomeWorldId).ConfigureAwait(false);
     }
 
     public unsafe bool IsGameObjectPresent(IntPtr key)
@@ -633,55 +623,15 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     public async Task<bool> IsObjectPresentAsync(Dalamud.Game.ClientState.Objects.Types.IGameObject? obj)
     {
-        return await RunOnFrameworkThread(() => IsObjectPresent(obj)).ConfigureAwait(false);
-    }
-
-    public async Task RunOnFrameworkThread(System.Action act, [CallerMemberName] string callerMember = "", [CallerFilePath] string callerFilePath = "", [CallerLineNumber] int callerLineNumber = 0)
-    {
-        var fileName = Path.GetFileNameWithoutExtension(callerFilePath);
-        await _performanceCollector.LogPerformance(this, $"RunOnFramework:Act/{fileName}>{callerMember}:{callerLineNumber}", async () =>
-        {
-            if (!_framework.IsInFrameworkUpdateThread)
-            {
-                await _framework.RunOnFrameworkThread(act).ContinueWith((_) => Task.CompletedTask).ConfigureAwait(false);
-                while (_framework.IsInFrameworkUpdateThread) // yield the thread again, should technically never be triggered
-                {
-                    _logger.LogTrace("Still on framework");
-                    await Task.Delay(1).ConfigureAwait(false);
-                }
-            }
-            else
-                act();
-        }).ConfigureAwait(false);
-    }
-
-    public async Task<T> RunOnFrameworkThread<T>(Func<T> func, [CallerMemberName] string callerMember = "", [CallerFilePath] string callerFilePath = "", [CallerLineNumber] int callerLineNumber = 0)
-    {
-        var fileName = Path.GetFileNameWithoutExtension(callerFilePath);
-        return await _performanceCollector.LogPerformance(this, $"RunOnFramework:Func<{typeof(T)}>/{fileName}>{callerMember}:{callerLineNumber}", async () =>
-        {
-            if (!_framework.IsInFrameworkUpdateThread)
-            {
-                var result = await _framework.RunOnFrameworkThread(func).ContinueWith((task) => task.Result).ConfigureAwait(false);
-                while (_framework.IsInFrameworkUpdateThread) // yield the thread again, should technically never be triggered
-                {
-                    _logger.LogTrace("Still on framework");
-                    await Task.Delay(1).ConfigureAwait(false);
-                }
-                return result;
-            }
-
-            return func.Invoke();
-        }).ConfigureAwait(false);
+        return await Service.UseFramework(() => IsObjectPresent(obj)).ConfigureAwait(false);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting DalamudUtilService");
-#pragma warning disable S2696 // Instance members should not write to "static" fields
         Snowcloak.Plugin.Self.RealOnFrameworkUpdate = this.FrameworkOnUpdate;
-#pragma warning restore S2696
-        _framework.Update += Snowcloak.Plugin.Self.OnFrameworkUpdate;
+        Service.Framework.Update += Snowcloak.Plugin.Self.OnFrameworkUpdate;
+
         if (IsLoggedIn)
         {
             _classJobId = _playerState.ClassJob.RowId;
@@ -695,9 +645,9 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogTrace("Stopping {type}", GetType());
-
         Mediator.UnsubscribeAll(this);
-        _framework.Update -= Snowcloak.Plugin.Self.OnFrameworkUpdate;
+        Service.Framework.Update -= Snowcloak.Plugin.Self.OnFrameworkUpdate;
+
         return Task.CompletedTask;
     }
 
@@ -845,6 +795,146 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         }
 
         IsAnythingDrawing |= isDrawing;
+    }
+    
+    private unsafe void HandleHousingPlotState()
+    {
+        if (_objectTable.LocalPlayer == null)
+            return;
+
+        var isCurrentlyOnPlot = TryGetHousingPlotLocation(out var currentLocation, out var isInsideHousing);
+
+        if (_isOnHousingPlot && isCurrentlyOnPlot && isInsideHousing
+            && !currentLocation.Equals(_lastHousingPlotLocation)
+            && IsSameHousingStructure(currentLocation, _lastHousingPlotLocation))
+        {
+            currentLocation = _lastHousingPlotLocation;
+        }
+        
+        if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
+        {
+            _logger.LogInformation("Exited housing plot {FullId}", _lastHousingPlotLocation.FullId);
+            #if DEBUG
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = $"Exited housing plot {_lastHousingPlotLocation.DisplayName}",
+                Type = XivChatType.SystemMessage
+            });
+            #endif
+            Mediator.Publish(new HousingPlotLeftMessage(_lastHousingPlotLocation));
+        }
+
+        if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
+        {
+            _logger.LogInformation("Entered housing plot {FullId}", currentLocation.FullId);
+            #if DEBUG
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = $"Entered housing plot {currentLocation.DisplayName}",
+                Type = XivChatType.SystemMessage
+            });
+            #endif
+            Mediator.Publish(new HousingPlotEnteredMessage(currentLocation));
+        }
+
+        _isOnHousingPlot = isCurrentlyOnPlot;
+        _lastHousingPlotLocation = currentLocation;
+        
+    }
+
+    public string GetHousingString()
+    {
+        return _lastHousingPlotLocation.FullId;
+    }
+    
+    private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
+    {
+        return left.WorldId == right.WorldId
+               && left.WardId == right.WardId
+               && left.PlotId == right.PlotId
+               && left.IsApartment == right.IsApartment;
+    }
+
+    
+    public bool TryGetLastHousingPlot(out HousingPlotLocation location)
+    {
+        location = _lastHousingPlotLocation;
+        return _isOnHousingPlot;
+    }
+    
+    private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation, out bool isInsideHousing)
+    {
+        housingLocation = default;
+        isInsideHousing = false;
+
+        var houseMan = HousingManager.Instance();
+        var agentMap = AgentMap.Instance();
+
+        var locationInfo = GetMapData();
+        
+        if (houseMan != null)
+        {
+            isInsideHousing = houseMan->IsInside();
+            var currentPlot = (uint)(houseMan->GetCurrentPlot() + 1); // Pass this as the actual number instead of index
+            var ward = (uint)(houseMan->GetCurrentWard() + 1);
+            var division = (uint)houseMan->GetCurrentDivision();
+            var room = (uint)houseMan->GetCurrentRoom();
+            var territoryId = locationInfo.TerritoryId;
+            var worldId = locationInfo.ServerId;
+            if (currentPlot > 0)
+            {
+                housingLocation = new HousingPlotLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
+                return true;
+            }
+
+            if (currentPlot < -1)
+            {
+                uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
+                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);
+                return true;            }
+        }
+
+        if (locationInfo.HouseId > 0)
+        {
+            var isApartment = locationInfo.HouseId == 100 || locationInfo.DivisionId == 2;
+            housingLocation = new HousingPlotLocation(locationInfo.ServerId, locationInfo.TerritoryId, locationInfo.DivisionId, locationInfo.WardId, locationInfo.HouseId, locationInfo.RoomId, isApartment);
+            return true;
+        }
+
+        return false;
+    }
+    
+
+    public uint? GetTargetObjectId()
+    {
+        if (_targetManager.Target is IPlayerCharacter playerCharacter)
+            return playerCharacter.EntityId;
+
+        return null;
+    }
+
+    public IPlayerCharacter? GetTargetPlayerCharacter()
+    {
+        EnsureIsOnFramework();
+        if (_targetManager.Target is IPlayerCharacter playerCharacter)
+            return playerCharacter;
+
+        return null;
+    }
+
+    public async Task<IPlayerCharacter?> GetTargetPlayerCharacterAsync()
+    {
+        return await Service.UseFramework(GetTargetPlayerCharacter).ConfigureAwait(false);
+    }
+
+    public IEnumerable<IPlayerCharacter> GetPartyPlayerCharacters()
+    {
+        EnsureIsOnFramework();
+        for (int i = 0; i < _partyList.Count; i++)
+        {
+            if (_partyList[i]?.GameObject is IPlayerCharacter partyMember)
+                yield return partyMember;
+        }
     }
 
     private void FrameworkOnUpdate(IFramework framework)
@@ -1029,147 +1119,5 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             _delayedFrameworkUpdateCheck = DateTime.UtcNow;
         });
     }
-    
-    private unsafe void HandleHousingPlotState()
-    {
-        if (_objectTable.LocalPlayer == null)
-            return;
-
-        var isCurrentlyOnPlot = TryGetHousingPlotLocation(out var currentLocation, out var isInsideHousing);
-
-        if (_isOnHousingPlot && isCurrentlyOnPlot && isInsideHousing
-            && !currentLocation.Equals(_lastHousingPlotLocation)
-            && IsSameHousingStructure(currentLocation, _lastHousingPlotLocation))
-        {
-            currentLocation = _lastHousingPlotLocation;
-        }
-        
-        if (_isOnHousingPlot && (!isCurrentlyOnPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
-        {
-            _logger.LogInformation("Exited housing plot {FullId}", _lastHousingPlotLocation.FullId);
-            #if DEBUG
-            _chatGui.Print(new XivChatEntry
-            {
-                Message = $"Exited housing plot {_lastHousingPlotLocation.DisplayName}",
-                Type = XivChatType.SystemMessage
-            });
-            #endif
-            Mediator.Publish(new HousingPlotLeftMessage(_lastHousingPlotLocation));
-        }
-
-        if (isCurrentlyOnPlot && (!_isOnHousingPlot || !currentLocation.Equals(_lastHousingPlotLocation)))
-        {
-            _logger.LogInformation("Entered housing plot {FullId}", currentLocation.FullId);
-            #if DEBUG
-            _chatGui.Print(new XivChatEntry
-            {
-                Message = $"Entered housing plot {currentLocation.DisplayName}",
-                Type = XivChatType.SystemMessage
-            });
-            #endif
-            Mediator.Publish(new HousingPlotEnteredMessage(currentLocation));
-        }
-
-        _isOnHousingPlot = isCurrentlyOnPlot;
-        _lastHousingPlotLocation = currentLocation;
-        
-    }
-
-    public string GetHousingString()
-    {
-        return _lastHousingPlotLocation.FullId;
-    }
-    
-    private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
-    {
-        return left.WorldId == right.WorldId
-               && left.WardId == right.WardId
-               && left.PlotId == right.PlotId
-               && left.IsApartment == right.IsApartment;
-    }
-
-    
-    public bool TryGetLastHousingPlot(out HousingPlotLocation location)
-    {
-        location = _lastHousingPlotLocation;
-        return _isOnHousingPlot;
-    }
-    
-    private unsafe bool TryGetHousingPlotLocation(out HousingPlotLocation housingLocation, out bool isInsideHousing)
-    {
-        housingLocation = default;
-        isInsideHousing = false;
-
-        var houseMan = HousingManager.Instance();
-        var agentMap = AgentMap.Instance();
-
-        var locationInfo = GetMapData();
-        
-        if (houseMan != null)
-        {
-            isInsideHousing = houseMan->IsInside();
-            var currentPlot = (uint)(houseMan->GetCurrentPlot() + 1); // Pass this as the actual number instead of index
-            var ward = (uint)(houseMan->GetCurrentWard() + 1);
-            var division = (uint)houseMan->GetCurrentDivision();
-            var room = (uint)houseMan->GetCurrentRoom();
-            var territoryId = locationInfo.TerritoryId;
-            var worldId = locationInfo.ServerId;
-            if (currentPlot > 0)
-            {
-                housingLocation = new HousingPlotLocation(worldId, territoryId, division, ward, currentPlot, 0, false);
-                return true;
-            }
-
-            if (currentPlot < -1)
-            {
-                uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
-                housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);
-                return true;            }
-        }
-
-        if (locationInfo.HouseId > 0)
-        {
-            var isApartment = locationInfo.HouseId == 100 || locationInfo.DivisionId == 2;
-            housingLocation = new HousingPlotLocation(locationInfo.ServerId, locationInfo.TerritoryId, locationInfo.DivisionId, locationInfo.WardId, locationInfo.HouseId, locationInfo.RoomId, isApartment);
-            return true;
-        }
-
-        return false;
-    }
-    
-
-    public uint? GetTargetObjectId()
-    {
-        if (_targetManager.Target is IPlayerCharacter playerCharacter)
-            return playerCharacter.EntityId;
-
-        return null;
-    }
-
-    public IPlayerCharacter? GetTargetPlayerCharacter()
-    {
-        EnsureIsOnFramework();
-        if (_targetManager.Target is IPlayerCharacter playerCharacter)
-            return playerCharacter;
-
-        return null;
-    }
-
-    public async Task<IPlayerCharacter?> GetTargetPlayerCharacterAsync()
-    {
-        return await RunOnFrameworkThread(GetTargetPlayerCharacter).ConfigureAwait(false);
-    }
-
-    public IEnumerable<IPlayerCharacter> GetPartyPlayerCharacters()
-    {
-        EnsureIsOnFramework();
-        for (int i = 0; i < _partyList.Count; i++)
-        {
-            if (_partyList[i]?.GameObject is IPlayerCharacter partyMember)
-                yield return partyMember;
-        }
-    }
-
-    
     
 }
