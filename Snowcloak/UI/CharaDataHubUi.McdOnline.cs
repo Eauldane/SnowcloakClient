@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Dto.CharaData;
 using Snowcloak.Services.CharaData.Models;
 using System.Numerics;
@@ -45,7 +46,7 @@ internal sealed partial class CharaDataHubUi
                 if (canUpdate)
                 {
                     ImGui.AlignTextToFramePadding();
-                    UiSharedService.ColorTextWrapped("Warning: You have unsaved changes!", ImGuiColors.DalamudRed);
+                    ElezenImgui.ColouredWrappedText("Warning: You have unsaved changes!", ImGuiColors.DalamudRed);
                     ImGui.SameLine();
                     using (ImRaii.Disabled(_charaDataManager.CharaUpdateTask != null && !_charaDataManager.CharaUpdateTask.IsCompleted))
                     {
@@ -61,7 +62,7 @@ internal sealed partial class CharaDataHubUi
                     }
                     if (_charaDataManager.CharaUpdateTask != null && !_charaDataManager.CharaUpdateTask.IsCompleted)
                     {
-                        UiSharedService.ColorTextWrapped("Updating data on server, please wait.", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredWrappedText("Updating data on server, please wait.", ImGuiColors.DalamudYellow);
                     }
                 }
 
@@ -71,7 +72,7 @@ internal sealed partial class CharaDataHubUi
                     {
                         if (_charaDataManager.UploadProgress != null)
                         {
-                            UiSharedService.ColorTextWrapped(_charaDataManager.UploadProgress.Value ?? string.Empty, ImGuiColors.DalamudYellow);
+                            ElezenImgui.ColouredWrappedText(_charaDataManager.UploadProgress.Value ?? string.Empty, ImGuiColors.DalamudYellow);
                         }
                         if ((!_charaDataManager.UploadTask?.IsCompleted ?? false) && _uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Cancel Upload"))
                         {
@@ -80,14 +81,14 @@ internal sealed partial class CharaDataHubUi
                         else if (_charaDataManager.UploadTask?.IsCompleted ?? false)
                         {
                             var color = UiSharedService.GetBoolColor(_charaDataManager.UploadTask.Result.Success);
-                            UiSharedService.ColorTextWrapped(_charaDataManager.UploadTask.Result.Output, color);
+                            ElezenImgui.ColouredWrappedText(_charaDataManager.UploadTask.Result.Output, color);
                         }
                     });
                 }
                 else if (_charaDataManager.UploadTask?.IsCompleted ?? false)
                 {
                     var color = UiSharedService.GetBoolColor(_charaDataManager.UploadTask.Result.Success);
-                    UiSharedService.ColorTextWrapped(_charaDataManager.UploadTask.Result.Output, color);
+                    ElezenImgui.ColouredWrappedText(_charaDataManager.UploadTask.Result.Output, color);
                 }
             });
         }
@@ -210,11 +211,11 @@ internal sealed partial class CharaDataHubUi
             ImGui.SameLine(pos);
             if (!dataDto.HasMissingFiles)
             {
-                UiSharedService.ColorTextWrapped("All files to download this character data are present on the server", ImGuiColors.HealerGreen);
+                ElezenImgui.ColouredWrappedText("All files to download this character data are present on the server", ImGuiColors.HealerGreen);
             }
             else
             {
-                UiSharedService.ColorTextWrapped(string.Format("{0} files to download this character data are missing on the server", dataDto.MissingFiles.DistinctBy(k => k.HashOrFileSwap).Count()), ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText(string.Format("{0} files to download this character data are missing on the server", dataDto.MissingFiles.DistinctBy(k => k.HashOrFileSwap).Count()), ImGuiColors.DalamudRed);
                 ImGui.NewLine();
                 ImGui.SameLine(pos);
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, "Attempt to upload missing files and restore Character Data"))
@@ -228,7 +229,7 @@ internal sealed partial class CharaDataHubUi
             ImGui.SameLine();
             ImGuiHelpers.ScaledDummy(20, 1);
             ImGui.SameLine();
-            UiSharedService.ColorTextWrapped("New data was set. It may contain files that require to be uploaded (will happen on Saving to server)", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("New data was set. It may contain files that require to be uploaded (will happen on Saving to server)", ImGuiColors.DalamudYellow);
         }
 
         ImGui.TextUnformatted("Contains Manipulation Data");
@@ -427,7 +428,7 @@ internal sealed partial class CharaDataHubUi
             ImGui.SameLine(75);
             if (pose.Description == null && pose.WorldData == null && pose.PoseData == null)
             {
-                UiSharedService.ColorText("Pose scheduled for deletion", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredText("Pose scheduled for deletion", ImGuiColors.DalamudYellow);
             }
             else
             {
@@ -583,7 +584,7 @@ internal sealed partial class CharaDataHubUi
                     var idText = entry.FullId;
                     if (uDto?.HasChanges ?? false)
                     {
-                        UiSharedService.ColorText(idText, ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredText(idText, ImGuiColors.DalamudYellow);
                         UiSharedService.AttachToolTip("This entry has unsaved changes");
                     }
                     else
@@ -669,22 +670,22 @@ internal sealed partial class CharaDataHubUi
         {
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
-            UiSharedService.TextWrapped($"Chara Data Entries on Server: {_charaDataManager.OwnCharaData.Count}/{_charaDataManager.MaxCreatableCharaData}");
+            ElezenImgui.WrappedText($"Chara Data Entries on Server: {_charaDataManager.OwnCharaData.Count}/{_charaDataManager.MaxCreatableCharaData}");
             if (_charaDataManager.OwnCharaData.Count == _charaDataManager.MaxCreatableCharaData)
             {
                 ImGui.AlignTextToFramePadding();
-                UiSharedService.ColorTextWrapped("You have reached the maximum Character Data entries and cannot create more.", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText("You have reached the maximum Character Data entries and cannot create more.", ImGuiColors.DalamudYellow);
             }
         }
 
         if (_charaDataManager.DataCreationTask != null && !_charaDataManager.DataCreationTask.IsCompleted)
         {
-            UiSharedService.ColorTextWrapped("Creating new character data entry on server...", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("Creating new character data entry on server...", ImGuiColors.DalamudYellow);
         }
         else if (_charaDataManager.DataCreationTask != null && _charaDataManager.DataCreationTask.IsCompleted)
         {
             var color = _charaDataManager.DataCreationTask.Result.Success ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed;
-            UiSharedService.ColorTextWrapped(_charaDataManager.DataCreationTask.Result.Output, color);
+            ElezenImgui.ColouredWrappedText(_charaDataManager.DataCreationTask.Result.Output, color);
         }
 
         ImGuiHelpers.ScaledDummy(10);

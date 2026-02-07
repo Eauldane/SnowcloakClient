@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Snowcloak.Services.Venue;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.Utils;
 using Snowcloak.Services.Housing;
 using System.Text;
@@ -44,7 +45,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         var venue = _prompt.Venue;
 
         using (_uiSharedService.UidFont.Push())
-            UiSharedService.ColorText(venue.VenueName, ElezenTools.UI.Colour.HexToVector4(venue.JoinInfo.Group.DisplayColour));
+            ElezenImgui.ColouredText(venue.VenueName, ElezenTools.UI.Colour.HexToVector4(venue.JoinInfo.Group.DisplayColour));
 
         ImGuiHelpers.ScaledDummy(5f);
 
@@ -59,7 +60,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         if (!string.IsNullOrWhiteSpace(venue.VenueDescription))
         {
             ImGuiHelpers.ScaledDummy(8f);
-            UiSharedService.TextWrapped("About this venue");
+            ElezenImgui.WrappedText("About this venue");
             using var child = ImRaii.Child("##venue_description",
                 new Vector2(-1, MathF.Max(100f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().Y - ImGui.GetFrameHeightWithSpacing() * 3.75f)),
                 true,
@@ -70,13 +71,13 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 
             }
         }
-        UiSharedService.TextWrapped("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");
-        UiSharedService.TextWrapped("Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff are not responsible for the content of this venue.");
+        ElezenImgui.WrappedText("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");
+        ElezenImgui.WrappedText("Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff are not responsible for the content of this venue.");
 
 
         if (_joinFailed)
         {
-            UiSharedService.ColorTextWrapped("Failed to join syncshell. Please try again.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Failed to join syncshell. Please try again.", ImGuiColors.DalamudRed);
         }
 
         using (ImRaii.Disabled(_isJoining))

@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
@@ -91,7 +92,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     {
         if (_context == null)
         {
-            UiSharedService.ColorTextWrapped("No pending venue registration. Use /venue to verify a placard first.",
+            ElezenImgui.ColouredWrappedText("No pending venue registration. Use /venue to verify a placard first.",
                 ImGuiColors.DalamudGrey);
             return;
         }
@@ -116,12 +117,12 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         if (_adminGroups.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("You must own or moderate a syncshell to register a venue.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("You must own or moderate a syncshell to register a venue.", ImGuiColors.DalamudRed);
         }
         else
         {
             if (_isEditingExistingVenue)
-                UiSharedService.ColorTextWrapped("Syncshell association cannot be changed for an existing venue.", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText("Syncshell association cannot be changed for an existing venue.", ImGuiColors.DalamudGrey);
 
             ImGui.BeginDisabled(_isEditingExistingVenue);
             var previousSelectedGroup = _selectedGroupGid;
@@ -185,13 +186,13 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         if (!_apiController.IsConnected)
         {
-            UiSharedService.ColorTextWrapped("You must be connected to Snowcloak to submit a venue registration.",
+            ElezenImgui.ColouredWrappedText("You must be connected to Snowcloak to submit a venue registration.",
                 ImGuiColors.DalamudYellow);
         }
 
         if (_statusMessage != null)
         {
-            UiSharedService.ColorTextWrapped(_statusMessage, ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText(_statusMessage, ImGuiColors.DalamudGrey);
         }
 
         ImGui.BeginDisabled(!canSubmit);

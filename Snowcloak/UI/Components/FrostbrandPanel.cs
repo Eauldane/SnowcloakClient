@@ -119,15 +119,15 @@ public class FrostbrandPanel
 
             if (!_useUriangerText)
             {
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Frostbrand is a system that, when opted-in to, shows other nearby users who've opted in that you're open to pairing.");
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Whilst Snowcloak provides filters to automatically reject those you're not interested in pairing with, please be aware that " +
                                                        "while you have it enabled, anyone using Frostbrand will be able to see that you're using Snowcloak.");
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Please take the time to understand the privacy risk this introduces, and if you choose to enable the system, " +
                                                        "you're advised to configure filters immediately, preferably in a quiet area.");
-                UiSharedService.TextWrapped("Continue?");
+                ElezenImgui.WrappedText("Continue?");
                 ImGui.Separator();
                 ImGui.Spacing();
 
@@ -151,18 +151,18 @@ public class FrostbrandPanel
             }
             else
             {
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Frostbrand be a covenant of mutual accord, whereby those who do willingly partake therein may perceive, " +
                                                            "among the souls nearby, others likewise disposed unto pairing.");
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Know this also: though Snowcloak doth grant thee wards and strictures, by which thou mayest " +
                                                            "deny communion with those thou wouldst not suffer, yet whilst Frostbrand remaineth enabled," +
                                                            " any who wield its sight shall discern that thou makest use of Snowcloak.");
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                     "Ponder well, then, the peril to thine own privacy that this revelation entailest. Shouldst " +
                                                            "thou resolve to walk this path regardless, thou art strongly counseled to set thy filters " +
                                                            "with all haste - best done where few eyes linger and fewer ears attend.");
-                UiSharedService.TextWrapped("Wilt thou press on?");
+                ElezenImgui.WrappedText("Wilt thou press on?");
                 ImGui.Separator();
                 ImGui.Spacing();
 

@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
@@ -78,7 +79,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var headerSize = ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y;
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour));
+                ElezenImgui.ColouredText(UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour));
 
             
             var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
@@ -124,7 +125,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var note = _serverManager.GetNoteForUid(UserData.UID);
             if (!string.IsNullOrEmpty(note))
             {
-                UiSharedService.ColorText(note, ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredText(note, ImGuiColors.DalamudGrey);
             }
             
             if (Pair != null)
@@ -134,7 +135,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                     : (Pair.IsOnline
                         ? "Online"
                         : "Offline");
-                UiSharedService.ColorText(status, (Pair.IsVisible || Pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredText(status, (Pair.IsVisible || Pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
                 if (Pair.IsVisible)
                 {
                     ImGui.SameLine();
@@ -146,12 +147,12 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                     if (Pair.UserPair.OwnPermissions.IsPaused())
                     {
                         ImGui.SameLine();
-                        UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredText("You: paused", ImGuiColors.DalamudYellow);
                     }
                     if (Pair.UserPair.OtherPermissions.IsPaused())
                     {
                         ImGui.SameLine();
-                        UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredText("They: paused", ImGuiColors.DalamudYellow);
                     }
                 }
             
@@ -170,7 +171,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             }
             else
             {
-                UiSharedService.ColorTextWrapped("No pairing context available for this user.", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText("No pairing context available for this user.", ImGuiColors.DalamudGrey);
             }
 
             if (_textureWrap != null)

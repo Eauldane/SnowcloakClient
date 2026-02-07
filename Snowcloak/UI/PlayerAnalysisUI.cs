@@ -2,6 +2,7 @@
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
@@ -69,7 +70,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
             _sortDirty = true;
         }
 
-        UiSharedService.TextWrapped(string.Format("This window shows you all files and their sizes that are currently in use by {0} and associated entities", Pair.UserData.AliasOrUID));
+        ElezenImgui.WrappedText(string.Format("This window shows you all files and their sizes that are currently in use by {0} and associated entities", Pair.UserData.AliasOrUID));
         
         if (_cachedAnalysis == null || _cachedAnalysis.Count == 0) return;
 
@@ -77,7 +78,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
         bool needAnalysis = _cachedAnalysis!.Any(c => c.Value.Any(f => !f.Value.IsComputed));
         if (isAnalyzing)
         {
-            UiSharedService.ColorTextWrapped(string.Format("Analyzing {0}/{1}", analyzer.CurrentFile, analyzer.TotalFiles),
+            ElezenImgui.ColouredWrappedText(string.Format("Analyzing {0}/{1}", analyzer.CurrentFile, analyzer.TotalFiles),
                 ImGuiColors.DalamudYellow);
             if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
             {
@@ -88,7 +89,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
         {
             if (needAnalysis)
             {
-                UiSharedService.ColorTextWrapped("Some entries in the analysis have file size not determined yet, press the button below to compute missing data",
+                ElezenImgui.ColouredWrappedText("Some entries in the analysis have file size not determined yet, press the button below to compute missing data",
                     ImGuiColors.DalamudYellow);
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
                 {
@@ -251,14 +252,14 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
 
         ImGui.TextUnformatted("Selected file:");
         ImGui.SameLine();
-        UiSharedService.ColorText(_selectedHash, ImGuiColors.DalamudYellow);
+        ElezenImgui.ColouredText(_selectedHash, ImGuiColors.DalamudYellow);
 
         if (_cachedAnalysis[_selectedObjectTab].TryGetValue(_selectedHash, out CharacterAnalyzer.FileDataEntry? item))
         {
             var gamepaths = item.GamePaths;
             ImGui.TextUnformatted("Used by game path:");
             ImGui.SameLine();
-            UiSharedService.TextWrapped(gamepaths[0]);
+            ElezenImgui.WrappedText(gamepaths[0]);
             if (gamepaths.Count > 1)
             {
                 ImGui.SameLine();

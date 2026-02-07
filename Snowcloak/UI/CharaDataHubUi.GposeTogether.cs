@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.Services.CharaData.Models;
 
 namespace Snowcloak.UI;
@@ -63,7 +64,7 @@ internal sealed partial class CharaDataHubUi
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted("GPose Lobby");
             ImGui.SameLine();
-            UiSharedService.ColorTextWrapped(_charaDataGposeTogetherManager.CurrentGPoseLobbyId, ImGuiColors.ParsedGreen);
+            ElezenImgui.ColouredWrappedText(_charaDataGposeTogetherManager.CurrentGPoseLobbyId, ImGuiColors.ParsedGreen);
             ImGui.SameLine();
             if (_uiSharedService.IconButton(FontAwesomeIcon.Clipboard))
             {
@@ -130,7 +131,7 @@ internal sealed partial class CharaDataHubUi
             ImGui.AlignTextToFramePadding();
             var note = _serverConfigurationManager.GetNoteForUid(user.UserData.UID);
             var userText = note == null ? user.UserData.AliasOrUID : $"{note} ({user.UserData.AliasOrUID})";
-            UiSharedService.ColorText(userText, ImGuiColors.ParsedGreen);
+            ElezenImgui.ColouredText(userText, ImGuiColors.ParsedGreen);
 
             var buttonsize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X;
             var buttonsize2 = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus).X;
@@ -158,7 +159,7 @@ internal sealed partial class CharaDataHubUi
 
             using (ImRaii.Group())
             {
-                UiSharedService.ColorText("Map Info", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredText("Map Info", ImGuiColors.DalamudGrey);
                 ImGui.SameLine();
                 _uiSharedService.IconText(FontAwesomeIcon.ExternalLinkSquareAlt, ImGuiColors.DalamudGrey);
             }

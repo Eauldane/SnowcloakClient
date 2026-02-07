@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
@@ -85,7 +86,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
 
                 ImGuiHelpers.ScaledDummy(2f);
 
-                UiSharedService.TextWrapped("One-time invites work as single-use passwords. Use those if you do not want to distribute your Syncshell password.");
+                ElezenImgui.WrappedText("One-time invites work as single-use passwords. Use those if you do not want to distribute your Syncshell password.");
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.Envelope, "Single one-time invite"))
                 {
                     ImGui.SetClipboardText(_apiController.GroupCreateTempInvite(new(GroupFullInfo.Group), 1).Result.FirstOrDefault() ?? string.Empty);
@@ -121,7 +122,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                 {
                     if (!_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var pairs))
                     {
-                        UiSharedService.ColorTextWrapped("No users found in this Syncshell", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredWrappedText("No users found in this Syncshell", ImGuiColors.DalamudYellow);
                     }
                     else
                     {
@@ -162,7 +163,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                                 }
                                 var boolcolor = UiSharedService.GetBoolColor(pair.Key.IsOnline);
                                 ImGui.AlignTextToFramePadding();
-                                UiSharedService.ColorText(onlineText, boolcolor);
+                                ElezenImgui.ColouredText(onlineText, boolcolor);
 
                                 ImGui.TableNextColumn(); // special flags
                                 if (pair.Value != null && (pair.Value.Value.IsModerator() || pair.Value.Value.IsPinned()))
@@ -283,12 +284,12 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                     {
                         if (!_pruneTestTask.IsCompleted)
                         {
-                            UiSharedService.ColorTextWrapped("Calculating inactive users...", ImGuiColors.DalamudYellow);
+                            ElezenImgui.ColouredWrappedText("Calculating inactive users...", ImGuiColors.DalamudYellow);
                         }
                         else
                         {
                             ImGui.AlignTextToFramePadding();
-                            UiSharedService.TextWrapped(string.Format("Found {0} user(s) that have not logged in the past {1} days.", _pruneTestTask.Result, _pruneDays));
+                            ElezenImgui.WrappedText(string.Format("Found {0} user(s) that have not logged in the past {1} days.", _pruneTestTask.Result, _pruneDays));
                             if (_pruneTestTask.Result > 0)
                             {
                                 using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
@@ -308,11 +309,11 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                     {
                         if (!_pruneTask.IsCompleted)
                         {
-                            UiSharedService.ColorTextWrapped("Pruning Syncshell...", ImGuiColors.DalamudYellow);
+                            ElezenImgui.ColouredWrappedText("Pruning Syncshell...", ImGuiColors.DalamudYellow);
                         }
                         else
                         {
-                            UiSharedService.TextWrapped(string.Format("Syncshell was pruned and {0} inactive user(s) have been removed.", _pruneTask.Result));
+                            ElezenImgui.WrappedText(string.Format("Syncshell was pruned and {0} inactive user(s) have been removed.", _pruneTask.Result));
                         }
                     }
                 }
@@ -348,7 +349,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                             ImGui.TableNextColumn();
                             ImGui.TextUnformatted(bannedUser.BannedOn.ToLocalTime().ToString(CultureInfo.CurrentCulture));
                             ImGui.TableNextColumn();
-                            UiSharedService.TextWrapped(bannedUser.Reason);
+                            ElezenImgui.WrappedText(bannedUser.Reason);
                             ImGui.TableNextColumn();
                             using var pushId = ImRaii.PushId(bannedUser.UID);
                             if (_uiSharedService.IconTextButton(FontAwesomeIcon.Check, "Unban"))
@@ -435,7 +436,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                     
                     if (!_pwChangeSuccess)
                     {
-                        UiSharedService.ColorTextWrapped("Failed to change the password. Password requires to be at least 10 characters long.", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredWrappedText("Failed to change the password. Password requires to be at least 10 characters long.", ImGuiColors.DalamudYellow);
                     }
 
                     if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Delete Syncshell") && UiSharedService.CtrlPressed() && UiSharedService.ShiftPressed())

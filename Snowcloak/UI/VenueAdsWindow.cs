@@ -5,6 +5,7 @@ using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.API.Routes;
@@ -122,7 +123,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         if (_apiController.ServerState is not ServerState.Connected)
         {
-            UiSharedService.ColorTextWrapped("Connect to Snowcloak to browse or manage venue ads.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Connect to Snowcloak to browse or manage venue ads.", ImGuiColors.DalamudRed);
             return;
         }
 
@@ -162,13 +163,13 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private void DrawHeader()
     {
         _uiSharedService.BigText("Venue Advertisements");
-        UiSharedService.ColorTextWrapped("Browse active venue ads or manage your own listings.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Browse active venue ads or manage your own listings.", ImGuiColors.DalamudGrey);
         ImGui.Separator();
 
         if (!string.IsNullOrWhiteSpace(_statusMessage))
         {
             var color = _statusIsError ? ImGuiColors.DalamudRed : ImGuiColors.HealerGreen;
-            UiSharedService.ColorTextWrapped(_statusMessage, color);
+            ElezenImgui.ColouredWrappedText(_statusMessage, color);
         }
         ImGuiHelpers.ScaledDummy(4);
     }
@@ -177,13 +178,13 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         if (_isLoadingBrowse)
         {
-            UiSharedService.ColorTextWrapped("Loading ads...", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("Loading ads...", ImGuiColors.DalamudGrey);
             return;
         }
 
         if (_browseAds.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("No active venue ads were found.", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("No active venue ads were found.", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -199,18 +200,18 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         if (_isLoadingOwned)
         {
-            UiSharedService.ColorTextWrapped("Loading owned venues...", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("Loading owned venues...", ImGuiColors.DalamudGrey);
             return;
         }
 
         _uiSharedService.BigText("Register a venue");
-        UiSharedService.ColorTextWrapped(
+        ElezenImgui.ColouredWrappedText(
             "Stand on the plot you want to register and use the /venue command to open the registration window. "
             + "Make sure you create a syncshell first to associate with your venue!",
             ImGuiColors.DalamudGrey);
         if (_venueRegistrationService.IsRegistrationPending)
         {
-            UiSharedService.ColorTextWrapped(
+            ElezenImgui.ColouredWrappedText(
                 "Venue registration is already in progress. Open the placard for your plot to verify ownership.",
                 ImGuiColors.DalamudGrey);
         }
@@ -235,7 +236,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
         if (_ownedVenues.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("No owned venues were found. Register a venue before creating ads.", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("No owned venues were found. Register a venue before creating ads.", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -328,7 +329,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         var validationMessage = ValidateAd();
         if (!string.IsNullOrWhiteSpace(validationMessage))
         {
-            UiSharedService.ColorTextWrapped(validationMessage, ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText(validationMessage, ImGuiColors.DalamudRed);
         }
 
         ImGui.BeginDisabled(_isSaving || !string.IsNullOrWhiteSpace(validationMessage));
@@ -385,14 +386,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         var locationText = BuildPrettyLocationText(ad);
         if (!string.IsNullOrWhiteSpace(locationText))
         {
-            UiSharedService.ColorTextWrapped($"Location: {locationText}", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText($"Location: {locationText}", ImGuiColors.DalamudGrey);
         }
 
         if (hasDateRange || !string.IsNullOrWhiteSpace(locationText))
         {
             if (IsRecentlyStarted(ad))
             {
-                UiSharedService.ColorTextWrapped("When: Now!", ImGuiColors.HealerGreen);
+                ElezenImgui.ColouredWrappedText("When: Now!", ImGuiColors.HealerGreen);
             }
             else
             {
@@ -400,7 +401,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                     ? DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc).ToLocalTime()
                         .ToString("g", CultureInfo.CurrentCulture)
                     : "TBD";
-                UiSharedService.ColorTextWrapped($"When: {start}", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText($"When: {start}", ImGuiColors.DalamudGrey);
             }
         }
 
@@ -578,7 +579,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             return;
         }
 
-        UiSharedService.ColorTextWrapped("No banner selected.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("No banner selected.", ImGuiColors.DalamudGrey);
     }
 
     private void DrawBannerImage(string bannerBase64, int? width, int? height)
@@ -604,7 +605,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to decode banner image");
-                UiSharedService.ColorTextWrapped("Failed to decode banner image.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("Failed to decode banner image.", ImGuiColors.DalamudRed);
                 return;
             }
         }
@@ -621,12 +622,12 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to load banner image");
-                UiSharedService.ColorTextWrapped("Failed to load banner image.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("Failed to load banner image.", ImGuiColors.DalamudRed);
             }
             return;
         }
 
-        UiSharedService.ColorTextWrapped("Loading banner...", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Loading banner...", ImGuiColors.DalamudGrey);
     }
 
     private void SelectOwnedVenue(int index)

@@ -26,6 +26,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Snowcloak.UI.Components.BbCode;
 using ElezenTools.Data;
+using ElezenTools.UI;
 
 namespace Snowcloak.UI;
 
@@ -49,7 +50,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     private readonly ApiController _apiController;
 
     private readonly CacheMonitor _cacheMonitor;
-    public readonly Vector4 SnowcloakOnline = new(0.4275f, 0.6863f, 1f, 1f);
 
     private readonly SnowcloakConfigService _configService;
     private readonly BbCodeRenderer _bbCodeRenderer;
@@ -190,18 +190,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SetNextWindowPos(new Vector2(center.X - width / 2, center.Y - height / 2), cond);
     }
 
-    public static void ColorText(string text, Vector4 color)
-    {
-        using var raiicolor = ImRaii.PushColor(ImGuiCol.Text, color);
-        ImGui.TextUnformatted(text);
-    }
-
-    public static void ColorTextWrapped(string text, Vector4 color, float wrapPos = 0)
-    {
-        using var raiicolor = ImRaii.PushColor(ImGuiCol.Text, color);
-        TextWrapped(text, wrapPos);
-    }
-
     public static bool CtrlPressed() => (GetKeyState(0xA2) & 0x8000) != 0 || (GetKeyState(0xA3) & 0x8000) != 0;
 
     public static void DrawGrouped(Action imguiDrawAction, float rounding = 5f, float? expectedWidth = null)
@@ -232,7 +220,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (availWidth / 2f) - (textWidth / 2f));
         DrawGrouped(() =>
         {
-            ColorTextWrapped(text, color, ImGui.GetCursorPosX() + textWidth);
+            ElezenImgui.ColouredWrappedText(text, color, ImGui.GetCursorPosX() + textWidth);
         }, expectedWidth: maxWidth == null ? null : maxWidth * ImGuiHelpers.GlobalScale);
     }
 
@@ -457,14 +445,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     }
 
     public static bool ShiftPressed() => (GetKeyState(0xA1) & 0x8000) != 0 || (GetKeyState(0xA0) & 0x8000) != 0;
-
-    public static void TextWrapped(string text, float wrapPos = 0)
-    {
-        ImGui.PushTextWrapPos(wrapPos);
-        ImGui.TextUnformatted(text);
-        ImGui.PopTextWrapPos();
-    }
-
+    
     public static Vector4 UploadColor((long, long) data) => data.Item1 == 0 ? ImGuiColors.DalamudGrey :
         data.Item1 == data.Item2 ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudYellow;
 
@@ -525,7 +506,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public void DrawCacheDirectorySetting()
     {
-        ColorTextWrapped("Note: The storage folder should be somewhere close to root (i.e. C\\SnowcloakStorage) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder.", ImGuiColors.DalamudYellow);
+        ElezenImgui.ColouredWrappedText("Note: The storage folder should be somewhere close to root (i.e. C\\SnowcloakStorage) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder.", ImGuiColors.DalamudYellow);
         var cacheDirectory = _configService.Current.CacheFolder;
         ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
         ImGui.InputText("Storage Folder" + "##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
@@ -594,23 +575,23 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
         if (_isPenumbraDirectory)
         {
-            ColorTextWrapped("Do not point the storage path directly to the Penumbra directory. If necessary, make a subfolder in it.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Do not point the storage path directly to the Penumbra directory. If necessary, make a subfolder in it.", ImGuiColors.DalamudRed);
         }
         else if (_isOneDrive)
         {
-            ColorTextWrapped("Do not point the storage path to a folder in OneDrive. Do not use OneDrive folders for any Mod related functionality.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Do not point the storage path to a folder in OneDrive. Do not use OneDrive folders for any Mod related functionality.", ImGuiColors.DalamudRed);
         }
         else if (!_isDirectoryWritable)
         {
-            ColorTextWrapped("The folder you selected does not exist or cannot be written to. Please provide a valid path.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("The folder you selected does not exist or cannot be written to. Please provide a valid path.", ImGuiColors.DalamudRed);
         }
         else if (_cacheDirectoryHasOtherFilesThanCache)
         {
-            ColorTextWrapped("Your selected directory has files or directories inside that are not Snowcloak related. Use an empty directory or a previous storage directory only.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Your selected directory has files or directories inside that are not Snowcloak related. Use an empty directory or a previous storage directory only.", ImGuiColors.DalamudRed);
         }
         else if (!_cacheDirectoryIsValidPath)
         {
-            ColorTextWrapped("Your selected directory contains illegal characters unreadable by FFXIV. Restrict yourself to latin letters (A-Z), underscores (_), dashes (-) and arabic numbers (0-9).", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Your selected directory contains illegal characters unreadable by FFXIV. Restrict yourself to latin letters (A-Z), underscores (_), dashes (-) and arabic numbers (0-9).", ImGuiColors.DalamudRed);
         }
 
         float maxCacheSize = (float)_configService.Current.MaxLocalCacheInGiB;
@@ -803,7 +784,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             ImGui.SetWindowFontScale(0.8f);
             BigText("Optional Addons");
             ImGui.SetWindowFontScale(1.0f);
-            UiSharedService.TextWrapped("These addons are not required for basic operation, but without them you may not see others as intended.");
+            ElezenImgui.WrappedText("These addons are not required for basic operation, but without them you may not see others as intended.");
         }
         else
         {

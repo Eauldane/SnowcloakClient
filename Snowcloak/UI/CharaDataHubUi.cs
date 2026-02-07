@@ -4,6 +4,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Dto.CharaData;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
@@ -193,11 +194,11 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             }
             if (!string.IsNullOrEmpty(_charaDataManager.DataApplicationProgress))
             {
-                UiSharedService.ColorTextWrapped(_charaDataManager.DataApplicationProgress, ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText(_charaDataManager.DataApplicationProgress, ImGuiColors.DalamudYellow);
             }
             if (_charaDataManager.DataApplicationTask != null)
             {
-                UiSharedService.ColorTextWrapped("WARNING: During the data application avoid interacting with this actor to prevent potential crashes.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("WARNING: During the data application avoid interacting with this actor to prevent potential crashes.", ImGuiColors.DalamudRed);
                 ImGuiHelpers.ScaledDummy(5);
                 ImGui.Separator();
             }
@@ -433,7 +434,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         {
             ImGui.TextUnformatted("GPose Target");
             ImGui.SameLine(200);
-            UiSharedService.ColorText(CharaName(_gposeTarget), UiSharedService.GetBoolColor(_hasValidGposeTarget));
+            ElezenImgui.ColouredText(CharaName(_gposeTarget), UiSharedService.GetBoolColor(_hasValidGposeTarget));
         }
 
         if (!_hasValidGposeTarget)
@@ -598,7 +599,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
                 if (_configService.Current.FavoriteCodes.Count == 0)
                 {
-                    UiSharedService.ColorTextWrapped("You have no favorites added. Add Favorites through the other tabs before you can use this tab.", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("You have no favorites added. Add Favorites through the other tabs before you can use this tab.", ImGuiColors.DalamudYellow);
                 }
             }
         }
@@ -647,11 +648,11 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 ImGui.NewLine();
                 if (!_charaDataManager.DownloadMetaInfoTask?.IsCompleted ?? false)
                 {
-                    UiSharedService.ColorTextWrapped("Downloading meta info. Please wait.", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("Downloading meta info. Please wait.", ImGuiColors.DalamudYellow);
                 }
                 if ((_charaDataManager.DownloadMetaInfoTask?.IsCompleted ?? false) && !_charaDataManager.DownloadMetaInfoTask.Result.Success)
                 {
-                    UiSharedService.ColorTextWrapped(_charaDataManager.DownloadMetaInfoTask.Result.Result, ImGuiColors.DalamudRed);
+                    ElezenImgui.ColouredWrappedText(_charaDataManager.DownloadMetaInfoTask.Result.Result, ImGuiColors.DalamudRed);
                 }
 
                 using (ImRaii.Disabled(_charaDataManager.LastDownloadedMetaInfo == null))
@@ -660,7 +661,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     var metaInfo = _charaDataManager.LastDownloadedMetaInfo;
                     ImGui.TextUnformatted("Description");
                     ImGui.SameLine(150);
-                    UiSharedService.TextWrapped(string.IsNullOrEmpty(metaInfo?.Description) ? "-" : metaInfo.Description);
+                    ElezenImgui.WrappedText(string.IsNullOrEmpty(metaInfo?.Description) ? "-" : metaInfo.Description);
                     ImGui.TextUnformatted("Last Update");
                     ImGui.SameLine(150);
                     ImGui.TextUnformatted(metaInfo?.UpdatedDate.ToLocalTime().ToString() ?? "-");
@@ -824,10 +825,10 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     {
                         ImGui.TextUnformatted("Loaded file");
                         ImGui.SameLine(200);
-                        UiSharedService.TextWrapped(_charaDataManager.LoadedMcdfHeader.Result.LoadedFile.FilePath);
+                        ElezenImgui.WrappedText(_charaDataManager.LoadedMcdfHeader.Result.LoadedFile.FilePath);
                         ImGui.Text("Description");
                         ImGui.SameLine(200);
-                        UiSharedService.TextWrapped(_charaDataManager.LoadedMcdfHeader.Result.LoadedFile.CharaFileData.Description);
+                        ElezenImgui.WrappedText(_charaDataManager.LoadedMcdfHeader.Result.LoadedFile.CharaFileData.Description);
 
                         ImGuiHelpers.ScaledDummy(5);
 
@@ -850,15 +851,15 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     }
                     if ((_charaDataManager.LoadedMcdfHeader?.IsFaulted ?? false) || (_charaDataManager.McdfApplicationTask?.IsFaulted ?? false))
                     {
-                        UiSharedService.ColorTextWrapped("Failure to read MCDF file. MCDF file is possibly corrupt. Re-export the MCDF file and try again.",
+                        ElezenImgui.ColouredWrappedText("Failure to read MCDF file. MCDF file is possibly corrupt. Re-export the MCDF file and try again.",
                             ImGuiColors.DalamudRed);
-                        UiSharedService.ColorTextWrapped("Note: if this is your MCDF, try redrawing yourself, wait and re-export the file. " +
-                            "If you received it from someone else have them do the same.", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredWrappedText("Note: if this is your MCDF, try redrawing yourself, wait and re-export the file. " +
+                                                        "If you received it from someone else have them do the same.", ImGuiColors.DalamudYellow);
                     }
                 }
                 else
                 {
-                    UiSharedService.ColorTextWrapped("Loading Character...", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("Loading Character...", ImGuiColors.DalamudYellow);
                 }
             }
         }
@@ -874,7 +875,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
         ImGui.Checkbox("##readExport", ref _readExport);
         ImGui.SameLine();
-        UiSharedService.TextWrapped("I understand that by exporting my character data into a file and sending it to other people I am giving away my current character appearance irrevocably. People I am sharing my data with have the ability to share it with other people without limitations.");
+        ElezenImgui.WrappedText("I understand that by exporting my character data into a file and sending it to other people I am giving away my current character appearance irrevocably. People I am sharing my data with have the ability to share it with other people without limitations.");
 
         if (_readExport)
         {
@@ -897,8 +898,8 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     _exportDescription = string.Empty;
                 }, Directory.Exists(_configService.Current.LastSavedCharaDataLocation) ? _configService.Current.LastSavedCharaDataLocation : null);
             }
-            UiSharedService.ColorTextWrapped("Note: For best results make sure you have everything you want to be shared as well as the correct character appearance" +
-                " equipped and redraw your character before exporting.", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("Note: For best results make sure you have everything you want to be shared as well as the correct character appearance" +
+                                            " equipped and redraw your character before exporting.", ImGuiColors.DalamudYellow);
 
             ImGui.Unindent();
         }
@@ -920,7 +921,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ImGui.SameLine();
             var favPos = ImGui.GetCursorPosX();
             ImGui.AlignTextToFramePadding();
-            UiSharedService.ColorText(data.FullId, UiSharedService.GetBoolColor(data.CanBeDownloaded));
+            ElezenImgui.ColouredText(data.FullId, UiSharedService.GetBoolColor(data.CanBeDownloaded));
             if (!data.CanBeDownloaded)
             {
                 UiSharedService.AttachToolTip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the MCD Online tab.");
@@ -971,11 +972,11 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
             if (string.IsNullOrEmpty(data.Description))
             {
-                UiSharedService.ColorTextWrapped("No description set", ImGuiColors.DalamudGrey, availableWidth);
+                ElezenImgui.ColouredWrappedText("No description set", ImGuiColors.DalamudGrey, availableWidth);
             }
             else
             {
-                UiSharedService.TextWrapped(data.Description, availableWidth);
+                ElezenImgui.WrappedText(data.Description, availableWidth);
             }
 
             DrawPoseData(data, selectedGposeActor, hasValidGposeTarget);
@@ -1095,7 +1096,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ImGuiHelpers.ScaledDummy(5);
             UiSharedService.DrawTree("What is this? (Explanation / Help)", () =>
             {
-                UiSharedService.TextWrapped(text);
+                ElezenImgui.WrappedText(text);
             });
         }
     }

@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
@@ -68,7 +69,7 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
         if (_isLoading)
         {
             ImGui.SameLine();
-            UiSharedService.ColorTextWrapped("Loading...", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Loading...", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         }
 
         ImGui.SetNextItemWidth(-1);
@@ -76,7 +77,7 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
 
         if (!_apiController.IsConnected)
         {
-            UiSharedService.ColorTextWrapped("Connect to a server to load standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Connect to a server to load standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 

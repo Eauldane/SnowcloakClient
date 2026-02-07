@@ -4,6 +4,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using System.Numerics;
 
 namespace Snowcloak.UI.Components.Popup;
@@ -23,9 +24,9 @@ internal class BbCodeLinkPopupHandler : IPopupHandler
 
     public void DrawContent()
     {
-        UiSharedService.TextWrapped("You're about to open a link outside of Snowcloak. We haven't vetted it, so please only proceed if you trust the destination.");
+        ElezenImgui.WrappedText("You're about to open a link outside of Snowcloak. We haven't vetted it, so please only proceed if you trust the destination.");
         ImGuiHelpers.ScaledDummy(6f);
-        UiSharedService.TextWrapped("Destination URL:");
+        ElezenImgui.WrappedText("Destination URL:");
         var urlValue = _url;
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##bbcode_link_url", ref urlValue, 4096, ImGuiInputTextFlags.ReadOnly);

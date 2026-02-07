@@ -1,5 +1,6 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using ElezenTools.UI;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
@@ -28,7 +29,7 @@ public class BanUserPopupHandler : IPopupHandler
 
     public void DrawContent()
     {
-        UiSharedService.TextWrapped(string.Format("User {0} will be banned and removed from this Syncshell.", _reportedPair.UserData.AliasOrUID));
+        ElezenImgui.WrappedText(string.Format("User {0} will be banned and removed from this Syncshell.", _reportedPair.UserData.AliasOrUID));
         ImGui.InputTextWithHint("##banreason", "Ban Reason", ref _banReason, 255);
 
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserSlash, "Ban User"))
@@ -38,7 +39,7 @@ public class BanUserPopupHandler : IPopupHandler
             _ = _apiController.GroupBanUser(new GroupPairDto(_group.Group, _reportedPair.UserData), reason);
             _banReason = string.Empty;
         }
-        UiSharedService.TextWrapped("The reason will be displayed in the banlist. The current server-side alias if present (Vanity ID) will automatically be attached to the reason.");
+        ElezenImgui.WrappedText("The reason will be displayed in the banlist. The current server-side alias if present (Vanity ID) will automatically be attached to the reason.");
     }
 
     public void Open(OpenBanUserPopupMessage message)

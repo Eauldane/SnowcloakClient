@@ -5,6 +5,7 @@ using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.User;
 using Microsoft.Extensions.Logging;
@@ -85,11 +86,11 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         
         var profile = _snowProfileManager.GetSnowProfile(new UserData(_apiController.UID), _editingVisibility);
 
-        UiSharedService.ColorTextWrapped(string.Format("Active variant: {0} profile", profile.Visibility), ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText(string.Format("Active variant: {0} profile", profile.Visibility), ImGuiColors.DalamudGrey);
         
         if (profile.IsFlagged)
         {
-            UiSharedService.ColorTextWrapped(profile.Description, ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText(profile.Description, ImGuiColors.DalamudRed);
             return;
         }
 
@@ -137,16 +138,16 @@ public class EditProfileUi : WindowMediatorSubscriberBase
 
         ImGui.Separator();
         _uiSharedService.BigText("Rules and Guidelines");
-        UiSharedService.ColorTextWrapped("Users that are paired with you (not paused) will be able to see your profile picture and description.", ImGuiColors.DalamudWhite);
-        UiSharedService.ColorTextWrapped("All users have the capability to report your profile if it violates the rules.", ImGuiColors.DalamudGrey);
-        UiSharedService.ColorTextWrapped(" - Please do NOT upload anything that can be considered highly illegal or obscene (bestiality, sexual acts depicting minors or anything representing a minor (including Lalafel), etc.)", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - Please avoid the use of slurs, hate speech, threatening behaviour, etc.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - In the event we receive a report of an offensive profile, we may disable your profile forever or terminate your Snowcloak service account.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped(" - You may not appeal any bans of your profile and or Snowcloak service account.", ImGuiColors.DalamudRed);
-        UiSharedService.ColorTextWrapped("Users who wish to mark their profile as NSFW should enable the toggle below.", ImGuiColors.DalamudWhite);
+        ElezenImgui.ColouredWrappedText("Users that are paired with you (not paused) will be able to see your profile picture and description.", ImGuiColors.DalamudWhite);
+        ElezenImgui.ColouredWrappedText("All users have the capability to report your profile if it violates the rules.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText(" - Please do NOT upload anything that can be considered highly illegal or obscene (bestiality, sexual acts depicting minors or anything representing a minor (including Lalafel), etc.)", ImGuiColors.DalamudRed);
+        ElezenImgui.ColouredWrappedText(" - Please avoid the use of slurs, hate speech, threatening behaviour, etc.", ImGuiColors.DalamudRed);
+        ElezenImgui.ColouredWrappedText(" - In the event we receive a report of an offensive profile, we may disable your profile forever or terminate your Snowcloak service account.", ImGuiColors.DalamudRed);
+        ElezenImgui.ColouredWrappedText(" - You may not appeal any bans of your profile and or Snowcloak service account.", ImGuiColors.DalamudRed);
+        ElezenImgui.ColouredWrappedText("Users who wish to mark their profile as NSFW should enable the toggle below.", ImGuiColors.DalamudWhite);
         ImGui.Separator();
         _uiSharedService.BigText("Profile Settings");
-        UiSharedService.ColorTextWrapped("Profile pictures must be cropped to 256x256px and have a file size of 250KiB or smaller.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Profile pictures must be cropped to 256x256px and have a file size of 250KiB or smaller.", ImGuiColors.DalamudGrey);
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.FileUpload, "Upload new profile picture"))
         {
             _fileDialogManager.OpenFileDialog("Select new Profile picture", ".png", (success, file) =>
@@ -178,7 +179,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         UiSharedService.AttachToolTip("Clear your currently uploaded profile picture");
         if (!_showFileDialogError.IsNullOrEmpty())
         {
-            UiSharedService.ColorTextWrapped(_showFileDialogError, ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText(_showFileDialogError, ImGuiColors.DalamudRed);
         }
         var isNsfw = profile.IsNSFW;
         if (ImGui.Checkbox("Profile is NSFW", ref isNsfw))

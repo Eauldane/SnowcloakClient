@@ -10,6 +10,7 @@ using System.Numerics;
 using System.Reflection;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Plugin;
+using ElezenTools.UI;
 using Snowcloak.Services;
 
 
@@ -94,15 +95,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             ImGui.TextUnformatted($"Snowcloak updated to version {_currentVersionLabel}.");
             if (_lastSeenVersionLabel != null)
             {
-                UiSharedService.TextWrapped($"Last patch notes viewed: {_lastSeenVersionLabel}");
+                ElezenImgui.WrappedText($"Last patch notes viewed: {_lastSeenVersionLabel}");
             }
             if (_isFreshInstall)
             {
-                UiSharedService.ColorTextWrapped("Welcome! Showing the latest notes for your first install.", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText("Welcome! Showing the latest notes for your first install.", ImGuiColors.DalamudGrey);
             }
             else if (_autoExpandVersions.Count > 0)
             {
-                UiSharedService.ColorTextWrapped("Newer versions since your last visit are expanded below.", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText("Newer versions since your last visit are expanded below.", ImGuiColors.DalamudGrey);
             }
 
             ImGui.Separator();

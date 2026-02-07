@@ -3,6 +3,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -31,7 +32,7 @@ public sealed class BbCodeTestUi : WindowMediatorSubscriberBase
     protected override void DrawInternal()
     {
         ImGui.TextWrapped("Preview how Snowcloak renders BBCode inside profile and venue descriptions.");
-        UiSharedService.ColorTextWrapped("Supported tags include colours, bold, italics, underline, links, images, emotes, and basic alignment.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Supported tags include colours, bold, italics, underline, links, images, emotes, and basic alignment.", ImGuiColors.DalamudGrey);
         
         ImGui.Separator();
         ImGui.TextUnformatted("BBCode Input");

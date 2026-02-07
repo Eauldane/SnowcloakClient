@@ -4,6 +4,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Dto.Account;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
@@ -112,13 +113,13 @@ public partial class IntroUi : WindowMediatorSubscriberBase
         {
             _uiShared.BigText("Welcome to Snowcloak");
             ImGui.Separator();
-            UiSharedService.TextWrapped("Snowcloak is a plugin that will replicate your full current character state including all Penumbra mods to other paired users. " +
-                                                                  "Note that you will have to have Penumbra as well as Glamourer installed to use this plugin.");
-            UiSharedService.TextWrapped("We will have to setup a few things first before you can start using this plugin. Click on next to continue.");
+            ElezenImgui.WrappedText("Snowcloak is a plugin that will replicate your full current character state including all Penumbra mods to other paired users. " +
+                                            "Note that you will have to have Penumbra as well as Glamourer installed to use this plugin.");
+            ElezenImgui.WrappedText("We will have to setup a few things first before you can start using this plugin. Click on next to continue.");
 
-            UiSharedService.ColorTextWrapped("Note: Any modifications you have applied through anything but Penumbra cannot be shared and your character state on other clients " +
-                                                                  "might look broken because of this or others players mods might not apply on your end altogether. " +
-                                                                  "If you want to use this plugin you will have to move your mods to Penumbra.", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("Note: Any modifications you have applied through anything but Penumbra cannot be shared and your character state on other clients " +
+                                            "might look broken because of this or others players mods might not apply on your end altogether. " +
+                                            "If you want to use this plugin you will have to move your mods to Penumbra.", ImGuiColors.DalamudYellow);
             if (!_uiShared.DrawOtherPluginState(intro: true)) return;
             ImGui.Separator();
             if (ImGui.Button("Next##toAgreement"))
@@ -150,19 +151,19 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             string readThis = "READ THIS CAREFULLY";
             Vector2 textSize = ImGui.CalcTextSize(readThis);
             ImGui.SetCursorPosX(ImGui.GetWindowSize().X / 2 - textSize.X / 2);
-            UiSharedService.ColorText(readThis, ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredText(readThis, ImGuiColors.DalamudRed);
             ImGui.SetWindowFontScale(1.0f);
             ImGui.Separator();
-            UiSharedService.TextWrapped("To use Snowcloak, you must be over the age of 18, or 21 in some jurisdictions.");
-            UiSharedService.TextWrapped("All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.");
-            UiSharedService.TextWrapped("If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again.");
-            UiSharedService.TextWrapped("The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod.");
-            UiSharedService.TextWrapped("The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.");
-            UiSharedService.TextWrapped("Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.");
-            UiSharedService.TextWrapped("Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.");
-            UiSharedService.TextWrapped("Snowcloak is operated from servers located in the European Union. You agree not to upload any content to the service that violates EU law; and more specifically, German law.");
-            UiSharedService.TextWrapped("You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days.");
-            UiSharedService.TextWrapped("This service is provided as-is.");
+            ElezenImgui.WrappedText("To use Snowcloak, you must be over the age of 18, or 21 in some jurisdictions.");
+            ElezenImgui.WrappedText("All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.");
+            ElezenImgui.WrappedText("If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again.");
+            ElezenImgui.WrappedText("The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod.");
+            ElezenImgui.WrappedText("The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.");
+            ElezenImgui.WrappedText("Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.");
+            ElezenImgui.WrappedText("Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.");
+            ElezenImgui.WrappedText("Snowcloak is operated from servers located in the European Union and Canada. You agree not to upload any content to the service that violates the law of either jurisdiction");
+            ElezenImgui.WrappedText("You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days.");
+            ElezenImgui.WrappedText("This service is provided as-is.");
 
             ImGui.Separator();
             if (_timeoutTask?.IsCompleted ?? true)
@@ -175,7 +176,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             }
             else
             {
-                UiSharedService.TextWrapped(_timeoutLabel);
+                ElezenImgui.WrappedText(_timeoutLabel);
             }
         }
         else if (_configService.Current.AcceptedAgreement
@@ -189,18 +190,18 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             if (!_uiShared.HasValidPenumbraModPath)
             {
-                UiSharedService.ColorTextWrapped("You do not have a valid Penumbra path set. Open Penumbra and set up a valid path for the mod directory.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("You do not have a valid Penumbra path set. Open Penumbra and set up a valid path for the mod directory.", ImGuiColors.DalamudRed);
                 
             }
             else
             {
-                UiSharedService.TextWrapped("To not unnecessary download files already present on your computer, Snowcloak will have to scan your Penumbra mod directory. " +
-                                                                      "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
-                                                                      "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service.");
-                UiSharedService.TextWrapped("Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed.");
-                UiSharedService.ColorTextWrapped("Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
-                                                                            "Otherwise on the next launch a full re-scan of the file cache database will be initiated.", ImGuiColors.DalamudYellow);
-                UiSharedService.ColorTextWrapped("Warning: if the scan is hanging and does nothing for a long time, chances are high your Penumbra folder is not set up properly.", ImGuiColors.DalamudYellow);
+                ElezenImgui.WrappedText("To not unnecessary download files already present on your computer, Snowcloak will have to scan your Penumbra mod directory. " +
+                                                "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
+                                                "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service.");
+                ElezenImgui.WrappedText("Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed.");
+                ElezenImgui.ColouredWrappedText("Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
+                                                "Otherwise on the next launch a full re-scan of the file cache database will be initiated.", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText("Warning: if the scan is hanging and does nothing for a long time, chances are high your Penumbra folder is not set up properly.", ImGuiColors.DalamudYellow);
                 _uiShared.DrawCacheDirectorySetting();
             }
 
@@ -223,8 +224,8 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                     _configService.Current.UseCompactor = useFileCompactor;
                     _configService.Save();
                 }
-                UiSharedService.ColorTextWrapped("The File Compactor can save a tremendeous amount of space on the hard disk for downloads through Snowcloak. It will incur a minor CPU penalty on download but can speed up " +
-                    "loading of other characters. It is recommended to keep it enabled. You can change this setting later anytime in the Snowcloak settings.", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText("The File Compactor can save a tremendeous amount of space on the hard disk for downloads through Snowcloak. It will incur a minor CPU penalty on download but can speed up " +
+                                                "loading of other characters. It is recommended to keep it enabled. You can change this setting later anytime in the Snowcloak settings.", ImGuiColors.DalamudYellow);
             }
         }
         else if (!_uiShared.ApiController.IsConnected)
@@ -232,8 +233,8 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             using (_uiShared.UidFont.Push())
                 ImGui.TextUnformatted("Service Registration");
             ImGui.Separator();
-            UiSharedService.TextWrapped("To be able to use Snowcloak you will have to register an account.");
-            UiSharedService.TextWrapped("Refer to the instructions at the location you obtained this plugin for more information or support.");
+            ElezenImgui.WrappedText("To be able to use Snowcloak you will have to register an account.");
+            ElezenImgui.WrappedText("Refer to the instructions at the location you obtained this plugin for more information or support.");
 
             ImGui.Separator();
 
@@ -345,11 +346,11 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             ImGui.InputText("", ref _secretKey, 64);
             if (_secretKey.Length > 0 && _secretKey.Length != 64)
             {
-                UiSharedService.ColorTextWrapped("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64 && !HexRegex().IsMatch(_secretKey))
             {
-                UiSharedService.ColorTextWrapped("Your secret key can only contain ABCDEF and the numbers 0-9.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("Your secret key can only contain ABCDEF and the numbers 0-9.", ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64)
             {
@@ -374,7 +375,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             if (_uiShared.ApiController.ServerState != ServerState.NoSecretKey)
             {
-                UiSharedService.ColorText(GetConnectionStatus(), GetConnectionColor());
+                ElezenImgui.ColouredText(GetConnectionStatus(), GetConnectionColor());
             }
 
             ImGui.EndDisabled(); // _registrationInProgress

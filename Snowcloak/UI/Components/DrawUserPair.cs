@@ -4,6 +4,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.User;
 using Snowcloak.PlayerData.Pairs;
@@ -50,7 +51,7 @@ public class DrawUserPair : DrawPairBase
         {
             connectionIcon = _pair.IsChatOnly ? FontAwesomeIcon.Comment : FontAwesomeIcon.Snowflake;
             connectionText = string.Format(CultureInfo.CurrentCulture, "You are paired with {0}{1}", _pair.UserData.AliasOrUID, _pair.IsChatOnly ? " (chat only)" : string.Empty);
-            connectionColor = _pair.IsOnline ? _uiSharedService.SnowcloakOnline : ImGuiColors.DalamudGrey;
+            connectionColor = _pair.IsOnline ? ElezenColours.SnowcloakBlue : ImGuiColors.DalamudGrey;
         }
         else
         {
@@ -62,7 +63,7 @@ public class DrawUserPair : DrawPairBase
         {
             ImGui.SetCursorPosY(textPosY);
             ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(FontAwesomeIcon.Eye.ToIconString(), isPaused ? ImGuiColors.DalamudGrey : _uiSharedService.SnowcloakOnline);
+            ElezenImgui.ColouredText(FontAwesomeIcon.Eye.ToIconString(), isPaused ? ImGuiColors.DalamudGrey : ElezenColours.SnowcloakBlue);
             if (ImGui.IsItemClicked())
             {
                 _mediator.Publish(new TargetPairMessage(_pair));
@@ -94,7 +95,7 @@ public class DrawUserPair : DrawPairBase
         
         ImGui.SetCursorPosY(textPosY);
         ImGui.PushFont(UiBuilder.IconFont);
-        UiSharedService.ColorText(connectionIcon.ToIconString(), connectionColor);
+        ElezenImgui.ColouredText(connectionIcon.ToIconString(), connectionColor);
         ImGui.PopFont();
         UiSharedService.AttachToolTip(connectionText);
     }

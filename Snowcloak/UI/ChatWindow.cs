@@ -1,6 +1,7 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
@@ -159,7 +160,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 var channels = GetJoinedStandardChannels();
                 if (channels.Count == 0)
                 {
-                    UiSharedService.ColorTextWrapped("No joined standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+                    ElezenImgui.ColouredWrappedText("No joined standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
                 }
                 else
                 {
@@ -234,7 +235,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         using var _ = ImRaii.Child("ChatLog", new Vector2(-1, -1), true, ImGuiWindowFlags.HorizontalScrollbar);
         if (_selectedChannel == null)
         {
-            UiSharedService.ColorTextWrapped("Select a channel to start chatting.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Select a channel to start chatting.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -298,7 +299,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 }
             }
 
-            UiSharedService.ColorTextWrapped(topic, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText(topic, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
 
             if (_isEditingStandardChannelTopic)
             {
@@ -394,7 +395,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         if (_selectedChannel == null)
         {
-            UiSharedService.ColorTextWrapped("No channel selected.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("No channel selected.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -418,7 +419,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var groupInfo = GetGroupInfo(key.Id);
         if (groupInfo == null)
         {
-            UiSharedService.ColorTextWrapped("Unknown syncshell.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Unknown syncshell.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -427,7 +428,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             var message = _joinedSyncshellChats.Contains(key.Id)
                 ? "No chat members loaded."
                 : "Join this chat to view members.";
-            UiSharedService.ColorTextWrapped(message, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText(message, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -454,7 +455,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (!string.IsNullOrWhiteSpace(_apiController.UID))
         {
             var selfName = GetUserDisplayName(new UserData(_apiController.UID, _apiController.VanityId));
-            UiSharedService.ColorTextWrapped(string.Format(CultureInfo.InvariantCulture, "You ({0})", selfName), ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.InvariantCulture, "You ({0})", selfName), ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         }
     }
 
@@ -891,17 +892,17 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = GetStandardChannel(key.Id);
         if (channel == null)
         {
-            UiSharedService.ColorTextWrapped("Unknown channel.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Unknown channel.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
         ImGui.TextUnformatted(channel.Name);
-        UiSharedService.ColorTextWrapped(channel.IsPrivate ? "Private channel" : "Public channel", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        ElezenImgui.ColouredWrappedText(channel.IsPrivate ? "Private channel" : "Public channel", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
 
         if (!_joinedStandardChannels.Contains(channel.ChannelId))
         {
             ImGui.Separator();
-            UiSharedService.ColorTextWrapped("Join this channel to view members.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Join this channel to view members.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -913,7 +914,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         if (!_standardChannelMembers.TryGetValue(channelId, out var members) || members.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("No members loaded.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("No members loaded.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
@@ -981,7 +982,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         if (!hasActions)
         {
-            UiSharedService.ColorTextWrapped("No actions available.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("No actions available.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         }
 
         ImGui.EndPopup();
@@ -1012,7 +1013,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         if (!_joinedStandardChannels.Contains(key.Id))
         {
-            UiSharedService.ColorTextWrapped("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            ElezenImgui.ColouredWrappedText("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         }
     }
 

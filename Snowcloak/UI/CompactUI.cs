@@ -4,6 +4,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Account;
 using Snowcloak.API.Dto.User;
@@ -156,7 +157,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     protected override void DrawInternal()
     {
         if (_serverManager.CurrentApiUrl.Equals(ApiController.SnowcloakServiceUri, StringComparison.Ordinal))
-            UiSharedService.AccentColor = _uiSharedService.SnowcloakOnline;
+            UiSharedService.AccentColor = ElezenColours.SnowcloakBlue;
         else
             UiSharedService.AccentColor = ImGuiColors.ParsedGreen;
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - 1f * ImGuiHelpers.GlobalScale + ImGui.GetStyle().ItemSpacing.Y);
@@ -344,7 +345,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     ImGui.AlignTextToFramePadding();
                     ImGui.TextColored(ImGuiColors.DalamudRed, unsupported);
                 }
-                UiSharedService.ColorTextWrapped(string.Format("Your Snowcloak installation is out of date, the current version is {0}.{1}.{2}. You may not be able to sync correctly or at all until you update. Open /xlplugins and update the plugin.", ver.Major, ver.Minor, ver.Build), ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText(string.Format("Your Snowcloak installation is out of date, the current version is {0}.{1}.{2}. You may not be able to sync correctly or at all until you update. Open /xlplugins and update the plugin.", ver.Major, ver.Minor, ver.Build), ImGuiColors.DalamudRed);
             }
 
             using (ImRaii.PushId("header")) DrawUIDHeader();
@@ -392,7 +393,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 }
                 else
                 {
-                    UiSharedService.TextWrapped(string.Format("You have successfully added {0}. Set a local note for the user in the field below:", _lastAddedUser.UserData.AliasOrUID));
+                    ElezenImgui.WrappedText(string.Format("You have successfully added {0}. Set a local note for the user in the field below:", _lastAddedUser.UserData.AliasOrUID));
                     ImGui.InputTextWithHint("##noteforuser", string.Format("Note for {0}", _lastAddedUser.UserData.AliasOrUID), ref _lastAddedUserComment, 100);
                     if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Note"))
                     {
@@ -500,7 +501,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
             if (_secretKey.Length > 0 && _secretKey.Length != 64)
             {
-                UiSharedService.ColorTextWrapped("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
             }
             else if (_secretKey.Length == 64)
             {
@@ -526,7 +527,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            UiSharedService.ColorTextWrapped("No secret keys are configured for the current server.", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("No secret keys are configured for the current server.", ImGuiColors.DalamudYellow);
         }
         ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
@@ -803,7 +804,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
         if (_apiController.ServerState is not ServerState.Connected)
         {
-            UiSharedService.ColorTextWrapped(GetServerError(), GetUidColor());
+            ElezenImgui.ColouredWrappedText(GetServerError(), GetUidColor());
             if (_apiController.ServerState is ServerState.NoSecretKey)
             {
                 DrawAddCharacter();
@@ -820,13 +821,13 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         if (ImGui.BeginPopupModal(popupTitle, ref _showVanityIdModal, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Set your vanity ID (3-25 characters, letters/numbers/underscores/hyphens). Leave blank to clear.");
+            ElezenImgui.WrappedText("Set your vanity ID (3-25 characters, letters/numbers/underscores/hyphens). Leave blank to clear.");
             ImGui.InputTextWithHint("##vanity-id", "Enter vanity ID (optional)", ref _vanityIdInput, 25);
             
             if (_apiController.HexAllowed)
             {
                 ImGui.Spacing();
-                UiSharedService.TextWrapped("Optional: set a custom display color.");
+                ElezenImgui.WrappedText("Optional: set a custom display color.");
                 ImGui.Checkbox("Use custom color", ref _useVanityColour);
                 using (ImRaii.Disabled(!_useVanityColour))
                 {

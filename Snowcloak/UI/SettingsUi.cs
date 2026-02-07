@@ -144,9 +144,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private void DrawBlockedTransfers()
     {
         _lastTab = "BlockedTransfers";
-        UiSharedService.ColorTextWrapped("Files that you attempted to upload or download that were forbidden to be transferred by their creators will appear here. " +
-                                                                           "If you see file paths from your drive here, then those files were not allowed to be uploaded. If you see hashes, those files were not allowed to be downloaded. " +
-                                                                           "Ask your paired friend to send you the mod in question through other means or acquire the mod yourself.",
+        ElezenImgui.ColouredWrappedText("Files that you attempted to upload or download that were forbidden to be transferred by their creators will appear here. " +
+                                        "If you see file paths from your drive here, then those files were not allowed to be uploaded. If you see hashes, those files were not allowed to be downloaded. " +
+                                        "Ask your paired friend to send you the mod in question through other means or acquire the mod yourself.",
             ImGuiColors.DalamudGrey);
 
         if (ImGui.BeginTable("TransfersTable", 2, ImGuiTableFlags.SizingStretchProp))
@@ -522,8 +522,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
         _uiShared.BigText("Storage");
         
-        UiSharedService.TextWrapped("Snowcloak stores downloaded files from paired people permanently. This is to improve loading performance and requiring less downloads. " +
-                                                             "The storage governs itself by clearing data beyond the set storage size. Please set the storage size accordingly. It is not necessary to manually clear the storage.");
+        ElezenImgui.WrappedText("Snowcloak stores downloaded files from paired people permanently. This is to improve loading performance and requiring less downloads. " +
+                                        "The storage governs itself by clearing data beyond the set storage size. Please set the storage size accordingly. It is not necessary to manually clear the storage.");
 
         _uiShared.DrawFileScanState();
         ImGui.AlignTextToFramePadding();
@@ -588,7 +588,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         bool useFileCompactor = _configService.Current.UseCompactor;
         if (!useFileCompactor && !isLinux)
         {
-            UiSharedService.ColorTextWrapped("Hint: To free up space when using Snowcloak consider enabling the File Compactor", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("Hint: To free up space when using Snowcloak consider enabling the File Compactor", ImGuiColors.DalamudYellow);
         }
         if (isLinux || !_cacheMonitor.StorageisNTFS) ImGui.BeginDisabled();
         if (ImGui.Checkbox( "Use file compactor", ref useFileCompactor))
@@ -628,9 +628,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _uiShared.DrawHelpText("Higher compression levels create smaller uploads. This uses more of your CPU, but allows sync partners to download faster. Level 3 is the default.");
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
         ImGui.Separator();
-        UiSharedService.TextWrapped("File Storage validation can make sure that all files in your local storage folder are valid. " +
-                                                                        "Run the validation before you clear the Storage for no reason. " + Environment.NewLine +
-                                                                        "This operation, depending on how many files you have in your storage, can take a while and will be CPU and drive intensive.");
+        ElezenImgui.WrappedText("File Storage validation can make sure that all files in your local storage folder are valid. " +
+                                        "Run the validation before you clear the Storage for no reason. " + Environment.NewLine +
+                                        "This operation, depending on how many files you have in your storage, can take a while and will be CPU and drive intensive.");
         using (ImRaii.Disabled(_validationTask != null && !_validationTask.IsCompleted))
         {
             if (_uiShared.IconTextButton(FontAwesomeIcon.Check, "Start File Storage Validation"))
@@ -657,12 +657,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
             {
                 if (_validationTask.IsCompleted)
                 {
-                    UiSharedService.TextWrapped(string.Format(CultureInfo.InvariantCulture, "The storage validation has completed and removed {0} invalid files from storage.", _validationTask.Result.Count));
+                    ElezenImgui.WrappedText(string.Format(CultureInfo.InvariantCulture, "The storage validation has completed and removed {0} invalid files from storage.", _validationTask.Result.Count));
                 }
                 else
                 {
-                    UiSharedService.TextWrapped(string.Format(CultureInfo.InvariantCulture, "Storage validation is running: {0}/{1}", _currentProgress.Item1, _currentProgress.Item2));
-                    UiSharedService.TextWrapped(string.Format(CultureInfo.InvariantCulture, "Current item: {0}", _currentProgress.Item3.ResolvedFilepath));
+                    ElezenImgui.WrappedText(string.Format(CultureInfo.InvariantCulture, "Storage validation is running: {0}/{1}", _currentProgress.Item1, _currentProgress.Item2));
+                    ElezenImgui.WrappedText(string.Format(CultureInfo.InvariantCulture, "Current item: {0}", _currentProgress.Item3.ResolvedFilepath));
                 }
             }
         }
@@ -673,10 +673,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
         ImGui.Indent();
         ImGui.Checkbox("##readClearCache", ref _readClearCache);
         ImGui.SameLine();
-        UiSharedService.TextWrapped("I understand that: "
-                                                                      + Environment.NewLine + "- By clearing the local storage I put the file servers of my connected service under extra strain by having to redownload all data."
-                                                                      + Environment.NewLine + "- This is not a step to try to fix sync issues."
-                                                                      + Environment.NewLine + "- This can make the situation of not getting other players data worse in situations of heavy file server load.");
+        ElezenImgui.WrappedText("I understand that: "
+                                        + Environment.NewLine + "- By clearing the local storage I put the file servers of my connected service under extra strain by having to redownload all data."
+                                        + Environment.NewLine + "- This is not a step to try to fix sync issues."
+                                        + Environment.NewLine + "- This can make the situation of not getting other players data worse in situations of heavy file server load.");
         if (!_readClearCache)
             ImGui.BeginDisabled();
         if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Clear local storage") && UiSharedService.CtrlPressed() && _readClearCache)
@@ -724,11 +724,11 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _uiShared.DrawHelpText("If this option is selected all already existing notes for UIDs will be overwritten by the imported notes.");
         if (_notesSuccessfullyApplied.HasValue && _notesSuccessfullyApplied.Value)
         {
-            UiSharedService.ColorTextWrapped("User Notes successfully imported", ImGuiColors.HealerGreen);
+            ElezenImgui.ColouredWrappedText("User Notes successfully imported", ImGuiColors.HealerGreen);
         }
         else if (_notesSuccessfullyApplied.HasValue && !_notesSuccessfullyApplied.Value)
         {
-            UiSharedService.ColorTextWrapped("Attempt to import notes from clipboard failed. Check formatting and try again", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Attempt to import notes from clipboard failed. Check formatting and try again", ImGuiColors.DalamudRed);
         }
 
         var openPopupOnAddition = _configService.Current.OpenPopupOnAdd;
@@ -1047,7 +1047,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private void DrawPerformance()
     {
         _uiShared.BigText("Performance Settings");
-        UiSharedService.TextWrapped("The configuration options here are to give you more informed warnings and automation when it comes to other performance-intensive synced players.");
+        ElezenImgui.WrappedText("The configuration options here are to give you more informed warnings and automation when it comes to other performance-intensive synced players.");
         ImGui.Separator();
         bool recalculatePerformance = false;
         string? recalculatePerformanceUID = null;
@@ -1173,7 +1173,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("Individual pairs will never be affected by auto blocks.");
         ImGui.Dummy(new Vector2(5));
-        UiSharedService.TextWrapped("The entries in the list below will be not have auto block thresholds enforced.");
+        ElezenImgui.WrappedText("The entries in the list below will be not have auto block thresholds enforced.");
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
         var whitelistPos = ImGui.GetCursorPos();
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
@@ -1238,7 +1238,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 #region Blacklist
         ImGui.Separator();
         _uiShared.BigText("Blacklisted UIDs");
-        UiSharedService.TextWrapped("The entries in the list below will never have their characters displayed.");
+        ElezenImgui.WrappedText("The entries in the list below will never have their characters displayed.");
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
         var blacklistPos = ImGui.GetCursorPos();
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
@@ -1360,9 +1360,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
             
             if (ImGui.BeginPopupModal(deleteAccountPopupTitle, ref _deleteAccountPopupModalShown, UiSharedService.PopupWindowFlags))
             {
-                UiSharedService.TextWrapped(
+                ElezenImgui.WrappedText(
                    "Your account and all associated files and data on the service will be deleted.");
-                UiSharedService.TextWrapped("Your UID will be removed from all pairing lists.");
+                ElezenImgui.WrappedText("Your UID will be removed from all pairing lists.");
                 ImGui.TextUnformatted("Are you sure you want to continue?");
                 ImGui.Separator();
                 ImGui.Spacing();
@@ -1404,7 +1404,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         if (selectedServer == _serverConfigurationManager.CurrentServer)
         {
             if (_apiController.IsConnected)
-                UiSharedService.ColorTextWrapped("For any changes to be applied to the current service you need to reconnect to the service.", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText("For any changes to be applied to the current service you need to reconnect to the service.", ImGuiColors.DalamudYellow);
         }
 
         if (ImGui.BeginTabBar("serverTabBar"))
@@ -1425,7 +1425,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     using (_ = _uiShared.IconFont.Push())
                         iconWidth = ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X;
 
-                    UiSharedService.ColorTextWrapped("Characters listed here will connect with the specified secret key.", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("Characters listed here will connect with the specified secret key.", ImGuiColors.DalamudYellow);
                     int i = 0;
                     foreach (var item in selectedServer.Authentications.ToList())
                     {
@@ -1501,7 +1501,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
                 else
                 {
-                    UiSharedService.ColorTextWrapped("You need to add a Secret Key first before adding Characters.", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("You need to add a Secret Key first before adding Characters.", ImGuiColors.DalamudYellow);
                 }
 
                 ImGui.EndTabItem();
@@ -1532,7 +1532,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     var xivAuthPrompt = invalidSecretKey
                         ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a legacy key."
                         : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a legacy key.";
-                    UiSharedService.ColorTextWrapped(
+                    ElezenImgui.ColouredWrappedText(
                         xivAuthPrompt,
                         ImGuiColors.DalamudYellow);
 
@@ -1699,7 +1699,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     
                     if (keyInUse)
                     {
-                        UiSharedService.ColorTextWrapped("This key is currently assigned to a character and cannot be edited or deleted.", ImGuiColors.DalamudYellow);
+                        ElezenImgui.ColouredWrappedText("This key is currently assigned to a character and cannot be edited or deleted.", ImGuiColors.DalamudYellow);
                     }
 
                     if (item.Key != selectedServer.SecretKeys.Keys.LastOrDefault())

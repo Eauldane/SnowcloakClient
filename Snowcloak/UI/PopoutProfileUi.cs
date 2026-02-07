@@ -2,6 +2,7 @@
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
@@ -102,7 +103,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             var rectMax = drawList.GetClipRectMax();
 
             using (_uiSharedService.UidFont.Push())
-                UiSharedService.ColorText(_pair.UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(_pair.UserData.DisplayColour));
+                ElezenImgui.ColouredText(_pair.UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(_pair.UserData.DisplayColour));
 
            
             ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
@@ -113,14 +114,14 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             var note = _serverManager.GetNoteForUid(_pair.UserData.UID);
             if (!string.IsNullOrEmpty(note))
             {
-                UiSharedService.ColorText(note, ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredText(note, ImGuiColors.DalamudGrey);
             }
             string status = _pair.IsVisible
                 ? "Visible"
                 : (_pair.IsOnline
                     ? "Online"
                     : "Offline");            
-            UiSharedService.ColorText(status, (_pair.IsVisible || _pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredText(status, (_pair.IsVisible || _pair.IsOnline) ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
             if (_pair.IsVisible)
             {
                 ImGui.SameLine();
@@ -132,12 +133,12 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
                 if (_pair.UserPair.OwnPermissions.IsPaused())
                 {
                     ImGui.SameLine();
-                    UiSharedService.ColorText("You: paused", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredText("You: paused", ImGuiColors.DalamudYellow);
                 }
                 if (_pair.UserPair.OtherPermissions.IsPaused())
                 {
                     ImGui.SameLine();
-                    UiSharedService.ColorText("They: paused", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredText("They: paused", ImGuiColors.DalamudYellow);
                 }
             }
             if (_pair.GroupPair.Any())

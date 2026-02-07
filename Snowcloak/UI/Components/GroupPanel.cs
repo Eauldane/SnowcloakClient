@@ -4,6 +4,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Comparer;
 using Snowcloak.API.Data.Enum;
@@ -154,16 +155,16 @@ internal sealed class GroupPanel
         var enterPasswordTitle = "Enter Syncshell Password";
         if (ImGui.BeginPopupModal(enterPasswordTitle, ref _showModalEnterPassword, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Joining a syncshell means you will be paired with all of its members.");
-            UiSharedService.TextWrapped("You will be able to see all of their mods; and they will be able to see all of yours.");
-            UiSharedService.TextWrapped("Please only proceed if you are okay with that.");
+            ElezenImgui.WrappedText("Joining a syncshell means you will be paired with all of its members.");
+            ElezenImgui.WrappedText("You will be able to see all of their mods; and they will be able to see all of yours.");
+            ElezenImgui.WrappedText("Please only proceed if you are okay with that.");
             ImGui.Separator();
-            UiSharedService.TextWrapped(string.Format(CultureInfo.CurrentCulture, "Enter the password for Syncshell {0}:", _syncShellToJoin));
+            ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "Enter the password for Syncshell {0}:", _syncShellToJoin));
             ImGui.SetNextItemWidth(-1);
             ImGui.InputTextWithHint("##password", string.Format(CultureInfo.CurrentCulture, "{0} Password", _syncShellToJoin), ref _syncShellPassword, 255, ImGuiInputTextFlags.Password);
             if (_errorGroupJoin)
             {
-                UiSharedService.ColorTextWrapped(string.Format(CultureInfo.CurrentCulture, "An error occured during joining of this Syncshell: you either have joined the maximum amount of Syncshells ({0}), it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full, or the Syncshell has closed invites.",
+                ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.CurrentCulture, "An error occured during joining of this Syncshell: you either have joined the maximum amount of Syncshells ({0}), it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full, or the Syncshell has closed invites.",
                         ApiController.ServerInfo.MaxGroupsJoinedByUser),
                     new Vector4(1, 0, 0, 1));
             }
@@ -186,10 +187,10 @@ internal sealed class GroupPanel
         var createSyncshellTitle = "Create Syncshell";
         if (ImGui.BeginPopupModal(createSyncshellTitle, ref _showModalCreateGroup, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Creating a syncshell means you are responsible for ensuring proper moderation.");
-            UiSharedService.TextWrapped("Please only proceed if you are prepared to enforce community guidelines and keep your members safe.");
-            UiSharedService.TextWrapped("Unmoderated synchells are not permitted. Administrator action against unmoderated shells may be performed at staff discretion.");
-            UiSharedService.TextWrapped("Press the button below to create a new Syncshell.");
+            ElezenImgui.WrappedText("Creating a syncshell means you are responsible for ensuring proper moderation.");
+            ElezenImgui.WrappedText("Please only proceed if you are prepared to enforce community guidelines and keep your members safe.");
+            ElezenImgui.WrappedText("Unmoderated synchells are not permitted. Administrator action against unmoderated shells may be performed at staff discretion.");
+            ElezenImgui.WrappedText("Press the button below to create a new Syncshell.");
             ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
             if (ImGui.Button("Create Syncshell"))
             {
@@ -216,12 +217,12 @@ internal sealed class GroupPanel
                 {
                     ImGui.SetClipboardText(_lastCreatedGroup.Password);
                 }
-                UiSharedService.TextWrapped("You can change the Syncshell password later at any time.");
+                ElezenImgui.WrappedText("You can change the Syncshell password later at any time.");
             }
 
             if (_errorGroupCreate)
             {
-                UiSharedService.ColorTextWrapped("You are already owner of the maximum amount of Syncshells or joined the maximum amount of Syncshells. Relinquish ownership of your own Syncshells to someone else or leave existing Syncshells.",
+                ElezenImgui.ColouredWrappedText("You are already owner of the maximum amount of Syncshells or joined the maximum amount of Syncshells. Relinquish ownership of your own Syncshells to someone else or leave existing Syncshells.",
                     new Vector4(1, 0, 0, 1));
             }
 
@@ -284,7 +285,7 @@ internal sealed class GroupPanel
         }
 
         if (_showRegionJoinError)
-            UiSharedService.ColorTextWrapped("The regional syncshell you're trying to join is either full and awaiting server expansion, or you don't have XIVAuth enabled. Try again later!", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("The regional syncshell you're trying to join is either full and awaiting server expansion, or you don't have XIVAuth enabled. Try again later!", ImGuiColors.DalamudRed);
         
         
         DrawPublicSyncshellWarningModal();
@@ -295,9 +296,9 @@ internal sealed class GroupPanel
         var popupTitle = "Join Public Syncshell";
         if (ImGui.BeginPopupModal(popupTitle, ref _showPublicSyncshellWarning, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped("Public Syncshells can contain lots of people, and these people may gather in one particular spot.");
-            UiSharedService.TextWrapped("This can cause significant load on both the server, and your PC. If you have a lower-end computer, we STRONGLY recommend that you do not join public syncshells.");
-            UiSharedService.TextWrapped("Please note that these syncshells are not provided with the intention of facilitating large gatherings. In the event that one occurs, public syncshells will be automatically disabled and paused for all members to protect the functionality of the rest of the service.");
+            ElezenImgui.WrappedText("Public Syncshells can contain lots of people, and these people may gather in one particular spot.");
+            ElezenImgui.WrappedText("This can cause significant load on both the server, and your PC. If you have a lower-end computer, we STRONGLY recommend that you do not join public syncshells.");
+            ElezenImgui.WrappedText("Please note that these syncshells are not provided with the intention of facilitating large gatherings. In the event that one occurs, public syncshells will be automatically disabled and paused for all members to protect the functionality of the rest of the service.");
 
             ImGui.Separator();
 
@@ -536,7 +537,7 @@ internal sealed class GroupPanel
                     ImGui.TableNextColumn();
                     ImGui.TextUnformatted(bannedUser.BannedOn.ToLocalTime().ToString(CultureInfo.CurrentCulture));
                     ImGui.TableNextColumn();
-                    UiSharedService.TextWrapped(bannedUser.Reason);
+                    ElezenImgui.WrappedText(bannedUser.Reason);
                     ImGui.TableNextColumn();
                     if (_uiShared.IconTextButton(FontAwesomeIcon.Check, string.Format(CultureInfo.CurrentCulture, "Unban#{0}", bannedUser.UID)))
                     {
@@ -562,8 +563,8 @@ internal sealed class GroupPanel
         var changePasswordTitle = "Change Syncshell Password";
         if (ImGui.BeginPopupModal(changePasswordTitle, ref _showModalChangePassword, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped(string.Format(CultureInfo.CurrentCulture, "Enter the new Syncshell password for Syncshell {0} here.", name));
-            UiSharedService.TextWrapped("This action is irreversible");
+            ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "Enter the new Syncshell password for Syncshell {0} here.", name));
+            ElezenImgui.WrappedText("This action is irreversible");
             ImGui.SetNextItemWidth(-1);
             ImGui.InputTextWithHint("##changepw", string.Format(CultureInfo.CurrentCulture, "New password for {0}", name), ref _newSyncShellPassword, 255);
             if (ImGui.Button("Change password"))
@@ -576,7 +577,7 @@ internal sealed class GroupPanel
 
             if (!_isPasswordValid)
             {
-                UiSharedService.ColorTextWrapped("The selected password is too short. It must be at least 10 characters.", new Vector4(1, 0, 0, 1));
+                ElezenImgui.ColouredWrappedText("The selected password is too short. It must be at least 10 characters.", new Vector4(1, 0, 0, 1));
             }
 
             UiSharedService.SetScaledWindowSize(290);
@@ -594,7 +595,7 @@ internal sealed class GroupPanel
         var bulkInviteTitle = "Create Bulk One-Time Invites";
         if (ImGui.BeginPopupModal(bulkInviteTitle, ref _showModalBulkOneTimeInvites, UiSharedService.PopupWindowFlags))
         {
-            UiSharedService.TextWrapped(string.Format(CultureInfo.CurrentCulture, "This allows you to create up to 100 one-time invites at once for the Syncshell {0}.{1}The invites are valid for 24h after creation and will automatically expire.",
+            ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "This allows you to create up to 100 one-time invites at once for the Syncshell {0}.{1}The invites are valid for 24h after creation and will automatically expire.",
                 name, Environment.NewLine));
             ImGui.Separator();
             if (_bulkOneTimeInvites.Count == 0)
@@ -608,7 +609,7 @@ internal sealed class GroupPanel
             }
             else
             {
-                UiSharedService.TextWrapped(string.Format(CultureInfo.CurrentCulture, "A total of {0} invites have been created.", _bulkOneTimeInvites.Count));
+                ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "A total of {0} invites have been created.", _bulkOneTimeInvites.Count));
                 if (_uiShared.IconTextButton(FontAwesomeIcon.Copy, "Copy invites to clipboard"))
                 {
                     ImGui.SetClipboardText(string.Join(Environment.NewLine, _bulkOneTimeInvites));
@@ -692,7 +693,7 @@ internal sealed class GroupPanel
                 ImGui.Separator();
                 if (hideOfflineUsers)
                 {
-                    UiSharedService.ColorText(string.Format(CultureInfo.CurrentCulture, "    {0} offline users omitted from display.", offlineUsers.Count), ImGuiColors.DalamudGrey);
+                    ElezenImgui.ColouredText(string.Format(CultureInfo.CurrentCulture, "    {0} offline users omitted from display.", offlineUsers.Count), ImGuiColors.DalamudGrey);
                 }
                 else
                 {
@@ -815,7 +816,7 @@ internal sealed class GroupPanel
                     }
 
                     if (!invitesEnabled || soundsDisabled || animDisabled || vfxDisabled)
-                        UiSharedService.TextWrapped("Note that syncshell permissions for disabling take precedence over your own set permissions");
+                        ElezenImgui.WrappedText("Note that syncshell permissions for disabling take precedence over your own set permissions");
                 }
                 ImGui.EndTooltip();
             }

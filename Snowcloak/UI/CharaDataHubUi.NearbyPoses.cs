@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using System.Numerics;
 
 namespace Snowcloak.UI;
@@ -112,17 +113,17 @@ internal partial class CharaDataHubUi
                 var noteText = pose.Key.MetaInfo.IsOwnData ? "YOU" : (userNote == null ? pose.Key.MetaInfo.Uploader.AliasOrUID : $"{userNote} ({pose.Key.MetaInfo.Uploader.AliasOrUID})");
                 ImGui.TextUnformatted("Pose by");
                 ImGui.SameLine();
-                UiSharedService.ColorText(noteText, ImGuiColors.ParsedGreen);
+                ElezenImgui.ColouredText(noteText, ImGuiColors.ParsedGreen);
                 using (ImRaii.Group())
                 {
-                    UiSharedService.ColorText("Character Data Description", ImGuiColors.DalamudGrey);
+                    ElezenImgui.ColouredText("Character Data Description", ImGuiColors.DalamudGrey);
                     ImGui.SameLine();
                     _uiSharedService.IconText(FontAwesomeIcon.ExternalLinkAlt, ImGuiColors.DalamudGrey);
                 }
                 UiSharedService.AttachToolTip(pose.Key.MetaInfo.Description);
-                UiSharedService.ColorText("Description", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredText("Description", ImGuiColors.DalamudGrey);
                 ImGui.SameLine();
-                UiSharedService.TextWrapped(pose.Key.Description ?? "No Pose Description was set", circleOriginX);
+                ElezenImgui.WrappedText(pose.Key.Description ?? "No Pose Description was set", circleOriginX);
                 var posAfterGroup = ImGui.GetCursorPos();
                 var groupHeightCenter = (posAfterGroup.Y - pos.Y) / 2;
                 circleOffsetY = (groupHeightCenter - circleDiameter / 2);

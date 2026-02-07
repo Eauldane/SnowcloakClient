@@ -4,6 +4,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
@@ -54,7 +55,7 @@ public class DrawGroupPair : DrawPairBase
             presenceText = string.Format(CultureInfo.CurrentCulture, "{0} online status is unknown (paused)", entryUID);
             
             ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(FontAwesomeIcon.PauseCircle.ToIconString(), ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredText(FontAwesomeIcon.PauseCircle.ToIconString(), ImGuiColors.DalamudYellow);
             ImGui.PopFont();
 
             UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Pairing status with {0} is paused", entryUID));
@@ -62,7 +63,7 @@ public class DrawGroupPair : DrawPairBase
         else
         {
             ImGui.PushFont(UiBuilder.IconFont);
-            UiSharedService.ColorText(FontAwesomeIcon.Check.ToIconString(), ImGuiColors.ParsedGreen);
+            ElezenImgui.ColouredText(FontAwesomeIcon.Check.ToIconString(), ImGuiColors.ParsedGreen);
             ImGui.PopFont();
 
             UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "You are paired with {0}", entryUID));
@@ -74,7 +75,7 @@ public class DrawGroupPair : DrawPairBase
         ImGui.SameLine();
         ImGui.SetCursorPosY(textPosY);
         ImGui.PushFont(UiBuilder.IconFont);
-        UiSharedService.ColorText(presenceIcon.ToIconString(), presenceColor);
+        ElezenImgui.ColouredText(presenceIcon.ToIconString(), presenceColor);
         ImGui.PopFont();
         if (_pair.IsVisible)
         {

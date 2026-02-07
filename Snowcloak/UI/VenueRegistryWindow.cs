@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Services;
@@ -74,19 +75,19 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
         if (_apiController.ServerState is not ServerState.Connected)
         {
-            UiSharedService.ColorTextWrapped("Connect to Snowcloak to view and update your venue listings.", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("Connect to Snowcloak to view and update your venue listings.", ImGuiColors.DalamudRed);
             return;
         }
 
         if (_isLoading)
         {
-            UiSharedService.ColorTextWrapped("Loading owned venues...", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("Loading owned venues...", ImGuiColors.DalamudGrey);
             return;
         }
 
         if (_ownedVenues.Count == 0)
         {
-            UiSharedService.ColorTextWrapped("No owned venues were found. You can register a plot using the button below.", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("No owned venues were found. You can register a plot using the button below.", ImGuiColors.DalamudGrey);
             if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
             {
                 _venueRegistrationService.BeginRegistrationFromCommand();
@@ -103,7 +104,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
     private void DrawHeader()
     {
         _uiSharedService.BigText("Venue Manager");
-        UiSharedService.ColorTextWrapped("Update your venue listing without being on-site, or register a new plot when you're at the placard.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Update your venue listing without being on-site, or register a new plot when you're at the placard.", ImGuiColors.DalamudGrey);
         ImGui.Separator();
 
         if (_uiSharedService.IconTextButton(FontAwesomeIcon.SyncAlt, "Refresh"))
@@ -122,7 +123,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         if (!string.IsNullOrWhiteSpace(_statusMessage))
         {
             var color = _statusIsError ? ImGuiColors.DalamudRed : ImGuiColors.HealerGreen;
-            UiSharedService.ColorTextWrapped(_statusMessage, color);
+            ElezenImgui.ColouredWrappedText(_statusMessage, color);
         }
         ImGuiHelpers.ScaledDummy(4);
     }
@@ -153,7 +154,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             var selected = _ownedVenues[_selectedVenueIndex];
             if (!string.IsNullOrWhiteSpace(selected.AssociatedHousing))
             {
-                UiSharedService.ColorTextWrapped($"Housing: {selected.AssociatedHousing}", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText($"Housing: {selected.AssociatedHousing}", ImGuiColors.DalamudGrey);
             }
         }
     }

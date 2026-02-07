@@ -2,6 +2,7 @@
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Interop.Ipc;
@@ -74,7 +75,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             if (ImGui.BeginPopupModal(conversionPopupTitle))
             {
                 ImGui.TextUnformatted(string.Format("Texture Conversion in progress: {0}/{1}", _conversionCurrentFileProgress, _texturesToConvert.Count));
-                UiSharedService.TextWrapped(string.Format("Current file: {0}", _conversionCurrentFileName));
+                ElezenImgui.WrappedText(string.Format("Current file: {0}", _conversionCurrentFileName));
                 if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel conversion"))
                 {
                     _conversionCancellationTokenSource.Cancel();
@@ -109,7 +110,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             _sortDirty = true;
         }
 
-        UiSharedService.TextWrapped("This window shows you all files and their sizes that are currently in use through your character and associated entities");
+        ElezenImgui.WrappedText("This window shows you all files and their sizes that are currently in use through your character and associated entities");
         
         if (_cachedAnalysis == null || _cachedAnalysis.Count == 0) return;
 
@@ -117,7 +118,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         bool needAnalysis = _cachedAnalysis!.Any(c => c.Value.Any(f => !f.Value.IsComputed));
         if (isAnalyzing)
         {
-            UiSharedService.ColorTextWrapped(string.Format("Analyzing {0}/{1}", _characterAnalyzer.CurrentFile, _characterAnalyzer.TotalFiles),
+            ElezenImgui.ColouredWrappedText(string.Format("Analyzing {0}/{1}", _characterAnalyzer.CurrentFile, _characterAnalyzer.TotalFiles),
                 ImGuiColors.DalamudYellow);
             if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
             {
@@ -141,8 +142,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.TextUnformatted(FontAwesomeIcon.ExclamationTriangle.ToIconString());
                     }
                     ImGui.SameLine();
-                    UiSharedService.ColorText("Analysis incomplete", ImGuiColors.DalamudYellow);
-                    UiSharedService.ColorTextWrapped("Run the analysis to fill missing file sizes and calculate accurate download totals.", ImGuiColors.DalamudGrey);
+                    ElezenImgui.ColouredText("Analysis incomplete", ImGuiColors.DalamudYellow);
+                    ElezenImgui.ColouredWrappedText("Run the analysis to fill missing file sizes and calculate accurate download totals.", ImGuiColors.DalamudGrey);
                     if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
                     {
                         _ = _characterAnalyzer.ComputeAnalysis(print: false);
@@ -306,15 +307,15 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.Checkbox("Enable Texture Conversion Mode", ref _enableTextureConversionMode);
                         if (_enableTextureConversionMode)
                         {
-                            UiSharedService.ColorText("WARNING REGARDING TEXTURE CONVERSION:", ImGuiColors.DalamudYellow);
+                            ElezenImgui.ColouredText("WARNING REGARDING TEXTURE CONVERSION:", ImGuiColors.DalamudYellow);
                             ImGui.SameLine();
-                            UiSharedService.ColorText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
-                            UiSharedService.ColorTextWrapped("- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
-                            Environment.NewLine + "- Snowcloak automatically selects a recommended format based on texture traits." +
-                            Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
-                            Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
-                            Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
-                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
+                            ElezenImgui.ColouredText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
+                            ElezenImgui.ColouredWrappedText("- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
+                                                            Environment.NewLine + "- Snowcloak automatically selects a recommended format based on texture traits." +
+                                                            Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
+                                                            Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
+                                                            Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
+                                                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
                                 ImGuiColors.DalamudYellow);
                             if (_texturesToConvert.Count > 0 && _uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
                             {
@@ -336,14 +337,14 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
         ImGui.TextUnformatted("Selected file:");
         ImGui.SameLine();
-        UiSharedService.ColorText(_selectedHash, ImGuiColors.DalamudYellow);
+        ElezenImgui.ColouredText(_selectedHash, ImGuiColors.DalamudYellow);
 
         if (_cachedAnalysis[_selectedObjectTab].TryGetValue(_selectedHash, out CharacterAnalyzer.FileDataEntry? item))
         {
             var filePaths = item.FilePaths;
             ImGui.TextUnformatted("Local file path:");
             ImGui.SameLine();
-            UiSharedService.TextWrapped(filePaths[0]);
+            ElezenImgui.WrappedText(filePaths[0]);
             if (filePaths.Count > 1)
             {
                 ImGui.SameLine();
@@ -356,7 +357,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             var gamepaths = item.GamePaths;
             ImGui.TextUnformatted("Used by game path:");
             ImGui.SameLine();
-            UiSharedService.TextWrapped(gamepaths[0]);
+            ElezenImgui.WrappedText(gamepaths[0]);
             if (gamepaths.Count > 1)
             {
                 ImGui.SameLine();
@@ -371,12 +372,12 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 var traits = item.TextureTraits;
                 ImGui.TextUnformatted("Texture traits:");
                 ImGui.SameLine();
-                UiSharedService.TextWrapped(traits.FormatSummary);
-                UiSharedService.TextWrapped(string.Format("Channel variance (RGB): {0}/{1}/{2}", traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
-                UiSharedService.TextWrapped(string.Format("Alpha transitions: {0}", traits.AlphaTransitionDensity.ToString("P1")));
+                ElezenImgui.WrappedText(traits.FormatSummary);
+                ElezenImgui.WrappedText(string.Format("Channel variance (RGB): {0}/{1}/{2}", traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
+                ElezenImgui.WrappedText(string.Format("Alpha transitions: {0}", traits.AlphaTransitionDensity.ToString("P1")));
                 if (IsRiskyConversion(item))
                 {
-                    UiSharedService.ColorTextWrapped("Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
+                    ElezenImgui.ColouredWrappedText("Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
                 }
             }
         }
