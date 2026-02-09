@@ -43,9 +43,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[0.0.8.6, )",
-        "resolved": "0.0.8.6",
-        "contentHash": "dwAuR9HBfzFgag5uZIcrDZ+rJDNrwoxl5jdD8iK1Y/eCaatGigQ8fyCBfI9/RsRBT1RNEe7hHmkHssSEUDZBbw=="
+        "requested": "[0.0.8.7, )",
+        "resolved": "0.0.8.7",
+        "contentHash": "3mTphdrIRcTvQha7GXmDLCysZHRuckWIEUVgM/8vRSvg+Sc8qTdY8XTPE84o6tx8REM8TvufOqQkzCN7ZLODUg=="
       },
       "Glamourer.Api": {
         "type": "Direct",

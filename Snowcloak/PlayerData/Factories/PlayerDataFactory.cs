@@ -139,7 +139,7 @@ public class PlayerDataFactory
         fragment.FileReplacements =
                 new HashSet<FileReplacement>(resolvedPaths.Select(c => new FileReplacement([.. c.Value], c.Key)), FileReplacementComparer.Instance)
                 .Where(p => p.HasFileReplacement).ToHashSet();
-        fragment.FileReplacements.RemoveWhere(c => c.GamePaths.Any(g => !CacheMonitor.AllowedFileExtensions.Any(e => g.EndsWith(e, StringComparison.OrdinalIgnoreCase))));
+        fragment.FileReplacements.RemoveWhere(c => c.GamePaths.Any(g => !SupportedFileTypes.IsAllowedPath(g)));
 
         ct.ThrowIfCancellationRequested();
 

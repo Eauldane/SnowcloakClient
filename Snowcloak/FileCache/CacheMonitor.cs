@@ -6,7 +6,6 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Collections.Concurrent;
-using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
 namespace Snowcloak.FileCache;
@@ -24,8 +23,6 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     private long _currentFileProgress = 0;
     private CancellationTokenSource _scanCancellationTokenSource = new();
     private readonly CancellationTokenSource _periodicCalculationTokenSource = new();
-    public static readonly IImmutableList<string> AllowedFileExtensions = [".mdl", ".tex", ".mtrl", ".tmb", ".pap", ".avfx", ".atex", ".sklb", ".eid", ".phyb", ".pbd", ".scd", ".skp", ".shpk", ".dds"];
-
     public CacheMonitor(ILogger<CacheMonitor> logger, IpcManager ipcManager, SnowcloakConfigService configService,
         FileCacheManager fileDbManager, SnowMediator mediator, PerformanceCollectorService performanceCollector, DalamudUtilService dalamudUtil,
         FileCompactor fileCompactor, DatabaseService databaseService,
@@ -206,7 +203,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     {
         Logger.LogTrace("Snowcloak FSW: FileChanged: {change} => {path}", e.ChangeType, e.FullPath);
 
-        if (!AllowedFileExtensions.Any(ext => e.FullPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) return;
+        if (!SupportedFileTypes.IsAllowedPath(e.FullPath)) return;
 
         lock (_snowChanges)
         {
@@ -220,7 +217,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     {
         Logger.LogTrace("Subst FSW: FileChanged: {change} => {path}", e.ChangeType, e.FullPath);
 
-        if (!AllowedFileExtensions.Any(ext => e.FullPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) return;
+        if (!SupportedFileTypes.IsAllowedPath(e.FullPath)) return;
 
         lock (_substChanges)
         {
@@ -264,7 +261,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
     private void Fs_Changed(object sender, FileSystemEventArgs e)
     {
         if (Directory.Exists(e.FullPath)) return;
-        if (!AllowedFileExtensions.Any(ext => e.FullPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) return;
+        if (!SupportedFileTypes.IsAllowedPath(e.FullPath)) return;
 
         if (e.ChangeType is not (WatcherChangeTypes.Changed or WatcherChangeTypes.Deleted or WatcherChangeTypes.Created))
             return;
@@ -288,7 +285,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
             {
                 foreach (var file in directoryFiles)
                 {
-                    if (!AllowedFileExtensions.Any(ext => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!SupportedFileTypes.IsAllowedPath(file)) continue;
                     var oldPath = file.Replace(e.FullPath, e.OldFullPath, StringComparison.OrdinalIgnoreCase);
 
                     _watcherChanges.Remove(oldPath);
@@ -300,7 +297,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         }
         else
         {
-            if (!AllowedFileExtensions.Any(ext => e.FullPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) return;
+            if (!SupportedFileTypes.IsAllowedPath(e.FullPath)) return;
 
             lock (_watcherChanges)
             {
@@ -865,7 +862,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
                 [
                     .. Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories)
                                             .AsParallel()
-                                            .Where(f => AllowedFileExtensions.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+                                            .Where(f => SupportedFileTypes.IsAllowedPath(f)
                                                 && !f.Contains(@"\bg\", StringComparison.OrdinalIgnoreCase)
                                                 && !f.Contains(@"\bgcommon\", StringComparison.OrdinalIgnoreCase)
                                                 && !f.Contains(@"\ui\", StringComparison.OrdinalIgnoreCase)),
