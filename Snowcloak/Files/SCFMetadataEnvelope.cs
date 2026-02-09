@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 namespace Snowcloak.Files;
 
@@ -6,7 +7,7 @@ public static class SCFMetadataEnvelope
 {
     public const byte EnvelopeVersion = 1;
 
-    public static byte[] Create(IReadOnlyDictionary<byte, byte[]>? fields)
+    public static byte[] Create(IReadOnlyDictionary<string, byte[]>? fields)
     {
         if (fields is null || fields.Count == 0)
         {
@@ -19,10 +20,27 @@ public static class SCFMetadataEnvelope
         bw.Write(EnvelopeVersion);
         bw.Write((ushort)fields.Count);
 
-        foreach (var (fieldId, value) in fields)
+        foreach (var (fieldKey, value) in fields)
         {
-            var payload = value ?? throw new ArgumentNullException(nameof(fields), $"SCF: Metadata field {fieldId} has null value.");
-            bw.Write((byte)fieldId);
+            if (string.IsNullOrWhiteSpace(fieldKey))
+            {
+                throw new ArgumentException("SCF: Metadata field key cannot be null or empty.", nameof(fields));
+            }
+
+            var keyBytes = Encoding.UTF8.GetBytes(fieldKey);
+            if (keyBytes.Length > ushort.MaxValue)
+            {
+                throw new ArgumentException($"SCF: Metadata field key '{fieldKey}' is too large.", nameof(fields));
+            }
+
+            var payload = value ?? throw new ArgumentNullException(nameof(fields), $"SCF: Metadata field '{fieldKey}' has null value.");
+            if (payload.Length > ushort.MaxValue)
+            {
+                throw new ArgumentException($"SCF: Metadata field '{fieldKey}' payload is too large.", nameof(fields));
+            }
+
+            bw.Write((ushort)keyBytes.Length);
+            bw.Write(keyBytes);
             bw.Write((ushort)payload.Length);
             bw.Write(payload);
         }
@@ -31,11 +49,11 @@ public static class SCFMetadataEnvelope
     }
 
 
-    public static IReadOnlyDictionary<byte, byte[]> Parse(ReadOnlySpan<byte> envelope)
+    public static IReadOnlyDictionary<string, byte[]> Parse(ReadOnlySpan<byte> envelope)
     {
         if (envelope.Length == 0)
         {
-            return new ReadOnlyDictionary<byte, byte[]>(new Dictionary<byte, byte[]>());
+            return new ReadOnlyDictionary<string, byte[]>(new Dictionary<string, byte[]>());
         }
 
         using var ms = new MemoryStream(envelope.ToArray(), writable: false);
@@ -48,11 +66,18 @@ public static class SCFMetadataEnvelope
         }
 
         var fieldCount = br.ReadUInt16();
-        var result = new Dictionary<byte, byte[]>(fieldCount);
+        var result = new Dictionary<string, byte[]>(fieldCount);
 
         for (var i = 0; i < fieldCount; i++)
         {
-            var fieldId = br.ReadByte();
+            var keyLength = br.ReadUInt16();
+            var keyBytes = br.ReadBytes(keyLength);
+            if (keyBytes.Length != keyLength)
+            {
+                throw new EndOfStreamException("SCF: Unexpected end of stream while reading metadata envelope field key.");
+            }
+
+            var key = Encoding.UTF8.GetString(keyBytes);
             var fieldLength = br.ReadUInt16();
             var value = br.ReadBytes(fieldLength);
             if (value.Length != fieldLength)
@@ -60,7 +85,7 @@ public static class SCFMetadataEnvelope
                 throw new EndOfStreamException("SCF: Unexpected end of stream while reading metadata envelope field.");
             }
 
-            result[fieldId] = value;
+            result[key] = value;
         }
 
         if (ms.Position != ms.Length)
@@ -68,7 +93,7 @@ public static class SCFMetadataEnvelope
             throw new InvalidDataException("SCF: Metadata envelope contains trailing bytes.");
         }
 
-        return new ReadOnlyDictionary<byte, byte[]>(result);
+        return new ReadOnlyDictionary<string, byte[]>(result);
     }
 
 }

@@ -33,7 +33,7 @@ public static class SCFFile
     public const byte MinimumSupportedVersion = 1;
     public const int HeaderLengthV1 = 79;
     public const int HeaderLengthV2 = 95;
-    public const int HeaderLengthV3 = 99;
+    public const int HeaderLengthV3 = 67;
 
     // Feels icky not having this as a struct but that might be C brain talking
     // This is apparently "the C# way" because every wheel needs reinventing
@@ -55,7 +55,7 @@ public static class SCFFile
 
         public byte[] OptionalMetadataBytes => OptionalMetadata ?? [];
 
-        public IReadOnlyDictionary<byte, byte[]> GetMetadataFields() =>
+        public IReadOnlyDictionary<string, byte[]> GetMetadataFields() =>
             SCFMetadataEnvelope.Parse(OptionalMetadataBytes);
     }
 
@@ -95,7 +95,7 @@ public static class SCFFile
         IProgress<(string phase, long bytes)>? progress = null, CancellationToken ct = default, int compressionLevel = 3,
         bool multithreaded = false, long triangleCount = -1, long vramUsage = -1,
         CompressionType compressionType = CompressionType.ZSTD, byte[]? optionalMetadata = null,
-        IReadOnlyDictionary<byte, byte[]>? optionalMetadataFields = null)
+        IReadOnlyDictionary<string, byte[]>? optionalMetadataFields = null)
     {
         if (!rawInput.CanRead)
         {
@@ -130,7 +130,7 @@ public static class SCFFile
         }
 
         // Placeholder header. TODO: Add validation to read/write methods that the placeholders aren't still placeholders
-        SCFFileHeader placeholder = CreateHeader(new string('0', 64), compressionType, ext, 0, 0, triangleCount,
+        SCFFileHeader placeholder = CreateHeader(new byte[32], compressionType, ext, 0, 0, triangleCount,
             vramUsage, optionalMetadata);
         WriteHeader(scfOutput, placeholder);
 
@@ -357,10 +357,7 @@ public static class SCFFile
         using var bw = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
         bw.Write(Magic);
         bw.Write(SCFVersion);
-        var buf = new byte[64];
-        var src = Encoding.ASCII.GetBytes(header.HashHex);
-        Array.Copy(src, 0, buf, 0, Math.Min(src.Length, 64));
-        bw.Write(buf);
+        bw.Write(header.HashBytes);
         bw.Write((byte)header.CompressionType);
         bw.Write((byte)header.FileExtension);
         bw.Write(header.UncompressedSize);
@@ -383,7 +380,21 @@ public static class SCFFile
         if (version is < MinimumSupportedVersion or > SCFVersion)
             throw new InvalidDataException($"SCF: unsupported version {version}.");
 
-        string hash = Encoding.ASCII.GetString(br.ReadBytes(64));
+        byte[] hashBytes;
+        if (version >= 3)
+        {
+            hashBytes = br.ReadBytes(32);
+            if (hashBytes.Length != 32)
+            {
+                throw new EndOfStreamException("SCF: Unexpected end of stream while reading hash bytes.");
+            }
+        }
+        else
+        {
+            string hash = Encoding.ASCII.GetString(br.ReadBytes(64));
+            hashBytes = Convert.FromHexString(hash);
+        }
+
         CompressionType comp = (CompressionType)br.ReadByte();
         FileExtension ext = (FileExtension)br.ReadByte();
         uint uncompressedSize = br.ReadUInt32();
@@ -396,18 +407,19 @@ public static class SCFFile
             vramUsage = br.ReadInt64();
         }
 
-        byte[]? optionalMetadata = null;
+        uint optionalMetadataLength = 0;
         if (version >= 3)
         {
-            uint metadataLength = br.ReadUInt32();
-            optionalMetadata = br.ReadBytes(checked((int)metadataLength));
-            if (optionalMetadata.Length != metadataLength)
-            {
-                throw new EndOfStreamException("SCF: Unexpected end of stream while reading optional metadata.");
-            }
+            optionalMetadataLength = br.ReadUInt32();
         }
 
-        return CreateHeader(hash, comp, ext, uncompressedSize, compressedSize, triangleCount, vramUsage,
+        var optionalMetadata = br.ReadBytes(checked((int)optionalMetadataLength));
+        if (optionalMetadata.Length != optionalMetadataLength)
+        {
+            throw new EndOfStreamException("SCF: Unexpected end of stream while reading optional metadata.");
+        }
+
+        return CreateHeader(hashBytes, comp, ext, uncompressedSize, compressedSize, triangleCount, vramUsage,
             optionalMetadata);
     }
     
