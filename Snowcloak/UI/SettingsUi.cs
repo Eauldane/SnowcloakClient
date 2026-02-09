@@ -434,7 +434,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
 
         ImGui.SameLine(300.0f * ImGuiHelpers.GlobalScale);
-        if (_uiShared.IconTextButton(FontAwesomeIcon.NotesMedical, "Open Event Viewer"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.NotesMedical, "Open Event Viewer"))
         {
             Mediator.Publish(new UiToggleMessage(typeof(EventViewerUI)));
         }
@@ -461,7 +461,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             ImGui.TreePop();
         }
 #endif
-        if (_uiShared.IconTextButton(FontAwesomeIcon.Copy, "[DEBUG] Copy Last created Character Data to clipboard"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "[DEBUG] Copy Last created Character Data to clipboard"))
         {
             if (LastCreatedCharacterData != null)
             {
@@ -490,12 +490,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
         
         using (ImRaii.Disabled(!logPerformance))
         {
-            if (_uiShared.IconTextButton(FontAwesomeIcon.StickyNote, "Print Performance Stats to /xllog"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Print Performance Stats to /xllog"))
             {
                 _performanceCollector.PrintPerformanceStats();
             }
             ImGui.SameLine();
-            if (_uiShared.IconTextButton(FontAwesomeIcon.StickyNote, "Print Performance Stats (last 60s) to /xllog"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Print Performance Stats (last 60s) to /xllog"))
             {
                 _performanceCollector.PrintPerformanceStats(60);
             }
@@ -532,7 +532,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         {
             ImGui.SameLine();
             using var id = ImRaii.PushId("penumbraMonitor");
-            if (_uiShared.IconTextButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
             {
                 _cacheMonitor.StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
             }
@@ -544,14 +544,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
         {
             ImGui.SameLine();
             using var id = ImRaii.PushId("snowMonitor");
-            if (_uiShared.IconTextButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
             {
                 _cacheMonitor.StartSnowWatcher(_configService.Current.CacheFolder);
             }
         }
         if (_cacheMonitor.SnowWatcher == null || _cacheMonitor.PenumbraWatcher == null)
         {
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Play, "Resume Monitoring"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Play, "Resume Monitoring"))
             {
                 _cacheMonitor.StartSnowWatcher(_configService.Current.CacheFolder);
                 _cacheMonitor.StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
@@ -565,7 +565,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         {
             using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
             {
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Stop, "Stop Monitoring"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Stop, "Stop Monitoring"))
                 {
                     _cacheMonitor.StopMonitoring();
                 }
@@ -633,7 +633,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                                         "This operation, depending on how many files you have in your storage, can take a while and will be CPU and drive intensive.");
         using (ImRaii.Disabled(_validationTask != null && !_validationTask.IsCompleted))
         {
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Check, "Start File Storage Validation"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Check, "Start File Storage Validation"))
             {
                 _validationCts?.Cancel();
                 _validationCts?.Dispose();
@@ -645,7 +645,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         if (_validationTask != null && !_validationTask.IsCompleted)
         {
             ImGui.SameLine();
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Times, "Cancel"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Cancel"))
             {
                 _validationCts?.Cancel();
             }
@@ -679,7 +679,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                                         + Environment.NewLine + "- This can make the situation of not getting other players data worse in situations of heavy file server load.");
         if (!_readClearCache)
             ImGui.BeginDisabled();
-        if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Clear local storage") && UiSharedService.CtrlPressed() && _readClearCache)
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear local storage") && UiSharedService.CtrlPressed() && _readClearCache)
         {
             _ = Task.Run(() =>
             {
@@ -708,11 +708,11 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _lastTab = "General";
 
         _uiShared.BigText("Notes");
-        if (_uiShared.IconTextButton(FontAwesomeIcon.StickyNote, "Export all your user notes to clipboard"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Export all your user notes to clipboard"))
         {
             ImGui.SetClipboardText(UiSharedService.GetNotes(_pairManager.DirectPairs.UnionBy(_pairManager.GroupPairs.SelectMany(p => p.Value), p => p.UserData, UserDataComparer.Instance).ToList()));
         }
-        if (_uiShared.IconTextButton(FontAwesomeIcon.FileImport, "Import notes from clipboard"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileImport, "Import notes from clipboard"))
         {
             _notesSuccessfullyApplied = null;
             var notes = ImGui.GetClipboardText();
@@ -1181,7 +1181,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         using (ImRaii.Disabled(string.IsNullOrEmpty(_uidToAddForIgnore)))
         {
             ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Add UID/Vanity ID to whitelist"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add UID/Vanity ID to whitelist"))
             {
                 if (!_serverConfigurationManager.IsUidWhitelisted(_uidToAddForIgnore))
                 {
@@ -1215,7 +1215,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     if (lastSeenName != null)
                     {
                         ImGui.SameLine();
-                        _uiShared.IconText(FontAwesomeIcon.InfoCircle);
+                        ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                         UiSharedService.AttachToolTip(string.Format(CultureInfo.InvariantCulture, "Last seen name: {0}", lastSeenName));
                     }
                 }
@@ -1224,7 +1224,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         using (ImRaii.Disabled(_selectedEntry == -1))
         {
             using var pushId = ImRaii.PushId("deleteSelectedWhitelist");
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Delete selected UID"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete selected UID"))
             {
                 _serverConfigurationManager.RemoveWhitelistUid(_serverConfigurationManager.Whitelist[_selectedEntry]);
                 if (_selectedEntry > playerList.Count - 1)
@@ -1246,7 +1246,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         using (ImRaii.Disabled(string.IsNullOrEmpty(_uidToAddForIgnoreBlacklist)))
         {
             ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Add UID/Vanity ID to blacklist"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add UID/Vanity ID to blacklist"))
             {
                 if (!_serverConfigurationManager.IsUidBlacklisted(_uidToAddForIgnoreBlacklist))
                 {
@@ -1279,7 +1279,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     if (lastSeenName != null)
                     {
                         ImGui.SameLine();
-                        _uiShared.IconText(FontAwesomeIcon.InfoCircle);
+                        ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                         UiSharedService.AttachToolTip(string.Format(CultureInfo.InvariantCulture,"Last seen name: {0}", lastSeenName));
                     }
                 }
@@ -1288,7 +1288,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         using (ImRaii.Disabled(_selectedEntryBlacklist == -1))
         {
             using var pushId = ImRaii.PushId("deleteSelectedBlacklist");
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Delete selected UID"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete selected UID"))
             {
                 _serverConfigurationManager.RemoveBlacklistUid(_serverConfigurationManager.Blacklist[_selectedEntryBlacklist]);
                 if (_selectedEntryBlacklist > blacklist.Count - 1)
@@ -1437,7 +1437,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                         if (!worldData.TryGetValue((ushort)item.WorldId, out string? worldPreview))
                             worldPreview = worldData.First().Value;
 
-                        _uiShared.IconText(thisIsYou ? FontAwesomeIcon.Star : FontAwesomeIcon.None);
+                        ElezenImgui.ShowIcon(thisIsYou ? FontAwesomeIcon.Star : FontAwesomeIcon.None);
 
                         if (thisIsYou)
                             UiSharedService.AttachToolTip("Current character");
@@ -1492,7 +1492,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                                 && c.WorldId == _uiShared.WorldId
                     )))
                     {
-                        if (_uiShared.IconTextButton(FontAwesomeIcon.User, "Add current character"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Add current character"))
                         {
                             _serverConfigurationManager.AddCurrentCharacterToServer(idx);
                         }
@@ -1538,7 +1538,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                     using (ImRaii.Disabled(_xivAuthRegistrationInProgress))
                     {
-                        if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                         {
                             var currentPlayerName = playerName;
                             var currentPlayerWorldId = playerWorldId;
@@ -1662,7 +1662,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                     using (_ = ImRaii.Disabled(disableAssignment))
                     {
-                        if (_uiShared.IconTextButton(FontAwesomeIcon.User, "Assign current character"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Assign current character"))
                         {
                             var existingAssignment = selectedServer.Authentications.Find(a =>
                                 string.Equals(a.CharacterName, _uiShared.PlayerName, StringComparison.OrdinalIgnoreCase)
@@ -1689,7 +1689,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                     ImGui.SameLine();
                     using var disableDelete = ImRaii.Disabled(keyInUse);
-                    if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Delete Secret Key") && UiSharedService.CtrlPressed())
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Secret Key") && UiSharedService.CtrlPressed())
                     {
                         selectedServer.SecretKeys.Remove(item.Key);
                         _serverConfigurationManager.Save();
@@ -1707,7 +1707,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
 
                 ImGui.Separator();
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Add new Secret Key"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add new Secret Key"))
                 {
                     selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Any() ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
                     {
@@ -1719,7 +1719,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 if (true) // Enable registration button for all servers
                 {
                     ImGui.SameLine();
-                    if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register a Snowcloak account (legacy method)"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register a Snowcloak account (legacy method)"))
                     {
                         _registrationInProgress = true;
                         _ = Task.Run(async () => {
@@ -1800,7 +1800,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                 if (!isMain && selectedServer != _serverConfigurationManager.CurrentServer)
                 {
-                    if (_uiShared.IconTextButton(FontAwesomeIcon.Trash, "Delete Service") && UiSharedService.CtrlPressed())
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Service") && UiSharedService.CtrlPressed())
                     {
                         _serverConfigurationManager.DeleteServer(selectedServer);
                     }

@@ -148,7 +148,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         ImGui.Separator();
         _uiSharedService.BigText("Profile Settings");
         ElezenImgui.ColouredWrappedText("Profile pictures must be cropped to 256x256px and have a file size of 250KiB or smaller.", ImGuiColors.DalamudGrey);
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.FileUpload, "Upload new profile picture"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileUpload, "Upload new profile picture"))
         {
             _fileDialogManager.OpenFileDialog("Select new Profile picture", ".png", (success, file) =>
             {
@@ -172,7 +172,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         }
         UiSharedService.AttachToolTip("Select and upload a new profile picture");
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear uploaded profile picture"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear uploaded profile picture"))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, "", Description: null, Visibility: _editingVisibility));
         }
@@ -215,13 +215,13 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             ImGui.EndChildFrame();
         }
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Description"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Description"))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, _descriptionText, Visibility: _editingVisibility));
         }
         UiSharedService.AttachToolTip("Sets your profile description text");
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear Description"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear Description"))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, "", Visibility: _editingVisibility));
         }

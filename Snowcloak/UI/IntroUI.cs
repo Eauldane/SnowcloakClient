@@ -246,7 +246,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
                 ImGui.Separator();
                 ImGui.TextUnformatted("If you have not used Snowcloak before, click below to register a new account.");
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {
@@ -279,7 +279,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                     });
                 }
                 ImGui.SameLine();
-                if (_uiShared.IconTextButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {

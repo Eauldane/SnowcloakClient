@@ -80,7 +80,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
         {
             ElezenImgui.ColouredWrappedText(string.Format("Analyzing {0}/{1}", analyzer.CurrentFile, analyzer.TotalFiles),
                 ImGuiColors.DalamudYellow);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
             {
                 analyzer.CancelAnalyze();
             }
@@ -91,7 +91,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
             {
                 ElezenImgui.ColouredWrappedText("Some entries in the analysis have file size not determined yet, press the button below to compute missing data",
                     ImGuiColors.DalamudYellow);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
                 {
                     _ = analyzer.ComputeAnalysis(print: false);
                 }
@@ -265,7 +265,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 ImGui.TextUnformatted(string.Format("(and {0} more)", gamepaths.Count - 1));
                 ImGui.SameLine();
-                _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
             }
         }

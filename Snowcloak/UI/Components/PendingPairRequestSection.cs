@@ -4,6 +4,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.User;
 using Snowcloak.Services;
@@ -53,7 +54,7 @@ public sealed class PendingPairRequestSection
         else if (tagHandler != null)
         {
             var icon = isOpen ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
-            _uiSharedService.IconText(icon);
+            ElezenImgui.ShowIcon(icon);
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
                 isOpen = !isOpen;
@@ -98,14 +99,14 @@ public sealed class PendingPairRequestSection
                 var requestedAtTemplate = "Requested at {0:HH:mm:ss}";
                 UiSharedService.AttachToolTip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
                 ImGui.TableSetColumnIndex(1);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserPlus, "Add"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Add"))
                 {
                     _ = _pairRequestService.RespondAsync(request.Request, true);
                 }
 
                 ImGui.SameLine();
 
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Reject"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Reject"))
                 {
                     _ = _pairRequestService.RespondAsync(request.Request, false, "Rejected by user");
                 }

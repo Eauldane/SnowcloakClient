@@ -217,7 +217,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
         else if (_dalamudUtilService.TryGetLastHousingPlot(out _))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
             {
                 _venueRegistrationService.BeginRegistrationFromCommand();
             }
@@ -226,7 +226,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         UiSharedService.DistanceSeparator();
         if (_ownedVenues.Count != 0)
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Edit, "Edit venue details"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Edit, "Edit venue details"))
             {
                 Mediator.Publish(new OpenVenueRegistryWindowMessage());
             }
@@ -304,7 +304,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         ImGui.TextUnformatted($"Banner ({BannerWidth}x{BannerHeight})");
         DrawBannerPreview();
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.FileUpload, "Upload banner"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileUpload, "Upload banner"))
         {
             _fileDialogManager.OpenFileDialog("Select banner image", ".png", (success, file) =>
             {
@@ -317,7 +317,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         UiSharedService.AttachToolTip("Upload a 720x300 PNG banner.");
 
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Clear banner"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear banner"))
         {
             ClearBanner();
         }
@@ -333,7 +333,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
 
         ImGui.BeginDisabled(_isSaving || !string.IsNullOrWhiteSpace(validationMessage));
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, _selectedAdId.HasValue ? "Save Ad" : "Create Ad"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, _selectedAdId.HasValue ? "Save Ad" : "Create Ad"))
         {
             _ = SaveAdAsync();
         }
@@ -342,7 +342,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         if (_selectedAdId.HasValue)
         {
             ImGui.SameLine();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Delete Ad"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Ad"))
             {
                 _ = DeleteAdAsync();
             }

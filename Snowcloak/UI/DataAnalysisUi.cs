@@ -76,7 +76,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             {
                 ImGui.TextUnformatted(string.Format("Texture Conversion in progress: {0}/{1}", _conversionCurrentFileProgress, _texturesToConvert.Count));
                 ElezenImgui.WrappedText(string.Format("Current file: {0}", _conversionCurrentFileName));
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel conversion"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StopCircle, "Cancel conversion"))
                 {
                     _conversionCancellationTokenSource.Cancel();
                 }
@@ -120,7 +120,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         {
             ElezenImgui.ColouredWrappedText(string.Format("Analyzing {0}/{1}", _characterAnalyzer.CurrentFile, _characterAnalyzer.TotalFiles),
                 ImGuiColors.DalamudYellow);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StopCircle, "Cancel analysis"))
             {
                 _characterAnalyzer.CancelAnalyze();
             }
@@ -144,7 +144,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     ImGui.SameLine();
                     ElezenImgui.ColouredText("Analysis incomplete", ImGuiColors.DalamudYellow);
                     ElezenImgui.ColouredWrappedText("Run the analysis to fill missing file sizes and calculate accurate download totals.", ImGuiColors.DalamudGrey);
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, "Start analysis (missing entries)"))
                     {
                         _ = _characterAnalyzer.ComputeAnalysis(print: false);
                     }
@@ -158,7 +158,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
             }
             else
             {
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, "Start analysis (recalculate all entries)"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, "Start analysis (recalculate all entries)"))
                 {
                     _ = _characterAnalyzer.ComputeAnalysis(print: false, recalculate: true);
                 }
@@ -317,7 +317,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                                                             Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
                                                             Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
                                 ImGuiColors.DalamudYellow);
-                            if (_texturesToConvert.Count > 0 && _uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
+                            if (_texturesToConvert.Count > 0 && ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
                             {
                                 _conversionCancellationTokenSource = _conversionCancellationTokenSource.CancelRecreate();
                                 _conversionTask = _ipcManager.Penumbra.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
@@ -350,7 +350,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 ImGui.TextUnformatted(string.Format("(and {0} more)", filePaths.Count - 1));
                 ImGui.SameLine();
-                _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, filePaths.Skip(1)));
             }
 
@@ -363,7 +363,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 ImGui.TextUnformatted(string.Format("(and {0} more)", gamepaths.Count - 1));
                 ImGui.SameLine();
-                _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                 UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
             }
             
@@ -529,7 +529,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     if (IsRiskyConversion(item))
                     {
                         ImGui.SameLine();
-                        _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle);
+                        ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle);
                         UiSharedService.AttachToolTip("Texture flagged as risky for conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");                        if (!toConvert)
                         {
                             _texturesToConvert.Remove(filePath);

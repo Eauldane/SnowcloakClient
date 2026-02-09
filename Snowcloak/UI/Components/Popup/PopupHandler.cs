@@ -2,6 +2,7 @@
 using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -86,7 +87,7 @@ public class PopupHandler : WindowMediatorSubscriberBase
         if (_currentHandler.ShowClose)
         {
             ImGui.Separator();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Close"))
             {
                 ImGui.CloseCurrentPopup();
             }

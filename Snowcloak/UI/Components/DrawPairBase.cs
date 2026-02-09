@@ -1,5 +1,6 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using ElezenTools.UI;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
@@ -29,7 +30,7 @@ public abstract class DrawPairBase
     public void DrawPairedClient()
     {
         var originalY = ImGui.GetCursorPosY();
-        var pauseIconSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Play);
+        var pauseIconSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Play);
         var textSize = ImGui.CalcTextSize(_pair.UserData.AliasOrUID);
 
         var startPos = ImGui.GetCursorStartPos();

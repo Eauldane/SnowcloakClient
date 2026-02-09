@@ -2,6 +2,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
 using Snowcloak.UI.Handlers;
@@ -45,8 +46,8 @@ public class PairGroupsUi
     {
         var allArePaused = availablePairsInThisTag.All(pair => pair.UserPair!.OwnPermissions.IsPaused());
         var pauseButton = allArePaused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
-        var flyoutMenuX = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Bars).X;
-        var pauseButtonX = _uiSharedService.GetIconButtonSize(pauseButton).X;
+        var flyoutMenuX = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Bars).X;
+        var pauseButtonX = ElezenImgui.GetIconButtonSize(pauseButton).X;
         var windowX = ImGui.GetWindowContentRegionMin().X;
         var windowWidth = UiSharedService.GetWindowContentRegionWidth();
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
@@ -144,13 +145,13 @@ public class PairGroupsUi
 
     private void DrawGroupMenu(string tag)
     {
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Users, string.Format(CultureInfo.CurrentCulture, "Add people to {0}", tag)))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Users, string.Format(CultureInfo.CurrentCulture, "Add people to {0}", tag)))
         {
             _selectGroupForPairUi.Open(tag);
         }
         UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Add more users to Group {0}", tag));
         
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, string.Format(CultureInfo.CurrentCulture, "Delete {0}", tag)) && UiSharedService.CtrlPressed())
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, string.Format(CultureInfo.CurrentCulture, "Delete {0}", tag)) && UiSharedService.CtrlPressed())
         {
             _tagHandler.RemoveTag(tag);
         }
@@ -174,7 +175,7 @@ public class PairGroupsUi
             : string.Format(CultureInfo.CurrentCulture, "{0} ({1} Pairs)", displayedName, online);
         //  FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight
         var icon = _tagHandler.IsTagOpen(tag) ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
-        _uiSharedService.IconText(icon);
+        ElezenImgui.ShowIcon(icon);
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
             ToggleTagOpen(tag);

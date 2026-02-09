@@ -37,7 +37,7 @@ internal class BbCodeLinkPopupHandler : IPopupHandler
         using (ImRaii.Disabled(!canOpen))
         {
             using var openColor = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.ParsedGreen);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExternalLinkAlt, "Open link"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExternalLinkAlt, "Open link"))
             {
                 Util.OpenLink(_url);
                 ImGui.CloseCurrentPopup();
@@ -45,13 +45,13 @@ internal class BbCodeLinkPopupHandler : IPopupHandler
         }
 
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Clipboard, "Copy URL"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Clipboard, "Copy URL"))
         {
             ImGui.SetClipboardText(_url);
         }
         
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Close"))
         {
             ImGui.CloseCurrentPopup();
         }

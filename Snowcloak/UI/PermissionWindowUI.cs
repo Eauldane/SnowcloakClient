@@ -1,6 +1,7 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Microsoft.Extensions.Logging;
@@ -69,7 +70,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
 
         using (ImRaii.PushIndent(indentSize, false))
         {
-            _uiSharedService.BooleanToColoredIcon(!otherIsPaused, false);
+            ElezenImgui.GetBooleanIcon(!otherIsPaused, false);
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted(string.Format("{0} has {1}paused you", Pair.UserData.AliasOrUID, !otherIsPaused ? "not " : string.Empty));
@@ -87,7 +88,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             + "Note: this is bidirectional, either user disabling sound sync will stop sound sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
-            _uiSharedService.BooleanToColoredIcon(!otherDisableSounds, false);
+            ElezenImgui.GetBooleanIcon(!otherDisableSounds, false);
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted(string.Format("{0} has {1}disabled sound sync with you", Pair.UserData.AliasOrUID, !otherDisableSounds ? "not " : string.Empty));
@@ -101,7 +102,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             + "Note: this is bidirectional, either user disabling animation sync will stop animation sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
-            _uiSharedService.BooleanToColoredIcon(!otherDisableAnimations, false);
+            ElezenImgui.GetBooleanIcon(!otherDisableAnimations, false);
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted(string.Format("{0} has {1}disabled animation sync with you", Pair.UserData.AliasOrUID, !otherDisableAnimations ? "not " : string.Empty));
@@ -115,7 +116,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             + "Note: this is bidirectional, either user disabling VFX sync will stop VFX sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
-            _uiSharedService.BooleanToColoredIcon(!otherDisableVFX, false);
+            ElezenImgui.GetBooleanIcon(!otherDisableVFX, false);
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted(string.Format("{0} has {1}disabled VFX sync with you", Pair.UserData.AliasOrUID, !otherDisableVFX ? "not " : string.Empty));
@@ -128,27 +129,27 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         bool hasChanges = _ownPermissions != Pair.UserPair.OwnPermissions;
 
         using (ImRaii.Disabled(!hasChanges))
-            if (_uiSharedService.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Save, "Save"))
+            if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.Save, "Save"))
             {
                 _ = _apiController.UserSetPairPermissions(new(Pair.UserData, _ownPermissions));
             }
         UiSharedService.AttachToolTip("Save and apply all changes");
         
-        var rightSideButtons = _uiSharedService.GetIconTextButtonSize(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert") +
-                               _uiSharedService.GetIconTextButtonSize(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default");
+        var rightSideButtons = ElezenImgui.GetIconButtonTextSize(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert") +
+                               ElezenImgui.GetIconButtonTextSize(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default");
         var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
 
         ImGui.SameLine(availableWidth - rightSideButtons);
 
         using (ImRaii.Disabled(!hasChanges))
-            if (_uiSharedService.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert"))
+            if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert"))
             {
                 _ownPermissions = Pair.UserPair.OwnPermissions.DeepClone();
             }
         UiSharedService.AttachToolTip("Revert all changes");
         
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default"))
+        if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default"))
         {
             _ownPermissions.SetPaused(false);
             _ownPermissions.SetDisableVFX(false);

@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
+using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services;
@@ -93,12 +94,12 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
         var noValueLabel = "--";
         var newEventsAvailable = _eventAggregator.NewEventsAvailable;
 
-        var freezeSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.PlayCircle, unfreezeLabel);
+        var freezeSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.PlayCircle, unfreezeLabel);
         if (_isPaused)
         {
             using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow, newEventsAvailable))
             {
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.PlayCircle, unfreezeLabel))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, unfreezeLabel))
                     _isPaused = false;
                 if (newEventsAvailable)
                     UiSharedService.AttachToolTip(newEventsTooltip);
@@ -106,7 +107,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.PauseCircle, freezeLabel))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PauseCircle, freezeLabel))
                 _isPaused = true;
         }
 
@@ -132,7 +133,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
 
         if (_configService.Current.LogEvents)
         {
-            var buttonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.FolderOpen, openFolderLabel);
+            var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.FolderOpen, openFolderLabel);
             var dist = ImGui.GetWindowContentRegionMax().X - buttonSize;
             ImGui.SameLine(dist);
             {
@@ -191,7 +192,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
                 };
 
                 ImGui.TableNextColumn();
-                _uiSharedService.IconText(icon, iconColor == new Vector4() ? null : iconColor);
+                ElezenImgui.ShowIcon(icon, iconColor == new Vector4() ? null : iconColor);
                 UiSharedService.AttachToolTip(ev.EventSeverity.ToString());
                 ImGui.TableNextColumn();
                 ImGui.AlignTextToFramePadding();

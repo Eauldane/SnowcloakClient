@@ -118,7 +118,7 @@ internal partial class CharaDataHubUi
                 {
                     ElezenImgui.ColouredText("Character Data Description", ImGuiColors.DalamudGrey);
                     ImGui.SameLine();
-                    _uiSharedService.IconText(FontAwesomeIcon.ExternalLinkAlt, ImGuiColors.DalamudGrey);
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.ExternalLinkAlt, ImGuiColors.DalamudGrey);
                 }
                 UiSharedService.AttachToolTip(pose.Key.MetaInfo.Description);
                 ElezenImgui.ColouredText("Description", ImGuiColors.DalamudGrey);
@@ -141,7 +141,7 @@ internal partial class CharaDataHubUi
                 {
                     GposePoseAction(() =>
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, "Apply Pose"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Apply Pose"))
                         {
                             _charaDataManager.ApplyFullPoseDataToGposeTarget(pose.Key);
                         }
@@ -149,7 +149,7 @@ internal partial class CharaDataHubUi
                     ImGui.SameLine();
                     GposeMetaInfoAction((_) =>
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Spawn and Pose"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Spawn and Pose"))
                         {
                             _charaDataManager.SpawnAndApplyWorldTransform(pose.Key.MetaInfo, pose.Key);
                         }
@@ -195,7 +195,7 @@ internal partial class CharaDataHubUi
         using (ImRaii.Disabled(_charaDataManager.GetAllDataTask != null
             || (_charaDataManager.GetSharedWithYouTimeoutTask != null && !_charaDataManager.GetSharedWithYouTimeoutTask.IsCompleted)))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleDown, "Update Data Shared With You"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleDown, "Update Data Shared With You"))
             {
                 _ = _charaDataManager.GetAllSharedData(_disposalCts.Token).ContinueWith(u => UpdateFilteredItems());
             }

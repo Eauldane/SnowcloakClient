@@ -186,7 +186,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (ElezenImgui.ShowIconButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 _selectedMenu = menu;
             }
@@ -206,7 +206,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         else
         {
-            if (_uiSharedService.IconTextButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
+            if (ElezenImgui.ShowIconButton(icon, label, (180 - ImGui.GetStyle().WindowPadding.X * 2) * ImGuiHelpers.GlobalScale))
             {
                 onClick();
             }
@@ -305,7 +305,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             ImGui.PopStyleVar();
             ImGui.PopStyleColor(3);
             var connectedIcon = _serverManager.CurrentServer!.FullPause ? FontAwesomeIcon.Unlink : FontAwesomeIcon.Link;
-            var color = UiSharedService.GetBoolColor(!_serverManager.CurrentServer!.FullPause);
+            var color = ElezenImgui.GetBooleanColour(!_serverManager.CurrentServer!.FullPause);
 
             if (_apiController.ServerState is not (ServerState.Reconnecting or ServerState.Disconnecting))
             {
@@ -395,7 +395,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 {
                     ElezenImgui.WrappedText(string.Format("You have successfully added {0}. Set a local note for the user in the field below:", _lastAddedUser.UserData.AliasOrUID));
                     ImGui.InputTextWithHint("##noteforuser", string.Format("Note for {0}", _lastAddedUser.UserData.AliasOrUID), ref _lastAddedUserComment, 100);
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Note"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Note"))
                     {
                         _serverManager.SetNoteForUid(_lastAddedUser.UserData.UID, _lastAddedUserComment);
                         _lastAddedUser = null;
@@ -441,7 +441,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (keys.Any())
         {
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
             {
                 _registrationInProgress = true;
                 _ = Task.Run(async () => {
@@ -474,7 +474,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 });
             }
 
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Add character with existing key"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add character with existing key"))
             {
                 _serverManager.CurrentServer!.Authentications.Add(new Configuration.Models.Authentication()
                 {
@@ -538,12 +538,12 @@ public class CompactUi : WindowMediatorSubscriberBase
         var framePadding = ImGui.GetStyle().FramePadding;
         var tallPadding = new Vector2(framePadding.X, framePadding.Y + 4f * ImGuiHelpers.GlobalScale);
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, tallPadding);
-        var buttonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus);
-        var clearButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Times);
-        var searchIconWidth = _uiSharedService.GetIconData(FontAwesomeIcon.Search).X;
+        var buttonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus);
+        var clearButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Times);
+        var searchIconWidth = ElezenImgui.GetIconData(FontAwesomeIcon.Search).X;
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         ImGui.AlignTextToFramePadding();
-        _uiSharedService.IconText(FontAwesomeIcon.Search);
+        ElezenImgui.ShowIcon(FontAwesomeIcon.Search);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth()
             - ImGui.GetWindowContentRegionMin().X
@@ -576,7 +576,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private void DrawFilter()
     {
-        var playButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Play);
+        var playButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Play);
 
         var users = GetFilteredUsers();
         var userCount = users.Count;
@@ -703,7 +703,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (currentUploads.Any())
         {
             ImGui.AlignTextToFramePadding();
-            _uiSharedService.IconText(FontAwesomeIcon.Upload);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Upload);
             ImGui.SameLine(35 * ImGuiHelpers.GlobalScale);
 
             var totalUploads = currentUploads.Count;
@@ -724,7 +724,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (currentDownloads.Any())
         {
             ImGui.AlignTextToFramePadding();
-            _uiSharedService.IconText(FontAwesomeIcon.Download);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Download);
             ImGui.SameLine(35 * ImGuiHelpers.GlobalScale);
 
             var totalDownloads = currentDownloads.Sum(c => c.TotalFiles);
@@ -776,7 +776,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             
             var headerEnd = ImGui.GetCursorPos();
             var buttonHeight = ImGui.GetFrameHeight();
-            var iconSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Pen);
+            var iconSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Pen);
             var buttonWidth = iconSize.X + ImGui.GetStyle().FramePadding.X * 2f;
             var buttonX = ImGui.GetWindowContentRegionMax().X - buttonWidth;
             var buttonY = headerStart.Y + ((headerEnd.Y - headerStart.Y) - buttonHeight) / 2f;
@@ -834,7 +834,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     ImGui.ColorEdit3("##vanity-color", ref _vanityColour, ImGuiColorEditFlags.NoInputs);
                 }
             }
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save"))
             {
                 var trimmed = _vanityIdInput.Trim();
                 var vanityId = string.IsNullOrEmpty(trimmed) ? null : trimmed;
@@ -848,7 +848,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             }
 
             ImGui.SameLine();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Cancel"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Cancel"))
             {
                 _showVanityIdModal = false;
             }

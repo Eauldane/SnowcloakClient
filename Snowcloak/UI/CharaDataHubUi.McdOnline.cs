@@ -50,12 +50,12 @@ internal sealed partial class CharaDataHubUi
                     ImGui.SameLine();
                     using (ImRaii.Disabled(_charaDataManager.CharaUpdateTask != null && !_charaDataManager.CharaUpdateTask.IsCompleted))
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, "Save to Server"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleUp, "Save to Server"))
                         {
                             _charaDataManager.UploadCharaData(dataDto.Id);
                         }
                         ImGui.SameLine();
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Undo, "Undo all changes"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Undo, "Undo all changes"))
                         {
                             updateDto.UndoChanges();
                         }
@@ -74,20 +74,20 @@ internal sealed partial class CharaDataHubUi
                         {
                             ElezenImgui.ColouredWrappedText(_charaDataManager.UploadProgress.Value ?? string.Empty, ImGuiColors.DalamudYellow);
                         }
-                        if ((!_charaDataManager.UploadTask?.IsCompleted ?? false) && _uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Cancel Upload"))
+                        if ((!_charaDataManager.UploadTask?.IsCompleted ?? false) && ElezenImgui.ShowIconButton(FontAwesomeIcon.Ban, "Cancel Upload"))
                         {
                             _charaDataManager.CancelUpload();
                         }
                         else if (_charaDataManager.UploadTask?.IsCompleted ?? false)
                         {
-                            var color = UiSharedService.GetBoolColor(_charaDataManager.UploadTask.Result.Success);
+                            var color = ElezenImgui.GetBooleanColour(_charaDataManager.UploadTask.Result.Success);
                             ElezenImgui.ColouredWrappedText(_charaDataManager.UploadTask.Result.Output, color);
                         }
                     });
                 }
                 else if (_charaDataManager.UploadTask?.IsCompleted ?? false)
                 {
-                    var color = UiSharedService.GetBoolColor(_charaDataManager.UploadTask.Result.Success);
+                    var color = ElezenImgui.GetBooleanColour(_charaDataManager.UploadTask.Result.Success);
                     ElezenImgui.ColouredWrappedText(_charaDataManager.UploadTask.Result.Output, color);
                 }
             });
@@ -166,7 +166,7 @@ internal sealed partial class CharaDataHubUi
     {
         _uiSharedService.BigText("Appearance");
         
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, "Set Appearance to Current Appearance"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Set Appearance to Current Appearance"))
         {
             _charaDataManager.SetAppearanceData(dataDto.Id);
         }
@@ -174,7 +174,7 @@ internal sealed partial class CharaDataHubUi
         ImGui.SameLine();
         using (ImRaii.Disabled(dataDto.HasMissingFiles || !updateDto.IsAppearanceEqual || _charaDataManager.DataApplicationTask != null))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.CheckCircle, "Preview Saved Apperance on Self"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.CheckCircle, "Preview Saved Apperance on Self"))
             {
                 _charaDataManager.ApplyDataToSelf(dataDto);
             }
@@ -186,12 +186,12 @@ internal sealed partial class CharaDataHubUi
         ImGui.SameLine();
         bool hasGlamourerdata = !string.IsNullOrEmpty(updateDto.GlamourerData);
         ImGui.SameLine(200);
-        _uiSharedService.BooleanToColoredIcon(hasGlamourerdata, false);
+        ElezenImgui.GetBooleanIcon(hasGlamourerdata, false);
 
         ImGui.TextUnformatted("Contains Files");
         var hasFiles = (updateDto.FileGamePaths ?? []).Any() || (dataDto.OriginalFiles.Any());
         ImGui.SameLine(200);
-        _uiSharedService.BooleanToColoredIcon(hasFiles, false);
+        ElezenImgui.GetBooleanIcon(hasFiles, false);
         if (hasFiles && updateDto.IsAppearanceEqual)
         {
             ImGui.SameLine();
@@ -218,7 +218,7 @@ internal sealed partial class CharaDataHubUi
                 ElezenImgui.ColouredWrappedText(string.Format("{0} files to download this character data are missing on the server", dataDto.MissingFiles.DistinctBy(k => k.HashOrFileSwap).Count()), ImGuiColors.DalamudRed);
                 ImGui.NewLine();
                 ImGui.SameLine(pos);
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleUp, "Attempt to upload missing files and restore Character Data"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleUp, "Attempt to upload missing files and restore Character Data"))
                 {
                     _charaDataManager.UploadMissingFiles(dataDto.Id);
                 }
@@ -235,13 +235,13 @@ internal sealed partial class CharaDataHubUi
         ImGui.TextUnformatted("Contains Manipulation Data");
         bool hasManipData = !string.IsNullOrEmpty(updateDto.ManipulationData);
         ImGui.SameLine(200);
-        _uiSharedService.BooleanToColoredIcon(hasManipData, false);
+        ElezenImgui.GetBooleanIcon(hasManipData, false);
 
         ImGui.TextUnformatted("Contains Customize+ Data");
         ImGui.SameLine();
         bool hasCustomizeData = !string.IsNullOrEmpty(updateDto.CustomizeData);
         ImGui.SameLine(200);
-        _uiSharedService.BooleanToColoredIcon(hasCustomizeData, false);
+        ElezenImgui.GetBooleanIcon(hasCustomizeData, false);
     }
 
     private void DrawEditCharaDataGeneral(CharaDataFullExtendedDto dataDto, CharaDataExtendedUpdateDto updateDto)
@@ -360,7 +360,7 @@ internal sealed partial class CharaDataHubUi
 
         using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Delete Character Data"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Character Data"))
             {
                 _ = _charaDataManager.DeleteCharaData(dataDto);
                 SelectedDtoId = string.Empty;
@@ -378,7 +378,7 @@ internal sealed partial class CharaDataHubUi
         var poseCount = updateDto.PoseList.Count();
         using (ImRaii.Disabled(poseCount >= maxPoses))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Add new Pose"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add new Pose"))
             {
                 updateDto.AddPose();
             }
@@ -413,7 +413,7 @@ internal sealed partial class CharaDataHubUi
             if (pose.Id == null)
             {
                 ImGui.SameLine(50);
-                _uiSharedService.IconText(FontAwesomeIcon.Plus, ImGuiColors.DalamudYellow);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.Plus, ImGuiColors.DalamudYellow);
                 UiSharedService.AttachToolTip("This pose has not been added to the server yet. Save changes to upload this Pose data.");
             }
 
@@ -421,7 +421,7 @@ internal sealed partial class CharaDataHubUi
             if (poseHasChanges)
             {
                 ImGui.SameLine(50);
-                _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudYellow);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudYellow);
                 UiSharedService.AttachToolTip("This pose has changes that have not been saved to the server yet.");
             }
 
@@ -439,7 +439,7 @@ internal sealed partial class CharaDataHubUi
                     updateDto.UpdatePoseList();
                 }
                 ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Delete"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete"))
                 {
                     updateDto.RemovePose(pose);
                 }
@@ -448,7 +448,7 @@ internal sealed partial class CharaDataHubUi
                 ImGuiHelpers.ScaledDummy(10, 1);
                 ImGui.SameLine();
                 bool hasPoseData = !string.IsNullOrEmpty(pose.PoseData);
-                _uiSharedService.IconText(FontAwesomeIcon.Running, UiSharedService.GetBoolColor(hasPoseData));
+                ElezenImgui.ShowIcon(FontAwesomeIcon.Running, ElezenImgui.GetBooleanColour(hasPoseData));
                 UiSharedService.AttachToolTip(hasPoseData
                     ? "This Pose entry has pose data attached"
                     : "This Pose entry has no pose data attached");
@@ -480,7 +480,7 @@ internal sealed partial class CharaDataHubUi
                 ImGui.SameLine();
                 var worldData = pose.WorldData ?? default;
                 bool hasWorldData = worldData != default;
-                _uiSharedService.IconText(FontAwesomeIcon.Globe, UiSharedService.GetBoolColor(hasWorldData));
+                ElezenImgui.ShowIcon(FontAwesomeIcon.Globe, ElezenImgui.GetBooleanColour(hasWorldData));
                 var tooltipText = !hasWorldData ? "This Pose has no world data attached." : "This Pose has world data attached.";
                 if (hasWorldData)
                 {
@@ -518,7 +518,7 @@ internal sealed partial class CharaDataHubUi
             if (poseHasChanges)
             {
                 ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Undo, "Undo"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Undo, "Undo"))
                 {
                     updateDto.RevertDeletion(pose);
                 }
@@ -541,7 +541,7 @@ internal sealed partial class CharaDataHubUi
         using (ImRaii.Disabled((!_charaDataManager.GetAllDataTask?.IsCompleted ?? false)
             || (_charaDataManager.DataGetTimeoutTask != null && !_charaDataManager.DataGetTimeoutTask.IsCompleted)))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleDown, "Download your Online Character Data from Server"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleDown, "Download your Online Character Data from Server"))
             {
                 _ = _charaDataManager.GetAllData(_disposalCts.Token);
             }
@@ -575,7 +575,7 @@ internal sealed partial class CharaDataHubUi
                     var uDto = _charaDataManager.GetUpdateDto(entry.Id);
                     ImGui.TableNextColumn();
                     if (string.Equals(entry.Id, SelectedDtoId, StringComparison.Ordinal))
-                        _uiSharedService.IconText(FontAwesomeIcon.CaretRight);
+                        ElezenImgui.ShowIcon(FontAwesomeIcon.CaretRight);
 
                     ImGui.TableNextColumn();
                     DrawAddOrRemoveFavorite(entry);
@@ -613,7 +613,7 @@ internal sealed partial class CharaDataHubUi
                     ImGui.TableNextColumn();
                     bool isDownloadable = !entry.HasMissingFiles
                         && !string.IsNullOrEmpty(entry.GlamourerData);
-                    _uiSharedService.BooleanToColoredIcon(isDownloadable, false);
+                    ElezenImgui.GetBooleanIcon(isDownloadable, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
                     UiSharedService.AttachToolTip(isDownloadable ? "Can be downloaded by others" : "Cannot be downloaded: Has missing files or data, please review this entry manually");
 
@@ -625,13 +625,13 @@ internal sealed partial class CharaDataHubUi
 
                     ImGui.TableNextColumn();
                     bool hasGlamourerData = !string.IsNullOrEmpty(entry.GlamourerData);
-                    _uiSharedService.BooleanToColoredIcon(hasGlamourerData, false);
+                    ElezenImgui.GetBooleanIcon(hasGlamourerData, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
                     UiSharedService.AttachToolTip(string.IsNullOrEmpty(entry.GlamourerData) ? "No Glamourer data attached" : "Has Glamourer data attached");
 
                     ImGui.TableNextColumn();
                     bool hasCustomizeData = !string.IsNullOrEmpty(entry.CustomizeData);
-                    _uiSharedService.BooleanToColoredIcon(hasCustomizeData, false);
+                    ElezenImgui.GetBooleanIcon(hasCustomizeData, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
                     UiSharedService.AttachToolTip(string.IsNullOrEmpty(entry.CustomizeData) ? "No Customize+ data attached" : "Has Customize+ data attached");
 
@@ -639,7 +639,7 @@ internal sealed partial class CharaDataHubUi
                     FontAwesomeIcon eIcon = FontAwesomeIcon.None;
                     if (!Equals(DateTime.MaxValue, entry.ExpiryDate))
                         eIcon = FontAwesomeIcon.Clock;
-                    _uiSharedService.IconText(eIcon, ImGuiColors.DalamudYellow);
+                    ElezenImgui.ShowIcon(eIcon, ImGuiColors.DalamudYellow);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
                     if (eIcon != FontAwesomeIcon.None)
                     {
@@ -651,7 +651,7 @@ internal sealed partial class CharaDataHubUi
 
         using (ImRaii.Disabled(!_charaDataManager.Initialized || _charaDataManager.DataCreationTask != null || _charaDataManager.OwnCharaData.Count == _charaDataManager.MaxCreatableCharaData))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "New Character Data Entry"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "New Character Data Entry"))
             {
                 _charaDataManager.CreateCharaDataEntry(_closalCts.Token);
                 _selectNewEntry = true;
@@ -745,7 +745,7 @@ internal sealed partial class CharaDataHubUi
 
                     using (ImRaii.Disabled(string.IsNullOrEmpty(_selectedSpecificUserIndividual)))
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Remove selected User"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Remove selected User"))
                         {
                             updateDto.RemoveUserFromList(_selectedSpecificUserIndividual);
                             _selectedSpecificUserIndividual = string.Empty;
@@ -792,7 +792,7 @@ internal sealed partial class CharaDataHubUi
 
                     using (ImRaii.Disabled(string.IsNullOrEmpty(_selectedSpecificGroupIndividual)))
                     {
-                        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Trash, "Remove selected Syncshell"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Remove selected Syncshell"))
                         {
                             updateDto.RemoveGroupFromList(_selectedSpecificGroupIndividual);
                             _selectedSpecificGroupIndividual = string.Empty;

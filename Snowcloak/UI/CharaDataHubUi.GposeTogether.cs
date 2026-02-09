@@ -41,20 +41,20 @@ internal sealed partial class CharaDataHubUi
         _uiSharedService.BigText("Lobby Controls");
         if (string.IsNullOrEmpty(_charaDataGposeTogetherManager.CurrentGPoseLobbyId))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Create New GPose Together Lobby"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create New GPose Together Lobby"))
             {
                 _charaDataGposeTogetherManager.CreateNewLobby();
             }
             ImGuiHelpers.ScaledDummy(5);
             ImGui.SetNextItemWidth(250);
             ImGui.InputTextWithHint("##lobbyId", "GPose Lobby ID", ref _joinLobbyId, 30);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, "Join GPose Together Lobby"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Join GPose Together Lobby"))
             {
                 _charaDataGposeTogetherManager.JoinGPoseLobby(_joinLobbyId);
                 _joinLobbyId = string.Empty;
             }
             if (!string.IsNullOrEmpty(_charaDataGposeTogetherManager.LastGPoseLobbyId)
-                && _uiSharedService.IconTextButton(FontAwesomeIcon.LongArrowAltRight, string.Format("Rejoin Last Lobby {0}", _charaDataGposeTogetherManager.LastGPoseLobbyId)))
+                && ElezenImgui.ShowIconButton(FontAwesomeIcon.LongArrowAltRight, string.Format("Rejoin Last Lobby {0}", _charaDataGposeTogetherManager.LastGPoseLobbyId)))
             {
                 _charaDataGposeTogetherManager.JoinGPoseLobby(_charaDataGposeTogetherManager.LastGPoseLobbyId);
             }
@@ -73,7 +73,7 @@ internal sealed partial class CharaDataHubUi
             UiSharedService.AttachToolTip("Copy Lobby ID to clipboard.");
             using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
             {
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowLeft, "Leave GPose Lobby"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowLeft, "Leave GPose Lobby"))
                 {
                     _charaDataGposeTogetherManager.LeaveGPoseLobby();
                 }
@@ -83,7 +83,7 @@ internal sealed partial class CharaDataHubUi
         UiSharedService.DistanceSeparator();
         using (ImRaii.Disabled(string.IsNullOrEmpty(_charaDataGposeTogetherManager.CurrentGPoseLobbyId)))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowUp, "Send Updated Character Data"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowUp, "Send Updated Character Data"))
             {
                 _ = _charaDataGposeTogetherManager.PushCharacterDownloadDto();
             }
@@ -133,8 +133,8 @@ internal sealed partial class CharaDataHubUi
             var userText = note == null ? user.UserData.AliasOrUID : $"{note} ({user.UserData.AliasOrUID})";
             ElezenImgui.ColouredText(userText, ImGuiColors.ParsedGreen);
 
-            var buttonsize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X;
-            var buttonsize2 = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus).X;
+            var buttonsize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X;
+            var buttonsize2 = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus).X;
             ImGui.SameLine();
             ImGui.SetCursorPosX(availWidth - (buttonsize + buttonsize2 + ImGui.GetStyle().ItemSpacing.X));
             using (ImRaii.Disabled(!_uiSharedService.IsInGpose || user.CharaData == null || user.Address == nint.Zero))
@@ -161,12 +161,12 @@ internal sealed partial class CharaDataHubUi
             {
                 ElezenImgui.ColouredText("Map Info", ImGuiColors.DalamudGrey);
                 ImGui.SameLine();
-                _uiSharedService.IconText(FontAwesomeIcon.ExternalLinkSquareAlt, ImGuiColors.DalamudGrey);
+                ElezenImgui.ShowIcon(FontAwesomeIcon.ExternalLinkSquareAlt, ImGuiColors.DalamudGrey);
             }
             UiSharedService.AttachToolTip(user.WorldDataDescriptor + UiSharedService.TooltipSeparator);
 
             ImGui.SameLine();
-            _uiSharedService.IconText(FontAwesomeIcon.Map, sameMapAndServer.SameMap ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Map, sameMapAndServer.SameMap ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left) && user.WorldData != null)
             {
                 _dalamudUtilService.SetMarkerAndOpenMap(new(user.WorldData.Value.PositionX, user.WorldData.Value.PositionY, user.WorldData.Value.PositionZ), user.Map);
@@ -175,12 +175,12 @@ internal sealed partial class CharaDataHubUi
                 sameMapAndServer.SameMap ? "You are on the same map." : "You are not on the same map."));
 
             ImGui.SameLine();
-            _uiSharedService.IconText(FontAwesomeIcon.Globe, sameMapAndServer.SameServer ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Globe, sameMapAndServer.SameServer ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
             UiSharedService.AttachToolTip(string.Format("{0}" + UiSharedService.TooltipSeparator + "Note: GPose synchronization is not dependent on the current server, but you will have to spawn a character for the other lobby users.",
                 sameMapAndServer.SameServer ? "You are on the same server." : "You are not on the same server."));
 
             ImGui.SameLine();
-            _uiSharedService.IconText(FontAwesomeIcon.Running, sameMapAndServer.SameEverything ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Running, sameMapAndServer.SameEverything ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
             UiSharedService.AttachToolTip((sameMapAndServer.SameEverything ? "You are in the same instanced area." : "You are not the same instanced area.") + UiSharedService.TooltipSeparator +
                                           "Note: Users not in your instance, but on the same map, will be drawn as floating wisps." + Environment.NewLine
                                               + "Note: GPose synchronization is not dependent on the current instance, but you will have to spawn a character for the other lobby users.");
@@ -217,7 +217,7 @@ internal sealed partial class CharaDataHubUi
                 if (_uiSharedService.IsInGpose && user.Address == nint.Zero)
                 {
                     ImGui.SameLine();
-                    _uiSharedService.IconText(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudRed);
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudRed);
                     UiSharedService.AttachToolTip("No valid character assigned for this user. Pose data will not be applied.");
                 }
             }

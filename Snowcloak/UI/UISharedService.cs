@@ -289,26 +289,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         }
     }
 
-    public static Vector4 GetBoolColor(bool input) => input ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed;
-
-    public float GetIconTextButtonSize(FontAwesomeIcon icon, string text)
-    {
-        Vector2 vector;
-        using (IconFont.Push())
-            vector = ImGui.CalcTextSize(icon.ToIconString());
-
-        Vector2 vector2 = ImGui.CalcTextSize(text);
-        float num = 3f * ImGuiHelpers.GlobalScale;
-        return vector.X + vector2.X + ImGui.GetStyle().FramePadding.X * 2f + num;
-    }
-
-    public static Vector2 GetIconSize(FontAwesomeIcon icon)
-    {
-        using var font = ImRaii.PushFont(UiBuilder.IconFont);
-        var iconSize = ImGui.CalcTextSize(icon.ToIconString());
-        return iconSize;
-    }
-
     public static string GetNotes(List<Pair> pairs)
     {
         StringBuilder sb = new();
@@ -355,47 +335,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.PopID();
 
         return result;
-    }
-
-    private bool IconTextButtonInternal(FontAwesomeIcon icon, string text, Vector4? defaultColor = null, float? width = null)
-    {
-        int num = 0;
-        if (defaultColor.HasValue)
-        {
-            ImGui.PushStyleColor(ImGuiCol.Button, defaultColor.Value);
-            num++;
-        }
-
-        ImGui.PushID(text);
-        Vector2 vector;
-        using (IconFont.Push())
-            vector = ImGui.CalcTextSize(icon.ToIconString());
-        Vector2 vector2 = ImGui.CalcTextSize(text);
-        ImDrawListPtr windowDrawList = ImGui.GetWindowDrawList();
-        Vector2 cursorScreenPos = ImGui.GetCursorScreenPos();
-        float num2 = 3f * ImGuiHelpers.GlobalScale;
-        float x = width ?? vector.X + vector2.X + ImGui.GetStyle().FramePadding.X * 2f + num2;
-        float frameHeight = ImGui.GetFrameHeight();
-        bool result = ImGui.Button(string.Empty, new Vector2(x, frameHeight));
-        Vector2 pos = new Vector2(cursorScreenPos.X + ImGui.GetStyle().FramePadding.X, cursorScreenPos.Y + ImGui.GetStyle().FramePadding.Y);
-        using (IconFont.Push())
-            windowDrawList.AddText(pos, ImGui.GetColorU32(ImGuiCol.Text), icon.ToIconString());
-        Vector2 pos2 = new Vector2(pos.X + vector.X + num2, cursorScreenPos.Y + ImGui.GetStyle().FramePadding.Y);
-        windowDrawList.AddText(pos2, ImGui.GetColorU32(ImGuiCol.Text), text);
-        ImGui.PopID();
-        if (num > 0)
-        {
-            ImGui.PopStyleColor(num);
-        }
-
-        return result;
-    }
-
-    public bool IconTextButton(FontAwesomeIcon icon, string text, float? width = null, bool isInPopup = false)
-    {
-        return IconTextButtonInternal(icon, text,
-            isInPopup ? ColorHelpers.RgbaUintToVector4(ImGui.GetColorU32(ImGuiCol.PopupBg)) : null,
-            width <= 0 ? null : width);
     }
 
     public static bool IsDirectoryWritable(string dirPath, bool throwIfFails = false)
@@ -484,25 +423,9 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public void BigText(string text, Vector4? color = null)
     {
-        FontText(text, UidFont, color);
+        ElezenImgui.FontText(text, UidFont, color);
     }
-
-    public void BooleanToColoredIcon(bool value, bool inline = true)
-    {
-        using var colorgreen = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen, value);
-        using var colorred = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudRed, !value);
-
-        if (inline) ImGui.SameLine();
-
-        if (value)
-        {
-            IconText(FontAwesomeIcon.Check);
-        }
-        else
-        {
-            IconText(FontAwesomeIcon.Times);
-        }
-    }
+    
 
     public void DrawCacheDirectorySetting()
     {
@@ -737,7 +660,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             if (_configService.Current.InitialScanComplete)
             {
                 ImGui.SameLine();
-                if (IconTextButton(FontAwesomeIcon.Play, "Force rescan"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Play, "Force rescan"))
                 {
                     _cacheMonitor.InvokeScan();
                 }
@@ -747,7 +670,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     public void DrawHelpText(string helpText)
     {
         ImGui.SameLine();
-        IconText(FontAwesomeIcon.QuestionCircle, ImGui.GetColorU32(ImGuiCol.TextDisabled));
+        ElezenImgui.ShowIcon(FontAwesomeIcon.QuestionCircle, ImGui.GetColorU32(ImGuiCol.TextDisabled));
         AttachToolTip(helpText);
     }
 
@@ -770,14 +693,16 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
         ImGui.TextUnformatted("Penumbra");
         ImGui.SameLine();
-        IconText(_penumbraExists ? check : cross, GetBoolColor(_penumbraExists));
+        ElezenImgui.GetBooleanIcon(_penumbraExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("Penumbra is {0}", _penumbraExists ? "available and up to date." : "unavailable or not up to date."));
+        AttachToolTip(
+            $"Penumbra is {(_penumbraExists ? "available and up to date." : "unavailable or not up to date.")}");
         
         ImGui.TextUnformatted("Glamourer");
         ImGui.SameLine();
-        IconText(_glamourerExists ? check : cross, GetBoolColor(_glamourerExists));
-        AttachToolTip(string.Format("Glamourer is {0}", _glamourerExists ? "available and up to date." : "unavailable or not up to date."));
+        ElezenImgui.GetBooleanIcon(_glamourerExists, inline: false);
+        AttachToolTip(
+            $"Glamourer is {(_glamourerExists ? "available and up to date." : "unavailable or not up to date.")}");
         
         if (intro)
         {
@@ -796,49 +721,53 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
         ImGui.TextUnformatted("SimpleHeels");
         ImGui.SameLine();
-        IconText(_heelsExists ? check : cross, GetBoolColor(_heelsExists));
+        ElezenImgui.GetBooleanIcon(_heelsExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("SimpleHeels is {0}", _heelsExists ? "available and up to date." :"unavailable or not up to date."));
+        AttachToolTip(
+            $"SimpleHeels is {(_heelsExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SameLine();
         ImGui.TextUnformatted("Customize+");
         ImGui.SameLine();
-        IconText(_customizePlusExists ? check : cross, GetBoolColor(_customizePlusExists));
+        ElezenImgui.GetBooleanIcon(_customizePlusExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("Customize+ is {0}", _customizePlusExists ? "available and up to date." : "unavailable or not up to date."));
+        AttachToolTip(
+            $"Customize+ is {(_customizePlusExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SameLine();
         ImGui.TextUnformatted("Honorific");
         ImGui.SameLine();
-        IconText(_honorificExists ? check : cross, GetBoolColor(_honorificExists));
+        ElezenImgui.GetBooleanIcon(_honorificExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("Honorific is {0}", _honorificExists ? "available and up to date." :  "unavailable or not up to date."));
+        AttachToolTip(
+            $"Honorific is {(_honorificExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SameLine();
         ImGui.TextUnformatted("PetNicknames");
         ImGui.SameLine();
-        IconText(_petNamesExists ? check : cross, GetBoolColor(_petNamesExists));
+        ElezenImgui.GetBooleanIcon(_petNamesExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("PetNicknames is {0}", _petNamesExists ? "available and up to date." : "unavailable or not up to date."));
+        AttachToolTip(
+            $"PetNicknames is {(_petNamesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SetCursorPosX(alignPos);
         ImGui.TextUnformatted("Moodles");
         ImGui.SameLine();
-        IconText(_moodlesExists ? check : cross, GetBoolColor(_moodlesExists));
+        ElezenImgui.GetBooleanIcon(_moodlesExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("Moodles is {0}", _moodlesExists ? "available and up to date." :  "unavailable or not up to date."));
+        AttachToolTip($"Moodles is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SameLine();
         ImGui.TextUnformatted("Brio");
         ImGui.SameLine();
-        IconText(_brioExists ? check : cross, GetBoolColor(_brioExists));
+        ElezenImgui.GetBooleanIcon(_brioExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(string.Format("Brio is {0}", _moodlesExists ? "available and up to date." : "unavailable or not up to date."));
+        AttachToolTip($"Brio is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         if (!_penumbraExists || !_glamourerExists)
@@ -897,7 +826,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         var text = "Connect";
         if (_serverSelectionIndex == _serverConfigurationManager.CurrentServerIndex) text = "Reconnect";
-        if (IconTextButton(FontAwesomeIcon.Link, text))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Link, text))
         {
             _serverConfigurationManager.SelectServer(_serverSelectionIndex);
             _ = _apiController.CreateConnections();
@@ -909,7 +838,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             ImGui.InputText("Custom Service URI", ref _customServerUri, 255);
             ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
             ImGui.InputText("Custom Service Name", ref _customServerName, 255);
-            if (IconTextButton(FontAwesomeIcon.Plus, "Add Custom Service")
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add Custom Service")
                 && !string.IsNullOrEmpty(_customServerUri)
                 && !string.IsNullOrEmpty(_customServerName))
             {
@@ -926,28 +855,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         }
 
         return _serverSelectionIndex;
-    }
-
-    public Vector2 GetIconButtonSize(FontAwesomeIcon icon)
-    {
-        using var font = IconFont.Push();
-        return ImGuiHelpers.GetButtonSize(icon.ToIconString());
-    }
-
-    public Vector2 GetIconData(FontAwesomeIcon icon)
-    {
-        using var font = IconFont.Push();
-        return ImGui.CalcTextSize(icon.ToIconString());
-    }
-
-    public void IconText(FontAwesomeIcon icon, uint color)
-    {
-        FontText(icon.ToIconString(), IconFont, color);
-    }
-
-    public void IconText(FontAwesomeIcon icon, Vector4? color = null)
-    {
-        IconText(icon, color == null ? ImGui.GetColorU32(ImGuiCol.Text) : ImGui.GetColorU32(color.Value));
     }
 
     public IDalamudTextureWrap LoadImage(byte[] imageData)
@@ -983,18 +890,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     [GeneratedRegex(@"^(?:[a-zA-Z]:\\[\w\s\-\\]+?|\/(?:[\w\s\-\/])+?)$", RegexOptions.ECMAScript, 5000)]
     private static partial Regex PathRegex();
-
-    private void FontText(string text, IFontHandle font, Vector4? color = null)
-    {
-        FontText(text, font, color == null ? ImGui.GetColorU32(ImGuiCol.Text) : ImGui.GetColorU32(color.Value));
-    }
-
-    private void FontText(string text, IFontHandle font, uint color)
-    {
-        using var pushedFont = font.Push();
-        using var pushedColor = ImRaii.PushColor(ImGuiCol.Text, color);
-        ImGui.TextUnformatted(text);
-    }
 
     public sealed record IconScaleData(Vector2 IconSize, Vector2 NormalizedIconScale, float OffsetX, float IconScaling);
     public void RenderBbCode(string text, float wrapWidth, BbCodeRenderOptions? options = null)

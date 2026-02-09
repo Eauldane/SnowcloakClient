@@ -32,7 +32,7 @@ public class BanUserPopupHandler : IPopupHandler
         ElezenImgui.WrappedText(string.Format("User {0} will be banned and removed from this Syncshell.", _reportedPair.UserData.AliasOrUID));
         ImGui.InputTextWithHint("##banreason", "Ban Reason", ref _banReason, 255);
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.UserSlash, "Ban User"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserSlash, "Ban User"))
         {
             ImGui.CloseCurrentPopup();
             var reason = _banReason;

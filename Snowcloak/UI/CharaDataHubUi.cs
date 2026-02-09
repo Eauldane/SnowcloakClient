@@ -187,7 +187,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 ImGui.AlignTextToFramePadding();
                 ImGui.TextUnformatted("Applying Data to Actor");
                 ImGui.SameLine();
-                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Cancel Application"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Ban, "Cancel Application"))
                 {
                     _charaDataManager.CancelDataApplication();
                 }
@@ -347,13 +347,13 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         bool isFavorite = _configService.Current.FavoriteCodes.TryGetValue(id, out var favorite);
         if (_configService.Current.FavoriteCodes.ContainsKey(id))
         {
-            _uiSharedService.IconText(FontAwesomeIcon.Star, ImGuiColors.ParsedGold);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Star, ImGuiColors.ParsedGold);
             UiSharedService.AttachToolTip($"Custom Description: {favorite?.CustomDescription ?? string.Empty}" + UiSharedService.TooltipSeparator
                 + "Click to remove from Favorites");
         }
         else
         {
-            _uiSharedService.IconText(FontAwesomeIcon.Star, ImGuiColors.DalamudGrey);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Star, ImGuiColors.DalamudGrey);
             UiSharedService.AttachToolTip("Click to add to Favorites");
         }
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
@@ -395,7 +395,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 var handled = _charaDataManager.HandledCharaData.FirstOrDefault(c => string.Equals(c.Name, actor.Name.TextValue, StringComparison.Ordinal));
                 using (ImRaii.Disabled(handled == null))
                 {
-                    _uiSharedService.IconText(FontAwesomeIcon.InfoCircle);
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                     var id = string.IsNullOrEmpty(handled?.MetaInfo.Uploader.UID) ? handled?.MetaInfo.Id : handled.MetaInfo.FullId;
                     UiSharedService.AttachToolTip($"Applied Data: {id ?? "No data applied"}");
 
@@ -434,7 +434,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         {
             ImGui.TextUnformatted("GPose Target");
             ImGui.SameLine(200);
-            ElezenImgui.ColouredText(CharaName(_gposeTarget), UiSharedService.GetBoolColor(_hasValidGposeTarget));
+            ElezenImgui.ColouredText(CharaName(_gposeTarget), ElezenImgui.GetBooleanColour(_hasValidGposeTarget));
         }
 
         if (!_hasValidGposeTarget)
@@ -465,7 +465,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     ImGui.InputTextWithHint("##descFilter", "Custom Description Filter", ref _filterDescription, 100);
                     ImGui.Checkbox("Only show entries with pose data", ref _filterPoseOnly);
                     ImGui.Checkbox("Only show entries with world data", ref _filterWorldOnly);
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Reset Filter"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Ban, "Reset Filter"))
                     {
                         _filterCodeNote = string.Empty;
                         _filterDescription = string.Empty;
@@ -498,20 +498,20 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
                         ImGui.AlignTextToFramePadding();
                         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey, !metaInfoDownloaded))
-                        using (ImRaii.PushColor(ImGuiCol.Text, UiSharedService.GetBoolColor(metaInfo != null), metaInfoDownloaded))
+                        using (ImRaii.PushColor(ImGuiCol.Text, ElezenImgui.GetBooleanColour(metaInfo != null), metaInfoDownloaded))
                             ImGui.TextUnformatted(favorite.Key);
 
-                        var iconSize = UiSharedService.GetIconSize(FontAwesomeIcon.Check);
-                        var refreshButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowsSpin);
-                        var applyButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight);
-                        var addButtonSize = _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus);
+                        var iconSize = ElezenImgui.GetIconSize(FontAwesomeIcon.Check);
+                        var refreshButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.ArrowsSpin);
+                        var applyButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.ArrowRight);
+                        var addButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus);
                         var offsetFromRight = maxPos - (iconSize.X + refreshButtonSize.X + applyButtonSize.X + addButtonSize.X + (ImGui.GetStyle().ItemSpacing.X * 3.5f));
 
                         ImGui.SameLine();
                         ImGui.SetCursorPosX(offsetFromRight);
                         if (metaInfoDownloaded)
                         {
-                            _uiSharedService.BooleanToColoredIcon(metaInfo != null, false);
+                            ElezenImgui.GetBooleanIcon(metaInfo != null, false);
                             if (metaInfo != null)
                             {
                                 UiSharedService.AttachToolTip("Metainfo present" + UiSharedService.TooltipSeparator
@@ -527,7 +527,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                         }
                         else
                         {
-                            _uiSharedService.IconText(FontAwesomeIcon.QuestionCircle, ImGuiColors.DalamudGrey);
+                            ElezenImgui.ShowIcon(FontAwesomeIcon.QuestionCircle, ImGuiColors.DalamudGrey);
                             UiSharedService.AttachToolTip("Unknown accessibility state. Click the button on the right to refresh.");
                         }
 
@@ -621,14 +621,14 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 ImGui.InputTextWithHint("##importCode", "Enter Data Code", ref _importCode, 100);
                 using (ImRaii.Disabled(string.IsNullOrEmpty(_importCode)))
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleDown, "Get Info from Code"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleDown, "Get Info from Code"))
                     {
                         _charaDataManager.DownloadMetaInfo(_importCode);
                     }
                 }
                 GposeMetaInfoAction((meta) =>
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, $"Download and Apply"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, $"Download and Apply"))
                     {
                         _ = _charaDataManager.ApplyCharaDataToGposeTarget(meta!);
                     }
@@ -636,7 +636,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 GposeMetaInfoAction((meta) =>
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, $"Download and Spawn"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, $"Download and Spawn"))
                     {
                         _ = _charaDataManager.SpawnAndApplyData(meta!);
                     }
@@ -667,13 +667,13 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     ImGui.TextUnformatted(metaInfo?.UpdatedDate.ToLocalTime().ToString() ?? "-");
                     ImGui.TextUnformatted("Is Downloadable");
                     ImGui.SameLine(150);
-                    _uiSharedService.BooleanToColoredIcon(metaInfo?.CanBeDownloaded ?? false, inline: false);
+                    ElezenImgui.GetBooleanIcon(metaInfo?.CanBeDownloaded ?? false, inline: false);
                     ImGui.TextUnformatted("Poses");
                     ImGui.SameLine(150);
                     if (metaInfo?.HasPoses ?? false)
                         DrawPoseData(metaInfo, _gposeTarget, _hasValidGposeTarget);
                     else
-                        _uiSharedService.BooleanToColoredIcon(false, false);
+                        ElezenImgui.GetBooleanIcon(false, false);
                 }
             }
         }
@@ -691,7 +691,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 using (ImRaii.Disabled(_charaDataManager.GetAllDataTask != null
                     || (_charaDataManager.DataGetTimeoutTask != null && !_charaDataManager.DataGetTimeoutTask.IsCompleted)))
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowCircleDown, "Download your Character Data"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleDown, "Download your Character Data"))
                     {
                         _ = _charaDataManager.GetAllData(_disposalCts.Token);
                     }
@@ -807,7 +807,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
                 if (_charaDataManager.LoadedMcdfHeader == null || _charaDataManager.LoadedMcdfHeader.IsCompleted)
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.FolderOpen, "Load MCDF"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FolderOpen, "Load MCDF"))
                     {
                         _fileDialogManager.OpenFileDialog("Pick MCDF file", ".mcdf", (success, paths) =>
                         {
@@ -834,7 +834,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
 
                         using (ImRaii.Disabled(!_hasValidGposeTarget))
                         {
-                            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ArrowRight, "Apply"))
+                            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Apply"))
                             {
                                 _ = _charaDataManager.McdfApplyToGposeTarget();
                             }
@@ -842,7 +842,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                             ImGui.SameLine();
                             using (ImRaii.Disabled(!_charaDataManager.BrioAvailable))
                             {
-                                if (_uiSharedService.IconTextButton(FontAwesomeIcon.Plus, "Spawn Actor and Apply"))
+                                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Spawn Actor and Apply"))
                                 {
                                     _charaDataManager.McdfSpawnApplyToGposeTarget();
                                 }
@@ -882,7 +882,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ImGui.Indent();
 
             ImGui.InputTextWithHint("Export Descriptor", "This description will be shown on loading the data", ref _exportDescription, 255);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Export Character as MCDF"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Export Character as MCDF"))
             {
                 string defaultFileName = string.IsNullOrEmpty(_exportDescription)
                     ? "export.mcdf"
@@ -921,18 +921,18 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ImGui.SameLine();
             var favPos = ImGui.GetCursorPosX();
             ImGui.AlignTextToFramePadding();
-            ElezenImgui.ColouredText(data.FullId, UiSharedService.GetBoolColor(data.CanBeDownloaded));
+            ElezenImgui.ColouredText(data.FullId, ElezenImgui.GetBooleanColour(data.CanBeDownloaded));
             if (!data.CanBeDownloaded)
             {
                 UiSharedService.AttachToolTip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the MCD Online tab.");
             }
 
-            var offsetFromRight = availableWidth - UiSharedService.GetIconSize(FontAwesomeIcon.Calendar).X - _uiSharedService.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X
-                - _uiSharedService.GetIconButtonSize(FontAwesomeIcon.Plus).X - ImGui.GetStyle().ItemSpacing.X * 2;
+            var offsetFromRight = availableWidth - ElezenImgui.GetIconSize(FontAwesomeIcon.Calendar).X - ElezenImgui.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X
+                - ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus).X - ImGui.GetStyle().ItemSpacing.X * 2;
 
             ImGui.SameLine();
             ImGui.SetCursorPosX(offsetFromRight);
-            _uiSharedService.IconText(FontAwesomeIcon.Calendar);
+            ElezenImgui.ShowIcon(FontAwesomeIcon.Calendar);
             UiSharedService.AttachToolTip($"Last Update: {data.UpdatedDate}");
 
             ImGui.SameLine();
@@ -958,7 +958,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             {
                 using (ImRaii.Disabled(_isHandlingSelf))
                 {
-                    if (_uiSharedService.IconTextButton(FontAwesomeIcon.Edit, "Open in MCD Online Editor"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Edit, "Open in MCD Online Editor"))
                     {
                         SelectedDtoId = data.Id;
                         _openMcdOnlineOnNextRun = true;
@@ -998,16 +998,16 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             {
                 ImGui.SetCursorPosX(s);
                 var posX = ImGui.GetCursorPosX();
-                _uiSharedService.IconText(item.HasWorldData ? FontAwesomeIcon.Circle : FontAwesomeIcon.Running);
+                ElezenImgui.ShowIcon(item.HasWorldData ? FontAwesomeIcon.Circle : FontAwesomeIcon.Running);
                 if (item.HasWorldData)
                 {
                     ImGui.SameLine();
                     ImGui.SetCursorPosX(posX);
                     using var col = ImRaii.PushColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.WindowBg));
-                    _uiSharedService.IconText(FontAwesomeIcon.Running);
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.Running);
                     ImGui.SameLine();
                     ImGui.SetCursorPosX(posX);
-                    _uiSharedService.IconText(FontAwesomeIcon.Running);
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.Running);
                 }
                 ImGui.SameLine();
                 return ImGui.GetCursorPosX();
@@ -1081,7 +1081,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         ImGui.SameLine(300);
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(string.IsNullOrEmpty(_configService.Current.LastSavedCharaDataLocation) ? "Not set" : _configService.Current.LastSavedCharaDataLocation);
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Ban, "Clear Last Export Folder"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Ban, "Clear Last Export Folder"))
         {
             _configService.Current.LastSavedCharaDataLocation = string.Empty;
             _configService.Save();

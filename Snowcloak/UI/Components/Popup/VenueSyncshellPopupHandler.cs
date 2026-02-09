@@ -82,7 +82,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
 
         using (ImRaii.Disabled(_isJoining))
         {
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.SignInAlt, _isJoining ? "Joining..." : "Join syncshell"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.SignInAlt, _isJoining ? "Joining..." : "Join syncshell"))
             {
                 _joinFailed = false;
                 _isJoining = true;
@@ -97,7 +97,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
             }
         }
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Times, "Close"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Close"))
         {
             ImGui.CloseCurrentPopup();
         }

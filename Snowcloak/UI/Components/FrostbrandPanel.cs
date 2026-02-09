@@ -264,7 +264,7 @@ public class FrostbrandPanel
         {
             ImGuiHelpers.ScaledDummy(new Vector2(0, 6));
             ImGui.BeginGroup();
-            _uiShared.IconText(FontAwesomeIcon.UserPlus, ImGui.GetColorU32(ImGuiCol.TextDisabled));
+            ElezenImgui.ShowIcon(FontAwesomeIcon.UserPlus, ImGui.GetColorU32(ImGuiCol.TextDisabled));
             ImGui.SameLine();
             ImGui.BeginGroup();
             ImGui.TextUnformatted("No pending pair requests right now.");
@@ -273,7 +273,7 @@ public class FrostbrandPanel
             ImGui.EndGroup();
             ImGui.EndGroup();
             ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
-            if (_uiShared.IconTextButton(FontAwesomeIcon.Cog, "Open Frostbrand settings"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Cog, "Open Frostbrand settings"))
             {
                 _activeView = FrostbrandPanelView.Settings;
             }            return;

@@ -82,11 +82,11 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
                 ElezenImgui.ColouredText(UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour));
 
             
-            var reportButtonSize = _uiSharedService.GetIconTextButtonSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
+            var reportButtonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
             ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - reportButtonSize);
             var canReport = Pair != null;
             if (!canReport) ImGui.BeginDisabled();
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.ExclamationTriangle, reportLabel) && Pair != null)
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, reportLabel) && Pair != null)
                 Mediator.Publish(new OpenReportPopupMessage(Pair));
             if (!canReport) ImGui.EndDisabled();
             

@@ -88,7 +88,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         if (_ownedVenues.Count == 0)
         {
             ElezenImgui.ColouredWrappedText("No owned venues were found. You can register a plot using the button below.", ImGuiColors.DalamudGrey);
-            if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
             {
                 _venueRegistrationService.BeginRegistrationFromCommand();
             }
@@ -107,14 +107,14 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         ElezenImgui.ColouredWrappedText("Update your venue listing without being on-site, or register a new plot when you're at the placard.", ImGuiColors.DalamudGrey);
         ImGui.Separator();
 
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.SyncAlt, "Refresh"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.SyncAlt, "Refresh"))
         {
             _ = RefreshOwnedVenuesAsync();
         }
         UiSharedService.AttachToolTip("Reload your owned venues from the server.");
 
         ImGui.SameLine();
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
         {
             _venueRegistrationService.BeginRegistrationFromCommand();
         }
@@ -188,7 +188,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
         var canSubmit = !_isSaving && !string.IsNullOrWhiteSpace(_venueName);
         ImGui.BeginDisabled(!canSubmit);
-        if (_uiSharedService.IconTextButton(FontAwesomeIcon.Save, "Save Venue"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Venue"))
         {
             _ = SaveVenueAsync();
         }
