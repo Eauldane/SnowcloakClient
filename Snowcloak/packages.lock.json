@@ -34,18 +34,18 @@
       },
       "Downloader": {
         "type": "Direct",
-        "requested": "[4.0.3, )",
-        "resolved": "4.0.3",
-        "contentHash": "Vg1+UqPDstpMw2CKXV9XvB8jKHC95KQfbqPxQXvOMRMFnTov4Ixvvw6GZV5DXLnKuL2sfnmVYX9CaQtcURia1Q==",
+        "requested": "[4.1.1, )",
+        "resolved": "4.1.1",
+        "contentHash": "SRiN6eDLqI+0EdmzmYbYm+wwPrHPOlyQpXKDYTwal1LAn3MqKYcOn36e45UGh65axLE2R9F+p/37PFt09Tm73A==",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "8.0.3"
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.2"
         }
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[0.0.8.7, )",
-        "resolved": "0.0.8.7",
-        "contentHash": "3mTphdrIRcTvQha7GXmDLCysZHRuckWIEUVgM/8vRSvg+Sc8qTdY8XTPE84o6tx8REM8TvufOqQkzCN7ZLODUg=="
+        "requested": "[0.0.8.12, )",
+        "resolved": "0.0.8.12",
+        "contentHash": "BVqD6pT1JOyb+dXQxzX8uL7seaHL1yyu+m9hz4Tfx3TjGSGcKIX+UPDCZ0YCKCz+Sr6hUrzKYCdJqT1+Kqer9A=="
       },
       "Glamourer.Api": {
         "type": "Direct",

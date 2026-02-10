@@ -112,12 +112,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                 .Where(t => t.RowId != 0)
                 .ToDictionary(t => (byte)t.RowId, t => t.Masculine.ToString());
         });
-        UiColors = new(() =>
-        {
-            return gameData.GetExcelSheet<Lumina.Excel.Sheets.UIColor>(Dalamud.Game.ClientLanguage.English)!
-                .Where(x => x.RowId != 0 && !(x.RowId >= 500 && (x.Dark & 0xFFFFFF00) == 0))
-                .ToDictionary(x => (int)x.RowId);
-        });
+
         TerritoryData = new(() =>
         {
             return gameData.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>(Dalamud.Game.ClientLanguage.English)!
