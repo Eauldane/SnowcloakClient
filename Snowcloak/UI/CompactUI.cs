@@ -840,7 +840,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 {
                     hexString = _useVanityColour ? ColourVectorToHex(_vanityColour) : string.Empty;
                 }
-                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId, hexString));
+                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId) { HexString = hexString });
                 _showVanityIdModal = false;
             }
 

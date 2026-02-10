@@ -36,10 +36,11 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<VenueRegistryListResponseDto>(nameof(VenueRegistryList), request).ConfigureAwait(false);
     }
 
-    public async Task<VenueRegistryListResponseDto> VenueRegistryListOwned(VenueRegistryListOwnedRequestDto request)
+    public async Task<VenueRegistryListOwnedResponseDto> VenueRegistryListOwned(VenueRegistryListOwnedRequestDto request)
     {
         CheckConnection();
-        var response = await _snowHub!.InvokeAsync<VenueRegistryListResponseDto>(nameof(VenueRegistryListOwned), request).ConfigureAwait(false);
+        var response = await _snowHub!.InvokeAsync<VenueRegistryListOwnedResponseDto>(nameof(VenueRegistryListOwned), request)
+            .ConfigureAwait(false);
         Logger.LogInformation("VenueRegistryListOwned response: {Response}", JsonSerializer.Serialize(response, VenueLogJsonOptions));
         return response;
     }

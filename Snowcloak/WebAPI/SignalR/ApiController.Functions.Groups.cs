@@ -1,4 +1,5 @@
 ﻿using Snowcloak.API.Data;
+using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Microsoft.AspNetCore.SignalR.Client;
 using Snowcloak.Configuration.Models;
@@ -47,10 +48,10 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(GroupChatSendMsg), group, message).ConfigureAwait(false);
     }
 
-    public Task GroupChatJoin(GroupDto group)
+    public Task<List<GroupChatMemberStateDto>> GroupChatJoin(GroupDto group)
     {
         CheckConnection();
-        return _snowHub!.InvokeAsync(nameof(GroupChatJoin), group);
+        return _snowHub!.InvokeAsync<List<GroupChatMemberStateDto>>(nameof(GroupChatJoin), group);
     }
 
     public Task GroupChatLeave(GroupDto group)

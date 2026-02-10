@@ -1,4 +1,5 @@
 ﻿using Snowcloak.API.Data;
+using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Dto.User;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
@@ -128,16 +129,31 @@ public partial class ApiController
         }
     }
 
-    public async Task UserSetTextureCompressionMapping(TextureCompressionMappingBatchDto mapping)
+    public async Task<bool> UserSetTextureCompressionMapping(TextureCompressionMappingDto mapping)
     {
-        if (!IsConnected) return;
+        if (!IsConnected) return false;
         try
         {
-            await _snowHub!.InvokeAsync(nameof(UserSetTextureCompressionMapping), mapping).ConfigureAwait(false);
+            return await _snowHub!.InvokeAsync<bool>(nameof(UserSetTextureCompressionMapping), mapping).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to update texture compression mapping");
+            return false;
+        }
+    }
+
+    public async Task<bool> UserSetTextureCompressionMappings(TextureCompressionMappingBatchDto mapping)
+    {
+        if (!IsConnected) return false;
+        try
+        {
+            return await _snowHub!.InvokeAsync<bool>(nameof(UserSetTextureCompressionMappings), mapping).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to update texture compression mappings");
+            return false;
         }
     }
     

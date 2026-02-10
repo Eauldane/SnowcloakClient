@@ -33,6 +33,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="Penumbra.Api" Version="5.13.1" />
+    <PackageReference Include="Snowcloak.API" Version="2.2.0" />
     <PackageReference Include="Snowcloak.CacheFile" Version="3.1.0" />
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.19.0.132793">
       <PrivateAssets>all</PrivateAssets>
@@ -47,10 +48,6 @@
     <SourceRevisionId>build$([System.DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss:fffZ"))</SourceRevisionId>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\SnowcloakAPI\Snowcloak.API.csproj" />
-  </ItemGroup>
     
     
 

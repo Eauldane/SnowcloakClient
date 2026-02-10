@@ -9,6 +9,7 @@ using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
@@ -568,6 +569,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
     {
         TrackStandardChannel(member.Channel);
+        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
+        if (isSelf && !_joinedStandardChannels.Contains(member.Channel.ChannelId))
+        {
+            Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, true));
+        }
         if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
         {
             var existing = members.FindIndex(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
@@ -589,6 +595,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private void HandleStandardChannelMemberLeft(ChannelMemberLeftDto member)
     {
         TrackStandardChannel(member.Channel);
+        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
+        if (isSelf && _joinedStandardChannels.Contains(member.Channel.ChannelId))
+        {
+            Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, false));
+        }
         if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
         {
             members.RemoveAll(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
@@ -1320,12 +1331,50 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 TrackStandardChannel(member.Channel);
                 _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
                 Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, true));
+                return;
+            }
+
+            if (MaybeRemoveJoinedStandardChannel(channel))
+            {
+                NotifyStandardChannelJoinFailure(channel, "You may no longer have access to this channel.");
             }
         }
         catch (Exception ex)
         {
+            if (IsPermanentChannelJoinFailure(ex))
+            {
+                _logger.LogWarning(ex, "Standard channel join failed permanently.");
+                if (MaybeRemoveJoinedStandardChannel(channel))
+                {
+                    NotifyStandardChannelJoinFailure(channel, "This channel may no longer exist.");
+                }
+                return;
+            }
             _logger.LogWarning(ex, "Failed to join standard channel.");
         }
+    }
+
+    private bool MaybeRemoveJoinedStandardChannel(ChatChannelData channel)
+    {
+        if (!_joinedStandardChannels.Contains(channel.ChannelId)) return false;
+        Mediator.Publish(new StandardChannelMembershipChangedMessage(channel, false));
+        return true;
+    }
+
+    private void NotifyStandardChannelJoinFailure(ChatChannelData channel, string reason)
+    {
+        var channelName = string.IsNullOrWhiteSpace(channel.Name) ? channel.ChannelId : channel.Name;
+        Mediator.Publish(new NotificationMessage(
+            "Channel join failed",
+            $"Could not rejoin '{channelName}'. {reason} It was removed from your joined channels list.",
+            NotificationType.Warning,
+            TimeSpan.FromSeconds(7.5)));
+    }
+
+    private static bool IsPermanentChannelJoinFailure(Exception ex)
+    {
+        return ex.Message.Contains("Channel not found", StringComparison.OrdinalIgnoreCase)
+               || ex.Message.Contains("Invalid channel payload", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task LeaveStandardChannel(ChatChannelData channel)

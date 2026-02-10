@@ -227,15 +227,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("When enabled, Snowcloak will wait to upload your files until a paired player is nearby.");
 
-        bool preferCompressedTextures = _configService.Current.PreferCompressedTextures;
-        if (ImGui.Checkbox("Prefer compressed textures when available", ref preferCompressedTextures))
-        {
-            _configService.Current.PreferCompressedTextures = preferCompressedTextures;
-            _configService.Save();
-            _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preferCompressedTextures));
-        }
-        _uiShared.DrawHelpText("When enabled, Snowcloak will request compressed texture variants if the server has them. Disable to request higher quality when available.");
-
+        
         ImGui.Separator();
         _uiShared.BigText("Transfer UI");
         
@@ -1066,6 +1058,15 @@ public class SettingsUi : WindowMediatorSubscriberBase
         
         bool alwaysShrinkTextures = _playerPerformanceConfigService.Current.TextureShrinkMode == TextureShrinkMode.Always;
         bool deleteOriginalTextures = _playerPerformanceConfigService.Current.TextureShrinkDeleteOriginal;
+
+        bool preferCompressedTextures = _configService.Current.PreferCompressedTextures;
+        if (ImGui.Checkbox("Prefer compressed textures when available", ref preferCompressedTextures))
+        {
+            _configService.Current.PreferCompressedTextures = preferCompressedTextures;
+            _configService.Save();
+            _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preferCompressedTextures));
+        }
+        _uiShared.DrawHelpText("When enabled, Snowcloak will request compressed texture variants if the server has them. Disable to request higher quality when available.");
 
         using (ImRaii.Disabled(deleteOriginalTextures))
         {

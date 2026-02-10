@@ -8,6 +8,7 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System;
 using System.Linq;
@@ -18,16 +19,19 @@ namespace Snowcloak.UI;
 public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBase
 {
     private readonly ApiController _apiController;
+    private readonly ServerConfigurationManager _serverManager;
     private readonly List<ChatChannelData> _channels = [];
     private readonly HashSet<string> _joinedChannelIds = new(StringComparer.Ordinal);
     private bool _isLoading;
     private string _filter = string.Empty;
 
     public StandardChannelDirectoryWindow(ILogger<StandardChannelDirectoryWindow> logger, SnowMediator mediator,
-        ApiController apiController, PerformanceCollectorService performanceCollectorService)
+        ApiController apiController, ServerConfigurationManager serverManager,
+        PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Standard Channels###SnowcloakStandardChannels", performanceCollectorService)
     {
         _apiController = apiController;
+        _serverManager = serverManager;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -129,6 +133,7 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
 
     private async Task RefreshChannels()
     {
+        LoadJoinedChannels();
         if (!_apiController.IsConnected) return;
 
         _isLoading = true;
@@ -148,6 +153,15 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    private void LoadJoinedChannels()
+    {
+        _joinedChannelIds.Clear();
+        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        {
+            _joinedChannelIds.Add(channel.ChannelId);
         }
     }
 

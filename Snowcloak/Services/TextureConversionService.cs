@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Penumbra.Api.Enums;
-using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Files;
 using Snowcloak.FileCache;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Services.Mediator;
@@ -94,12 +94,17 @@ public sealed class TextureConversionService : DisposableMediatorSubscriberBase
         await _fileUploadManager.UploadFilesWithMetadata(metadataByHash, token).ConfigureAwait(false);
 
         var mappings = replacementsByNewHash
-            .Select(entry => new TextureCompressionMappingDto(entry.Value, entry.Key))
+            .Select(entry => new TextureCompressionMappingDto
+            {
+                OriginalHash = entry.Value,
+                CompressedHash = entry.Key
+            })
             .ToList();
 
         if (mappings.Count > 0)
         {
-            await _apiController.UserSetTextureCompressionMapping(new TextureCompressionMappingBatchDto(mappings)).ConfigureAwait(false);
+            await _apiController.UserSetTextureCompressionMappings(new TextureCompressionMappingBatchDto { Mappings = mappings })
+                .ConfigureAwait(false);
         }
     }
 

@@ -162,6 +162,16 @@
         "resolved": "5.13.1",
         "contentHash": "kmpqhcbnnF+Ib0F9g7+1W17IbZ8Q8G2zn3MJURd/rmQiB3D7cm8YS2JRmvhDzrN5w9OMlfq7MFxVtwG419YkIA=="
       },
+      "Snowcloak.API": {
+        "type": "Direct",
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "lUA7ETLvRDtb42j8RVgbMH+NC2AkUo9HL6wF4Zz26CldV8a8fhSVg4eHceSc6RUuLdCGyBqnE5TF2T9Gse1HvQ==",
+        "dependencies": {
+          "Blake3": "2.2.0",
+          "MessagePack.Annotations": "3.1.4"
+        }
+      },
       "Snowcloak.CacheFile": {
         "type": "Direct",
         "requested": "[3.1.0, )",
@@ -593,13 +603,6 @@
         "type": "Transitive",
         "resolved": "10.0.3",
         "contentHash": "+bZnyzt0/vt4g3QSllhsRNGTpa09p7Juy5K8spcK73cOTOefu4+HoY89hZOgIOmzB5A4hqPyEDKnzra7KKnhZw=="
-      },
-      "snowcloak.api": {
-        "type": "Project",
-        "dependencies": {
-          "Blake3": "[2.2.0, )",
-          "MessagePack.Annotations": "[3.1.4, )"
-        }
       }
     },
     "net10.0-windows7.0/win-x64": {
