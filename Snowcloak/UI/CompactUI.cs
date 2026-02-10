@@ -156,10 +156,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     protected override void DrawInternal()
     {
-        if (_serverManager.CurrentApiUrl.Equals(ApiController.SnowcloakServiceUri, StringComparison.Ordinal))
-            UiSharedService.AccentColor = ElezenColours.SnowcloakBlue;
-        else
-            UiSharedService.AccentColor = ImGuiColors.ParsedGreen;
+        UiSharedService.AccentColor = ElezenColours.SnowcloakBlue;
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - 1f * ImGuiHelpers.GlobalScale + ImGui.GetStyle().ItemSpacing.Y);
 
         DrawSidebar();
