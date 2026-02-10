@@ -164,9 +164,9 @@
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[3.0.0, )",
-        "resolved": "3.0.0",
-        "contentHash": "7dRtKVHh7Wof17z5bvPpHe8t/P/vzyhqYx1P3LJlP4cMORuSIaKajZB1W8lDFi2ZfmWFE8QtNqiWbFeVS9qDWQ==",
+        "requested": "[3.1.0, )",
+        "resolved": "3.1.0",
+        "contentHash": "TmK/RDc6Hc4e797CVQCKdxjotf+F6iY2v+BmXmvFkqoGgVsyb16M2bBUaD6q6+fNlk+IQEnKqPGGKUCfPpzGhw==",
         "dependencies": {
           "Blake3": "2.2.0",
           "K4os.Compression.LZ4.Streams": "1.3.8",
