@@ -5,12 +5,13 @@ using Snowcloak.Interop.Ipc;
 using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
-using Snowcloak.Files;
+using Snowcloak.CacheFile;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using Lumina.Data;
 using Lumina.Data.Files;
+using Snowcloak.CacheFile.Enums;
 using Snowcloak.Interop.GameModel;
 
 namespace Snowcloak.FileCache;
@@ -180,7 +181,7 @@ public sealed class FileCacheManager : IHostedService
         var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
         var compressionType = ChooseCompressionType(fileCache.ResolvedFilepath, fileExtension);
 
-        var header = await SCFFile.CreateSCFFile(
+        var header = await ScfFile.CreateSCFFile(
             fs,
             ms,
             fileExtension,
@@ -191,7 +192,7 @@ public sealed class FileCacheManager : IHostedService
             metadata.TriangleCount,
             metadata.VramUsage,
             compressionType).ConfigureAwait(false);
-        fileCache.CompressedSize = header.CompressedSize + SCFFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
+        fileCache.CompressedSize = header.CompressedSize + ScfFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
         return (fileHash, ms.ToArray());
     }
     

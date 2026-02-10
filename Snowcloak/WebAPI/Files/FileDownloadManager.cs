@@ -4,7 +4,7 @@ using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Routes;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
-using Snowcloak.Files;
+using Snowcloak.CacheFile;
 using Snowcloak.Utils;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.Mediator;
@@ -350,7 +350,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                             };
 
                             long startPos = fileChunkStream.Position;
-                            var extractedPath = await SCFFile.ExtractSCFFile(innerFileStream, _fileDbManager.CacheFolder, ct).ConfigureAwait(false);                            long readBytes = fileChunkStream.Position - startPos;
+                            var extractedPath = await ScfFile.ExtractSCFFile(innerFileStream, _fileDbManager.CacheFolder, ct).ConfigureAwait(false);                            long readBytes = fileChunkStream.Position - startPos;
                             if (readBytes != fileLengthBytes)
                             {
                                 throw new EndOfStreamException();

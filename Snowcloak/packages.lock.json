@@ -162,6 +162,17 @@
         "resolved": "5.13.1",
         "contentHash": "kmpqhcbnnF+Ib0F9g7+1W17IbZ8Q8G2zn3MJURd/rmQiB3D7cm8YS2JRmvhDzrN5w9OMlfq7MFxVtwG419YkIA=="
       },
+      "Snowcloak.CacheFile": {
+        "type": "Direct",
+        "requested": "[3.0.0, )",
+        "resolved": "3.0.0",
+        "contentHash": "7dRtKVHh7Wof17z5bvPpHe8t/P/vzyhqYx1P3LJlP4cMORuSIaKajZB1W8lDFi2ZfmWFE8QtNqiWbFeVS9qDWQ==",
+        "dependencies": {
+          "Blake3": "2.2.0",
+          "K4os.Compression.LZ4.Streams": "1.3.8",
+          "ZstdSharp.Port": "0.8.7"
+        }
+      },
       "SonarAnalyzer.CSharp": {
         "type": "Direct",
         "requested": "[10.19.0.132793, )",

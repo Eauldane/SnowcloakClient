@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
-using Snowcloak.Files;
+using Snowcloak.CacheFile;
+using Snowcloak.CacheFile.Enums;
 
 namespace Snowcloak.FileCache;
 
