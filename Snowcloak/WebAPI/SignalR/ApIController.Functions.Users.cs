@@ -114,6 +114,32 @@ public partial class ApiController
         if (!IsConnected) return false;
         return await _snowHub!.InvokeAsync<bool>(nameof(UserSetVanityId), vanityId).ConfigureAwait(false);
     }
+
+    public async Task UserSetTextureCompressionPreference(TextureCompressionPreferenceDto preference)
+    {
+        if (!IsConnected) return;
+        try
+        {
+            await _snowHub!.InvokeAsync(nameof(UserSetTextureCompressionPreference), preference).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to update texture compression preference");
+        }
+    }
+
+    public async Task UserSetTextureCompressionMapping(TextureCompressionMappingBatchDto mapping)
+    {
+        if (!IsConnected) return;
+        try
+        {
+            await _snowHub!.InvokeAsync(nameof(UserSetTextureCompressionMapping), mapping).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to update texture compression mapping");
+        }
+    }
     
     public async Task UserSetPairingOptIn(PairingOptInDto optInDto)
     {

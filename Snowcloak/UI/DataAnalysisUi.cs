@@ -5,7 +5,6 @@ using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Interop.Ipc;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
@@ -18,7 +17,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 {
     private readonly CharacterAnalyzer _characterAnalyzer;
     private readonly Progress<(string, int)> _conversionProgress = new();
-    private readonly IpcManager _ipcManager;
+    private readonly TextureConversionService _textureConversionService;
     private readonly UiSharedService _uiSharedService;
     private readonly Dictionary<string, (TextureType TextureType, string[] Duplicates)> _texturesToConvert = new(StringComparer.Ordinal);
     private Dictionary<ObjectKind, Dictionary<string, CharacterAnalyzer.FileDataEntry>>? _cachedAnalysis;
@@ -36,13 +35,13 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     private bool _showModal = false;
 
     public DataAnalysisUi(ILogger<DataAnalysisUi> logger, SnowMediator mediator,
-        CharacterAnalyzer characterAnalyzer, IpcManager ipcManager,
+        CharacterAnalyzer characterAnalyzer, TextureConversionService textureConversionService,
         PerformanceCollectorService performanceCollectorService,
         UiSharedService uiSharedService)
         : base(logger, mediator, "Snowcloak Character Data Analysis###SnowcloakDataAnalysisUI", performanceCollectorService)
     {
         _characterAnalyzer = characterAnalyzer;
-        _ipcManager = ipcManager;
+        _textureConversionService = textureConversionService;
         _uiSharedService = uiSharedService;
         WindowName = "Character Data Analysis";
         Mediator.Subscribe<CharacterDataAnalyzedMessage>(this, (_) =>
@@ -320,7 +319,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                             if (_texturesToConvert.Count > 0 && ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
                             {
                                 _conversionCancellationTokenSource = _conversionCancellationTokenSource.CancelRecreate();
-                                _conversionTask = _ipcManager.Penumbra.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
+                                _conversionTask = _textureConversionService.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
                             }
                         }
                     }

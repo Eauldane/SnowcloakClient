@@ -170,7 +170,7 @@ public sealed class FileCacheManager : IHostedService
         return Path.Combine(SubstFolder, hash + "." + extension);
     }
 
-    public async Task<(string, byte[])> GetCompressedFileData(string fileHash, CancellationToken uploadToken)
+    public async Task<(string, byte[])> GetCompressedFileData(string fileHash, CancellationToken uploadToken, IReadOnlyDictionary<string, byte[]>? optionalMetadataFields = null)
     {
         var fileCache = GetFileCacheByHash(fileHash)!;
         await using var fs = File.OpenRead(fileCache.ResolvedFilepath);
@@ -191,7 +191,9 @@ public sealed class FileCacheManager : IHostedService
             _configService.Current.UseMultithreadedCompression,
             metadata.TriangleCount,
             metadata.VramUsage,
-            compressionType).ConfigureAwait(false);
+            compressionType,
+            optionalMetadata: null,
+            optionalMetadataFields: optionalMetadataFields).ConfigureAwait(false);
         fileCache.CompressedSize = header.CompressedSize + ScfFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
         return (fileHash, ms.ToArray());
     }

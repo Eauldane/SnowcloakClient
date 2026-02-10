@@ -81,6 +81,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public CacheEvictionMode CacheEvictionMode { get; set; } = CacheEvictionMode.LeastRecentlyUsed;
     public bool UseMultithreadedCompression { get; set; } = false;
     public int CompressionLevel { get; set; } = 3;
+    public bool PreferCompressedTextures { get; set; } = true;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
     public bool AllowBbCodeImages { get; set; } = true;
     public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);

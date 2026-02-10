@@ -145,6 +145,8 @@ public interface ISnowHub
 
     Task UserSetProfile(UserProfileDto userDescription);
     Task<bool> UserSetVanityId(UserVanityIdDto vanityId);
+    Task UserSetTextureCompressionPreference(TextureCompressionPreferenceDto preference);
+    Task UserSetTextureCompressionMapping(TextureCompressionMappingBatchDto mapping);
     Task<bool> UserSubscribePairingAvailability(PairingAvailabilitySubscriptionDto request);
 
     Task UserUnsubscribePairingAvailability();

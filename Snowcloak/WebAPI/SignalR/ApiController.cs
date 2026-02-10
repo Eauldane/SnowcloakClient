@@ -5,6 +5,7 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.API.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
@@ -44,6 +45,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
     private readonly ServerConfigurationManager _serverManager;
+    private readonly SnowcloakConfigService _configService;
     private readonly TokenProvider _tokenProvider;
     private CancellationTokenSource _connectionCancellationTokenSource;
     private ConnectionDto? _connectionDto;
@@ -56,7 +58,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public ApiController(ILogger<ApiController> logger, HubFactory hubFactory, DalamudUtilService dalamudUtil,
         PairManager pairManager, PairRequestService pairRequestService, ServerConfigurationManager serverManager, SnowMediator mediator,
-        TokenProvider tokenProvider) : base(logger, mediator)
+        TokenProvider tokenProvider, SnowcloakConfigService configService) : base(logger, mediator)
     {
         _hubFactory = hubFactory;
         _dalamudUtil = dalamudUtil;
@@ -64,6 +66,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _tokenProvider = tokenProvider;
+        _configService = configService;
         _connectionCancellationTokenSource = new CancellationTokenSource();
 
         Mediator.Subscribe<DalamudLoginMessage>(this, (_) => DalamudUtilOnLogIn());
@@ -225,6 +228,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
                     return;
                 }
+
+                await PushTextureCompressionPreference().ConfigureAwait(false);
 
                 if (_connectionDto.CurrentClientVersion > currentClientVer)
                 {
@@ -480,6 +485,18 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         }
     }
 
+    private async Task PushTextureCompressionPreference()
+    {
+        try
+        {
+            await UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(_configService.Current.PreferCompressedTextures)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to send texture compression preference");
+        }
+    }
+
     private void SnowHubOnClosed(Exception? arg)
     {
         _healthCheckTokenSource?.Cancel();
@@ -508,6 +525,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 return;
             }
             ServerState = ServerState.Connected;
+            await PushTextureCompressionPreference().ConfigureAwait(false);
             await LoadIninitialPairs().ConfigureAwait(false);
             await LoadOnlinePairs().ConfigureAwait(false);
             Mediator.Publish(new ConnectedMessage(_connectionDto));

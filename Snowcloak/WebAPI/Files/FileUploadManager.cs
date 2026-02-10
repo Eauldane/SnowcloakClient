@@ -101,6 +101,51 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         return [];
     }
 
+    public async Task<List<string>> UploadFilesWithMetadata(IReadOnlyDictionary<string, IReadOnlyDictionary<string, byte[]>> metadataByHash, CancellationToken? ct = null, IProgress<string>? progress = null)
+    {
+        var hashesToUpload = metadataByHash.Keys.ToList();
+        if (hashesToUpload.Count == 0)
+        {
+            return [];
+        }
+
+        Logger.LogDebug("Trying to upload files with metadata");
+        var filesPresentLocally = hashesToUpload.Where(h => _fileDbManager.GetFileCacheByHash(h) != null).ToHashSet(StringComparer.Ordinal);
+        var locallyMissingFiles = hashesToUpload.Except(filesPresentLocally, StringComparer.Ordinal).ToList();
+        if (locallyMissingFiles.Any())
+        {
+            return locallyMissingFiles;
+        }
+
+        progress ??= new Progress<string>(_ => { });
+        progress.Report($"Starting upload for {filesPresentLocally.Count} files");
+
+        var filesToUpload = await FilesSend([.. filesPresentLocally], [], ct ?? CancellationToken.None).ConfigureAwait(false);
+
+        if (filesToUpload.Exists(f => f.IsForbidden))
+        {
+            return [.. filesToUpload.Where(f => f.IsForbidden).Select(f => f.Hash)];
+        }
+
+        Task uploadTask = Task.CompletedTask;
+        int i = 1;
+        foreach (var file in filesToUpload)
+        {
+            progress.Report($"Uploading file {i++}/{filesToUpload.Count}. Please wait until the upload is completed.");
+            Logger.LogDebug("[{hash}] Compressing", file);
+            metadataByHash.TryGetValue(file.Hash, out var metadata);
+            var data = await _fileDbManager.GetCompressedFileData(file.Hash, ct ?? CancellationToken.None, metadata).ConfigureAwait(false);
+            Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)!.ResolvedFilepath);
+            await uploadTask.ConfigureAwait(false);
+            uploadTask = UploadFile(data.Item2, file.Hash, false, ct ?? CancellationToken.None);
+            (ct ?? CancellationToken.None).ThrowIfCancellationRequested();
+        }
+
+        await uploadTask.ConfigureAwait(false);
+
+        return [];
+    }
+
     public async Task<CharacterData> UploadFiles(CharacterData data, List<UserData> visiblePlayers)
     {
         CancelUpload();
