@@ -176,7 +176,7 @@ public sealed class FileCacheManager : IHostedService
         using var ms = new MemoryStream(64 * 1024);
 
         var extension = Path.GetExtension(fileCache.ResolvedFilepath);
-        var fileExtension = SCFFile.GetExtensionEnum(extension);
+        var fileExtension = SupportedFileTypes.ParseFileExtension(extension);
         var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
         var compressionType = ChooseCompressionType(fileCache.ResolvedFilepath, fileExtension);
 
@@ -191,7 +191,7 @@ public sealed class FileCacheManager : IHostedService
             metadata.TriangleCount,
             metadata.VramUsage,
             compressionType).ConfigureAwait(false);
-        fileCache.CompressedSize = header.CompressedSize + SCFFile.GetHeaderLength();
+        fileCache.CompressedSize = header.CompressedSize + SCFFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
         return (fileHash, ms.ToArray());
     }
     
