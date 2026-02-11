@@ -437,31 +437,23 @@ public class DrawGroupPair : DrawPairBase
                 ImGui.Separator();
             }
 
-            if (_pair.IsVisible)
+            if (_pair.IsVisible && ElezenImgui.ShowIconButton(FontAwesomeIcon.Eye, "Target player"))
             {
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Eye, "Target player"))
-                {
-                    _mediator.Publish(new TargetPairMessage(_pair));
-                    ImGui.CloseCurrentPopup();
-                }
+                _mediator.Publish(new TargetPairMessage(_pair));
+                ImGui.CloseCurrentPopup();
             }
-            if (!_pair.IsPaused)
+            if (!_pair.IsPaused && ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Open Profile"))
             {
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Open Profile"))
-                {
-                    _displayHandler.OpenProfile(_pair);
-                    ImGui.CloseCurrentPopup();
-                }
+                _displayHandler.OpenProfile(_pair);
+                ImGui.CloseCurrentPopup();
             }
             if (_pair.IsVisible)
             {
-#if DEBUG
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PersonCircleQuestion,  "Open Analysis"))
                 {
                     _displayHandler.OpenAnalysis(_pair);
                     ImGui.CloseCurrentPopup();
                 }
-#endif
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Sync, "Reload last data"))
                 {
                     _pair.ApplyLastReceivedData(forced: true);

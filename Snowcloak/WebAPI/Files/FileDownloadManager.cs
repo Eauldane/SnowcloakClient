@@ -328,7 +328,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                     var chunkPosition = fileBlockStream.Position;
                     fileBlockStream.Position += fileLengthBytes;
 
-                    while (tasks.Count > threadCount && tasks.Where(t => !t.IsCompleted).Count() > 4)
+                    while (tasks.Count > threadCount && tasks.Count(t => !t.IsCompleted) > 4)
                         await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
 
                     var expectedExtension = fileReplacement.First(f => string.Equals(f.Hash, fileHash, StringComparison.OrdinalIgnoreCase)).GamePaths[0].Split(".")[^1];

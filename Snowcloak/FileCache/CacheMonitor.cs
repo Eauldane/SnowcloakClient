@@ -975,7 +975,6 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         }
         if (legacyRehashCount > 0 && !ct.IsCancellationRequested)
         {
-            var suffix = legacyRehashCount == 1 ? string.Empty : "s";
             _chatGui.Print($"[Snowcloak] Rehash complete! You can now play the game normally. Have fun!");
         }
 

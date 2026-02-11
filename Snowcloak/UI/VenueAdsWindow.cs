@@ -866,7 +866,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                && string.Equals(adRegion, "Oceania", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void ShuffleAds(List<BrowseAdEntry> entries)
+    private static void ShuffleAds(List<BrowseAdEntry> entries)
     {
         if (entries.Count <= 1)
             return;

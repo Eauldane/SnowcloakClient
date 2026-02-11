@@ -232,13 +232,10 @@ public class DrawUserPair : DrawPairBase
 
     private void DrawPairedClientMenu(Pair entry)
     {
-        if (entry.IsVisible)
+        if (entry.IsVisible && ElezenImgui.ShowIconButton(FontAwesomeIcon.Eye, "Target player"))
         {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Eye, "Target player"))
-            {
-                _mediator.Publish(new TargetPairMessage(entry));
-                ImGui.CloseCurrentPopup();
-            }
+            _mediator.Publish(new TargetPairMessage(entry));
+            ImGui.CloseCurrentPopup();
         }
         if (!entry.IsPaused)
         {

@@ -298,25 +298,22 @@ public sealed partial class BbCodeRenderer : IDisposable
             }
         }
 
-        if (options.AllowLinks && (segment.Style.Url != null || segment.Style.UseTextAsUrl))
+        if (options.AllowLinks && (segment.Style.Url != null || segment.Style.UseTextAsUrl) && ImGui.IsItemHovered())
         {
-            if (ImGui.IsItemHovered())
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            var url = segment.Style.Url ?? segment.Text;
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
             {
-                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                var url = segment.Style.Url ?? segment.Text;
-                if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                var targetUrl = url ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(targetUrl))
                 {
-                    var targetUrl = url ?? string.Empty;
-                    if (!string.IsNullOrWhiteSpace(targetUrl))
+                    if (options.OnLinkClicked != null)
                     {
-                        if (options.OnLinkClicked != null)
-                        {
-                            options.OnLinkClicked(targetUrl);
-                        }
-                        else
-                        {
-                            Util.OpenLink(targetUrl);
-                        }
+                        options.OnLinkClicked(targetUrl);
+                    }
+                    else
+                    {
+                        Util.OpenLink(targetUrl);
                     }
                 }
             }

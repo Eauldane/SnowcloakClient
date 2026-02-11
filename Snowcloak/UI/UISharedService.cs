@@ -667,6 +667,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             }
         }
     }
+    
     public void DrawHelpText(string helpText)
     {
         ImGui.SameLine();
@@ -676,9 +677,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
     public bool DrawOtherPluginState(bool intro = false)
     {
-        var check = FontAwesomeIcon.Check;
-        var cross = FontAwesomeIcon.SquareXmark;
-
         if (intro)
         {
             ImGui.SetWindowFontScale(0.8f);

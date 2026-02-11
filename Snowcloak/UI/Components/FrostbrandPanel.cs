@@ -457,7 +457,7 @@ public class FrostbrandPanel
             ImGui.TextWrapped("Rejecting pair requests from: " + string.Join(", ", filteredNames));
         }
     }
-    private bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
+    private static bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
     {
         using var id = ImRaii.PushId(label);
         var innerSpacing = ImGui.GetStyle().ItemInnerSpacing.X;

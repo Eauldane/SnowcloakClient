@@ -223,7 +223,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
             .Where(tuple => tuple.pc.ObjectId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name)
-            .OrderBy(name => name)
+            .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
         var visible = resolved.Take(20).ToList();

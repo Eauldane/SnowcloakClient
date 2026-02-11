@@ -1225,7 +1225,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
         if (appearance == null)
         {
-            _logger.LogDebug($"Targeted {name}@{worldId}: appearance could not be read");
+            _logger.LogDebug("Targeted {Name}@{WorldId}: appearance could not be read", name, worldId);
             return;
         }
 
@@ -1235,7 +1235,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         var decodeNote = appearance.DecodeNotes ?? "decoded";
 
         _logger.LogDebug(
-            $"Targeted {name}@{worldId}: detected gender={genderDisplay}, race={raceDisplay}, clan={clanDisplay}, rawBase64={appearance.RawBase64}, decodedJson={appearance.DecodedJson ?? "(decode failed)"}, notes={decodeNote}");
+            "Targeted {Name}@{WorldId}: detected gender={GenderDisplay}, race={RaceDisplay}, clan={ClanDisplay}, rawBase64={AppearanceRawBase64}, decodedJson={AppearanceDecodedJson}, notes={DecodeNote}", name, worldId, genderDisplay, raceDisplay, clanDisplay, appearance.RawBase64, appearance.DecodedJson ?? "(decode failed)", decodeNote);
     }
 }
 

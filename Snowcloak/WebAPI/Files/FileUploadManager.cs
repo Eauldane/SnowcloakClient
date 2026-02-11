@@ -20,7 +20,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly ServerConfigurationManager _serverManager;
     private readonly Dictionary<string, DateTime> _verifiedUploadedHashes = new(StringComparer.Ordinal);
-    private readonly object _currentUploadsLock = new();
+    private readonly Lock _currentUploadsLock = new();
     private readonly List<FileTransfer> _currentUploads = [];
     private CancellationTokenSource? _uploadCancellationTokenSource = new();
 

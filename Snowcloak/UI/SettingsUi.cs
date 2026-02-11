@@ -390,7 +390,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
     }
 
-    private List<(XivChatType, string)> GetSyncshellChatTypes() =>
+    private static List<(XivChatType, string)> GetSyncshellChatTypes() =>
     [
         (XivChatType.None,"(use global setting)"),
         (XivChatType.Debug, "Debug"),
@@ -1314,7 +1314,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             Mediator.Publish(new RecalculatePerformanceMessage(recalculatePerformanceUID));
     }
 
-    private bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
+    private static bool InputDtrColors(string label, ref ElezenStrings.Colour colors)
     {
         using var id = ImRaii.PushId(label);
         var innerSpacing = ImGui.GetStyle().ItemInnerSpacing.X;
@@ -1344,14 +1344,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
         static uint ConvertBackColor(Vector3 color)
             => byte.CreateSaturating(color.X * 255.0f) | ((uint)byte.CreateSaturating(color.Y * 255.0f) << 8) | ((uint)byte.CreateSaturating(color.Z * 255.0f) << 16);
     }
-    
-    private static Vector4 ConvertColorToVec4(uint color)
-        => new(
-            (byte)color / 255.0f,
-            (byte)(color >> 8) / 255.0f,
-            (byte)(color >> 16) / 255.0f,
-            1.0f);
-
 
     private void DrawServerConfiguration()
     {
@@ -1423,7 +1415,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
             var characterAssignmentsTab = "Character Assignments";
             var secretKeyTab = "Secret Key Management";
             var serviceSettingsTab = "Service Settings";
-            if (ImGui.BeginTabItem(characterAssignmentsTab))            {
+            if (ImGui.BeginTabItem(characterAssignmentsTab))
+            {
                 if (selectedServer.SecretKeys.Count > 0)
                 {
                     float windowPadding = ImGui.GetStyle().WindowPadding.X;

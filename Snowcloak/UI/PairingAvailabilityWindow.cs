@@ -214,7 +214,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 tuple.pc.Level,
                 tuple.pc.Gender,
                 tuple.pc.Clan))
-            .OrderBy(entry => entry.DisplayName)
+            .OrderBy(entry => entry.DisplayName, StringComparer.Ordinal)
             .ToList();
     }
 

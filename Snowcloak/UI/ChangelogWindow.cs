@@ -251,6 +251,13 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.2"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Character Analysis is now available for paired users to help you identify who's heavy in crowded areas."
+                ])
+            ]),
             new(VersionFromString("2.2.1"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
