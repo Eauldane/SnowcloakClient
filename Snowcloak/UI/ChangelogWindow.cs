@@ -265,7 +265,8 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                 [
                     "More chat fixes than I can remember. The chat system is still considered unstable, and under heavy development.",
                     "Updated SCF format to version 3 for future extensibility.",
-                    "Internal reworks and overhauls."
+                    "Internal reworks and overhauls.",
+                    "Linux users can now use hidden paths (courtesy of @claria-tan on GitHub!)"
                 ])
             ]),
             new(VersionFromString("2.1.3"),
