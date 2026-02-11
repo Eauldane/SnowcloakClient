@@ -251,6 +251,23 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.0"),
+            [
+                new ChangelogSection("New Features",
+                [
+                    "Snowcloak can now request the original versions of compressed textures, and vice versa.",
+                    "A toggle has been added to the Performance tab of the settings window.",
+                    "If the server only has one version of a texture, that version will be sent.",
+                    "If the server has BOTH versions of a texture, it'll send the version appropriate for your choice, regardless of which version a synced user is wearing on their end.",
+                    "Changes take effect on characters already drawn when you next receive an outfit update from them."
+                ]),
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "More chat fixes than I can remember. The chat system is still considered unstable, and under heavy development.",
+                    "Updated SCF format to version 3 for future extensibility.",
+                    "Internal reworks and overhauls."
+                ])
+            ]),
             new(VersionFromString("2.1.3"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
