@@ -132,7 +132,7 @@ public class ChatService : DisposableMediatorSubscriberBase
             msg.Add(RawPayload.LinkTerminator);
         }
         if (color != 0)
-            msg.AddUiForeground((ushort)color);
+            msg.AddUiForeground(color);
         msg.AddText("[SnowChat] ");
         if (message.ChatMsg.Sender.UID.Equals(_apiController.UID, StringComparison.Ordinal))
         {

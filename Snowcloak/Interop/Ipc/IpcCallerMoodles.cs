@@ -16,14 +16,12 @@ public sealed class IpcCallerMoodles : IIpcCaller
     private readonly ICallGateSubscriber<nint, string, object> _moodlesSetStatus;
     private readonly ICallGateSubscriber<nint, object> _moodlesRevertStatus;
     private readonly ILogger<IpcCallerMoodles> _logger;
-    private readonly DalamudUtilService _dalamudUtil;
     private readonly SnowMediator _snowMediator;
 
-    public IpcCallerMoodles(ILogger<IpcCallerMoodles> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil,
+    public IpcCallerMoodles(ILogger<IpcCallerMoodles> logger, IDalamudPluginInterface pi,
         SnowMediator snowMediator)
     {
         _logger = logger;
-        _dalamudUtil = dalamudUtil;
         _snowMediator = snowMediator;
 
         _moodlesApiVersion = pi.GetIpcSubscriber<int>("Moodles.Version");

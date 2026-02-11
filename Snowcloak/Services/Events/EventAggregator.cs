@@ -95,7 +95,7 @@ public class EventAggregator : MediatorSubscriberBase, IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Could not write to event file {eventLogFile}");
+            _logger.LogWarning(ex, "Could not write to event file {EventLogFile}", eventLogFile);
         }
     }
 

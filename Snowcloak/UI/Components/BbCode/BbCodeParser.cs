@@ -2,6 +2,7 @@ namespace Snowcloak.UI.Components.BbCode;
 
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 internal static partial class BbCodeParser
@@ -15,6 +16,7 @@ internal static partial class BbCodeParser
         UpperAlpha,
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     private record struct ListContext(ListKind Kind, int Counter);
     
     public static IReadOnlyList<BbCodeElement> Parse(string input, ISet<string> knownEmotes)

@@ -597,6 +597,11 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
 
         return extended;
     }
+    
+    private void CacheData(CharaDataMetaInfoExtendedDto charaData)
+    {
+        _metaInfoCache[charaData.FullId] = charaData;
+    }
 
     private readonly SemaphoreSlim _distributionSemaphore = new(1, 1);
 
@@ -606,11 +611,6 @@ public sealed partial class CharaDataManager : DisposableMediatorSubscriberBase
         _nearbyManager.UpdateSharedData(_metaInfoCache.ToDictionary());
         _characterHandler.UpdateHandledData(_metaInfoCache.ToDictionary());
         _distributionSemaphore.Release();
-    }
-
-    private void CacheData(CharaDataMetaInfoExtendedDto charaData)
-    {
-        _metaInfoCache[charaData.FullId] = charaData;
     }
 
     public bool TryGetMetaInfo(string key, out CharaDataMetaInfoExtendedDto? metaInfo)

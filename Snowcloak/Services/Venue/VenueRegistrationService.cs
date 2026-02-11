@@ -416,11 +416,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             PushNode(node->NextSiblingNode);
         }
 
-        //if (_logger.IsEnabled(LogLevel.Debug))
-        //{
-            for (var i = 0; i < lines.Count; i++)
+        for (var i = 0; i < lines.Count; i++)
                 _logger.LogInformation("Placard extracted line {LineIndex}: {Text}", i, lines[i]);
-        //}
 
         return lines;
     }

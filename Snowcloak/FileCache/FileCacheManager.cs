@@ -223,7 +223,7 @@ public sealed class FileCacheManager : IHostedService
         return (triangleCount, vramUsage);
     }
 
-    private CompressionType ChooseCompressionType(string filePath, FileExtension fileExtension)
+    private static CompressionType ChooseCompressionType(string filePath, FileExtension fileExtension)
     {
         switch (fileExtension)
         {

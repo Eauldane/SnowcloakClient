@@ -1,5 +1,6 @@
 using Lumina.Data;
 using Lumina.Extensions;
+using System.Runtime.InteropServices;
 using System.Text;
 using static Lumina.Data.Parsing.MdlStructs;
 
@@ -150,6 +151,7 @@ public class MdlFile
         return (offsets, strings);
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ModelHeader
     {
         // MeshHeader

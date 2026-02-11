@@ -196,7 +196,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         UiSharedService.AttachToolTip("Save updates to the selected venue listing.");
     }
 
-    private string FormatVenueLabel(VenueRegistryEntryDto entry)
+    private static string FormatVenueLabel(VenueRegistryEntryDto entry)
     {
         var name = string.IsNullOrWhiteSpace(entry.VenueName) ? "Unnamed Venue" : entry.VenueName;
         var listed = entry.IsListed ? "Listed" : "Unlisted";

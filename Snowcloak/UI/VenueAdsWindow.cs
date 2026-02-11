@@ -865,20 +865,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         return !string.Equals(playerRegion, "Oceania", StringComparison.OrdinalIgnoreCase)
                && string.Equals(adRegion, "Oceania", StringComparison.OrdinalIgnoreCase);
     }
-
-    private static void ShuffleAds(List<BrowseAdEntry> entries)
-    {
-        if (entries.Count <= 1)
-            return;
-
-        var rng = new Random();
-        for (var i = entries.Count - 1; i > 0; i--)
-        {
-            var swapIndex = rng.Next(i + 1);
-            (entries[i], entries[swapIndex]) = (entries[swapIndex], entries[i]);
-        }
-    }
-
+    
     private async Task RefreshOwnedAsync()
     {
         if (_isLoadingOwned)

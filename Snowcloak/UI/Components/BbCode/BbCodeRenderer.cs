@@ -150,7 +150,7 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
 
-    private List<LayoutLine> BuildLines(IReadOnlyList<LayoutSegment> segments, float width)
+    private static List<LayoutLine> BuildLines(IReadOnlyList<LayoutSegment> segments, float width)
     {
         List<LayoutLine> lines = [];
         List<LayoutSegment> currentLine = [];
@@ -504,6 +504,6 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
     
-    [GeneratedRegex(@"(\s+|\S+|\n)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"(\s+|\S+|\n)", RegexOptions.Compiled, matchTimeoutMilliseconds:2500)]
     private static partial Regex NormalizedTextRegex();
 }

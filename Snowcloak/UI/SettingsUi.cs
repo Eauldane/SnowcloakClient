@@ -390,19 +390,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
     }
 
-    private static List<(XivChatType, string)> GetSyncshellChatTypes() =>
-    [
-        (XivChatType.None,"(use global setting)"),
-        (XivChatType.Debug, "Debug"),
-        (XivChatType.Echo, "Echo"),
-        (XivChatType.StandardEmote, "Standard Emote"),
-        (XivChatType.CustomEmote, "Custom Emote"),
-        (XivChatType.SystemMessage, "System Message"),
-        (XivChatType.SystemError, "System Error"),
-        (XivChatType.GatheringSystemMessage, "Gathering Message"),
-        (XivChatType.ErrorMessage, "Error message"),
-    ];
-
     private void DrawChatConfig()
     {
         _lastTab = "Chat [BETA]";

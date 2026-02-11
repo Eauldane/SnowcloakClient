@@ -290,7 +290,6 @@ public class DrawGroupPair : DrawPairBase
         }
         if (showPause)
         {
-            //rightSidePos -= pauseIconSize.X + spacingX;
             ImGui.SetCursorPosY(originalY);
 
             if (_uiSharedService.IconButton(pauseIcon))

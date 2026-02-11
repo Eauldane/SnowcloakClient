@@ -8,6 +8,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
 using Snowcloak.Utils;
 using Lumina.Data.Parsing.Tex.Buffers;
+using System.Runtime.InteropServices;
 
 namespace Snowcloak.Services;
 
@@ -314,6 +315,7 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct TextureChannelStatistics(double RedVariance, double GreenVariance, double BlueVariance, double AverageChannelSpread)
     {
         public static TextureChannelStatistics Create(ReadOnlySpan<byte> data)
@@ -356,6 +358,7 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct TextureAlphaStatistics(bool HasAlpha, float TransitionDensity)
     {
         public static TextureAlphaStatistics Create(ReadOnlySpan<byte> data)
@@ -392,6 +395,7 @@ public sealed class CharacterAnalyzer : DisposableMediatorSubscriberBase
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct TextureLuminanceStatistics(float LowLuminanceCoverage, float HighDeltaDensity)
     {
         public static TextureLuminanceStatistics Create(ReadOnlySpan<byte> data)

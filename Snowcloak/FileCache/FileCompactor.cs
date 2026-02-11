@@ -68,12 +68,12 @@ public sealed class FileCompactor
         return ((size + clusterSize - 1) / clusterSize) * clusterSize;
     }
 
-    public async Task WriteAllBytesAsync(string filePath, byte[] decompressedFile, CancellationToken token)
+    public static async Task WriteAllBytesAsync(string filePath, byte[] decompressedFile, CancellationToken token)
     {
         await File.WriteAllBytesAsync(filePath, decompressedFile, token).ConfigureAwait(false);
     }
 
-    public void RenameAndCompact(string filePath, string originalFilePath)
+    public static void RenameAndCompact(string filePath, string originalFilePath)
     {
         try
         {

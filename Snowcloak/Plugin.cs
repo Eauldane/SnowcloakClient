@@ -177,7 +177,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<ServerBlockConfigService>());
             collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<CharaDataConfigService>());
             collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<RemoteConfigCacheService>());
-            collection.AddSingleton<ConfigurationMigrator>();
             collection.AddSingleton<ConfigurationSaveService>();
 
 
@@ -224,7 +223,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddHostedService(p => p.GetRequiredService<SnowMediator>());
             collection.AddHostedService(p => p.GetRequiredService<NotificationService>());
             collection.AddHostedService(p => p.GetRequiredService<FileCacheManager>());
-            collection.AddHostedService(p => p.GetRequiredService<ConfigurationMigrator>());
             collection.AddHostedService(p => p.GetRequiredService<DalamudUtilService>());
             collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
             collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());

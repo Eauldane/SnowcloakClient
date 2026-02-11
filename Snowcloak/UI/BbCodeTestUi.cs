@@ -44,16 +44,6 @@ public sealed class BbCodeTestUi : WindowMediatorSubscriberBase
         {
             _uiSharedService.RenderBbCode(_previewText, ImGui.GetContentRegionAvail().X);
         }
-
-        //if (ImGui.CollapsingHeader("Available emotes"))
-        //{
-        //    foreach (var mapping in _uiSharedService.BbCodeRenderer.EmoteMappings)
-        //    {
-        //        ImGui.BulletText($":{mapping.Key}: -> {Path.GetFileName(mapping.Value)}");
-        //        ImGui.SameLine();
-        //        _uiSharedService.RenderBbCode($":{mapping.Key}:", 64f, new BbCodeRenderOptions(EmoteSize: 28f));
-        //    }
-        //}
     }
     
 }
