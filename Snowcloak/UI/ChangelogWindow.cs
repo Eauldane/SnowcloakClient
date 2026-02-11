@@ -251,6 +251,13 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.1"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Fixed an issue where uploads could cause a (non-fatal) UI crash if too many were being queued simultaneously."
+                ])
+            ]),
             new(VersionFromString("2.2.0"),
             [
                 new ChangelogSection("New Features",

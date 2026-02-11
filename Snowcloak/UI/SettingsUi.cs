@@ -327,7 +327,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     ImGui.TableSetupColumn("Uploaded");
                     ImGui.TableSetupColumn("Size");
                     ImGui.TableHeadersRow();
-                    foreach (var transfer in _fileTransferManager.CurrentUploads.ToArray())
+                    foreach (var transfer in _fileTransferManager.GetCurrentUploadsSnapshot())
                     {
                         var color = UiSharedService.UploadColor((transfer.Transferred, transfer.Total));
                         var col = ImRaii.PushColor(ImGuiCol.Text, color);

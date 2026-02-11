@@ -695,7 +695,7 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     private void DrawTransfers()
     {
-        var currentUploads = _fileTransferManager.CurrentUploads.ToList();
+        var currentUploads = _fileTransferManager.GetCurrentUploadsSnapshot();
 
         if (currentUploads.Any())
         {

@@ -20,6 +20,8 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly ServerConfigurationManager _serverManager;
     private readonly Dictionary<string, DateTime> _verifiedUploadedHashes = new(StringComparer.Ordinal);
+    private readonly object _currentUploadsLock = new();
+    private readonly List<FileTransfer> _currentUploads = [];
     private CancellationTokenSource? _uploadCancellationTokenSource = new();
 
     public FileUploadManager(ILogger<FileUploadManager> logger, SnowMediator mediator,
@@ -39,22 +41,41 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         });
     }
 
-    public List<FileTransfer> CurrentUploads { get; } = [];
-    public bool IsUploading => CurrentUploads.Count > 0;
+    public bool IsUploading
+    {
+        get
+        {
+            lock (_currentUploadsLock)
+            {
+                return _currentUploads.Count > 0;
+            }
+        }
+    }
+
+    public List<FileTransfer> GetCurrentUploadsSnapshot()
+    {
+        lock (_currentUploadsLock)
+        {
+            return _currentUploads.ToList();
+        }
+    }
 
     public bool CancelUpload()
     {
-        if (CurrentUploads.Any())
+        bool hasUploads;
+        lock (_currentUploadsLock)
         {
-            Logger.LogDebug("Cancelling current upload");
-            _uploadCancellationTokenSource?.Cancel();
-            _uploadCancellationTokenSource?.Dispose();
-            _uploadCancellationTokenSource = null;
-            CurrentUploads.Clear();
-            return true;
+            hasUploads = _currentUploads.Count > 0;
         }
 
-        return false;
+        if (!hasUploads) return false;
+
+        Logger.LogDebug("Cancelling current upload");
+        _uploadCancellationTokenSource?.Cancel();
+        _uploadCancellationTokenSource?.Dispose();
+        _uploadCancellationTokenSource = null;
+        ClearCurrentUploads();
+        return true;
     }
 
     public async Task DeleteAllFiles()
@@ -212,7 +233,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         _uploadCancellationTokenSource?.Cancel();
         _uploadCancellationTokenSource?.Dispose();
         _uploadCancellationTokenSource = null;
-        CurrentUploads.Clear();
+        ClearCurrentUploads();
         _verifiedUploadedHashes.Clear();
     }
 
@@ -245,7 +266,9 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         Progress<UploadProgress>? progressTracker = !postProgress ? null : new((update) =>        {
             try
             {
-                var matchingUploads = CurrentUploads.Where(f => string.Equals(f.Hash, fileHash, StringComparison.Ordinal)).ToList();
+                var matchingUploads = GetCurrentUploadsSnapshot()
+                    .Where(f => string.Equals(f.Hash, fileHash, StringComparison.Ordinal))
+                    .ToList();
                 if (!matchingUploads.Any())
                 {
                     return;
@@ -287,7 +310,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         HashSet<string> handledUploads = new(StringComparer.Ordinal);
         foreach (var file in filesToUpload.Where(f => !f.IsForbidden))
         {
-            if (!handledUploads.Add(file.Hash) || CurrentUploads.Any(f => string.Equals(f.Hash, file.Hash, StringComparison.Ordinal)))
+            if (!handledUploads.Add(file.Hash) || HasCurrentUpload(file.Hash))
             {
                 continue;
             }
@@ -304,11 +327,10 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
                 var resolvedPath = cacheEntry.ResolvedFilepath;
                 var originalSize = cacheEntry.Size ?? new FileInfo(resolvedPath).Length;
 
-                CurrentUploads.Add(new UploadFileTransfer(file)
+                AddCurrentUpload(new UploadFileTransfer(file)
                 {
                     LocalFile = resolvedPath,
                     Total = originalSize,
-                    
                 });
             }
             catch (Exception ex)
@@ -330,14 +352,17 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             _verifiedUploadedHashes[file.Hash] = DateTime.UtcNow;
         }
 
-        var totalSize = CurrentUploads.Sum(c => c.Total);
+        var currentUploadsSnapshot = GetCurrentUploadsSnapshot();
+        var totalSize = currentUploadsSnapshot.Sum(c => c.Total);
         Logger.LogDebug("Compressing and uploading files");
         Task uploadTask = Task.CompletedTask;
-        foreach (var file in CurrentUploads.Where(f => f.CanBeTransferred && !f.IsTransferred).ToList())
+        foreach (var file in currentUploadsSnapshot.Where(f => f.CanBeTransferred && !f.IsTransferred).ToList())
         {
             Logger.LogDebug("[{hash}] Compressing", file);
             var data = await _fileDbManager.GetCompressedFileData(file.Hash, uploadToken).ConfigureAwait(false);
-            var trackedUploads = CurrentUploads.Where(e => string.Equals(e.Hash, file.Hash, StringComparison.Ordinal)).ToList();
+            var trackedUploads = GetCurrentUploadsSnapshot()
+                .Where(e => string.Equals(e.Hash, file.Hash, StringComparison.Ordinal))
+                .ToList();
             if (!trackedUploads.Any())
             {
                 Logger.LogWarning("[{hash}] Missing upload tracking entry while setting compressed size", file.Hash);
@@ -353,21 +378,56 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             uploadToken.ThrowIfCancellationRequested();
         }
 
-        if (CurrentUploads.Any())
+        if (HasCurrentUploads())
         {
             await uploadTask.ConfigureAwait(false);
 
-            var compressedSize = CurrentUploads.Sum(c => c.Total);
+            var compressedSize = GetCurrentUploadsSnapshot().Sum(c => c.Total);
             Logger.LogDebug("Upload complete, compressed {size} to {compressed}", UiSharedService.ByteToString(totalSize), UiSharedService.ByteToString(compressedSize));
 
             _fileDbManager.WriteOutFullCsv();
         }
 
-        foreach (var file in unverifiedUploadHashes.Where(c => !CurrentUploads.Exists(u => string.Equals(u.Hash, c, StringComparison.Ordinal))))
+        var currentUploadHashes = GetCurrentUploadsSnapshot()
+            .Select(u => u.Hash)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var file in unverifiedUploadHashes.Where(c => !currentUploadHashes.Contains(c)))
         {
             _verifiedUploadedHashes[file] = DateTime.UtcNow;
         }
 
-        CurrentUploads.Clear();
+        ClearCurrentUploads();
+    }
+
+    private void AddCurrentUpload(FileTransfer upload)
+    {
+        lock (_currentUploadsLock)
+        {
+            _currentUploads.Add(upload);
+        }
+    }
+
+    private bool HasCurrentUpload(string hash)
+    {
+        lock (_currentUploadsLock)
+        {
+            return _currentUploads.Any(f => string.Equals(f.Hash, hash, StringComparison.Ordinal));
+        }
+    }
+
+    private bool HasCurrentUploads()
+    {
+        lock (_currentUploadsLock)
+        {
+            return _currentUploads.Count > 0;
+        }
+    }
+
+    private void ClearCurrentUploads()
+    {
+        lock (_currentUploadsLock)
+        {
+            _currentUploads.Clear();
+        }
     }
 }
