@@ -1391,10 +1391,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
 
         var selectedServer = _serverConfigurationManager.GetServerByIndex(idx);
-        if (selectedServer == _serverConfigurationManager.CurrentServer)
+        if (selectedServer == _serverConfigurationManager.CurrentServer && _apiController.IsConnected)
         {
-            if (_apiController.IsConnected)
-                ElezenImgui.ColouredWrappedText("For any changes to be applied to the current service you need to reconnect to the service.", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText("For any changes to be applied to the current service you need to reconnect to the service.", ImGuiColors.DalamudYellow);
         }
 
         if (ImGui.BeginTabBar("serverTabBar"))
@@ -1446,7 +1445,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
                         {
                             secretKey = new();
                         }
-                        var friendlyName = secretKey.FriendlyName;
 
                         ImGui.SetNextItemWidth(afterName - iconWidth - itemSpacing * 2 - windowPadding);
 

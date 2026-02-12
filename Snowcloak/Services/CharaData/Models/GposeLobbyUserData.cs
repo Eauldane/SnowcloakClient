@@ -1,4 +1,5 @@
 ﻿using Dalamud.Utility;
+using ElezenTools.Data;
 using ElezenTools.Services;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.CharaData;
@@ -146,8 +147,8 @@ public sealed record GposeLobbyUserData(UserData UserData)
         Map = dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map;
 
         StringBuilder sb = new();
-        sb.AppendLine("Server: " + dalamudUtilService.WorldData.Value[(ushort)worldData.LocationInfo.ServerId]);
-        sb.AppendLine("Territory: " + dalamudUtilService.TerritoryData.Value[worldData.LocationInfo.TerritoryId]);
+        sb.AppendLine("Server: " + ElezenData.Worlds.GetById(worldData.LocationInfo.ServerId)?.Name);
+        sb.AppendLine("Territory: " + ElezenData.Locations.GetByTerritoryId(worldData.LocationInfo.TerritoryId)?.Name ?? "Unknown");
         sb.AppendLine("Map: " + dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].MapName);
 
         if (worldData.LocationInfo.WardId != 0)

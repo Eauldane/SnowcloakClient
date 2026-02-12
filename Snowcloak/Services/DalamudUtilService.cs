@@ -100,12 +100,6 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                         w.DataCenter.ValueNullable?.Name.ToString() ?? "Unknown"));
         });
         WorldData = new(() => WorldInfoData.Value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name));
-        ClassJobAbbreviations = new(() =>
-        {
-            return gameData.GetExcelSheet<ClassJob>(Dalamud.Game.ClientLanguage.English)!
-                .Where(cj => cj.RowId != 0)
-                .ToDictionary(cj => (byte)cj.RowId, cj => cj.Abbreviation.ToString());
-        });
         TribeNames = new(() =>
         {
             return gameData.GetExcelSheet<Tribe>(Dalamud.Game.ClientLanguage.English)!
@@ -200,7 +194,6 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public Lazy<Dictionary<ushort, WorldInfo>> WorldInfoData { get; private set; }
     public Lazy<Dictionary<int, Lumina.Excel.Sheets.UIColor>> UiColors { get; private set; }
     public Lazy<Dictionary<uint, string>> TerritoryData { get; private set; }
-    public Lazy<Dictionary<byte, string>> ClassJobAbbreviations { get; private set; }
     public Lazy<Dictionary<byte, string>> TribeNames { get; private set; }
     public Lazy<Dictionary<uint, (Lumina.Excel.Sheets.Map Map, string MapName)>> MapData { get; private set; }
 

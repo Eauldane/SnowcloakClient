@@ -518,27 +518,27 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         return shrunken;
     }
 
-    private string AutoBlockedTitle(Pair pair)
+    private static string AutoBlockedTitle(Pair pair)
     {
         return string.Format(CultureInfo.InvariantCulture,
            "{0} ({1}) automatically blocked", pair.PlayerName, pair.UserData.AliasOrUID);
     }
 
-    private string AutoBlockedSummaryBody(Pair pair, string reasonSummary)
+    private static string AutoBlockedSummaryBody(Pair pair, string reasonSummary)
     {
         return string.Format(CultureInfo.InvariantCulture,
             "Player {0} ({1}) exceeded your configured auto block threshold(s): {2}. Based on reported usage they have been automatically blocked.",
             pair.PlayerName, pair.UserData.AliasOrUID, reasonSummary);
     }
 
-    private string AutoBlockedTriangleBody(Pair pair, long triUsage, long triUsageThreshold)
+    private static string AutoBlockedTriangleBody(Pair pair, long triUsage, long triUsageThreshold)
     {
         return string.Format(CultureInfo.InvariantCulture,
            "Player {0} ({1}) exceeded your configured triangle auto block threshold ({2}/{3} triangles) and has been automatically blocked.",
             pair.PlayerName, pair.UserData.AliasOrUID, triUsage, triUsageThreshold);
     }
 
-    private string AutoBlockedVramBody(Pair pair, long vramUsageBytes, long vramThresholdMiB)
+    private static string AutoBlockedVramBody(Pair pair, long vramUsageBytes, long vramThresholdMiB)
     {
         return string.Format(CultureInfo.InvariantCulture,
             "Player {0} ({1}) exceeded your configured VRAM auto block threshold ({2}/{3}MiB) and has been automatically blocked.",

@@ -3,6 +3,8 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.Data;
+using ElezenTools.Data.Classes;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
@@ -104,12 +106,10 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                     : string.Empty;
                 ImGui.TextUnformatted(worldName);
                 ImGui.TableNextColumn();
-                
-                var className = entry.ClassJobId != 0
-                                && _dalamudUtilService.ClassJobAbbreviations.Value.TryGetValue(entry.ClassJobId, out var classJob)
-                    ? classJob
-                    : string.Empty;
-                ImGui.TextUnformatted(string.IsNullOrEmpty(className) ? "-" : className);
+                JobData? classJob = ElezenData.Jobs.GetById(entry.ClassJobId);
+                var className = classJob?.Abbreviation ?? "UNK";
+                var classColour = classJob?.ClassColour ?? ImGuiColors.DalamudGrey;
+                ImGui.TextColored(classColour, string.IsNullOrEmpty(className) ? "-" : className);
 
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(entry.Level > 0 ? entry.Level.ToString() : "-");

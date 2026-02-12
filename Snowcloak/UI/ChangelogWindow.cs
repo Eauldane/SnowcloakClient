@@ -255,7 +255,8 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             [
                 new ChangelogSection("Changes and Bug Fixes",
                 [
-                    "Character Analysis is now available for paired users to help you identify who's heavy in crowded areas."
+                    "Character Analysis is now available for paired users to help you identify who's heavy in crowded areas.",
+                    "Class abbreviations are now coloured in Frostbrand's nearby pairs window."
                 ])
             ]),
             new(VersionFromString("2.2.1"),
