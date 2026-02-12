@@ -255,8 +255,10 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
             [
                 new ChangelogSection("Changes and Bug Fixes",
                 [
+                    "Patreon subscribers can now bypass the member cap on syncshells.",
                     "Character Analysis is now available for paired users to help you identify who's heavy in crowded areas.",
-                    "Class abbreviations are now coloured in Frostbrand's nearby pairs window."
+                    "Class abbreviations are now coloured in Frostbrand's nearby pairs window.",
+                    "Profile windows now show a pair's active moodles."
                 ])
             ]),
             new(VersionFromString("2.2.1"),

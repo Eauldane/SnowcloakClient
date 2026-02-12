@@ -4,9 +4,11 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.GameFonts;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.ManagedFontAtlas;
+using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Game;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility;
@@ -868,6 +870,31 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             }, cpuRead: false, cpuWrite: false);
         }
         return _textureProvider.CreateFromImageAsync(imageData).Result;
+    }
+
+    public ISharedImmediateTexture GetGameIcon(uint iconId, bool itemHq = false, bool hiRes = true, ClientLanguage? language = null)
+    {
+        return _textureProvider.GetFromGameIcon(new GameIconLookup(iconId, itemHq, hiRes, language));
+    }
+
+    public bool TryGetGameIcon(uint iconId, out ISharedImmediateTexture? texture, bool itemHq = false, bool hiRes = true, ClientLanguage? language = null)
+    {
+        texture = null;
+        try
+        {
+            var lookup = new GameIconLookup(iconId, itemHq, hiRes, language);
+            if (_textureProvider.TryGetFromGameIcon(ref lookup, out var shared))
+            {
+                texture = shared;
+                return true;
+            }
+        }
+        catch
+        {
+            // Ignore lookup failures
+        }
+
+        return false;
     }
 
     internal static void DistanceSeparator()

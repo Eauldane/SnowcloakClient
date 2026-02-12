@@ -2,9 +2,11 @@
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Microsoft.Extensions.Logging;
+using Snowcloak.PlayerData.Moodles;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -28,6 +30,9 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
     private Pair? _pair;
     private IDalamudTextureWrap? _supporterTextureWrap;
     private IDalamudTextureWrap? _textureWrap;
+    private string _lastMoodlesData = string.Empty;
+    private IReadOnlyList<MoodlesStatusData> _moodlesStatuses = Array.Empty<MoodlesStatusData>();
+    private bool _moodlesParseFailed = false;
 
     public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         ServerConfigurationManager serverManager, SnowcloakConfigService snowcloakConfigService,
@@ -153,6 +158,8 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
                 }
             }
 
+            DrawMoodlesIcons();
+
             ImGui.Separator();
             _uiSharedService.GameFont.Push();
             var remaining = ImGui.GetWindowContentRegionMax().Y - ImGui.GetCursorPosY();
@@ -186,5 +193,116 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
         {
             _logger.LogWarning(ex, "Error during draw tooltip");
         }
+    }
+
+    private void DrawMoodlesIcons()
+    {
+        var moodlesData = _pair?.LastReceivedCharacterData?.MoodlesData ?? string.Empty;
+        var statuses = GetMoodlesStatuses(moodlesData);
+
+        if (_moodlesParseFailed || string.IsNullOrWhiteSpace(moodlesData) || statuses.Count == 0)
+        {
+            return;
+        }
+
+        ImGui.Spacing();
+        var iconSize = 48f * ImGuiHelpers.GlobalScale;
+        var spacing = 2f * ImGuiHelpers.GlobalScale;
+        var available = ImGui.GetContentRegionAvail().X;
+        var columns = Math.Max(1, (int)Math.Floor((available + spacing) / (iconSize + spacing)));
+
+        var columnIndex = 0;
+        foreach (var moodle in statuses)
+        {
+            DrawMoodleIcon(moodle, iconSize);
+            columnIndex++;
+            if (columnIndex < columns)
+            {
+                ImGui.SameLine(0f, spacing);
+            }
+            else
+            {
+                columnIndex = 0;
+            }
+        }
+    }
+
+    private void DrawMoodleIcon(MoodlesStatusData moodle, float iconSize)
+    {
+        var iconId = moodle.IconID;
+        if (moodle.Stacks > 1)
+        {
+            iconId += moodle.Stacks - 1;
+        }
+
+        var cursor = ImGui.GetCursorScreenPos();
+        ImGui.Dummy(new Vector2(iconSize, iconSize));
+
+        if (iconId > 0 && _uiSharedService.TryGetGameIcon((uint)iconId, out var icon))
+        {
+            var wrap = icon!.GetWrapOrEmpty();
+            var size = GetScaledIconSize(wrap, iconSize);
+            var offset = new Vector2((iconSize - size.X) / 2f, (iconSize - size.Y) / 2f);
+            ImGui.GetWindowDrawList().AddImage(wrap.Handle, cursor + offset, cursor + offset + size);
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ShowMoodleTooltip(moodle);
+        }
+    }
+
+    private static Vector2 GetScaledIconSize(IDalamudTextureWrap wrap, float maxSize)
+    {
+        var width = Math.Max(1f, wrap.Width);
+        var height = Math.Max(1f, wrap.Height);
+        var scale = maxSize / Math.Max(width, height);
+        return new Vector2(width * scale, height * scale);
+    }
+
+    private static void ShowMoodleTooltip(MoodlesStatusData moodle)
+    {
+        var title = string.IsNullOrWhiteSpace(moodle.Title) ? "Unnamed Moodle" : moodle.Title;
+        if (moodle.Stacks > 1)
+        {
+            title = $"{title} x{moodle.Stacks}";
+        }
+
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(title);
+        if (!string.IsNullOrWhiteSpace(moodle.Description))
+        {
+            ImGui.Separator();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35f);
+            ImGui.TextUnformatted(moodle.Description);
+            ImGui.PopTextWrapPos();
+        }
+        ImGui.EndTooltip();
+    }
+
+    private IReadOnlyList<MoodlesStatusData> GetMoodlesStatuses(string moodlesData)
+    {
+        if (string.Equals(_lastMoodlesData, moodlesData, StringComparison.Ordinal))
+        {
+            return _moodlesStatuses;
+        }
+
+        _lastMoodlesData = moodlesData;
+        _moodlesParseFailed = false;
+
+        if (!MoodlesDataParser.TryParse(moodlesData, out var statuses))
+        {
+            _moodlesParseFailed = true;
+            _moodlesStatuses = Array.Empty<MoodlesStatusData>();
+            return _moodlesStatuses;
+        }
+
+        _moodlesStatuses = statuses
+            .Where(status => status.IconID > 0
+                || !string.IsNullOrWhiteSpace(status.Title)
+                || !string.IsNullOrWhiteSpace(status.Description))
+            .ToArray();
+
+        return _moodlesStatuses;
     }
 }

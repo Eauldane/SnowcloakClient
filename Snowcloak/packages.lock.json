@@ -43,9 +43,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[0.0.8.16, )",
-        "resolved": "0.0.8.16",
-        "contentHash": "P99Oq3WvPGtJHKDgyM6OIVAj281oVAlgiRLkH4gojCElgzVutE/jYWqe9lr4OH3DSNAabaIs6AhrreTQYTqcGQ=="
+        "requested": "[0.0.8.17, )",
+        "resolved": "0.0.8.17",
+        "contentHash": "mBaO5+SIjNm4JKKhWrr3gMQYIn0N90EXA7NtZtrFtzQdAb9xaVm7XWipyKyAKK/FDliBC7eASPnpif9KLZ/kRA=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -71,6 +71,28 @@
           "K4os.Compression.LZ4": "1.3.8",
           "K4os.Hash.xxHash": "1.0.8"
         }
+      },
+      "MemoryPack": {
+        "type": "Direct",
+        "requested": "[1.21.4, )",
+        "resolved": "1.21.4",
+        "contentHash": "wy3JTBNBsO8LfQcBvvYsWr3lm2Oakolrfu0UQ3oSJSEiD+7ye0GUhYTaXuYYBowqsXBXWD9gf2218ae0JRiYVQ==",
+        "dependencies": {
+          "MemoryPack.Core": "1.21.4",
+          "MemoryPack.Generator": "1.21.4"
+        }
+      },
+      "MemoryPack.Core": {
+        "type": "Direct",
+        "requested": "[1.21.4, )",
+        "resolved": "1.21.4",
+        "contentHash": "6RszGorZ0ejNmp37ZcboPBMvvPCuNW2jlrdQfcs/lMzE5b3pmPF6hsm/laDc34hRlbAST1ZxaX/DvYu2DF5sBQ=="
+      },
+      "MemoryPack.Generator": {
+        "type": "Direct",
+        "requested": "[1.21.4, )",
+        "resolved": "1.21.4",
+        "contentHash": "g14EsSS85yn0lHTi0J9ivqlZMf09A2iI51fmI+0KkzIzyCbWOBWPi5mdaY7YWmXprk12aYh9u/qfWHQUYthlwg=="
       },
       "MessagePack": {
         "type": "Direct",
