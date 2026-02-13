@@ -161,6 +161,14 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                     _toastGui.ShowError("Player out of range.");
             }).ConfigureAwait(false);
         });
+        mediator.Subscribe<ConnectedMessage>(this, message =>
+        {
+            if (!string.IsNullOrWhiteSpace(message.Connection.News))
+            {
+                PrintServerNewsToChat(message.Connection.News);
+            }
+        });
+        mediator.Subscribe<ServerNewsMessage>(this, message => PrintServerNewsToChat(message.News));
         IsWine = Util.IsWine();
     }
 
@@ -840,6 +848,20 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                && left.WardId == right.WardId
                && left.PlotId == right.PlotId
                && left.IsApartment == right.IsApartment;
+    }
+
+    private void PrintServerNewsToChat(string news)
+    {
+        if (string.IsNullOrWhiteSpace(news))
+        {
+            return;
+        }
+
+        _chatGui.Print(new XivChatEntry
+        {
+            Message = "[Snowcloak News] " + news.Trim(),
+            Type = XivChatType.SystemMessage
+        });
     }
 
     

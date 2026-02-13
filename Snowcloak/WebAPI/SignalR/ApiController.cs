@@ -408,6 +408,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         Logger.LogDebug("Initializing data");
         OnDownloadReady((guid) => _ = Client_DownloadReady(guid));
         OnReceiveServerMessage((sev, msg) => _ = Client_ReceiveServerMessage(sev, msg));
+        OnReceiveNews((news) => _ = Client_ReceiveNews(news));
         OnUpdateSystemInfo((dto) => _ = Client_UpdateSystemInfo(dto));
 
         OnUserSendOffline((dto) => _ = Client_UserSendOffline(dto));

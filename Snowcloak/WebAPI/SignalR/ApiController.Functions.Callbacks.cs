@@ -164,6 +164,16 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_ReceiveNews(string? news)
+    {
+        if (!string.IsNullOrWhiteSpace(news))
+        {
+            Mediator.Publish(new ServerNewsMessage(news.Trim()));
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task Client_UpdateSystemInfo(SystemInfoDto systemInfo)
     {
         SystemInfoDto = systemInfo;
@@ -413,6 +423,12 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_ReceiveServerMessage), act);
+    }
+
+    public void OnReceiveNews(Action<string?> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_ReceiveNews), act);
     }
 
     public void OnUpdateSystemInfo(Action<SystemInfoDto> act)
