@@ -8,6 +8,7 @@ using Dalamud.Utility;
 using ElezenTools.UI;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Comparer;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
@@ -1046,14 +1047,23 @@ public class SettingsUi : WindowMediatorSubscriberBase
         bool alwaysShrinkTextures = _playerPerformanceConfigService.Current.TextureShrinkMode == TextureShrinkMode.Always;
         bool deleteOriginalTextures = _playerPerformanceConfigService.Current.TextureShrinkDeleteOriginal;
 
-        bool preferCompressedTextures = _configService.Current.PreferCompressedTextures;
-        if (ImGui.Checkbox("Prefer compressed textures when available", ref preferCompressedTextures))
-        {
-            _configService.Current.PreferCompressedTextures = preferCompressedTextures;
-            _configService.Save();
-            _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preferCompressedTextures));
-        }
-        _uiShared.DrawHelpText("When enabled, Snowcloak will request compressed texture variants if the server has them. Disable to request higher quality when available.");
+        _uiShared.DrawCombo("Texture sync preference",
+            Enum.GetValues<TextureCompressionPreference>(),
+            preference => preference switch
+            {
+                TextureCompressionPreference.WhateverEquipped => "Whatever they have equipped",
+                TextureCompressionPreference.PreferCompressed => "Prefer compressed",
+                TextureCompressionPreference.PreferHighQuality => "Prefer high quality",
+                _ => preference.ToString()
+            },
+            preference =>
+            {
+                _configService.Current.TextureCompressionPreference = preference;
+                _configService.Save();
+                _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preference));
+            },
+            _configService.Current.TextureCompressionPreference);
+        _uiShared.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players.");
 
         using (ImRaii.Disabled(deleteOriginalTextures))
         {

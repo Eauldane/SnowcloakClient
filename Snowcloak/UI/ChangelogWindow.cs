@@ -251,6 +251,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.3"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Added a way for the server to broadcast news so that planned maintenance, upcoming patches, known issues etc. can be communicated easier to those not in the Discord.",
+                    "Adjusted texture compression preferences to allow selecting \"whatever's equipped\" with no server-side adjustment. This should help with items turning black.",
+                    "When \"prefer compressed\" is enabled, the server can now selectively refuse to send known bad files once they've been reported to us and verified."
+                ])
+            ]),
             new(VersionFromString("2.2.2"),
             [
                 new ChangelogSection("Changes and Bug Fixes",

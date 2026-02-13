@@ -490,7 +490,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     {
         try
         {
-            await UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(_configService.Current.PreferCompressedTextures)).ConfigureAwait(false);
+            await UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(_configService.Current.TextureCompressionPreference)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
