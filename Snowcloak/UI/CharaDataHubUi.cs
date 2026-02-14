@@ -42,6 +42,11 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
     private bool _filterPoseOnly = false;
     private bool _filterWorldOnly = false;
     private string _gposeTarget = string.Empty;
+    private nint _gposeTargetAddress = nint.Zero;
+    private readonly Lock _gposeStateLock = new();
+    private Task? _gposeStateRefreshTask;
+    private DateTime _lastGposeStateRefresh = DateTime.MinValue;
+    private static readonly TimeSpan GposeStateRefreshInterval = TimeSpan.FromMilliseconds(250);
     private bool _hasValidGposeTarget;
     private string _importCode = string.Empty;
     private bool _isHandlingSelf = false;
@@ -140,6 +145,8 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
     public override void OnOpen()
     {
         _closalCts = _closalCts.CancelRecreate();
+        _lastGposeStateRefresh = DateTime.MinValue;
+        QueueGposeStateRefresh(force: true);
     }
 
     protected override void Dispose(bool disposing)
@@ -169,7 +176,12 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             UpdateFilteredFavorites();
         }
 
-        (_hasValidGposeTarget, _gposeTarget) = _charaDataManager.CanApplyInGpose().GetAwaiter().GetResult();
+        QueueGposeStateRefresh();
+        nint gposeTargetAddress;
+        lock (_gposeStateLock)
+        {
+            gposeTargetAddress = _gposeTargetAddress;
+        }
 
         if (!_charaDataManager.BrioAvailable)
         {
@@ -234,7 +246,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                         if (gposeTabItem)
                         {
                             using var id = ImRaii.PushId("gposeControls");
-                            DrawGposeControls();
+                            DrawGposeControls(gposeTargetAddress);
                         }
                     }
                 }
@@ -364,7 +376,39 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawGposeControls()
+    private void QueueGposeStateRefresh(bool force = false)
+    {
+        if (_disposalCts.IsCancellationRequested) return;
+        if (!force && DateTime.UtcNow - _lastGposeStateRefresh < GposeStateRefreshInterval) return;
+        if (_gposeStateRefreshTask != null && !_gposeStateRefreshTask.IsCompleted) return;
+
+        _lastGposeStateRefresh = DateTime.UtcNow;
+        _gposeStateRefreshTask = RefreshGposeStateAsync();
+    }
+
+    private async Task RefreshGposeStateAsync()
+    {
+        try
+        {
+            var target = await _dalamudUtilService.GetGposeTargetGameObjectAsync().ConfigureAwait(false);
+            bool hasValidTarget = _dalamudUtilService.IsInGpose && target != null
+                && target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player;
+            var targetAddress = target?.Address ?? nint.Zero;
+            var targetName = hasValidTarget ? target!.Name.TextValue : "Invalid Target";
+            lock (_gposeStateLock)
+            {
+                _hasValidGposeTarget = hasValidTarget;
+                _gposeTarget = targetName;
+                _gposeTargetAddress = targetAddress;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Could not refresh GPose target state");
+        }
+    }
+
+    private void DrawGposeControls(nint gposeTargetAddress)
     {
         _uiSharedService.BigText("GPose Actors");
         ImGuiHelpers.ScaledDummy(5);
@@ -387,7 +431,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 UiSharedService.AttachToolTip($"Target the GPose Character {CharaName(actor.Name.TextValue)}");
                 ImGui.AlignTextToFramePadding();
                 var pos = ImGui.GetCursorPosX();
-                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen, actor.Address == (_dalamudUtilService.GetGposeTargetGameObjectAsync().GetAwaiter().GetResult()?.Address ?? nint.Zero)))
+                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen, actor.Address == gposeTargetAddress))
                 {
                     ImGui.TextUnformatted(CharaName(actor.Name.TextValue));
                 }

@@ -1051,7 +1051,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             Enum.GetValues<TextureCompressionPreference>(),
             preference => preference switch
             {
-                TextureCompressionPreference.WhateverEquipped => "Whatever they have equipped",
+                TextureCompressionPreference.WhateverEquipped => "No preference",
                 TextureCompressionPreference.PreferCompressed => "Prefer compressed",
                 TextureCompressionPreference.PreferHighQuality => "Prefer high quality",
                 _ => preference.ToString()
@@ -1063,7 +1063,9 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preference));
             },
             _configService.Current.TextureCompressionPreference);
-        _uiShared.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players.");
+        _uiShared.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players. The default " +
+                               "setting is to use whatever they have their end; but you can override this to force " +
+                               "compressed or high-quality textures if you'd like.");
 
         using (ImRaii.Disabled(deleteOriginalTextures))
         {

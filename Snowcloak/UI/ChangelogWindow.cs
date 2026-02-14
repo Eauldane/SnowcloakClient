@@ -251,6 +251,17 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.4"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "A specific error is now thrown when you're connecting with an outdated client, instead of a generic one about authorisation.",
+                    "News is updated more frequently.",
+                    "Fixed some debug log spam that was accidentally left in.",
+                    "Client will now poll for server information periodically if it hasn't received an update in a while",
+                    "Merged performance improvements from experimental branch for both server and client."
+                ])
+            ]),
             new(VersionFromString("2.2.3"),
             [
                 new ChangelogSection("Changes and Bug Fixes",

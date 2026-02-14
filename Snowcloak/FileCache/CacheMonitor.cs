@@ -586,22 +586,16 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         }
 
         var evictionMode = _configService.Current.CacheEvictionMode;
-        foreach (var candidate in files.ToList())
+        var expirationCutoff = DateTime.UtcNow - DatabaseService.UsageRetentionPeriod;
+        var expiredCandidates = files
+            .Where(file => GetUsageLastSeenUtc(usageStats, file) < expirationCutoff)
+            .ToList();
+        foreach (var candidate in expiredCandidates)
         {
-            var expirationCutoff = DateTime.UtcNow - DatabaseService.UsageRetentionPeriod;
-            foreach (var expired in files.Where(f => GetUsageLastSeenUtc(usageStats, f) < expirationCutoff).ToList())
+            token.ThrowIfCancellationRequested();
+            if (DeleteFileAndUsage(candidate, usageStats))
             {
-                token.ThrowIfCancellationRequested();
-                var lastSeenUtc = GetUsageLastSeenUtc(usageStats, candidate);
-                if (lastSeenUtc >= expirationCutoff)                
-                {
-                    continue;
-                }
-
-                if (DeleteFileAndUsage(candidate, usageStats))
-                {
-                    files.Remove(candidate);                
-                }
+                files.Remove(candidate);
             }
         }
 
@@ -611,19 +605,29 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
         if (FileCacheSize < maxCacheInBytes) return;
 
         var maxCacheBuffer = maxCacheInBytes * 0.05d;
-                List<FileInfo> orderedFiles = evictionMode switch
+        var evictionCandidates = files
+            .Select(file => new FileEvictionCandidate(
+                file,
+                GetUsageCount(usageStats, file),
+                GetUsageLastSeenUtc(usageStats, file),
+                GetFileLastAccessUtc(file)))
+            .ToList();
+        List<FileInfo> orderedFiles = evictionMode switch
         {
-            CacheEvictionMode.LeastFrequentlyUsed => files
-                .OrderBy(f => GetUsageCount(usageStats, f))
-                .ThenBy(f => GetUsageLastSeenUtc(usageStats, f))
-                .ThenBy(f => GetFileLastAccessUtc(f))
+            CacheEvictionMode.LeastFrequentlyUsed => evictionCandidates
+                .OrderBy(candidate => candidate.UsageCount)
+                .ThenBy(candidate => candidate.UsageLastSeenUtc)
+                .ThenBy(candidate => candidate.LastAccessUtc)
+                .Select(candidate => candidate.File)
                 .ToList(),
-            CacheEvictionMode.ExpirationDate => files
-                .OrderBy(f => GetUsageLastSeenUtc(usageStats, f))
-                .ThenBy(f => GetFileLastAccessUtc(f))
+            CacheEvictionMode.ExpirationDate => evictionCandidates
+                .OrderBy(candidate => candidate.UsageLastSeenUtc)
+                .ThenBy(candidate => candidate.LastAccessUtc)
+                .Select(candidate => candidate.File)
                 .ToList(),
-            _ => files
-                .OrderBy(f => GetFileLastAccessUtc(f))
+            _ => evictionCandidates
+                .OrderBy(candidate => candidate.LastAccessUtc)
+                .Select(candidate => candidate.File)
                 .ToList(),
         };
 
@@ -734,6 +738,8 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase
 
         return 0;
     }
+
+    private readonly record struct FileEvictionCandidate(FileInfo File, int UsageCount, DateTime UsageLastSeenUtc, DateTime LastAccessUtc);
 
     private static readonly DateTime MinimumPlausibleTimestampUtc = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     

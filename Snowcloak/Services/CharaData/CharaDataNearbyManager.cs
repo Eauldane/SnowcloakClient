@@ -197,43 +197,83 @@ public sealed class CharaDataNearbyManager : DisposableMediatorSubscriberBase
         bool ignoreHousingLimits = _charaDataConfigService.Current.NearbyIgnoreHousingLimitations;
         bool onlyCurrentServer = _charaDataConfigService.Current.NearbyOwnServerOnly;
         bool showOwnData = _charaDataConfigService.Current.NearbyShowOwnData;
+        var noteFilter = UserNoteFilter;
+        bool hasNoteFilter = !string.IsNullOrWhiteSpace(noteFilter);
+        var configuredNote = hasNoteFilter ? (_serverConfigurationManager.GetNoteForUid(noteFilter) ?? string.Empty) : string.Empty;
+        float distanceLimitSquared = _charaDataConfigService.Current.NearbyDistanceFilter;
+        distanceLimitSquared *= distanceLimitSquared;
+        KeyValuePair<UserData, List<CharaDataMetaInfoExtendedDto>>[] metaInfoSnapshot;
+        _sharedDataUpdateSemaphore.Wait();
+        try
+        {
+            metaInfoSnapshot = _metaInfoCache.ToArray();
+        }
+        finally
+        {
+            _sharedDataUpdateSemaphore.Release();
+        }
 
         // initial filter on name
-        foreach (var data in _metaInfoCache.Where(d => (string.IsNullOrWhiteSpace(UserNoteFilter)
-            || ((d.Key.Alias ?? string.Empty).Contains(UserNoteFilter, StringComparison.OrdinalIgnoreCase)
-            || d.Key.UID.Contains(UserNoteFilter, StringComparison.OrdinalIgnoreCase)
-            || (_serverConfigurationManager.GetNoteForUid(UserNoteFilter) ?? string.Empty).Contains(UserNoteFilter, StringComparison.OrdinalIgnoreCase))))
-            .ToDictionary(k => k.Key, k => k.Value))
+        foreach (var data in metaInfoSnapshot)
         {
-            // filter all poses based on territory, that always must be correct
-            foreach (var pose in data.Value.Where(v => v.HasPoses && v.HasWorldData && (showOwnData || !v.IsOwnData))
-                .SelectMany(k => k.PoseExtended)
-                .Where(p => p.HasPoseData
-                    && p.HasWorldData
-                    && p.WorldData!.Value.LocationInfo.TerritoryId == ownLocation.TerritoryId)
-                .ToList())
+            if (hasNoteFilter)
             {
-                var poseLocation = pose.WorldData!.Value.LocationInfo;
+                var alias = data.Key.Alias ?? string.Empty;
+                if (!alias.Contains(noteFilter, StringComparison.OrdinalIgnoreCase)
+                    && !data.Key.UID.Contains(noteFilter, StringComparison.OrdinalIgnoreCase)
+                    && !configuredNote.Contains(noteFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
 
-                bool isInHousing = poseLocation.WardId != 0;
-                var distance = Vector3.Distance(playerPos, pose.Position);
-                if (distance > _charaDataConfigService.Current.NearbyDistanceFilter) continue;
+            // filter all poses based on territory, that always must be correct
+            foreach (var entry in data.Value)
+            {
+                if (!entry.HasPoses || !entry.HasWorldData || (!showOwnData && entry.IsOwnData))
+                {
+                    continue;
+                }
+
+                foreach (var pose in entry.PoseExtended)
+                {
+                    if (!pose.HasPoseData || !pose.HasWorldData)
+                    {
+                        continue;
+                    }
+
+                    var poseLocation = pose.WorldData!.Value.LocationInfo;
+                    if (poseLocation.TerritoryId != ownLocation.TerritoryId)
+                    {
+                        continue;
+                    }
+
+                    var distanceSquared = Vector3.DistanceSquared(playerPos, pose.Position);
+                    if (distanceSquared > distanceLimitSquared)
+                    {
+                        continue;
+                    }
+
+                    bool isInHousing = poseLocation.WardId != 0;
 
 
-                bool addEntry = (!isInHousing && poseLocation.MapId == ownLocation.MapId
-                        && (!onlyCurrentServer || poseLocation.ServerId == currentServer.RowId))
-                    || (isInHousing
-                        && (((ignoreHousingLimits && !onlyCurrentServer)
-                            || (ignoreHousingLimits && onlyCurrentServer) && poseLocation.ServerId == currentServer.RowId)
-                            || poseLocation.ServerId == currentServer.RowId)
-                        && ((poseLocation.HouseId == 0 && poseLocation.DivisionId == ownLocation.DivisionId
-                                && (ignoreHousingLimits || poseLocation.WardId == ownLocation.WardId))
-                            || (poseLocation.HouseId > 0
-                                && (ignoreHousingLimits || (poseLocation.HouseId == ownLocation.HouseId && poseLocation.WardId == ownLocation.WardId && poseLocation.DivisionId == ownLocation.DivisionId && poseLocation.RoomId == ownLocation.RoomId)))
-                           ));
+                    bool addEntry = (!isInHousing && poseLocation.MapId == ownLocation.MapId
+                            && (!onlyCurrentServer || poseLocation.ServerId == currentServer.RowId))
+                        || (isInHousing
+                            && (((ignoreHousingLimits && !onlyCurrentServer)
+                                || (ignoreHousingLimits && onlyCurrentServer) && poseLocation.ServerId == currentServer.RowId)
+                                || poseLocation.ServerId == currentServer.RowId)
+                            && ((poseLocation.HouseId == 0 && poseLocation.DivisionId == ownLocation.DivisionId
+                                    && (ignoreHousingLimits || poseLocation.WardId == ownLocation.WardId))
+                                || (poseLocation.HouseId > 0
+                                    && (ignoreHousingLimits || (poseLocation.HouseId == ownLocation.HouseId && poseLocation.WardId == ownLocation.WardId && poseLocation.DivisionId == ownLocation.DivisionId && poseLocation.RoomId == ownLocation.RoomId)))
+                               ));
 
-                if (addEntry)
-                    _nearbyData[pose] = new() { Direction = GetAngleToTarget(cameraPos, cameraYaw, pose.Position), Distance = distance };
+                    if (addEntry)
+                    {
+                        _nearbyData[pose] = new() { Direction = GetAngleToTarget(cameraPos, cameraYaw, pose.Position), Distance = MathF.Sqrt(distanceSquared) };
+                    }
+                }
             }
         }
 

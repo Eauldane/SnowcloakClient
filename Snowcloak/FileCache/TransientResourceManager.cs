@@ -208,27 +208,35 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase
             Logger.LogTrace("Ignored {0} game paths when clearing transients", recordingOnlyRemoved);
         }
 
+        var pathsToRemove = list.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (pathsToRemove.Count == 0)
+        {
+            return;
+        }
+
         if (TransientResources.TryGetValue(objectKind, out var set))
         {
-            foreach (var file in set.Where(p => list.Contains(p, StringComparer.OrdinalIgnoreCase)))
+            var removedTransientEntries = set.Where(pathsToRemove.Contains).ToList();
+            foreach (var file in removedTransientEntries)
             {
                 Logger.LogTrace("Removing From Transient: {file}", file);
             }
 
-            int removed = set.RemoveWhere(p => list.Contains(p, StringComparer.OrdinalIgnoreCase));
+            int removed = set.RemoveWhere(pathsToRemove.Contains);
             Logger.LogDebug("Removed {removed} previously existing transient paths", removed);
         }
 
         bool reloadSemiTransient = false;
         if (objectKind == ObjectKind.Player && SemiTransientResources.TryGetValue(objectKind, out var semiset))
         {
-            foreach (var file in semiset.Where(p => list.Contains(p, StringComparer.OrdinalIgnoreCase)))
+            var removedSemiTransientEntries = semiset.Where(pathsToRemove.Contains).ToList();
+            foreach (var file in removedSemiTransientEntries)
             {
                 Logger.LogTrace("Removing From SemiTransient: {file}", file);
                 PlayerConfig.RemovePath(file, objectKind);
             }
 
-            int removed = semiset.RemoveWhere(p => list.Contains(p, StringComparer.OrdinalIgnoreCase));
+            int removed = semiset.RemoveWhere(pathsToRemove.Contains);
             Logger.LogDebug("Removed {removed} previously existing semi transient paths", removed);
             if (removed > 0)
             {
