@@ -84,9 +84,9 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
 
             if (!result.IsSuccessStatusCode)
             {
+                var textResponse = await result.Content.ReadAsStringAsync(token).ConfigureAwait(false) ?? string.Empty;
                 Mediator.Publish(new NotificationMessage("Error refreshing token", "Your authentication token could not be renewed. Try reconnecting manually.", NotificationType.Error));
                 Mediator.Publish(new DisconnectedMessage());
-                var textResponse = await result.Content.ReadAsStringAsync(token).ConfigureAwait(false) ?? string.Empty;
                 throw new SnowAuthFailureException(textResponse);
             }
 

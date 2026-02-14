@@ -51,6 +51,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private ConnectionDto? _connectionDto;
     private bool _doNotNotifyOnNextInfo = false;
     private CancellationTokenSource? _healthCheckTokenSource = new();
+    private CancellationTokenSource? _systemInfoPollTokenSource;
     private bool _initialized;
     private HubConnection? _snowHub;
     private ServerState _serverState;
@@ -217,14 +218,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
  
                 if (_connectionDto.ServerVersion != ISnowHub.ApiVersion)
                 {
-                    if (_connectionDto.CurrentClientVersion > currentClientVer)
-                    {
-                        Mediator.Publish(new NotificationMessage("Client incompatible",
-                            $"Your client is outdated ({currentClientVer.Major}.{currentClientVer.Minor}.{currentClientVer.Build}), current is: " +
-                            $"{_connectionDto.CurrentClientVersion.Major}.{_connectionDto.CurrentClientVersion.Minor}.{_connectionDto.CurrentClientVersion.Build}. " +
-                            $"This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
-                            NotificationType.Error));
-                    }
+                    Mediator.Publish(new NotificationMessage("Client incompatible",
+                        "This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
+                        NotificationType.Error));
                     await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
                     return;
                 }
@@ -344,6 +340,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         base.Dispose(disposing);
 
         _healthCheckTokenSource?.Cancel();
+        StopSystemInfoPolling();
         _ = Task.Run(async () => await StopConnection(ServerState.Disconnected).ConfigureAwait(false));
         _connectionCancellationTokenSource?.Cancel();
     }
@@ -451,6 +448,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _healthCheckTokenSource = new CancellationTokenSource();
         _ = ClientHealthCheck(_healthCheckTokenSource.Token);
 
+        StartSystemInfoPolling();
+
         _initialized = true;
     }
 
@@ -501,6 +500,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private void SnowHubOnClosed(Exception? arg)
     {
         _healthCheckTokenSource?.Cancel();
+        StopSystemInfoPolling();
         Mediator.Publish(new DisconnectedMessage());
         ServerState = ServerState.Offline;
         if (arg != null)
@@ -542,6 +542,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     {
         _doNotNotifyOnNextInfo = true;
         _healthCheckTokenSource?.Cancel();
+        StopSystemInfoPolling();
         ServerState = ServerState.Reconnecting;
         Logger.LogWarning(arg, "Connection closed... Reconnecting");
         Mediator.Publish(new DisconnectedMessage());
@@ -564,6 +565,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
             _initialized = false;
             _healthCheckTokenSource?.Cancel();
+            StopSystemInfoPolling();
             Mediator.Publish(new DisconnectedMessage());
             _snowHub = null;
             _connectionDto = null;
