@@ -446,6 +446,12 @@ public class DrawGroupPair : DrawPairBase
                 _displayHandler.OpenProfile(_pair);
                 ImGui.CloseCurrentPopup();
             }
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile"))
+            {
+                _mediator.Publish(new OpenReportPopupMessage(_pair));
+                ImGui.CloseCurrentPopup();
+            }
+            UiSharedService.AttachToolTip("Report this user's profile.");
             if (_pair.IsVisible)
             {
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PersonCircleQuestion,  "Open Analysis"))

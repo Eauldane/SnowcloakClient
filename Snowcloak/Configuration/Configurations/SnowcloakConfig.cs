@@ -74,6 +74,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int ChatLogKind { get; set; } = 1; // XivChatType.Debug
     public bool ExtraChatAPI { get; set; } = false;
     public bool ExtraChatTags { get; set; } = false;
+    public bool DisableServerNewsInChat { get; set; } = false;
 
     public bool MareAPI { get; set; } = true;
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;

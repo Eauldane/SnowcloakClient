@@ -209,6 +209,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 await _snowHub.StartAsync(token).ConfigureAwait(false);
 
                 _connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+                _lastPublishedNews = string.IsNullOrWhiteSpace(_connectionDto.News) ? null : _connectionDto.News.Trim();
 
                 await CheckClientHealth().ConfigureAwait(false);
 
@@ -520,6 +521,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         {
             InitializeApiHooks();
             _connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+            _lastPublishedNews = string.IsNullOrWhiteSpace(_connectionDto.News) ? null : _connectionDto.News.Trim();
             if (_connectionDto.ServerVersion != ISnowHub.ApiVersion)
             {
                 await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);

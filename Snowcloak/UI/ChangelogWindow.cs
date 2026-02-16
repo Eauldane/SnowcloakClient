@@ -251,6 +251,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.6"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Added a report button to the pair list so you don't need to open someone's profile to do it.",
+                    "Added a setting to opt out of receiving news posts."
+                ])
+            ]),
             new(VersionFromString("2.2.5"),
             [
                 new ChangelogSection("Changes and Bug Fixes",

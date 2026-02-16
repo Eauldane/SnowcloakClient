@@ -14,6 +14,8 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
+    private string? _lastPublishedNews;
+
     public Task Client_DownloadReady(Guid requestId)
     {
         Logger.LogDebug("Server sent {requestId} ready", requestId);
@@ -166,9 +168,11 @@ public partial class ApiController
 
     public Task Client_ReceiveNews(string? news)
     {
-        if (!string.IsNullOrWhiteSpace(news))
+        var normalizedNews = NormalizeNews(news);
+        if (!string.IsNullOrEmpty(normalizedNews))
         {
-            Mediator.Publish(new ServerNewsMessage(news.Trim()));
+            SystemInfoDto = SystemInfoDto with { News = normalizedNews };
+            PublishNewsIfChanged(normalizedNews);
         }
 
         return Task.CompletedTask;
@@ -177,7 +181,30 @@ public partial class ApiController
     public Task Client_UpdateSystemInfo(SystemInfoDto systemInfo)
     {
         SystemInfoDto = systemInfo;
+        PublishNewsIfChanged(systemInfo.News);
         return Task.CompletedTask;
+    }
+
+    private void PublishNewsIfChanged(string? news)
+    {
+        var normalizedNews = NormalizeNews(news);
+        if (string.IsNullOrEmpty(normalizedNews))
+        {
+            return;
+        }
+
+        if (string.Equals(_lastPublishedNews, normalizedNews, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastPublishedNews = normalizedNews;
+        Mediator.Publish(new ServerNewsMessage(normalizedNews));
+    }
+
+    private static string? NormalizeNews(string? news)
+    {
+        return string.IsNullOrWhiteSpace(news) ? null : news.Trim();
     }
 
     public Task Client_UserAddClientPair(UserPairDto dto)

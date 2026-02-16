@@ -186,9 +186,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[2.2.4, )",
-        "resolved": "2.2.4",
-        "contentHash": "d7+8pARjF8Gz+aKP8slBghA/MPLFNF7bOSmW7iMrAeCLAdB2/2SeNekznpoXY4rOQnRt7tHMfwLXwqmvW1t6gQ==",
+        "requested": "[2.2.6, )",
+        "resolved": "2.2.6",
+        "contentHash": "ocvbN3zbK20ciZ5KUXxLRwLoiNV9IDFctYq56KiITeIGDjw6QqVq5rBoy5KaL1SQcCyg4sDUZcjIPpo/JLy3Iw==",
         "dependencies": {
           "Blake3": "2.2.0",
           "MessagePack.Annotations": "3.1.4"

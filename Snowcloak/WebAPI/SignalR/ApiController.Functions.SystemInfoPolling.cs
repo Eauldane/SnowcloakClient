@@ -6,7 +6,7 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
-    private static readonly TimeSpan SystemInfoPollInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SystemInfoPollInterval = TimeSpan.FromSeconds(15);
 
     private void StartSystemInfoPolling()
     {
@@ -54,7 +54,7 @@ public partial class ApiController
         var dto = await GetSystemInfo().ConfigureAwait(false);
         if (dto != null)
         {
-            SystemInfoDto = dto;
+            await Client_UpdateSystemInfo(dto).ConfigureAwait(false);
         }
     }
 

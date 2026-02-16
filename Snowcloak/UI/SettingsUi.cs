@@ -748,6 +748,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         _uiShared.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
         
+        var disableServerNewsInChat = _configService.Current.DisableServerNewsInChat;
+        if (ImGui.Checkbox("Disable server news posts in chat", ref disableServerNewsInChat))
+        {
+            _configService.Current.DisableServerNewsInChat = disableServerNewsInChat;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("Stops Snowcloak server news announcements from being posted to in-game chat.");
         ImGui.Separator();
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;

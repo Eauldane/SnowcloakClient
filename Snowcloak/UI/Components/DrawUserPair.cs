@@ -246,6 +246,12 @@ public class DrawUserPair : DrawPairBase
             }
             UiSharedService.AttachToolTip("Opens the profile for this user in a new window");
         }
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile"))
+        {
+            _mediator.Publish(new OpenReportPopupMessage(entry));
+            ImGui.CloseCurrentPopup();
+        }
+        UiSharedService.AttachToolTip("Report this user's profile.");
         if (entry.IsVisible)
         {
 #if DEBUG

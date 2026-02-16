@@ -18,6 +18,7 @@ using Snowcloak.Interop;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
+using Snowcloak.Configuration;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -52,6 +53,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private readonly IChatGui _chatGui;
     private readonly ITargetManager _targetManager;
     private readonly IPartyList _partyList;
+    private readonly SnowcloakConfigService _configService;
     private readonly IToastGui _toastGui;
     private readonly ILogger<DalamudUtilService> _logger;
     private readonly IObjectTable _objectTable;
@@ -74,7 +76,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
         IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
         IPlayerState playerState, BlockedCharacterHandler blockedCharacterHandler, SnowMediator mediator, PerformanceCollectorService performanceCollector,
-        IPartyList partyList)
+        IPartyList partyList, SnowcloakConfigService configService)
     {
         _logger = logger;
         _clientState = clientState;
@@ -87,6 +89,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _playerState = playerState;
         _targetManager = targetManager;
         _partyList = partyList;
+        _configService = configService;
         _gameData = gameData;
         _blockedCharacterHandler = blockedCharacterHandler;
         Mediator = mediator;
@@ -854,6 +857,11 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     private void PrintServerNewsToChat(string news)
     {
+        if (_configService.Current.DisableServerNewsInChat)
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(news))
         {
             return;
