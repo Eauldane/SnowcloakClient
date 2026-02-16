@@ -22,9 +22,9 @@
       },
       "DalamudPackager": {
         "type": "Direct",
-        "requested": "[14.0.1, )",
-        "resolved": "14.0.1",
-        "contentHash": "y0WWyUE6dhpGdolK3iKgwys05/nZaVf4ZPtIjpLhJBZvHxkkiE23zYRo7K7uqAgoK/QvK5cqF6l3VG5AbgC6KA=="
+        "requested": "[14.0.2, )",
+        "resolved": "14.0.2",
+        "contentHash": "dQJeq+8eyHzra4Cg5eZ/3LAeS3/UpvvLriYJGSncMK9LqJ7Q4B6jwcOsxo3PfxVd15xj+IzVFxkPqIBmPQu8/w=="
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
@@ -43,9 +43,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[0.0.8.19, )",
-        "resolved": "0.0.8.19",
-        "contentHash": "MS1jy9bfk9osGXpKAwotFPJmj/c9VAmxRszZI6PGsBxbrgZFcK9zf1hm6QItxe5KwoMX1/jRQ/DPq0szJ9a2Ug=="
+        "requested": "[0.0.8.26, )",
+        "resolved": "0.0.8.26",
+        "contentHash": "aGmgFMyTVEqqyQJWnznLhVboKsjSY1+W/lXz1InrIcAu0Lk7spzY7sTvx0NAqqseCwehJ6aDOdPtj4N5XX6HYA=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -113,9 +113,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[2.0.301, )",
-        "resolved": "2.0.301",
-        "contentHash": "aAagQwALczmJytXZCFJxkADar1i26WTCchup/SodDvMUTzJhk27iFVlCNl7lr93RupHbt1mIyUo+jKNa+zfJLA=="
+        "requested": "[2.0.302, )",
+        "resolved": "2.0.302",
+        "contentHash": "jewHhscwvbwcB2N7JDHCCrdSljkG7yM33RSK/myr89zzD+hUptpXXItiPKkgrO2m1h0d54RehMxFdXFemGG7+Q=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",

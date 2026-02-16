@@ -28,6 +28,7 @@ using Dalamud.Game.Gui.ContextMenu;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using ElezenTools.Data;
 using ElezenTools.Services;
+using ElezenTools.UI;
 
 namespace Snowcloak.Services;
 
@@ -68,6 +69,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private bool _isOnHousingPlot = false;
     private HousingPlotLocation _lastHousingPlotLocation = default;
     private uint _lastTargetEntityId = 0;
+    private string _lastDisplayedServerNews = string.Empty;
     
     public DalamudUtilService(ILogger<DalamudUtilService> logger, IClientState clientState, IObjectTable objectTable, IFramework framework,
         IGameGui gameGui, IChatGui chatGui, IToastGui toastGui,ICondition condition, IDataManager gameData, ITargetManager targetManager,
@@ -857,9 +859,16 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             return;
         }
 
+        var normalizedNews = news.Trim();
+        if (string.Equals(_lastDisplayedServerNews, normalizedNews, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastDisplayedServerNews = normalizedNews;
         _chatGui.Print(new XivChatEntry
         {
-            Message = "[Snowcloak News] " + news.Trim(),
+            Message = "[Snowcloak News] " + normalizedNews,
             Type = XivChatType.SystemMessage
         });
     }
@@ -900,7 +909,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             {
                 uint apartmentDivision = currentPlot == -127 ? 2u : 1u;
                 housingLocation = new HousingPlotLocation(worldId, territoryId, apartmentDivision, ward, 100, room, true);
-                return true;            }
+                return true;            
+            }
         }
 
         if (locationInfo.HouseId > 0)
@@ -1117,6 +1127,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             {
                 _logger.LogDebug("Logged out");
                 IsLoggedIn = false;
+                _lastDisplayedServerNews = string.Empty;
                 Mediator.Publish(new DalamudLogoutMessage());
             }
 
