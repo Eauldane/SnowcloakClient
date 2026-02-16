@@ -251,6 +251,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.2.5"),
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "News should no longer show again if there's a connection blip.",
+                    "Misc server fixes."
+                ])
+            ]),
             new(VersionFromString("2.2.4"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
