@@ -44,6 +44,21 @@ public partial class ApiController
         }
     }
 
+    private void TriggerSystemInfoRefresh()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PollSystemInfoOnce(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Initial system info refresh failed");
+            }
+        });
+    }
+
     private async Task PollSystemInfoOnce(CancellationToken ct)
     {
         if (!IsConnected)

@@ -214,6 +214,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 await CheckClientHealth().ConfigureAwait(false);
 
                 ServerState = ServerState.Connected;
+                TriggerSystemInfoRefresh();
 
                 var currentClientVer = Assembly.GetExecutingAssembly().GetName().Version!;
  
@@ -528,6 +529,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 return;
             }
             ServerState = ServerState.Connected;
+            TriggerSystemInfoRefresh();
             await PushTextureCompressionPreference().ConfigureAwait(false);
             await LoadIninitialPairs().ConfigureAwait(false);
             await LoadOnlinePairs().ConfigureAwait(false);
