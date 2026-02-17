@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Services.Venue;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
@@ -23,6 +24,7 @@ namespace Snowcloak.UI;
 public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 {
     private readonly ApiController _apiController;
+    private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly UiSharedService _uiSharedService;
     private readonly VenueRegistrationService _venueRegistrationService;
     private readonly List<VenueRegistryEntryDto> _ownedVenues = [];
@@ -30,6 +32,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
     private string _venueName = string.Empty;
     private string _venueDescription = string.Empty;
     private string _venueWebsite = string.Empty;
+    private string _venueWebhookUrl = string.Empty;
     private string _venueHost = string.Empty;
     private bool _isListed = true;
     private bool _isLoading;
@@ -39,16 +42,18 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
     private bool _refreshOnNextDraw;
 
     public VenueRegistryWindow(ILogger<VenueRegistryWindow> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        ApiController apiController, VenueRegistrationService venueRegistrationService, PerformanceCollectorService performanceCollectorService)
+        ApiController apiController, ServerConfigurationManager serverConfigurationManager,
+        VenueRegistrationService venueRegistrationService, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Venue Manager###SnowcloakVenueRegistry", performanceCollectorService)
     {
         _apiController = apiController;
+        _serverConfigurationManager = serverConfigurationManager;
         _uiSharedService = uiSharedService;
         _venueRegistrationService = venueRegistrationService;
 
         SizeConstraints = new WindowSizeConstraints()
         {
-            MinimumSize = new Vector2(550, 450)
+            MinimumSize = new Vector2(550, 650)
         };
 
         Mediator.Subscribe<OpenVenueRegistryWindowMessage>(this, (_) =>
@@ -87,12 +92,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
         if (_ownedVenues.Count == 0)
         {
-            ElezenImgui.ColouredWrappedText("No owned venues were found. You can register a plot using the button below.", ImGuiColors.DalamudGrey);
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
-            {
-                _venueRegistrationService.BeginRegistrationFromCommand();
-            }
-            UiSharedService.AttachToolTip("Start the placard verification flow for the plot you are standing on.");
+            ElezenImgui.ColouredWrappedText("No owned venues were found. You can register a plot using the button above.", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -167,6 +167,8 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         ImGui.InputText("Venue name", ref _venueName, 100);
         ImGui.InputText("Host / contact", ref _venueHost, 200);
         ImGui.InputText("Website", ref _venueWebsite, 200);
+        ImGui.InputText("Discord webhook URL", ref _venueWebhookUrl, 2048);
+        _uiSharedService.DrawHelpText("Optional: If you have a Discord server you want to publish event ads to, paste the webhook URL here.");
 
         ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "Description {0}/2000", _venueDescription.Length));
         using (_uiSharedService.GameFont.Push())
@@ -186,6 +188,10 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         if (_selectedVenueIndex < 0)
             return;
 
+        var selected = _ownedVenues[_selectedVenueIndex];
+        var embedUrl = BuildVenueEmbedUrl(selected.Id);
+        var embedCode = string.IsNullOrWhiteSpace(embedUrl) ? string.Empty : BuildVenueEmbedCode(embedUrl);
+
         var canSubmit = !_isSaving && !string.IsNullOrWhiteSpace(_venueName);
         ImGui.BeginDisabled(!canSubmit);
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Venue"))
@@ -194,6 +200,53 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         }
         ImGui.EndDisabled();
         UiSharedService.AttachToolTip("Save updates to the selected venue listing.");
+
+        ImGui.SameLine();
+        ImGui.BeginDisabled(string.IsNullOrWhiteSpace(embedCode));
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy Embed Code"))
+        {
+            ImGui.SetClipboardText(embedCode);
+            _statusMessage = "Embed code copied to clipboard.";
+            _statusIsError = false;
+        }
+        ImGui.EndDisabled();
+        UiSharedService.AttachToolTip("Copy an iframe snippet to include on a website, carrd etc that'll show your currently running ad.");
+    }
+
+    private string BuildVenueEmbedUrl(Guid registryId)
+    {
+        if (!Uri.TryCreate(_serverConfigurationManager.CurrentRealApiUrl, UriKind.Absolute, out var apiUri))
+        {
+            return string.Empty;
+        }
+
+        var scheme = apiUri.Scheme switch
+        {
+            "ws" => Uri.UriSchemeHttp,
+            "wss" => Uri.UriSchemeHttps,
+            _ => apiUri.Scheme
+        };
+
+        var builder = new UriBuilder(apiUri)
+        {
+            Scheme = scheme,
+            Path = $"/venue/embed/{registryId:D}",
+            Query = string.Empty,
+            Fragment = string.Empty
+        };
+
+        if ((string.Equals(builder.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) && builder.Port == 443)
+            || (string.Equals(builder.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) && builder.Port == 80))
+        {
+            builder.Port = -1;
+        }
+
+        return builder.Uri.ToString();
+    }
+
+    private static string BuildVenueEmbedCode(string embedUrl)
+    {
+        return $"""<iframe src="{embedUrl}" title="Snowcloak Venue Ad" width="420" height="660" style="width:100%;max-width:420px;height:660px;border:0;" loading="lazy"></iframe>""";
     }
 
     private static string FormatVenueLabel(VenueRegistryEntryDto entry)
@@ -213,6 +266,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         _venueName = selected.VenueName ?? string.Empty;
         _venueDescription = selected.VenueDescription ?? string.Empty;
         _venueWebsite = selected.VenueWebsite ?? string.Empty;
+        _venueWebhookUrl = selected.VenueWebhookUrl ?? string.Empty;
         _venueHost = selected.VenueHost ?? string.Empty;
         _isListed = selected.IsListed;
         _statusMessage = null;
@@ -271,6 +325,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             {
                 VenueDescription = TrimToNull(_venueDescription),
                 VenueWebsite = TrimToNull(_venueWebsite),
+                VenueWebhookUrl = TrimToNull(_venueWebhookUrl),
                 VenueHost = TrimToNull(_venueHost),
                 IsListed = _isListed
             };

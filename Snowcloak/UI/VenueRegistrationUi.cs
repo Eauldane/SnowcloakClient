@@ -28,6 +28,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private string _venueName = string.Empty;
     private string _venueDescription = string.Empty;
     private string _venueWebsite = string.Empty;
+    private string _venueWebhookUrl = string.Empty;
     private string _venueHost = string.Empty;
     private string _syncshellAlias = string.Empty;
     private Vector3 _venueNameColour = Vector3.One;
@@ -70,6 +71,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         _venueHost = string.Empty;
         _venueDescription = string.Empty;
         _venueWebsite = string.Empty;
+        _venueWebhookUrl = string.Empty;
         _syncshellAlias = string.Empty;
         _venueNameColour = Vector3.One;
         _selectedGroupGid = null;
@@ -167,6 +169,9 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         ImGui.InputText("Website", ref _venueWebsite, 200);
         UiSharedService.AttachToolTip("Optional: external link for the venue.");
+        
+        ImGui.InputText("Discord webhook URL", ref _venueWebhookUrl, 2048);
+        UiSharedService.AttachToolTip("Optional: Discord webhook URL used to auto-post venue ads when they are published.");
 
         ImGui.TextUnformatted("Description");
         ImGui.InputTextMultiline("##VenueDescription", ref _venueDescription, 2000,
@@ -251,6 +256,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         var venueHost = TrimToNull(_venueHost);
         var venueDescription = TrimToNull(_venueDescription);
         var venueWebsite = TrimToNull(_venueWebsite);
+        var venueWebhookUrl = TrimToNull(_venueWebhookUrl);
         var syncshellAlias = TrimToNull(_syncshellAlias);
 
         _ = Task.Run(async () =>
@@ -265,6 +271,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                 {
                     VenueDescription = venueDescription,
                     VenueWebsite = venueWebsite,
+                    VenueWebhookUrl = venueWebhookUrl,
                     VenueHost = venueHost,
                     Alias = syncshellAlias,
                     HexString = GetVenueNameColourHex(),
@@ -359,6 +366,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                     _venueName = response.Venue.VenueName ?? string.Empty;
                     _venueDescription = response.Venue.VenueDescription ?? string.Empty;
                     _venueWebsite = response.Venue.VenueWebsite ?? string.Empty;
+                    _venueWebhookUrl = response.Venue.VenueWebhookUrl ?? string.Empty;
                     _venueHost = response.Venue.VenueHost ?? string.Empty;
                     _syncshellAlias = response.Venue.JoinInfo.Group.AliasOrGID;
 

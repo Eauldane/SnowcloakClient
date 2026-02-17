@@ -251,6 +251,14 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.3.0"),
+            [
+                new ChangelogSection("New Features - Venue Ad Upgrades",
+                [
+                    "Added an option for venues to post their event ads to Discord via webhooks. Webhook URLs can be set in the venue info editor.",
+                    "Added an iframe embed option that'll embed event ads on websites, carrds etc. The embed code can be copied from the venue info editor, and will auto-update as the ad changes."
+                ])
+            ]),
             new(VersionFromString("2.2.6"),
             [
                 new ChangelogSection("Changes and Bug Fixes",
