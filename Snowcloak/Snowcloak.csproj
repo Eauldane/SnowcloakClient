@@ -18,7 +18,7 @@
     <PackageReference Include="Brio.API" Version="3.0.1" />
     <PackageReference Include="Chaos.NaCl.Standard" Version="1.0.0" />
     <PackageReference Include="Downloader" Version="4.1.1" />
-    <PackageReference Include="ElezenTools" Version="0.0.8.27" />
+    <PackageReference Include="ElezenTools" Version="0.0.8.31" />
     <PackageReference Include="Glamourer.Api" Version="2.8.0" />
     <PackageReference Include="K4os.Compression.LZ4.Legacy" Version="1.3.8" />
     <PackageReference Include="K4os.Compression.LZ4.Streams" Version="1.3.8" />
@@ -30,7 +30,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="2.0.302">
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

@@ -26,6 +26,7 @@ using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using Snowcloak.Services.Housing;
 using Dalamud.Game.Gui.ContextMenu;
+using ElezenTools.Commands;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using ElezenTools.Data;
 using ElezenTools.Services;
@@ -836,7 +837,6 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             #endif
             Mediator.Publish(new HousingPlotEnteredMessage(currentLocation));
         }
-
         _isOnHousingPlot = isCurrentlyOnPlot;
         _lastHousingPlotLocation = currentLocation;
         
