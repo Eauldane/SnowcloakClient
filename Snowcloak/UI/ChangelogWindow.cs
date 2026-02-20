@@ -261,7 +261,9 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                 new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Users who've paused a syncshell now correctly show as offline rather than having being paused by you.",
-                    "Reporting a user who has a blank profile should no longer fail."
+                    "Reporting a user who has a blank profile should no longer fail.",
+                    "HOTFIX 2.3.1.1: Updated tools library to fix non-jobstone classes always being detected as healer."
+
                 ])
             ]),
             new(VersionFromString("2.3.0"),
