@@ -83,6 +83,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int CompressionLevel { get; set; } = 3;
     public TextureCompressionPreference TextureCompressionPreference { get; set; } = TextureCompressionPreference.WhateverEquipped;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
+    public List<VenueReminderBookmark> VenueReminderBookmarks { get; set; } = [];
     public bool AllowBbCodeImages { get; set; } = true;
     public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = false;

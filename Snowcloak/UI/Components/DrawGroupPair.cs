@@ -446,7 +446,7 @@ public class DrawGroupPair : DrawPairBase
                 _displayHandler.OpenProfile(_pair);
                 ImGui.CloseCurrentPopup();
             }
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report Profile"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report User"))
             {
                 _mediator.Publish(new OpenReportPopupMessage(_pair));
                 ImGui.CloseCurrentPopup();

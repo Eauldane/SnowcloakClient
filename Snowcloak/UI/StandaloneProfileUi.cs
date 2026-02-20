@@ -69,7 +69,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
 
             var snowProfile = _snowProfileManager.GetSnowProfile(UserData, _requestedVisibility);
             
-            var reportLabel = "Report Profile";
+            var reportLabel = "Report User";
             
             if (_textureWrap == null || !snowProfile.ImageData.Value.SequenceEqual(_lastProfilePicture))
             {

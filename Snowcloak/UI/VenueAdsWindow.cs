@@ -9,6 +9,7 @@ using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.API.Routes;
+using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
@@ -33,7 +34,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private enum AdsTab
     {
         Browse,
-        Manage
+        Manage,
+        Reminders
     }
 
     private const int MaxAdTextLength = 2000;
@@ -46,6 +48,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private readonly FileDialogManager _fileDialogManager;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly VenueRegistrationService _venueRegistrationService;
+    private readonly VenueReminderService _venueReminderService;
     
     private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte[]> _bannerBytes = new(StringComparer.Ordinal);
@@ -75,7 +78,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
     public VenueAdsWindow(ILogger<VenueAdsWindow> logger, SnowMediator mediator, UiSharedService uiSharedService,
         ApiController apiController, FileDialogManager fileDialogManager, DalamudUtilService dalamudUtilService,
-        VenueRegistrationService venueRegistrationService,
+        VenueRegistrationService venueRegistrationService, VenueReminderService venueReminderService,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Venues###SnowcloakVenueAds", performanceCollectorService)
     {
@@ -84,6 +87,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         _fileDialogManager = fileDialogManager;
         _dalamudUtilService = dalamudUtilService;
         _venueRegistrationService = venueRegistrationService;
+        _venueReminderService = venueReminderService;
 
         SizeConstraints = new WindowSizeConstraints()
         {
@@ -121,21 +125,17 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     {
         DrawHeader();
 
-        if (_apiController.ServerState is not ServerState.Connected)
-        {
-            ElezenImgui.ColouredWrappedText("Connect to Snowcloak to browse or manage venue ads.", ImGuiColors.DalamudRed);
-            return;
-        }
-
         using var tabs = ImRaii.TabBar("VenueAdsTabs");
         var browseFlags = _requestedTab == AdsTab.Browse ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
         var manageFlags = _requestedTab == AdsTab.Manage ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        var bookmarksFlags = _requestedTab == AdsTab.Reminders ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
 
         using (var browseTab = ImRaii.TabItem("Ads", browseFlags))
         {
             if (browseTab)
             {
-                if (_refreshBrowseOnNextOpen || ImGui.IsItemActivated())
+                if ((_refreshBrowseOnNextOpen || ImGui.IsItemActivated())
+                    && _apiController.ServerState is ServerState.Connected)
                 {
                     _refreshBrowseOnNextOpen = false;
                     _ = RefreshBrowseAsync();
@@ -148,12 +148,25 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             if (manageTab)
             {
-                if (_refreshOwnedOnNextOpen || ImGui.IsItemActivated())
+                if ((_refreshOwnedOnNextOpen || ImGui.IsItemActivated())
+                    && _apiController.ServerState is ServerState.Connected)
                 {
                     _refreshOwnedOnNextOpen = false;
                     _ = RefreshOwnedAsync();
                 }
                 DrawManageTab();
+            }
+        }
+        
+        using (var bookmarksTab = ImRaii.TabItem("Event Reminders", bookmarksFlags))
+        {
+            if (bookmarksTab)
+            {
+                if (ImGui.IsItemActivated() && _apiController.ServerState is ServerState.Connected)
+                {
+                    _ = RefreshBrowseAsync();
+                }
+                DrawBookmarksTab();
             }
         }
 
@@ -176,6 +189,12 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
     private void DrawBrowseTab()
     {
+        if (_apiController.ServerState is not ServerState.Connected)
+        {
+            ElezenImgui.ColouredWrappedText("Connect to Snowcloak to browse venue ads.", ImGuiColors.DalamudRed);
+            return;
+        }
+
         if (_isLoadingBrowse)
         {
             ElezenImgui.ColouredWrappedText("Loading ads...", ImGuiColors.DalamudGrey);
@@ -195,9 +214,172 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             ImGui.Separator();
         }
     }
+    
+    private void DrawBookmarksTab()
+    {
+        ElezenImgui.ColouredWrappedText(
+            "Bookmarks are stored locally. Reminders are sent in chat up to one hour before the event starts.",
+            ImGuiColors.DalamudGrey);
+
+        var bookmarks = _venueReminderService.GetBookmarks();
+        if (bookmarks.Count == 0)
+        {
+            ElezenImgui.ColouredWrappedText("You have no venue ad bookmarks yet.", ImGuiColors.DalamudGrey);
+            return;
+        }
+
+        if (ImGui.Button("Clear all bookmarks"))
+        {
+            if (_venueReminderService.ClearBookmarks())
+            {
+                _statusMessage = "All bookmarks were removed.";
+                _statusIsError = false;
+            }
+        }
+        UiSharedService.AttachToolTip("Remove every venue reminder bookmark.");
+        ImGuiHelpers.ScaledDummy(4);
+
+        var adById = _browseAds
+            .Where(entry => entry.Advertisement.Id != Guid.Empty)
+            .GroupBy(entry => entry.Advertisement.Id)
+            .ToDictionary(group => group.Key, group => group.First());
+        var adsByVenue = _browseAds
+            .Where(entry => entry.Venue.Id != Guid.Empty)
+            .GroupBy(entry => entry.Venue.Id)
+            .ToDictionary(group => group.Key,
+                group => group
+                    .OrderBy(item => item.Advertisement.StartsAt ?? DateTime.MaxValue)
+                    .ToList());
+
+        using var child = ImRaii.Child("VenueBookmarksList", new Vector2(-1, -1), false);
+        foreach (var bookmark in bookmarks)
+        {
+            using var id = ImRaii.PushId(bookmark.BookmarkId.ToString("N"));
+            var drewLiveAd = false;
+            if (bookmark.Scope == VenueReminderBookmarkScope.Event && bookmark.AdvertisementId.HasValue
+                && adById.TryGetValue(bookmark.AdvertisementId.Value, out var eventEntry))
+            {
+                DrawAdCard(eventEntry.Venue, eventEntry.Advertisement, drawReminderControls: false);
+                drewLiveAd = true;
+            }
+            else if (bookmark.Scope == VenueReminderBookmarkScope.Venue
+                     && adsByVenue.TryGetValue(bookmark.VenueId, out var venueEntries))
+            {
+                foreach (var venueEntry in venueEntries)
+                {
+                    DrawAdCard(venueEntry.Venue, venueEntry.Advertisement, drawReminderControls: false);
+                    ImGuiHelpers.ScaledDummy(4);
+                }
+                drewLiveAd = venueEntries.Count > 0;
+            }
+
+            if (!drewLiveAd)
+            {
+                DrawBookmarkFallback(bookmark);
+            }
+
+            if (ImGui.SmallButton("Remove bookmark"))
+            {
+                if (_venueReminderService.RemoveBookmark(bookmark.BookmarkId))
+                {
+                    _statusMessage = "Bookmark removed.";
+                    _statusIsError = false;
+                }
+                else
+                {
+                    _statusMessage = "Failed to remove bookmark.";
+                    _statusIsError = true;
+                }
+            }
+
+            ImGui.Separator();
+        }
+    }
+
+    private void DrawBookmarkFallback(VenueReminderBookmark bookmark)
+    {
+        _uiSharedService.BigText(bookmark.VenueName);
+        var isEventBookmark = bookmark.Scope == VenueReminderBookmarkScope.Event;
+        ElezenImgui.ColouredWrappedText(
+            isEventBookmark ? "Reminder scope: This event only" : "Reminder scope: All events from this venue",
+            ImGuiColors.DalamudGrey);
+
+        if (isEventBookmark)
+        {
+            if (!string.IsNullOrWhiteSpace(bookmark.EventSummary))
+            {
+                ElezenImgui.ColouredWrappedText($"Event: {bookmark.EventSummary}", ImGuiColors.DalamudGrey);
+            }
+
+            var startText = bookmark.StartsAtUtc.HasValue
+                ? DateTime.SpecifyKind(bookmark.StartsAtUtc.Value, DateTimeKind.Utc).ToLocalTime()
+                    .ToString("g", CultureInfo.CurrentCulture)
+                : "Unknown";
+            ElezenImgui.ColouredWrappedText($"Starts: {startText}", ImGuiColors.DalamudGrey);
+        }
+
+        ElezenImgui.ColouredWrappedText("No active ad is currently available for this reminder.", ImGuiColors.DalamudGrey);
+    }
+
+    private void DrawAdReminderControls(VenueRegistryEntryDto venue, VenueAdvertisementDto ad)
+    {
+        if (venue.Id == Guid.Empty || ad.Id == Guid.Empty)
+            return;
+
+        using var id = ImRaii.PushId($"reminder_{ad.Id:N}");
+        var eventBookmarked = _venueReminderService.IsEventBookmarked(ad.Id);
+        var venueBookmarked = _venueReminderService.IsVenueBookmarked(venue.Id);
+
+        using (ImRaii.PushId("event"))
+        {
+            var eventIcon = eventBookmarked ? FontAwesomeIcon.Times : FontAwesomeIcon.Clock;
+            var eventButtonText = eventBookmarked ? "Ignore this event" : "Set a reminder for this event";
+            if (ElezenImgui.ShowIconButton(eventIcon, eventButtonText))
+            {
+                var changed = eventBookmarked
+                    ? _venueReminderService.RemoveEventBookmark(ad.Id)
+                    : _venueReminderService.AddEventBookmark(venue, ad);
+                _statusMessage = changed
+                    ? (eventBookmarked ? "Event bookmark removed." : "Event bookmark saved.")
+                    : "No changes were made.";
+                _statusIsError = false;
+            }
+        }
+        UiSharedService.AttachToolTip(eventBookmarked
+            ? "Remove reminder for this event."
+            : "Bookmark this event for a reminder in the final hour before start.");
+
+        ImGui.SameLine();
+        using (ImRaii.PushId("venue"))
+        {
+            var venueIcon = venueBookmarked ? FontAwesomeIcon.Times : FontAwesomeIcon.Users;
+            var venueButtonText = venueBookmarked ? "Stop subscribing to this venue" : "Subscribe to this venue";
+            if (ElezenImgui.ShowIconButton(venueIcon, venueButtonText))
+            {
+                var changed = venueBookmarked
+                    ? _venueReminderService.RemoveVenueBookmark(venue.Id)
+                    : _venueReminderService.AddVenueBookmark(venue);
+                _statusMessage = changed
+                    ? (venueBookmarked ? "Venue bookmark removed." : "Venue bookmark saved.")
+                    : "No changes were made.";
+                _statusIsError = false;
+            }
+        }
+        UiSharedService.AttachToolTip(venueBookmarked
+            ? "Remove reminder bookmark for this venue."
+            : "Bookmark this venue for reminders on all future events.");
+
+        ImGuiHelpers.ScaledDummy(2);
+    }
 
     private void DrawManageTab()
     {
+        if (_apiController.ServerState is not ServerState.Connected)
+        {
+            ElezenImgui.ColouredWrappedText("Connect to Snowcloak to manage venue ads.", ImGuiColors.DalamudRed);
+            return;
+        }
+
         if (_isLoadingOwned)
         {
             ElezenImgui.ColouredWrappedText("Loading owned venues...", ImGuiColors.DalamudGrey);
@@ -349,8 +531,13 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawAdCard(VenueRegistryEntryDto venue, VenueAdvertisementDto ad)
+    private void DrawAdCard(VenueRegistryEntryDto venue, VenueAdvertisementDto ad, bool drawReminderControls = true)
     {
+        if (drawReminderControls)
+        {
+            DrawAdReminderControls(venue, ad);
+        }
+
         var venueName = venue.VenueName ?? "Venue";
         if (!string.IsNullOrWhiteSpace(ad.HexString))
         {
