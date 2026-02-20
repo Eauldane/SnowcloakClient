@@ -13,7 +13,9 @@ namespace Snowcloak.Services.Venue;
 public sealed class VenueReminderService : IHostedService
 {
     private static readonly TimeSpan ReminderWindow = TimeSpan.FromHours(1);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan DefaultRunningWindow = TimeSpan.FromHours(3);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan SentReminderRetention = TimeSpan.FromDays(2);
 
     private readonly ILogger<VenueReminderService> _logger;
     private readonly ApiController _apiController;
@@ -224,7 +226,7 @@ public sealed class VenueReminderService : IHostedService
         {
             try
             {
-                await CheckForRemindersAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
+                await CheckForRemindersAsync().ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -246,7 +248,7 @@ public sealed class VenueReminderService : IHostedService
         }
     }
 
-    private async Task CheckForRemindersAsync(CancellationToken cancellationToken)
+    private async Task CheckForRemindersAsync()
     {
         if (!_apiController.IsConnected)
             return;
@@ -279,7 +281,6 @@ public sealed class VenueReminderService : IHostedService
         }).ConfigureAwait(false);
 
         var nowUtc = DateTime.UtcNow;
-        var reminderThresholdUtc = nowUtc.Add(ReminderWindow);
         CleanupSentReminderTracker(nowUtc);
 
         foreach (var venue in response.Registries)
@@ -298,13 +299,15 @@ public sealed class VenueReminderService : IHostedService
                     continue;
 
                 var startsUtc = DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc);
-                if (startsUtc <= nowUtc || startsUtc > reminderThresholdUtc)
+                var reminderStartsAtUtc = startsUtc.Add(-ReminderWindow);
+                var reminderEndsAtUtc = ResolveReminderEndUtc(ad, startsUtc);
+                if (nowUtc < reminderStartsAtUtc || nowUtc > reminderEndsAtUtc)
                     continue;
 
                 if (!TryTrackReminder(ad.Id, startsUtc))
                     continue;
 
-                PrintReminder(venue, ad, startsUtc, eventBookmarked, venueBookmarked);
+                PrintReminder(venue, ad, startsUtc, nowUtc, eventBookmarked, venueBookmarked);
             }
         }
     }
@@ -326,7 +329,7 @@ public sealed class VenueReminderService : IHostedService
         lock (_syncRoot)
         {
             var staleKeys = _sentReminderByAd
-                .Where(kvp => kvp.Value < nowUtc.AddHours(-2))
+                .Where(kvp => kvp.Value < nowUtc.Subtract(SentReminderRetention))
                 .Select(kvp => kvp.Key)
                 .ToList();
 
@@ -338,7 +341,7 @@ public sealed class VenueReminderService : IHostedService
     }
 
     private void PrintReminder(VenueRegistryEntryDto venue, VenueAdvertisementDto ad, DateTime startsUtc,
-        bool eventBookmarked, bool venueBookmarked)
+        DateTime nowUtc, bool eventBookmarked, bool venueBookmarked)
     {
         var venueName = NormalizeVenueName(venue.VenueName);
         var startsLocal = startsUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
@@ -348,16 +351,28 @@ public sealed class VenueReminderService : IHostedService
                 ? "venue bookmark"
                 : "bookmark";
         var summary = BuildEventSummary(ad);
+        var isRunning = nowUtc >= startsUtc;
+        var timingText = isRunning
+            ? $"{venueName} is currently running (started at {startsLocal})."
+            : $"{venueName} starts at {startsLocal}.";
 
         var message = string.IsNullOrWhiteSpace(summary)
-            ? $"[Snowcloak] Reminder ({bookmarkKind}): {venueName} starts at {startsLocal}."
-            : $"[Snowcloak] Reminder ({bookmarkKind}): {venueName} starts at {startsLocal}. {summary}";
+            ? $"[Snowcloak] Reminder ({bookmarkKind}): {timingText}"
+            : $"[Snowcloak] Reminder ({bookmarkKind}): {timingText} {summary}";
 
         _chatGui.Print(new XivChatEntry()
         {
             Message = message,
             Type = XivChatType.SystemMessage
         });
+    }
+
+    private static DateTime ResolveReminderEndUtc(VenueAdvertisementDto ad, DateTime startsUtc)
+    {
+        if (ad.EndsAt.HasValue)
+            return DateTime.SpecifyKind(ad.EndsAt.Value, DateTimeKind.Utc);
+
+        return startsUtc.Add(DefaultRunningWindow);
     }
 
     private List<VenueReminderBookmark> GetBookmarkListUnsafe()

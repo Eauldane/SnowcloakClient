@@ -663,9 +663,23 @@ internal sealed class GroupPanel
                     _uiShared,
                     _charaDataManager);
 
-                if (pair.IsVisible)
+                bool pausedByYou;
+                bool pausedByOther;
+                if (pair.UserPair != null)
+                {
+                    pausedByYou = pair.UserPair.OwnPermissions.IsPaused();
+                    pausedByOther = pair.UserPair.OtherPermissions.IsPaused();
+                }
+                else
+                {
+                    pausedByYou = groupDto.GroupUserPermissions.IsPaused();
+                    pausedByOther = groupPairInfo.GroupUserPermissions.IsPaused();
+                }
+
+                bool showAsOffline = pausedByOther && !pausedByYou;
+                if (!showAsOffline && pair.IsVisible)
                     visibleUsers.Add(drawPair);
-                else if (pair.IsOnline)
+                else if (!showAsOffline && pair.IsOnline)
                     onlineUsers.Add(drawPair);
                 else
                     offlineUsers.Add(drawPair);

@@ -218,7 +218,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
     private void DrawBookmarksTab()
     {
         ElezenImgui.ColouredWrappedText(
-            "Bookmarks are stored locally. Reminders are sent in chat up to one hour before the event starts.",
+            "Bookmarks are stored locally. Reminders are sent in chat within one hour before start, "
+            + "or immediately if the event is already in progress when you log in.",
             ImGuiColors.DalamudGrey);
 
         var bookmarks = _venueReminderService.GetBookmarks();
@@ -347,7 +348,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
         UiSharedService.AttachToolTip(eventBookmarked
             ? "Remove reminder for this event."
-            : "Bookmark this event for a reminder in the final hour before start.");
+            : "Bookmark this event for a reminder in the final hour before start, or while running.");
 
         ImGui.SameLine();
         using (ImRaii.PushId("venue"))

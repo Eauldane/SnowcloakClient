@@ -668,10 +668,9 @@ public class CompactUi : WindowMediatorSubscriberBase
         {
             var pair = u.UserPair;
             var isPaired = pair?.OtherPermissions.IsPaired() ?? false;
-            var otherPaused = pair?.OtherPermissions.IsPaused() ?? false;
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
-            return isPaired && (otherPaused || ownPaused);
+            return isPaired && ownPaused;
         }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
         var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
 
@@ -682,7 +681,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             var otherPaused = pair?.OtherPermissions.IsPaused() ?? false;
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
-            return !isPaired || (!u.IsOnline && !(ownPaused || otherPaused));
+            return !isPaired || (!ownPaused && (!u.IsOnline || otherPaused));
         }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
         ImGui.BeginChild("list", new Vector2(WindowContentWidth, ySize), border: false);
 

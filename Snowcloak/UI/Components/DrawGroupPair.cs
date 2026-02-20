@@ -37,18 +37,43 @@ public class DrawGroupPair : DrawPairBase
         _charaDataManager = charaDataManager;
     }
 
+    private bool IsPausedByYou()
+    {
+        if (_pair.UserPair != null)
+        {
+            return _pair.UserPair.OwnPermissions.IsPaused();
+        }
+
+        return _group.GroupUserPermissions.IsPaused();
+    }
+
+    private bool IsPausedByOther()
+    {
+        if (_pair.UserPair != null)
+        {
+            return _pair.UserPair.OtherPermissions.IsPaused();
+        }
+
+        return _fullInfoDto.GroupUserPermissions.IsPaused();
+    }
+
     protected override void DrawLeftSide(float textPosY, float originalY)
     {
         var entryUID = _pair.UserData.AliasOrUID;
         var entryIsMod = _fullInfoDto.GroupPairStatusInfo.IsModerator();
         var entryIsOwner = string.Equals(_pair.UserData.UID, _group.OwnerUID, StringComparison.Ordinal);
         var entryIsPinned = _fullInfoDto.GroupPairStatusInfo.IsPinned();
-        var presenceIcon = _pair.IsVisible ? FontAwesomeIcon.Eye : (_pair.IsOnline ? FontAwesomeIcon.Link : FontAwesomeIcon.Unlink);
-        var presenceColor = (_pair.IsOnline || _pair.IsVisible) ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed;
+        var pausedByYou = IsPausedByYou();
+        var pausedByOther = IsPausedByOther();
+        var showAsOffline = pausedByOther && !pausedByYou;
+        var isOnlineForDisplay = _pair.IsOnline && !showAsOffline;
+        var isVisibleForDisplay = _pair.IsVisible && !showAsOffline;
+        var presenceIcon = isVisibleForDisplay ? FontAwesomeIcon.Eye : (isOnlineForDisplay ? FontAwesomeIcon.Link : FontAwesomeIcon.Unlink);
+        var presenceColor = (isOnlineForDisplay || isVisibleForDisplay) ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed;
         var presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is offline", entryUID);
         
         ImGui.SetCursorPosY(textPosY);
-        if (_pair.IsPaused)
+        if (pausedByYou)
         {
             presenceIcon = FontAwesomeIcon.Question;
             presenceColor = ImGuiColors.DalamudGrey;
@@ -69,15 +94,17 @@ public class DrawGroupPair : DrawPairBase
             UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "You are paired with {0}", entryUID));
         }
 
-        if (_pair.IsOnline && !_pair.IsVisible) presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is online", entryUID);
-        else if (_pair.IsOnline && _pair.IsVisible) presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is visible: {1}{2}Click to target this player", entryUID, _pair.PlayerName, Environment.NewLine);
+        if (!pausedByYou && isOnlineForDisplay && !isVisibleForDisplay)
+            presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is online", entryUID);
+        else if (!pausedByYou && isOnlineForDisplay && isVisibleForDisplay)
+            presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is visible: {1}{2}Click to target this player", entryUID, _pair.PlayerName, Environment.NewLine);
 
         ImGui.SameLine();
         ImGui.SetCursorPosY(textPosY);
         ImGui.PushFont(UiBuilder.IconFont);
         ElezenImgui.ColouredText(presenceIcon.ToIconString(), presenceColor);
         ImGui.PopFont();
-        if (_pair.IsVisible)
+        if (isVisibleForDisplay)
         {
             if (ImGui.IsItemClicked())
             {
@@ -133,7 +160,10 @@ public class DrawGroupPair : DrawPairBase
 
     protected override float DrawRightSide(float textPosY, float originalY)
     {
-        var pauseIcon = _pair.IsPaused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
+        var pausedByYou = IsPausedByYou();
+        var pausedByOther = IsPausedByOther();
+        var isPaused = pausedByYou || pausedByOther;
+        var pauseIcon = pausedByYou ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
         var actionSpacing = spacingX + (6f * ImGuiHelpers.GlobalScale);
         var entryUID = _fullInfoDto.UserAliasOrUID;
@@ -153,7 +183,7 @@ public class DrawGroupPair : DrawPairBase
         bool showShared = _charaDataManager.SharedWithYouData.TryGetValue(_pair.UserData, out var sharedData);
         bool showInfo = (individualAnimDisabled || individualSoundsDisabled || animDisabled || soundsDisabled);
         bool showPlus = _pair.UserPair == null;
-        bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !_pair.IsPaused;
+        bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !isPaused;
         bool showPause = true; 
         var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled) ? FontAwesomeIcon.ExclamationTriangle
             : ((soundsDisabled || animDisabled || vfxDisabled) ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
@@ -302,7 +332,7 @@ public class DrawGroupPair : DrawPairBase
                 }
                 else
                 {
-                    var groupPerm = _fullInfoDto.GroupUserPermissions;
+                    var groupPerm = _group.GroupUserPermissions;
                     groupPerm.SetPaused(!groupPerm.IsPaused());
                     _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
                         _group.Group,
@@ -312,7 +342,7 @@ public class DrawGroupPair : DrawPairBase
                 }
             }
 
-            UiSharedService.AttachToolTip(!_fullInfoDto.GroupUserPermissions.IsPaused()
+            UiSharedService.AttachToolTip(!pausedByYou
                 ? string.Format(CultureInfo.CurrentCulture, "Pause pairing with {0}", entryUID)
                 : string.Format(CultureInfo.CurrentCulture, "Resume pairing with {0}", entryUID));
             ImGui.SameLine();
