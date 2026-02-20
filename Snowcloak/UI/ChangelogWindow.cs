@@ -251,6 +251,19 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.3.1"),
+            [
+                new ChangelogSection("New Feature - Venue Reminders",
+                [
+                    "The venue ads window now lets you set a reminder for either a single event, or all of a venue's events.",
+                    "These reminders will show in chat an hour before start."
+                ]),
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Users who've paused a syncshell now correctly show as offline rather than having being paused by you.",
+                    "Reporting a user who has a blank profile should no longer fail."
+                ])
+            ]),
             new(VersionFromString("2.3.0"),
             [
                 new ChangelogSection("New Features - Venue Ad Upgrades",
