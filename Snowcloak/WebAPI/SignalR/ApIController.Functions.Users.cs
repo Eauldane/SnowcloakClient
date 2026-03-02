@@ -3,6 +3,7 @@ using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Dto.User;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Services.Mediator;
 using System.Text;
 
 namespace Snowcloak.WebAPI;
@@ -38,6 +39,12 @@ public partial class ApiController
     {
         CheckConnection();
         await _snowHub!.SendAsync(nameof(UserChatSendMsg), user, message).ConfigureAwait(false);
+    }
+
+    public async Task<List<SignedChatMessage>> UserChatGetHistory(UserDto user)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<List<SignedChatMessage>>(nameof(UserChatGetHistory), user).ConfigureAwait(false);
     }
 
     public async Task UserDelete()
@@ -113,7 +120,36 @@ public partial class ApiController
     public async Task<bool> UserSetVanityId(UserVanityIdDto vanityId)
     {
         if (!IsConnected) return false;
-        return await _snowHub!.InvokeAsync<bool>(nameof(UserSetVanityId), vanityId).ConfigureAwait(false);
+        var updated = await _snowHub!.InvokeAsync<bool>(nameof(UserSetVanityId), vanityId).ConfigureAwait(false);
+        if (!updated || _connectionDto == null)
+        {
+            return updated;
+        }
+
+        var currentUser = _connectionDto.User;
+        var updatedUser = currentUser with
+        {
+            Alias = vanityId.VanityId,
+            HexString = vanityId.HexString ?? currentUser.HexString,
+            GlowHexString = vanityId.GlowHexString ?? currentUser.GlowHexString
+        };
+
+        var aliasChanged = !string.Equals(currentUser.Alias, updatedUser.Alias, StringComparison.Ordinal);
+        var colorChanged = !string.Equals(currentUser.HexString, updatedUser.HexString, StringComparison.Ordinal);
+        var glowChanged = !string.Equals(currentUser.GlowHexString, updatedUser.GlowHexString, StringComparison.Ordinal);
+        if (!aliasChanged && !colorChanged && !glowChanged)
+        {
+            return updated;
+        }
+
+        _connectionDto = _connectionDto with { User = updatedUser };
+        Mediator.Publish(new ClearProfileDataMessage(updatedUser));
+        if (colorChanged || glowChanged)
+        {
+            Mediator.Publish(new NameplateRedrawMessage());
+        }
+
+        return updated;
     }
 
     public async Task UserSetTextureCompressionPreference(TextureCompressionPreferenceDto preference)

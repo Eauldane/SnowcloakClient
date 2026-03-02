@@ -409,6 +409,15 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Save();
         }
         _uiShared.DrawHelpText("Global setting to disable chat.");
+
+        bool applyVanityColoursToGameChat = _configService.Current.ApplyVanityColoursToGameChat;
+        if (ImGui.Checkbox("Apply vanity colours to names in chat", ref applyVanityColoursToGameChat))
+        {
+            _configService.Current.ApplyVanityColoursToGameChat = applyVanityColoursToGameChat;
+            _configService.Save();
+        }
+        _uiShared.DrawHelpText("Colours player names in normal game chat when they match paired users.");
+
         ImGui.TextWrapped("The chat system is currently under active development. If you use it, you're encouraged to check back here often" +
                           "to see if there's any new settings to play with!");
         

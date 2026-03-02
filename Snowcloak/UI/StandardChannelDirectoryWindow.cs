@@ -2,15 +2,18 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
+using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 
@@ -22,8 +25,11 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
     private readonly ServerConfigurationManager _serverManager;
     private readonly List<ChatChannelData> _channels = [];
     private readonly HashSet<string> _joinedChannelIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _channelUserCounts = new(StringComparer.Ordinal);
     private bool _isLoading;
     private string _filter = string.Empty;
+    private bool _hideEmptyChannels = true;
+    private bool _hasUserCounts;
 
     public StandardChannelDirectoryWindow(ILogger<StandardChannelDirectoryWindow> logger, SnowMediator mediator,
         ApiController apiController, ServerConfigurationManager serverManager,
@@ -78,6 +84,12 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
 
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##StandardChannelFilter", "Filter channels...", ref _filter, 80);
+        ImGui.Checkbox("Hide empty channels", ref _hideEmptyChannels);
+
+        if (!_hasUserCounts)
+        {
+            ElezenImgui.ColouredWrappedText("User counts are temporarily unavailable; showing all channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        }
 
         if (!_apiController.IsConnected)
         {
@@ -85,11 +97,12 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
             return;
         }
 
-        using var table = ImRaii.Table("standard-channel-table", 4, ImGuiTableFlags.ScrollY | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp);
+        using var table = ImRaii.Table("standard-channel-table", 5, ImGuiTableFlags.ScrollY | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp);
         if (!table) return;
 
-        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0.35f);
-        ImGui.TableSetupColumn("Topic", ImGuiTableColumnFlags.WidthStretch, 0.4f);
+        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0.3f);
+        ImGui.TableSetupColumn("Topic", ImGuiTableColumnFlags.WidthStretch, 0.37f);
+        ImGui.TableSetupColumn("Users", ImGuiTableColumnFlags.WidthFixed, 60f * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Privacy", ImGuiTableColumnFlags.WidthFixed, 80f * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 90f * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
@@ -97,6 +110,8 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
         foreach (var channel in GetFilteredChannels())
         {
             ImGui.TableNextRow();
+            ImGui.PushID(channel.ChannelId);
+            var userCount = GetChannelUserCount(channel.ChannelId);
 
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(channel.Name);
@@ -105,23 +120,33 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
             ImGui.TextUnformatted(channel.Topic ?? string.Empty);
 
             ImGui.TableNextColumn();
+            ImGui.TextUnformatted(_hasUserCounts ? userCount.ToString(CultureInfo.InvariantCulture) : "?");
+
+            ImGui.TableNextColumn();
             ImGui.TextUnformatted(channel.IsPrivate ? "Private" : "Public");
 
             ImGui.TableNextColumn();
             var isJoined = _joinedChannelIds.Contains(channel.ChannelId);
             using (ImRaii.Disabled(isJoined))
             {
-                if (ImGui.Button(isJoined ? "Joined" : "Join"))
+                if (ImGui.Button(isJoined ? "Joined##join" : "Join##join"))
                 {
                     _ = JoinChannel(channel);
                 }
             }
+
+            ImGui.PopID();
         }
     }
 
     private IEnumerable<ChatChannelData> GetFilteredChannels()
     {
         IEnumerable<ChatChannelData> channels = _channels;
+        if (_hideEmptyChannels && _hasUserCounts)
+        {
+            channels = channels.Where(channel => GetChannelUserCount(channel.ChannelId) > 0);
+        }
+
         if (!string.IsNullOrWhiteSpace(_filter))
         {
             channels = channels.Where(channel => channel.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)
@@ -145,9 +170,25 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
             {
                 _channels.Add(channel);
             }
+
+            _channelUserCounts.Clear();
+            var counts = await _apiController.ChannelListUserCounts().ConfigureAwait(false);
+            foreach (var channel in _channels)
+            {
+                _channelUserCounts[channel.ChannelId] = counts.TryGetValue(channel.ChannelId, out var count) ? Math.Max(count, 0) : 0;
+            }
+            _hasUserCounts = true;
+        }
+        catch (HubException ex)
+        {
+            _hasUserCounts = false;
+            _channelUserCounts.Clear();
+            _logger.LogWarning(ex, "Failed to refresh standard channel list counts.");
         }
         catch (Exception ex)
         {
+            _hasUserCounts = false;
+            _channelUserCounts.Clear();
             _logger.LogWarning(ex, "Failed to refresh standard channel list.");
         }
         finally
@@ -169,6 +210,8 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
     {
         _channels.Clear();
         _joinedChannelIds.Clear();
+        _channelUserCounts.Clear();
+        _hasUserCounts = false;
         _filter = string.Empty;
     }
 
@@ -184,26 +227,54 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
                 _joinedChannelIds.Add(channel.ChannelId);
                 Mediator.Publish(new StandardChannelMembershipChangedMessage(channel, true));
             }
+            else
+            {
+                Mediator.Publish(new NotificationMessage(
+                    "Join failed",
+                    "Could not join this channel. You may be banned or no longer have access.",
+                    NotificationType.Warning,
+                    TimeSpan.FromSeconds(6)));
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to join standard channel.");
+            Mediator.Publish(new NotificationMessage(
+                "Join failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
     private void OnMembershipChanged(StandardChannelMembershipChangedMessage message)
     {
+        var channelId = message.Channel.ChannelId;
         if (message.IsJoined)
         {
-            _joinedChannelIds.Add(message.Channel.ChannelId);
-            if (_channels.All(channel => !string.Equals(channel.ChannelId, message.Channel.ChannelId, StringComparison.Ordinal)))
+            _joinedChannelIds.Add(channelId);
+            if (_channels.All(channel => !string.Equals(channel.ChannelId, channelId, StringComparison.Ordinal)))
             {
                 _channels.Add(message.Channel);
+            }
+
+            if (_hasUserCounts)
+            {
+                _channelUserCounts[channelId] = Math.Max(GetChannelUserCount(channelId) + 1, 1);
             }
         }
         else
         {
-            _joinedChannelIds.Remove(message.Channel.ChannelId);
+            _joinedChannelIds.Remove(channelId);
+            if (_hasUserCounts)
+            {
+                _channelUserCounts[channelId] = Math.Max(GetChannelUserCount(channelId) - 1, 0);
+            }
         }
+    }
+
+    private int GetChannelUserCount(string channelId)
+    {
+        return _channelUserCounts.TryGetValue(channelId, out var count) ? count : 0;
     }
 }

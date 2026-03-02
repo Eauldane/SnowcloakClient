@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Snowcloak.API.Data.Enum;
@@ -30,6 +31,11 @@ public class EditProfileUi : WindowMediatorSubscriberBase
     private string _descriptionText = string.Empty;
     private IDalamudTextureWrap? _pfpTextureWrap;
     private string _profileDescription = string.Empty;
+    private List<UserProfileTagDto> _profileTags = [];
+    private List<UserProfileTagDto> _editableTags = [];
+    private string _newTagValue = string.Empty;
+    private string _tagEditorError = string.Empty;
+    private ProfileTagType _newTagType = ProfileTagType.ChatStyle;
     private byte[] _profileImage = [];
     private string _showFileDialogError = string.Empty;
     private bool _wasOpen;
@@ -107,6 +113,13 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             _descriptionText = _profileDescription;
         }
 
+        var normalizedProfileTags = ProfileTagUtilities.NormalizeForStorage(profile.Tags);
+        if (!TagsEqual(_profileTags, normalizedProfileTags))
+        {
+            _profileTags = normalizedProfileTags;
+            _editableTags = [.. normalizedProfileTags];
+        }
+
         if (_pfpTextureWrap != null)
         {
             ImGui.Image(_pfpTextureWrap.Handle, ImGuiHelpers.ScaledVector2(_pfpTextureWrap.Width, _pfpTextureWrap.Height));
@@ -129,6 +142,16 @@ public class EditProfileUi : WindowMediatorSubscriberBase
                 
             }
             ImGui.EndChildFrame();
+        }
+
+        ImGui.TextUnformatted("Tags");
+        if (_profileTags.Count == 0)
+        {
+            ElezenImgui.ColouredWrappedText("No tags set.", ImGuiColors.DalamudGrey);
+        }
+        else
+        {
+            _ = ProfileTagChipRenderer.DrawTagChips(_profileTags, "profile-current-tags");
         }
 
         var nsfw = profile.IsNSFW;
@@ -226,6 +249,176 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, "", Visibility: _editingVisibility));
         }
         UiSharedService.AttachToolTip("Clears your profile description text");
+
+        ImGui.Separator();
+        _uiSharedService.BigText("Profile Tags (Shared)");
+        ElezenImgui.ColouredWrappedText("These tags appear on both your private and public profiles.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Kinks are only shown to viewers who have the same kink tag on their own profile.", ImGuiColors.DalamudGrey);
+
+        var selectedTagLabel = ProfileTagChipRenderer.GetTypeLabel(_newTagType);
+        if (ImGui.BeginCombo("Tag Type", selectedTagLabel))
+        {
+            foreach (var tagType in Enum.GetValues<ProfileTagType>())
+            {
+                var isSelected = tagType == _newTagType;
+                if (ImGui.Selectable(ProfileTagChipRenderer.GetTypeLabel(tagType), isSelected))
+                {
+                    _newTagType = tagType;
+                }
+
+                if (isSelected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.SetNextItemWidth(260f);
+        if (ImGui.InputTextWithHint("##profile-tag-input", "Type a tag value...", ref _newTagValue, ProfileTagUtilities.MaxTagLength,
+                ImGuiInputTextFlags.EnterReturnsTrue))
+        {
+            AddTagFromInput();
+        }
+        ImGui.SameLine();
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add Tag"))
+        {
+            AddTagFromInput();
+        }
+        UiSharedService.AttachToolTip("Press Enter or click Add Tag.");
+
+        DrawDefaultTagSuggestions();
+
+        if (!string.IsNullOrEmpty(_tagEditorError))
+        {
+            ElezenImgui.ColouredWrappedText(_tagEditorError, ImGuiColors.DalamudRed);
+        }
+
+        if (_editableTags.Count == 0)
+        {
+            ElezenImgui.ColouredWrappedText("No tags set.", ImGuiColors.DalamudGrey);
+        }
+        else
+        {
+            var removedTagIndex = ProfileTagChipRenderer.DrawTagChips(_editableTags, "profile-edit-tags");
+            if (removedTagIndex >= 0 && removedTagIndex < _editableTags.Count)
+            {
+                _editableTags.RemoveAt(removedTagIndex);
+                _tagEditorError = string.Empty;
+            }
+            UiSharedService.AttachToolTip("Click a tag to remove it.");
+        }
+
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Tags"))
+        {
+            SaveTags();
+        }
+        UiSharedService.AttachToolTip("Save your shared profile tags.");
+        ImGui.SameLine();
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear Tags"))
+        {
+            _editableTags.Clear();
+            _tagEditorError = string.Empty;
+            SaveTags();
+        }
+        UiSharedService.AttachToolTip("Remove all profile tags and save.");
+    }
+
+    private void AddTagFromInput()
+    {
+        var inputValue = _newTagValue.Trim();
+        if (string.IsNullOrWhiteSpace(inputValue))
+        {
+            _tagEditorError = "Tag value cannot be empty.";
+            return;
+        }
+
+        if (_editableTags.Count >= ProfileTagUtilities.MaxTagCount)
+        {
+            _tagEditorError = $"You can only set up to {ProfileTagUtilities.MaxTagCount} tags.";
+            return;
+        }
+
+        var beforeCount = _editableTags.Count;
+        var updatedTags = ProfileTagUtilities.NormalizeForStorage(_editableTags.Append(new UserProfileTagDto(_newTagType, inputValue)));
+
+        if (updatedTags.Count == beforeCount)
+        {
+            _tagEditorError = "That tag already exists.";
+            return;
+        }
+
+        _editableTags = updatedTags;
+        _newTagValue = string.Empty;
+        _tagEditorError = string.Empty;
+    }
+
+    private void DrawDefaultTagSuggestions()
+    {
+        var suggestions = ProfileTagUtilities.GetDefaultSuggestions(_newTagType, _newTagValue, _editableTags);
+        if (suggestions.Count == 0)
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Suggested Defaults");
+        var lineHeight = ImGui.GetTextLineHeightWithSpacing();
+        var listHeight = MathF.Min(150f, lineHeight * suggestions.Count + ImGui.GetStyle().FramePadding.Y * 2f);
+
+        if (!ImGui.BeginListBox("##profile-tag-suggestions", ImGuiHelpers.ScaledVector2(0f, listHeight)))
+        {
+            return;
+        }
+
+        for (var index = 0; index < suggestions.Count; index++)
+        {
+            var suggestion = suggestions[index];
+            if (!ImGui.Selectable($"{suggestion}##profile-tag-suggestion-{index}"))
+            {
+                continue;
+            }
+
+            _newTagValue = suggestion;
+            AddTagFromInput();
+        }
+
+        ImGui.EndListBox();
+        _uiSharedService.DrawHelpText("Type to filter defaults. Click a suggestion to add it immediately.");
+    }
+
+    private void SaveTags()
+    {
+        _editableTags = ProfileTagUtilities.NormalizeForStorage(_editableTags);
+        _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null,
+            ProfilePictureBase64: null, Description: null, Visibility: _editingVisibility, Tags: _editableTags));
+    }
+
+    private static bool TagsEqual(IReadOnlyList<UserProfileTagDto> left, IReadOnlyList<UserProfileTagDto> right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            var leftTag = left[index];
+            var rightTag = right[index];
+
+            if (leftTag.Type != rightTag.Type
+                || !string.Equals(leftTag.Value, rightTag.Value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     protected override void Dispose(bool disposing)
@@ -244,6 +437,10 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         _profileImage = [];
         _profileDescription = string.Empty;
         _descriptionText = string.Empty;
+        _profileTags = [];
+        _editableTags = [];
+        _newTagValue = string.Empty;
+        _tagEditorError = string.Empty;
         Mediator.Publish(new ClearProfileDataMessage(new UserData(_apiController.UID), visibility));
     }
 }

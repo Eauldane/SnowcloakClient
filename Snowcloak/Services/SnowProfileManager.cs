@@ -29,9 +29,9 @@ public class SnowProfileManager : MediatorSubscriberBase
         _snowcloakConfigService = snowcloakConfigService;
         _noDescription = "-- User has no description set --";
         _nsfw = "Profile not displayed - The profile is NSFW, but you have this disabled in settings.";
-        _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private);
-        _loadingProfileData = new(null, false, false, string.Empty, "Loading Data from server...", ProfileVisibility.Private);
-        _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private);
+        _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private, []);
+        _loadingProfileData = new(null, false, false, string.Empty, "Loading Data from server...", ProfileVisibility.Private, []);
+        _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private, []);
 
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
         _ = serverConfigurationManager;
@@ -94,13 +94,14 @@ public class SnowProfileManager : MediatorSubscriberBase
             
             var profileUser = profile.User ?? requestKey.User ?? new UserData(requestKey.Ident ?? string.Empty);
             var visibility = profile.Visibility ?? requestKey.RequestedVisibility ?? ProfileVisibility.Private;
+            var normalizedTags = ProfileTagUtilities.NormalizeForStorage(profile.Tags);
             var profileData = new SnowProfileData(profileUser, profile.Disabled, profile.IsNSFW ?? false,
                 string.IsNullOrEmpty(profile.ProfilePictureBase64) ? string.Empty : profile.ProfilePictureBase64,
-                string.IsNullOrEmpty(profile.Description) ? _noDescription : profile.Description, visibility);
+                string.IsNullOrEmpty(profile.Description) ? _noDescription : profile.Description, visibility, normalizedTags);
 
             if (profileData.IsNSFW && !_snowcloakConfigService.Current.ProfilesAllowNsfw && !string.Equals(_apiController.Value.UID, profileUser?.UID, StringComparison.Ordinal))
             {
-                var nsfwData = _nsfwProfileData with { User = profileUser, Visibility = visibility };
+                var nsfwData = _nsfwProfileData with { User = profileUser, Visibility = visibility, Tags = profileData.Tags };
                 _snowProfiles[requestKey] = nsfwData;
                 return nsfwData;
             }

@@ -1,5 +1,6 @@
-﻿using Dalamud.Bindings.ImGui;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
@@ -65,8 +66,12 @@ public class UidDisplayHandler
         if (!string.Equals(_editNickEntry, pair.UserData.UID, StringComparison.Ordinal))
         {
             ImGui.SetCursorPosY(originalY);
-            Vector4 pairColour = ElezenTools.UI.Colour.HexToVector4(pair.UserData.DisplayColour);
-            using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid)) ImGui.TextColored(pairColour, playerText);
+            var pairColour = TryGetVanityColor(pair.UserData.DisplayColour);
+            var pairGlowColour = TryGetVanityColor(pair.UserData.DisplayGlowColour);
+            using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid))
+            {
+                DrawTextWithOptionalColor(playerText, pairColour, pairGlowColour);
+            }
             if (ImGui.IsItemHovered())
             {
                 if (!string.Equals(_lastMouseOverUid, id))
@@ -201,5 +206,46 @@ public class UidDisplayHandler
         _showUidForEntry.TryGetValue(pair.UserData.UID, out var showUidInsteadOfName);
 
         return showUidInsteadOfName;
+    }
+    private static Vector4? TryGetVanityColor(string? hexColor)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor)
+            || hexColor.Length != 6
+            || !int.TryParse(hexColor, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            return null;
+        }
+
+        return ElezenTools.UI.Colour.HexToVector4(hexColor);
+    }
+
+    private static void DrawTextWithOptionalColor(string text, Vector4? color, Vector4? glowColor = null)
+    {
+        if (!color.HasValue && !glowColor.HasValue)
+        {
+            ImGui.TextUnformatted(text);
+            return;
+        }
+
+        var foreground = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+        if (glowColor.HasValue)
+        {
+            var drawList = ImGui.GetWindowDrawList();
+            // Reserve the item using normal text layout so we get the exact baseline-aligned text position.
+            ImGui.TextColored(Vector4.Zero, text);
+            var textPos = ImGui.GetItemRectMin();
+            var glow = glowColor.Value;
+            var glowAlpha = Math.Clamp(glow.W <= 0f ? 0.45f : glow.W, 0.05f, 1f);
+            var glowU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(glow.X, glow.Y, glow.Z, glowAlpha));
+            var spread = 1.0f * ImGuiHelpers.GlobalScale;
+            drawList.AddText(new Vector2(textPos.X - spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X + spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y - spread), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y + spread), glowU32, text);
+            drawList.AddText(textPos, ImGui.ColorConvertFloat4ToU32(foreground), text);
+            return;
+        }
+
+        ImGui.TextColored(foreground, text);
     }
 }

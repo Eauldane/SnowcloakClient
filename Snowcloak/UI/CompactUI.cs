@@ -86,7 +86,9 @@ public class CompactUi : WindowMediatorSubscriberBase
     private bool _showVanityIdModal;
     private string _vanityIdInput = string.Empty;
     private Vector3 _vanityColour = Vector3.One;
+    private Vector3 _vanityGlowColour = Vector3.Zero;
     private bool _useVanityColour;
+    private bool _useVanityGlowColour;
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
@@ -746,12 +748,14 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         var uidText = GetUidText();
         var headerStart = ImGui.GetCursorPos();
+        var uidColour = GetUidColor();
+        var uidGlowColour = GetUidGlowColor();
         
         using (_uiSharedService.UidFont.Push())
         {
             var uidTextSize = ImGui.CalcTextSize(uidText);
             ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X) / 2 - (uidTextSize.X / 2));
-            ImGui.TextColored(GetUidColor(), uidText);
+            DrawTextWithOptionalColor(uidText, uidColour, uidGlowColour);
         }
 
         if (_apiController.ServerState is ServerState.Connected)
@@ -767,7 +771,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 var origTextSize = ImGui.CalcTextSize(_apiController.UID);
                 ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X) / 2 - (origTextSize.X / 2));
-                ImGui.TextColored(GetUidColor(), _apiController.UID);
+                DrawTextWithOptionalColor(_apiController.UID, uidColour, uidGlowColour);
                 if (ImGui.IsItemClicked())
                 {
                     ImGui.SetClipboardText(_apiController.UID);
@@ -782,24 +786,23 @@ public class CompactUi : WindowMediatorSubscriberBase
             var buttonX = ImGui.GetWindowContentRegionMax().X - buttonWidth;
             var buttonY = headerStart.Y + ((headerEnd.Y - headerStart.Y) - buttonHeight) / 2f;
             ImGui.SetCursorPos(new Vector2(buttonX, buttonY));
-            var canEditVanityId = _apiController.HasPersistentKey;
             using (ImRaii.PushId("vanity-id-edit"))
-            using (ImRaii.Disabled(!canEditVanityId))
             {
                 if (_uiSharedService.IconButton(FontAwesomeIcon.Pen))
                 {
                     _vanityIdInput = _apiController.VanityId ?? string.Empty;
                     if (_apiController.HexAllowed)
                     {
-                        _useVanityColour = !string.IsNullOrWhiteSpace(_apiController.DisplayColour);
+                        _useVanityColour = !string.IsNullOrWhiteSpace(_apiController.DisplayColour)
+                                           || !string.IsNullOrWhiteSpace(_apiController.DisplayGlowColour);
                         _vanityColour = ParseHexColourOrDefault(_apiController.DisplayColour, Vector3.One);
+                        _useVanityGlowColour = !string.IsNullOrWhiteSpace(_apiController.DisplayGlowColour);
+                        _vanityGlowColour = ParseHexColourOrDefault(_apiController.DisplayGlowColour, Vector3.Zero);
                     }
                     _showVanityIdModal = true;
                 }
             }
-            UiSharedService.AttachToolTip(canEditVanityId
-                ? "Edit vanity ID"
-                : "Link a XIVAuth account to edit your vanity ID.");
+            UiSharedService.AttachToolTip("Edit vanity ID");
             ImGui.SetCursorPos(headerEnd);
         }
 
@@ -828,11 +831,16 @@ public class CompactUi : WindowMediatorSubscriberBase
             if (_apiController.HexAllowed)
             {
                 ImGui.Spacing();
-                ElezenImgui.WrappedText("Optional: set a custom display color.");
+                ElezenImgui.WrappedText("Optional: set a custom display color and glow.");
                 ImGui.Checkbox("Use custom color", ref _useVanityColour);
                 using (ImRaii.Disabled(!_useVanityColour))
                 {
-                    ImGui.ColorEdit3("##vanity-color", ref _vanityColour, ImGuiColorEditFlags.NoInputs);
+                    ImGui.ColorEdit3("Name color##vanity-color", ref _vanityColour, ImGuiColorEditFlags.NoInputs);
+                    ImGui.Checkbox("Use custom glow", ref _useVanityGlowColour);
+                    using (ImRaii.Disabled(!_useVanityGlowColour))
+                    {
+                        ImGui.ColorEdit3("Glow color##vanity-glow-color", ref _vanityGlowColour, ImGuiColorEditFlags.NoInputs);
+                    }
                 }
             }
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save"))
@@ -840,11 +848,21 @@ public class CompactUi : WindowMediatorSubscriberBase
                 var trimmed = _vanityIdInput.Trim();
                 var vanityId = string.IsNullOrEmpty(trimmed) ? null : trimmed;
                 string? hexString = null;
+                string? glowHexString = null;
                 if (_apiController.HexAllowed)
                 {
-                    hexString = _useVanityColour ? ColourVectorToHex(_vanityColour) : string.Empty;
+                    if (_useVanityColour)
+                    {
+                        hexString = ColourVectorToHex(_vanityColour);
+                        glowHexString = _useVanityGlowColour ? ColourVectorToHex(_vanityGlowColour) : string.Empty;
+                    }
+                    else
+                    {
+                        hexString = string.Empty;
+                        glowHexString = string.Empty;
+                    }
                 }
-                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId) { HexString = hexString });
+                _ = _apiController.UserSetVanityId(new UserVanityIdDto(vanityId) { HexString = hexString, GlowHexString = glowHexString });
                 _showVanityIdModal = false;
             }
 
@@ -940,6 +958,54 @@ public class CompactUi : WindowMediatorSubscriberBase
             ServerState.MultiChara => ImGuiColors.DalamudYellow,
             _ => ImGuiColors.DalamudRed
         };
+    }
+
+    private Vector4? GetUidGlowColor()
+    {
+        if (_apiController.ServerState is not ServerState.Connected)
+        {
+            return null;
+        }
+
+        return TryGetVanityColor(_apiController.DisplayGlowColour);
+    }
+
+    private static Vector4? TryGetVanityColor(string? hexColor)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor)
+            || hexColor.Length != 6
+            || !int.TryParse(hexColor, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+        {
+            return null;
+        }
+
+        return ElezenTools.UI.Colour.HexToVector4(hexColor);
+    }
+
+    private static void DrawTextWithOptionalColor(string text, Vector4? color, Vector4? glowColor = null)
+    {
+        if (!color.HasValue && !glowColor.HasValue)
+        {
+            ImGui.TextUnformatted(text);
+            return;
+        }
+
+        var foreground = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+        if (glowColor.HasValue)
+        {
+            var drawList = ImGui.GetWindowDrawList();
+            var textPos = ImGui.GetCursorScreenPos();
+            var glow = glowColor.Value;
+            var glowAlpha = Math.Clamp(glow.W <= 0f ? 0.45f : glow.W, 0.05f, 1f);
+            var glowU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(glow.X, glow.Y, glow.Z, glowAlpha));
+            var spread = 1.0f * ImGuiHelpers.GlobalScale;
+            drawList.AddText(new Vector2(textPos.X - spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X + spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y - spread), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y + spread), glowU32, text);
+        }
+
+        ImGui.TextColored(foreground, text);
     }
 
     private string GetUidText()

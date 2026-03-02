@@ -121,13 +121,14 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         {
             var aliasChanged = !string.Equals(existingKey.Alias, dto.User.Alias, StringComparison.Ordinal);
             var hexChanged = !string.Equals(existingKey.HexString, dto.User.HexString, StringComparison.Ordinal);
-            if (aliasChanged || hexChanged)
+            var glowHexChanged = !string.Equals(existingKey.GlowHexString, dto.User.GlowHexString, StringComparison.Ordinal);
+            if (aliasChanged || hexChanged || glowHexChanged)
             {
                 _allClientPairs.TryRemove(existingKey, out _);
                 _allClientPairs[dto.User] = pair;
                 RecreateLazy();
             }
-            if (hexChanged)
+            if (hexChanged || glowHexChanged)
             {
                 Mediator.Publish(new NameplateRedrawMessage());
             }

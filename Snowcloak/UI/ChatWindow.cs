@@ -9,6 +9,7 @@ using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -31,10 +32,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private readonly record struct ChatChannelKey(ChannelKind Kind, string Id);
 
-    private sealed record ChatLine(DateTime Timestamp, string Sender, string Message);
+    private sealed record ChatLine(DateTime Timestamp, string SenderUid, string Sender, string Message, Vector4? SenderColor, Vector4? SenderGlowColor);
 
     private readonly ApiController _apiController;
     private readonly ChatService _chatService;
+    private readonly DalamudUtilService _dalamudUtil;
+    private readonly SnowcloakConfigService _configService;
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverManager;
     private readonly Dictionary<ChatChannelKey, List<ChatLine>> _channelLogs = [];
@@ -49,16 +52,20 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private string _pendingMessage = string.Empty;
     private bool _autoScroll = true;
     private readonly HashSet<ChatChannelKey> _unreadChannels = [];
+    private readonly HashSet<string> _loadedDirectHistory = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _loadedSyncshellHistory = new(StringComparer.Ordinal);
     private string _standardChannelTopicDraft = string.Empty;
     private bool _isEditingStandardChannelTopic;
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ApiController apiController,
         PairManager pairManager, ServerConfigurationManager serverManager, PerformanceCollectorService performanceCollectorService,
-        ChatService chatService)
+        ChatService chatService, DalamudUtilService dalamudUtil, SnowcloakConfigService configService)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChatWindow", performanceCollectorService)
     {
         _apiController = apiController;
         _chatService = chatService;
+        _dalamudUtil = dalamudUtil;
+        _configService = configService;
         _pairManager = pairManager;
         _serverManager = serverManager;
 
@@ -74,6 +81,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         Mediator.Subscribe<ChannelMemberJoinedMessage>(this, message => HandleStandardChannelMemberJoined(message.Member));
         Mediator.Subscribe<ChannelMemberLeftMessage>(this, message => HandleStandardChannelMemberLeft(message.Member));
         Mediator.Subscribe<GroupChatMemberStateMessage>(this, message => HandleSyncshellChatMemberState(message.MemberState));
+        Mediator.Subscribe<ClearProfileDataMessage>(this, message => HandleUserProfileUpdate(message.UserData));
         Mediator.Subscribe<ConnectedMessage>(this, _message =>
         {
             _ = RefreshStandardChannels();
@@ -266,7 +274,14 @@ public class ChatWindow : WindowMediatorSubscriberBase
         foreach (var entry in log)
         {
             var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
-                ImGui.TextWrapped(string.Format(CultureInfo.InvariantCulture, "[{0}] {1}: {2}", timestamp, entry.Sender, entry.Message));
+            ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "[{0}] ", timestamp));
+            ImGui.SameLine(0f, 0f);
+            DrawTextWithOptionalColor(entry.Sender, entry.SenderColor, entry.SenderGlowColor);
+
+            ImGui.SameLine(0f, 0f);
+            ImGui.TextUnformatted(": ");
+            ImGui.SameLine(0f, 0f);
+            ImGui.TextWrapped(entry.Message);
         }
         ImGui.PopTextWrapPos();
 
@@ -362,6 +377,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                         _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
                         _joinedSyncshellChats.Remove(key.Id);
                         _syncshellChatMembers.Remove(key.Id);
+                        _loadedSyncshellHistory.Remove(key.Id);
                         var group = GetGroupData(key.Id);
                         if (group != null)
                         {
@@ -444,7 +460,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
                      .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))
         {
             var prefix = GetRolePrefix(groupInfo, entry.User);
-            ImGui.TextUnformatted(prefix + GetUserDisplayName(entry.User));
+            var label = prefix + GetUserDisplayName(entry.User);
+            DrawTextWithOptionalColor(label, TryGetVanityColor(entry.User.DisplayColour), TryGetVanityColor(entry.User.DisplayGlowColour));
         }
     }
 
@@ -453,19 +470,27 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var userData = GetUserData(key.Id);
         if (userData != null)
         {
-            ImGui.TextUnformatted(GetUserDisplayName(userData));
+            DrawTextWithOptionalColor(GetUserDisplayName(userData), TryGetVanityColor(userData.DisplayColour), TryGetVanityColor(userData.DisplayGlowColour));
         }
 
         if (!string.IsNullOrWhiteSpace(_apiController.UID))
         {
-            var selfName = GetUserDisplayName(new UserData(_apiController.UID, _apiController.VanityId));
-            ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.InvariantCulture, "You ({0})", selfName), ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            var selfName = GetUserDisplayName(new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour));
+            var selfColor = TryGetVanityColor(_apiController.DisplayColour);
+            var selfGlowColor = TryGetVanityColor(_apiController.DisplayGlowColour);
+            ImGui.TextDisabled("You (");
+            ImGui.SameLine(0f, 0f);
+            DrawTextWithOptionalColor(selfName, selfColor, selfGlowColor);
+
+            ImGui.SameLine(0f, 0f);
+            ImGui.TextDisabled(")");
         }
     }
 
     private void DrawChatInput()
     {
         var canSend = _selectedChannel != null
+                      && !_configService.Current.DisableChat
                       && _apiController.IsConnected
                       && (_selectedChannel.Value.Kind != ChannelKind.Standard || _joinedStandardChannels.Contains(_selectedChannel.Value.Id));
         using var disabled = ImRaii.Disabled(!canSend);
@@ -478,8 +503,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             if (_selectedChannel != null)
             {
-                SendMessage(_selectedChannel.Value, _pendingMessage);
-                _pendingMessage = string.Empty;
+                _ = SendMessageAsync(_selectedChannel.Value, _pendingMessage);
             }
         }
 
@@ -487,54 +511,82 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.Checkbox("Auto-scroll", ref _autoScroll);
     }
 
-    private void SendMessage(ChatChannelKey channel, string message)
+    private ChatMessage BuildOutgoingChatMessage(string message)
     {
-        if (string.IsNullOrWhiteSpace(message))
+        var senderName = _dalamudUtil.GetPlayerName();
+        var senderHomeWorld = _dalamudUtil.GetHomeWorldId();
+        return new ChatMessage
         {
-            return;
-        }
-
-        var trimmed = message.Trim();
-        var chatMessage = new ChatMessage
-        {
-            PayloadContent = Encoding.UTF8.GetBytes(trimmed)
+            SenderName = senderName,
+            SenderHomeWorldId = senderHomeWorld,
+            PayloadContent = Encoding.UTF8.GetBytes(message)
         };
+    }
 
-        if (channel.Kind == ChannelKind.Syncshell)
-        {
-            var group = GetGroupData(channel.Id);
-            if (group == null) return;
-            _ = _apiController.GroupChatSendMsg(new GroupDto(group), chatMessage);
-            _chatService.PrintLocalGroupChat(group, chatMessage.PayloadContent);
-        }
-        else if (channel.Kind == ChannelKind.Standard)
-        {
-            if (!_joinedStandardChannels.Contains(channel.Id)) return;
-            var standardChannel = GetStandardChannel(channel.Id);
-            if (standardChannel == null) return;
-            _ = _apiController.ChannelChatSendMsg(new ChannelDto(standardChannel), chatMessage);
-        }
-        else
-        {
-            var userData = GetUserData(channel.Id);
-            if (userData == null) return;
-            _ = _apiController.UserChatSendMsg(new UserDto(userData), chatMessage);
-            _chatService.PrintLocalUserChat(chatMessage.PayloadContent);
-            _pinnedDirectChannels.Add(channel.Id);
-        }
+    private async Task SendMessageAsync(ChatChannelKey channel, string message)
+    {
+        if (_configService.Current.DisableChat) return;
+        if (string.IsNullOrWhiteSpace(message)) return;
 
-        AddLocalMessage(channel, trimmed);
+        var originalMessage = message;
+        var trimmed = message.Trim();
+        var chatMessage = BuildOutgoingChatMessage(trimmed);
+
+        try
+        {
+            if (channel.Kind == ChannelKind.Syncshell)
+            {
+                var group = GetGroupData(channel.Id);
+                if (group == null) return;
+                await _apiController.GroupChatSendMsg(new GroupDto(group), chatMessage).ConfigureAwait(false);
+                _chatService.PrintLocalGroupChat(group, chatMessage.PayloadContent);
+            }
+            else if (channel.Kind == ChannelKind.Standard)
+            {
+                if (!_joinedStandardChannels.Contains(channel.Id)) return;
+                var standardChannel = GetStandardChannel(channel.Id);
+                if (standardChannel == null) return;
+                await _apiController.ChannelChatSendMsg(new ChannelDto(standardChannel), chatMessage).ConfigureAwait(false);
+            }
+            else
+            {
+                var userData = GetUserData(channel.Id);
+                if (userData == null) return;
+                await _apiController.UserChatSendMsg(new UserDto(userData), chatMessage).ConfigureAwait(false);
+                _chatService.PrintLocalUserChat(chatMessage.PayloadContent);
+                _pinnedDirectChannels.Add(channel.Id);
+            }
+
+            AddLocalMessage(channel, trimmed);
+            if (string.Equals(_pendingMessage, originalMessage, StringComparison.Ordinal))
+            {
+                _pendingMessage = string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send chat message for {ChannelKind}:{ChannelId}", channel.Kind, channel.Id);
+            Mediator.Publish(new NotificationMessage(
+                "Chat send failed",
+                $"Could not send message: {ex.Message}",
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
+        }
     }
 
     private void AddLocalMessage(ChatChannelKey channel, string message)
     {
-        var selfUser = new UserData(_apiController.UID, _apiController.VanityId);
+        var selfUser = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
         var displayName = FormatSenderName(channel, selfUser);
-        AppendMessage(channel, displayName, message, DateTime.UtcNow, markUnread: false);
+        AppendMessage(channel, selfUser.UID, displayName, message, DateTime.Now, markUnread: false,
+            senderColor: TryGetVanityColor(_apiController.DisplayColour),
+            senderGlowColor: TryGetVanityColor(_apiController.DisplayGlowColour));
     }
 
     private void AddGroupMessage(GroupChatMsgMessage message)
     {
+        if (_configService.Current.DisableChat) return;
+
         var shellConfig = _serverManager.GetShellConfigForGid(message.GroupInfo.GID);
         if (!shellConfig.Enabled)
         {
@@ -544,21 +596,31 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = new ChatChannelKey(ChannelKind.Syncshell, message.GroupInfo.GID);
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true);
+        var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
+        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true,
+            senderColor: senderColors.Foreground,
+            senderGlowColor: senderColors.Glow);
     }
 
     private void AddDirectMessage(SignedChatMessage message)
     {
+        if (_configService.Current.DisableChat) return;
+
         var channel = new ChatChannelKey(ChannelKind.Direct, message.Sender.UID);
         var text = DecodeMessage(message.PayloadContent);
         var displayName = FormatSenderName(channel, message.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: true);
+        var senderColors = ResolveSenderColors(channel, message.Sender);
+        AppendMessage(channel, message.Sender.UID, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: true,
+            senderColor: senderColors.Foreground,
+            senderGlowColor: senderColors.Glow);
         _pinnedDirectChannels.Add(channel.Id);
 
     }
 
     private void AddStandardChannelMessage(ChannelChatMsgMessage message)
     {
+        if (_configService.Current.DisableChat) return;
+
         var channelData = message.ChannelInfo.Channel;
         TrackStandardChannel(channelData);
         if (!_standardChannelMembers.ContainsKey(channelData.ChannelId))
@@ -568,7 +630,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var channel = new ChatChannelKey(ChannelKind.Standard, channelData.ChannelId);
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true);
+        var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
+        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true,
+            senderColor: senderColors.Foreground,
+            senderGlowColor: senderColors.Glow);
     }
 
     private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
@@ -637,16 +702,19 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 {
                     _joinedSyncshellChats.Remove(gid);
                     _syncshellChatMembers.Remove(gid);
+                    _loadedSyncshellHistory.Remove(gid);
                     _ = _apiController.GroupChatLeave(memberState.Group);
                     return;
                 }
 
                 _joinedSyncshellChats.Add(gid);
+                _ = LoadSyncshellHistory(gid);
             }
             else
             {
                 _joinedSyncshellChats.Remove(gid);
                 _syncshellChatMembers.Remove(gid);
+                _loadedSyncshellHistory.Remove(gid);
             }
         }
 
@@ -671,7 +739,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
     }
 
-    private void AppendMessage(ChatChannelKey channel, string sender, string message, DateTime timestamp, bool markUnread)
+    private void AppendMessage(ChatChannelKey channel, string senderUid, string sender, string message, DateTime timestamp, bool markUnread,
+        Vector4? senderColor = null, Vector4? senderGlowColor = null)
     {
         if (!_channelLogs.TryGetValue(channel, out var log))
         {
@@ -679,7 +748,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             _channelLogs[channel] = log;
         }
 
-        log.Add(new ChatLine(timestamp, sender, message));
+        log.Add(new ChatLine(timestamp, senderUid, sender, message, senderColor, senderGlowColor));
         if (markUnread && (!_selectedChannel.HasValue || !_selectedChannel.Value.Equals(channel)))
         {
             _unreadChannels.Add(channel);
@@ -701,10 +770,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         if (timestamp <= 0)
         {
-            return DateTime.UtcNow;
+            return DateTime.Now;
         }
 
-        return DateTimeOffset.FromUnixTimeSeconds(timestamp).UtcDateTime;
+        return DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime;
     }
 
     private string GetUserDisplayName(UserData user)
@@ -713,6 +782,173 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (!string.IsNullOrWhiteSpace(note)) return note;
         if (!string.IsNullOrWhiteSpace(user.Alias)) return user.Alias!;
         return user.UID;
+    }
+
+    private static Vector4? TryGetVanityColor(string? hexColor)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor))
+        {
+            return null;
+        }
+
+        try
+        {
+            return ElezenTools.UI.Colour.HexToVector4(hexColor);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void HandleUserProfileUpdate(UserData? updatedUser)
+    {
+        if (updatedUser == null || string.IsNullOrWhiteSpace(updatedUser.UID))
+        {
+            return;
+        }
+
+        var uid = updatedUser.UID;
+        foreach (var channelMembers in _standardChannelMembers.Values)
+        {
+            for (int i = 0; i < channelMembers.Count; i++)
+            {
+                if (!string.Equals(channelMembers[i].User.UID, uid, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                channelMembers[i] = new ChannelMemberDto(channelMembers[i].Channel, updatedUser, channelMembers[i].Roles);
+            }
+        }
+
+        foreach (var syncshellMembers in _syncshellChatMembers.Values)
+        {
+            if (syncshellMembers.ContainsKey(uid))
+            {
+                syncshellMembers[uid] = updatedUser;
+            }
+        }
+
+        RefreshCachedSenderColours(updatedUser);
+    }
+
+    private (Vector4? Foreground, Vector4? Glow) ResolveSenderColors(ChatChannelKey channel, UserData sender)
+    {
+        if (string.Equals(sender.UID, _apiController.UID, StringComparison.Ordinal))
+        {
+            return (TryGetVanityColor(_apiController.DisplayColour), TryGetVanityColor(_apiController.DisplayGlowColour));
+        }
+
+        var pairUserData = _pairManager.GetPairByUID(sender.UID)?.UserData;
+        if (pairUserData != null)
+        {
+            var pairColor = TryGetVanityColor(pairUserData.DisplayColour);
+            var pairGlowColor = TryGetVanityColor(pairUserData.DisplayGlowColour);
+            if (pairColor.HasValue || pairGlowColor.HasValue)
+            {
+                return (pairColor, pairGlowColor);
+            }
+        }
+
+        var senderColor = TryGetVanityColor(sender.DisplayColour);
+        var senderGlowColor = TryGetVanityColor(sender.DisplayGlowColour);
+        if (senderColor.HasValue || senderGlowColor.HasValue)
+        {
+            return (senderColor, senderGlowColor);
+        }
+
+        if (channel.Kind == ChannelKind.Standard
+            && _standardChannelMembers.TryGetValue(channel.Id, out var standardMembers))
+        {
+            var standardMember = standardMembers.FirstOrDefault(entry => string.Equals(entry.User.UID, sender.UID, StringComparison.Ordinal));
+            var standardColor = TryGetVanityColor(standardMember?.User.DisplayColour);
+            var standardGlowColor = TryGetVanityColor(standardMember?.User.DisplayGlowColour);
+            if (standardColor.HasValue || standardGlowColor.HasValue)
+            {
+                return (standardColor, standardGlowColor);
+            }
+        }
+
+        if (channel.Kind == ChannelKind.Syncshell
+            && _syncshellChatMembers.TryGetValue(channel.Id, out var syncshellMembers)
+            && syncshellMembers.TryGetValue(sender.UID, out var syncshellMember))
+        {
+            var syncshellColor = TryGetVanityColor(syncshellMember.DisplayColour);
+            var syncshellGlowColor = TryGetVanityColor(syncshellMember.DisplayGlowColour);
+            if (syncshellColor.HasValue || syncshellGlowColor.HasValue)
+            {
+                return (syncshellColor, syncshellGlowColor);
+            }
+        }
+
+        return (null, null);
+    }
+
+    private void RefreshCachedSenderColours(UserData updatedUser)
+    {
+        foreach (var (channel, log) in _channelLogs)
+        {
+            if (log.Count == 0)
+            {
+                continue;
+            }
+
+            var displayName = FormatSenderName(channel, updatedUser);
+            var colors = ResolveSenderColors(channel, updatedUser);
+            for (int i = 0; i < log.Count; i++)
+            {
+                var uidMatches = string.Equals(log[i].SenderUid, updatedUser.UID, StringComparison.Ordinal);
+                var fallbackSenderMatches = string.IsNullOrWhiteSpace(log[i].SenderUid)
+                    && string.Equals(log[i].Sender, displayName, StringComparison.Ordinal);
+                if (!uidMatches && !fallbackSenderMatches)
+                {
+                    continue;
+                }
+
+                log[i] = log[i] with { Sender = displayName, SenderColor = colors.Foreground, SenderGlowColor = colors.Glow };
+            }
+        }
+    }
+
+    private static void DrawTextWithOptionalColor(string text, Vector4? color, Vector4? glowColor = null)
+    {
+        if (!color.HasValue && !glowColor.HasValue)
+        {
+            ImGui.TextUnformatted(text);
+            return;
+        }
+
+        var foreground = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+        if (glowColor.HasValue)
+        {
+            var drawList = ImGui.GetWindowDrawList();
+            var textPos = ImGui.GetCursorScreenPos();
+            var glow = glowColor.Value;
+            var glowAlpha = Math.Clamp(glow.W <= 0f ? 0.45f : glow.W, 0.05f, 1f);
+            var glowU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(glow.X, glow.Y, glow.Z, glowAlpha));
+            var spread = 1.0f * ImGuiHelpers.GlobalScale;
+            drawList.AddText(new Vector2(textPos.X - spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X + spread, textPos.Y), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y - spread), glowU32, text);
+            drawList.AddText(new Vector2(textPos.X, textPos.Y + spread), glowU32, text);
+        }
+
+        ImGui.TextColored(foreground, text);
+    }
+
+    private static void DrawSelectableWithOptionalColor(string label, Vector4? color)
+    {
+        if (color.HasValue)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, color.Value);
+            ImGui.Selectable(label);
+            ImGui.PopStyleColor();
+        }
+        else
+        {
+            ImGui.Selectable(label);
+        }
     }
 
     private string FormatSenderName(ChatChannelKey channel, UserData user)
@@ -785,7 +1021,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private bool CanEditStandardChannelTopic(string channelId)
     {
         var roles = GetStandardChannelSelfRoles(channelId);
-        return GetChannelRoleRank(roles) >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
+        return GetChannelRoleRank(roles) >= GetChannelRoleRank(ChannelUserRole.Operator);
     }
 
     private bool IsModerator(Pair pair, GroupFullInfoDto groupInfo)
@@ -891,6 +1127,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         _selectedChannel = key;
         _unreadChannels.Remove(key);
+
         if (key.Kind == ChannelKind.Standard)
         {
             var channel = GetStandardChannel(key.Id);
@@ -900,6 +1137,15 @@ public class ChatWindow : WindowMediatorSubscriberBase
             {
                 _ = RefreshStandardChannelMembers(key.Id);
             }
+        }
+
+        if (key.Kind == ChannelKind.Direct)
+        {
+            _ = LoadDirectHistory(key.Id);
+        }
+        else if (key.Kind == ChannelKind.Syncshell)
+        {
+            _ = LoadSyncshellHistory(key.Id);
         }
     }
 
@@ -945,7 +1191,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             var label = GetChannelRolePrefix(member.Roles) + GetUserDisplayName(member.User);
             ImGui.PushID(member.User.UID);
-            ImGui.Selectable(label);
+            DrawSelectableWithOptionalColor(label, TryGetVanityColor(member.User.DisplayColour));
             DrawStandardChannelMemberContextMenu(channelId, member, selfRoles, selfRank);
             ImGui.PopID();
         }
@@ -962,7 +1208,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var memberRank = GetChannelRoleRank(member.Roles);
         var canKick = selfRank >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
         var canBan = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
-        var canAssignRoles = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
+        var canAssignRoles = selfRank >= GetChannelRoleRank(ChannelUserRole.Admin);
         var canModerateTarget = !isSelf && selfRank > memberRank;
         var hasActions = false;
 
@@ -985,11 +1231,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             if (ImGui.BeginMenu("Roles"))
             {
-                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Voice, selfRank);
-                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.HalfOperator, selfRank);
-                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Operator, selfRank);
-                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Admin, selfRank);
-                DrawStandardChannelRoleToggle(channelId, member, ChannelUserRole.Owner, selfRank);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.None, selfRoles);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Voice, selfRoles);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.HalfOperator, selfRoles);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Operator, selfRoles);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Admin, selfRoles);
+                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Owner, selfRoles);
                 ImGui.EndMenu();
             }
 
@@ -1004,22 +1251,55 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.EndPopup();
     }
 
-    private void DrawStandardChannelRoleToggle(string channelId, ChannelMemberDto member, ChannelUserRole role, int selfRank)
+    private static ChannelUserRole NormalizeChannelRole(ChannelUserRole roles)
     {
-        var roleRank = GetChannelRoleRank(role);
-        if (roleRank <= 0 || selfRank < roleRank)
+        if (roles.HasFlag(ChannelUserRole.Owner)) return ChannelUserRole.Owner;
+        if (roles.HasFlag(ChannelUserRole.Admin)) return ChannelUserRole.Admin;
+        if (roles.HasFlag(ChannelUserRole.Operator)) return ChannelUserRole.Operator;
+        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return ChannelUserRole.HalfOperator;
+        if (roles.HasFlag(ChannelUserRole.Voice)) return ChannelUserRole.Voice;
+        return ChannelUserRole.None;
+    }
+
+    private static bool CanAssignRole(ChannelUserRole actorRoles, ChannelUserRole desiredRole)
+    {
+        var actor = NormalizeChannelRole(actorRoles);
+        if (desiredRole == ChannelUserRole.Owner || desiredRole == ChannelUserRole.Admin)
+        {
+            return actor == ChannelUserRole.Owner;
+        }
+
+        if (desiredRole == ChannelUserRole.Operator || desiredRole == ChannelUserRole.HalfOperator || desiredRole == ChannelUserRole.Voice || desiredRole == ChannelUserRole.None)
+        {
+            return actor == ChannelUserRole.Owner || actor == ChannelUserRole.Admin;
+        }
+
+        return false;
+    }
+
+    private static string GetRoleLabel(ChannelUserRole role)
+    {
+        return role == ChannelUserRole.None ? "None" : role.ToString();
+    }
+
+    private void DrawStandardChannelRoleOption(string channelId, ChannelMemberDto member, ChannelUserRole role, ChannelUserRole selfRoles)
+    {
+        if (!CanAssignRole(selfRoles, role))
         {
             return;
         }
 
-        var hasRole = member.Roles.HasFlag(role);
-        if (ImGui.MenuItem(role.ToString(), string.Empty, hasRole))
+        var currentRole = NormalizeChannelRole(member.Roles);
+        var isSelected = currentRole == role;
+        if (ImGui.MenuItem(GetRoleLabel(role), string.Empty, isSelected))
         {
-            var newRoles = hasRole ? member.Roles & ~role : member.Roles | role;
-            _ = UpdateStandardChannelRole(channelId, member.User, newRoles);
+            if (!isSelected)
+            {
+                _ = UpdateStandardChannelRole(channelId, member.User, role);
+            }
         }
 
-        if (role == ChannelUserRole.Owner && !hasRole && ImGui.IsItemHovered())
+        if (role == ChannelUserRole.Owner && !isSelected && ImGui.IsItemHovered())
         {
             UiSharedService.AttachToolTip("Warning: assigning Owner will transfer channel ownership.");
         }
@@ -1030,6 +1310,86 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (!_joinedStandardChannels.Contains(key.Id))
         {
             ElezenImgui.ColouredWrappedText("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        }
+    }
+
+    private void AppendHistoryMessage(ChatChannelKey channel, SignedChatMessage message)
+    {
+        var displayName = FormatSenderName(channel, message.Sender);
+        var text = DecodeMessage(message.PayloadContent);
+        var timestamp = ResolveTimestamp(message.Timestamp);
+        var senderColor = ResolveSenderColors(channel, message.Sender);
+
+        if (_channelLogs.TryGetValue(channel, out var existing)
+            && existing.Any(entry =>
+                entry.Timestamp == timestamp
+                && string.Equals(entry.Sender, displayName, StringComparison.Ordinal)
+                && string.Equals(entry.Message, text, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        AppendMessage(channel, message.Sender.UID, displayName, text, timestamp, markUnread: false, senderColor: senderColor.Foreground, senderGlowColor: senderColor.Glow);
+    }
+
+    private async Task LoadDirectHistory(string uid)
+    {
+        if (_configService.Current.DisableChat) return;
+        if (!_apiController.IsConnected) return;
+        if (_apiController.ServerInfo.ChatHistoryReplayDays <= 0) return;
+        if (!_loadedDirectHistory.Add(uid)) return;
+
+        try
+        {
+            var user = GetUserData(uid);
+            if (user == null) return;
+
+            var history = await _apiController.UserChatGetHistory(new UserDto(user)).ConfigureAwait(false);
+            var channel = new ChatChannelKey(ChannelKind.Direct, uid);
+            foreach (var message in history)
+            {
+                AppendHistoryMessage(channel, message);
+            }
+
+            if (history.Count > 0)
+            {
+                _pinnedDirectChannels.Add(uid);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadedDirectHistory.Remove(uid);
+            _logger.LogWarning(ex, "Failed to load direct chat history for {Uid}", uid);
+        }
+    }
+
+    private async Task LoadSyncshellHistory(string gid)
+    {
+        if (_configService.Current.DisableChat) return;
+        if (!_apiController.IsConnected) return;
+        if (_apiController.ServerInfo.ChatHistoryReplayDays <= 0) return;
+        if (!_loadedSyncshellHistory.Add(gid)) return;
+
+        var group = GetGroupData(gid);
+        if (group == null)
+        {
+            _loadedSyncshellHistory.Remove(gid);
+            return;
+        }
+
+        try
+        {
+            var history = await _apiController.GroupChatGetHistory(new GroupDto(group)).ConfigureAwait(false);
+            var channel = new ChatChannelKey(ChannelKind.Syncshell, gid);
+            foreach (var message in history)
+            {
+                AppendHistoryMessage(channel, message);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadedSyncshellHistory.Remove(gid);
+            _logger.LogWarning(ex, "Failed to load syncshell chat history for {Gid}", gid);
         }
     }
 
@@ -1049,6 +1409,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             {
                 await _apiController.GroupChatJoin(new GroupDto(group.Group)).ConfigureAwait(false);
                 await RefreshSyncshellChatMembers(group.GID).ConfigureAwait(false);
+                await LoadSyncshellHistory(group.GID).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1097,6 +1458,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             else
             {
                 _joinedSyncshellChats.Remove(gid);
+                _loadedSyncshellHistory.Remove(gid);
             }
         }
         catch (Exception ex)
@@ -1109,6 +1471,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         _syncshellChatMembers.Clear();
         _joinedSyncshellChats.Clear();
+        _loadedSyncshellHistory.Clear();
     }
 
     private int GetSyncshellChatMemberRank(GroupFullInfoDto? groupInfo, UserData user)
@@ -1272,6 +1635,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to kick channel member.");
+            Mediator.Publish(new NotificationMessage(
+                "Kick failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1289,6 +1657,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to ban channel member.");
+            Mediator.Publish(new NotificationMessage(
+                "Ban failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1302,25 +1675,16 @@ public class ChatWindow : WindowMediatorSubscriberBase
         try
         {
             await _apiController.ChannelSetRole(new ChannelRoleUpdateDto(channel, user, roles)).ConfigureAwait(false);
-            ApplyStandardChannelRoleUpdate(channelId, user.UID, roles);
+            await RefreshStandardChannelMembers(channelId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update channel member role.");
-        }
-    }
-
-    private void ApplyStandardChannelRoleUpdate(string channelId, string uid, ChannelUserRole roles)
-    {
-        if (!_standardChannelMembers.TryGetValue(channelId, out var members)) return;
-
-        for (var i = 0; i < members.Count; i++)
-        {
-            if (string.Equals(members[i].User.UID, uid, StringComparison.Ordinal))
-            {
-                members[i] = members[i] with { Roles = roles };
-                break;
-            }
+            Mediator.Publish(new NotificationMessage(
+                "Role update failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1356,6 +1720,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 return;
             }
             _logger.LogWarning(ex, "Failed to join standard channel.");
+            Mediator.Publish(new NotificationMessage(
+                "Channel join failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1395,6 +1764,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to leave standard channel.");
+            Mediator.Publish(new NotificationMessage(
+                "Leave failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -1420,6 +1794,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update standard channel topic.");
+            Mediator.Publish(new NotificationMessage(
+                "Topic update failed",
+                ex.Message,
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(6)));
         }
     }
     
@@ -1431,6 +1810,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
         _standardChannelTopicDraft = string.Empty;
         _isEditingStandardChannelTopic = false;
         _pinnedDirectChannels.Clear();
+        _loadedDirectHistory.Clear();
+        _loadedSyncshellHistory.Clear();
         ClearStandardChannels();
         ClearSyncshellChatMembers();
     }

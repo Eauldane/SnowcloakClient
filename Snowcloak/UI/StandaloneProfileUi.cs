@@ -12,11 +12,13 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.Utils;
 using System.Numerics;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using System.Globalization;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI;
 
@@ -24,10 +26,10 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
 {
     private readonly SnowProfileManager _snowProfileManager;
     private readonly PairManager _pairManager;
+    private readonly ApiController _apiController;
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
-    private bool _adjustedForScrollBars = false;
     private byte[] _lastProfilePicture = [];
     private IDalamudTextureWrap? _textureWrap;
     private string _lastMoodlesData = string.Empty;
@@ -36,7 +38,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiBuilder,
         ServerConfigurationManager serverManager, SnowProfileManager snowProfileManager, PairManager pairManager, Pair? pair,
-        UserData userData, ProfileVisibility? requestedVisibility, PerformanceCollectorService performanceCollector)
+        UserData userData, ProfileVisibility? requestedVisibility, ApiController apiController, PerformanceCollectorService performanceCollector)
         : base(logger, mediator,
             String.Format(CultureInfo.InvariantCulture, "Profile of {0}", userData.AliasOrUID) +
             "##SnowcloakSyncStandaloneProfileUI" + userData.AliasOrUID + requestedVisibility, performanceCollector)
@@ -44,6 +46,7 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
         _uiSharedService = uiBuilder;
         _serverManager = serverManager;
         _snowProfileManager = snowProfileManager;
+        _apiController = apiController;
         pair ??= pairManager.GetPairByUID(userData.UID);
         Pair = pair;
         UserData = userData;
@@ -51,8 +54,14 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
         Flags = ImGuiWindowFlags.None;
 
         var spacing = ImGui.GetStyle().ItemSpacing;
-
-        Size = new(512 + spacing.X * 3 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize, 512);
+        var fixedWidth = 512 + spacing.X * 3 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize;
+        Size = new(fixedWidth, 800);
+        SizeCondition = ImGuiCond.Appearing;
+        SizeConstraints = new()
+        {
+            MinimumSize = new Vector2(fixedWidth, 512),
+            MaximumSize = new Vector2(fixedWidth, 2000)
+        };
 
         IsOpen = true;
     }
@@ -82,9 +91,13 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             var rectMin = drawList.GetClipRectMin();
             var rectMax = drawList.GetClipRectMax();
             var headerSize = ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y;
+            var note = _serverManager.GetNoteForUid(UserData.UID);
+            var hasNote = !string.IsNullOrWhiteSpace(note);
+            var headerText = hasNote ? note! : UserData.AliasOrUID;
+            var headerColor = hasNote ? ImGuiColors.DalamudGrey : ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour);
 
             using (_uiSharedService.UidFont.Push())
-                ElezenImgui.ColouredText(UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour));
+                ElezenImgui.ColouredText(headerText, headerColor);
 
             
             var reportButtonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.ExclamationTriangle, reportLabel);
@@ -94,6 +107,18 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, reportLabel) && Pair != null)
                 Mediator.Publish(new OpenReportPopupMessage(Pair));
             if (!canReport) ImGui.EndDisabled();
+
+            ImGui.NewLine();
+            var visibleTags = ProfileTagUtilities.NormalizeForStorage(snowProfile.Tags);
+            ImGui.TextUnformatted("Tags");
+            if (visibleTags.Count == 0)
+            {
+                ElezenImgui.ColouredWrappedText("No tags set.", ImGuiColors.DalamudGrey);
+            }
+            else
+            {
+                _ = ProfileTagChipRenderer.DrawTagChips(visibleTags, $"standalone-tags-{UserData.UID}");
+            }
             
             ImGuiHelpers.ScaledDummy(new Vector2(spacing.Y, spacing.Y));
             ImGui.Separator();
@@ -101,22 +126,10 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             ImGuiHelpers.ScaledDummy(new Vector2(256, 256 + spacing.Y));
             var postDummy = ImGui.GetCursorPosY();
             ImGui.SameLine();
-            var descriptionTextSize = ImGui.CalcTextSize(snowProfile.Description, hideTextAfterDoubleHash: false, 256f);
             var descriptionChildHeight = rectMax.Y - pos.Y - rectMin.Y - spacing.Y * 2;
-            if (descriptionTextSize.Y > descriptionChildHeight && !_adjustedForScrollBars)
-            {
-                Size = Size!.Value with { X = Size.Value.X + ImGui.GetStyle().ScrollbarSize };
-                _adjustedForScrollBars = true;
-            }
-            else if (descriptionTextSize.Y < descriptionChildHeight && _adjustedForScrollBars)
-            {
-                Size = Size!.Value with { X = Size.Value.X - ImGui.GetStyle().ScrollbarSize };
-                _adjustedForScrollBars = false;
-            }
             var childFrame = ImGuiHelpers.ScaledVector2(256 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize, descriptionChildHeight);
             childFrame = childFrame with
             {
-                X = childFrame.X + (_adjustedForScrollBars ? ImGui.GetStyle().ScrollbarSize : 0),
                 Y = childFrame.Y / ImGuiHelpers.GlobalScale
             };
             if (ImGui.BeginChildFrame(1000, childFrame))
@@ -127,11 +140,6 @@ public class StandaloneProfileUi : WindowMediatorSubscriberBase
             ImGui.EndChildFrame();
 
             ImGui.SetCursorPosY(postDummy);
-            var note = _serverManager.GetNoteForUid(UserData.UID);
-            if (!string.IsNullOrEmpty(note))
-            {
-                ElezenImgui.ColouredText(note, ImGuiColors.DalamudGrey);
-            }
 
             if (Pair != null)
             {

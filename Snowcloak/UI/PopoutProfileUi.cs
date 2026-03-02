@@ -11,9 +11,13 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.Configuration;
 using Snowcloak.Utils;
 using System.Numerics;
+using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI;
 
@@ -23,6 +27,7 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverManager;
     private readonly UiSharedService _uiSharedService;
+    private readonly ApiController _apiController;
     private Vector2 _lastMainPos = Vector2.Zero;
     private Vector2 _lastMainSize = Vector2.Zero;
     private byte[] _lastProfilePicture = [];
@@ -35,12 +40,13 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
     private bool _moodlesParseFailed = false;
 
     public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        ServerConfigurationManager serverManager, SnowcloakConfigService snowcloakConfigService,
+        ServerConfigurationManager serverManager, ApiController apiController, SnowcloakConfigService snowcloakConfigService,
         SnowProfileManager snowProfileManager, PairManager pairManager, PerformanceCollectorService performanceCollectorService) : base(logger, mediator,
         "Snowcloak: User Profile###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _serverManager = serverManager;
+        _apiController = apiController;
         _snowProfileManager = snowProfileManager;
         _pairManager = pairManager;
         Flags = ImGuiWindowFlags.NoDecoration;
@@ -106,21 +112,31 @@ public class PopoutProfileUi : WindowMediatorSubscriberBase
             var drawList = ImGui.GetWindowDrawList();
             var rectMin = drawList.GetClipRectMin();
             var rectMax = drawList.GetClipRectMax();
+            var note = _serverManager.GetNoteForUid(_pair.UserData.UID);
+            var hasNote = !string.IsNullOrWhiteSpace(note);
+            var headerText = hasNote ? note! : _pair.UserData.AliasOrUID;
+            var headerColor = hasNote ? ImGuiColors.DalamudGrey : ElezenTools.UI.Colour.HexToVector4(_pair.UserData.DisplayColour);
 
             using (_uiSharedService.UidFont.Push())
-                ElezenImgui.ColouredText(_pair.UserData.AliasOrUID, ElezenTools.UI.Colour.HexToVector4(_pair.UserData.DisplayColour));
+                ElezenImgui.ColouredText(headerText, headerColor);
 
-           
-            ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
             var textPos = ImGui.GetCursorPosY();
+
+            var visibleTags = ProfileTagUtilities.NormalizeForStorage(snowProfile.Tags);
+            ImGui.TextUnformatted("Tags");
+            if (visibleTags.Count == 0)
+            {
+                ElezenImgui.ColouredWrappedText("No tags set.", ImGuiColors.DalamudGrey);
+            }
+            else
+            {
+                _ = ProfileTagChipRenderer.DrawTagChips(visibleTags, $"popout-tags-{_pair.UserData.UID}");
+            }
+
+            ImGuiHelpers.ScaledDummy(spacing.Y, spacing.Y);
             ImGui.Separator();
             var imagePos = ImGui.GetCursorPos();
             ImGuiHelpers.ScaledDummy(256, 256 * ImGuiHelpers.GlobalScale + spacing.Y);
-            var note = _serverManager.GetNoteForUid(_pair.UserData.UID);
-            if (!string.IsNullOrEmpty(note))
-            {
-                ElezenImgui.ColouredText(note, ImGuiColors.DalamudGrey);
-            }
             string status = _pair.IsVisible
                 ? "Visible"
                 : (_pair.IsOnline

@@ -9,12 +9,15 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
 using System;
 using System.Numerics;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Snowcloak.UI;
 
 public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
 {
+    private static readonly Regex ChannelNameRegex = new(@"^[A-Za-z0-9][A-Za-z0-9_-]*$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+
     private readonly ApiController _apiController;
     private string _channelName = string.Empty;
     private string _channelTopic = string.Empty;
@@ -40,13 +43,19 @@ public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
 
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##StandardChannelName", "Channel name", ref _channelName, 80);
+        var trimmedName = _channelName.Trim();
+        var validChannelName = !string.IsNullOrWhiteSpace(trimmedName) && ChannelNameRegex.IsMatch(trimmedName);
+        if (!string.IsNullOrWhiteSpace(trimmedName) && !validChannelName)
+        {
+            ImGui.TextColored(new Vector4(0.9f, 0.45f, 0.45f, 1f), "Use IRC-style names: letters/numbers with optional '-' or '_' (no spaces).");
+        }
 
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##StandardChannelTopic", "Topic (optional)", ref _channelTopic, 200);
 
         ImGui.Checkbox("Private", ref _isPrivate);
 
-        using (ImRaii.Disabled(!_apiController.IsConnected || string.IsNullOrWhiteSpace(_channelName)))
+        using (ImRaii.Disabled(!_apiController.IsConnected || !validChannelName))
         {
             if (ImGui.Button("Create"))
             {
@@ -60,7 +69,7 @@ public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
         if (!_apiController.IsConnected) return;
 
         var name = _channelName.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return;
+        if (string.IsNullOrWhiteSpace(name) || !ChannelNameRegex.IsMatch(name)) return;
 
         var topic = string.IsNullOrWhiteSpace(_channelTopic) ? null : _channelTopic.Trim();
         var createDto = new ChannelCreateDto(name, topic, _isPrivate, ChannelType.Standard);

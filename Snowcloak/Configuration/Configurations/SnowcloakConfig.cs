@@ -75,6 +75,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ExtraChatAPI { get; set; } = false;
     public bool ExtraChatTags { get; set; } = false;
     public bool DisableServerNewsInChat { get; set; } = false;
+    public bool ApplyVanityColoursToGameChat { get; set; } = true;
 
     public bool MareAPI { get; set; } = true;
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;

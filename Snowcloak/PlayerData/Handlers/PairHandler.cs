@@ -522,8 +522,6 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                 {
                     break;
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(2), downloadToken).ConfigureAwait(false);
             }
 
             if (!await _playerPerformanceService.CheckBothThresholds(this, charaData).ConfigureAwait(false))

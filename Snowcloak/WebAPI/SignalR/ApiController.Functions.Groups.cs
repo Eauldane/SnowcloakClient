@@ -48,6 +48,12 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(GroupChatSendMsg), group, message).ConfigureAwait(false);
     }
 
+    public Task<List<SignedChatMessage>> GroupChatGetHistory(GroupDto group)
+    {
+        CheckConnection();
+        return _snowHub!.InvokeAsync<List<SignedChatMessage>>(nameof(GroupChatGetHistory), group);
+    }
+
     public Task<List<GroupChatMemberStateDto>> GroupChatJoin(GroupDto group)
     {
         CheckConnection();

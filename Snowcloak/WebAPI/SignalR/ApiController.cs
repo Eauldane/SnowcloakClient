@@ -93,6 +93,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public string DisplayName => _connectionDto?.User.AliasOrUID ?? string.Empty;
     public string DisplayColour => _connectionDto?.User.DisplayColour ?? string.Empty;
+    public string DisplayGlowColour => _connectionDto?.User.DisplayGlowColour ?? string.Empty;
     public bool HasPersistentKey => _connectionDto?.HasPersistentKey ?? false;
     public bool HexAllowed => _connectionDto?.HexAllowed ?? false;
     public string? VanityId => _connectionDto?.User.Alias;

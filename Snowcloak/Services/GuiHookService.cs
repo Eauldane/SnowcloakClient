@@ -14,7 +14,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Snowcloak.WebAPI;
-using ElezenTools.UI;
 
 namespace Snowcloak.Services;
 
@@ -92,7 +91,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var visibleUsersIds = visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet();
         var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
         var hasVanityColors = visibleUsers.Any(pair => ShouldApplyVanityColor(pair));
-        var hasSelfVanityColor = TryParseVanityColor(_apiController.DisplayColour, out var selfVanityColors);
+        var hasSelfVanityColor = TryParseVanityColor(_apiController.DisplayColour, _apiController.DisplayGlowColour, out var selfVanityColors);
         
         if (!useNameColors && !usePairingHighlights && !hasVanityColors && !hasSelfVanityColor)
             return;
@@ -169,7 +168,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
     {
         return IsPairedForVanity(pair)
                && !pair.IsPaused
-               && TryParseVanityColor(pair.UserData.DisplayColour, out _);
+               && TryParseVanityColor(pair.UserData.DisplayColour, pair.UserData.DisplayGlowColour, out _);
     }
 
     private static bool IsPairedForVanity(Pair pair)
@@ -189,21 +188,42 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         if (!IsPairedForVanity(pair) || pair.IsPaused)
             return false;
 
-        return TryParseVanityColor(pair.UserData.DisplayColour, out colors);
+        return TryParseVanityColor(pair.UserData.DisplayColour, pair.UserData.DisplayGlowColour, out colors);
     }
 
-    private static bool TryParseVanityColor(string? hex, out ElezenStrings.Colour colors)
+    private static bool TryParseVanityColor(string? foregroundHex, string? glowHex, out ElezenStrings.Colour colors)
     {
         colors = default;
-        if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6
-                                           || !uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
+        var hasForeground = TryParseBgrHex(foregroundHex, out var foreground);
+        var hasGlow = TryParseBgrHex(glowHex, out var glow);
+        if (!hasForeground && !hasGlow)
+        {
             return false;
+        }
+
+        colors = new ElezenStrings.Colour(Foreground: hasForeground ? foreground : 0u, Glow: hasGlow ? glow : 0u);
+        return true;
+    }
+
+    private static bool TryParseBgrHex(string? hex, out uint bgr)
+    {
+        bgr = 0u;
+        if (string.IsNullOrWhiteSpace(hex))
+        {
+            return false;
+        }
+
+        var trimmed = hex.Trim().TrimStart('#');
+        if (trimmed.Length != 6
+            || !uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return false;
+        }
 
         var red = (parsed >> 16) & 0xFF;
         var green = (parsed >> 8) & 0xFF;
         var blue = parsed & 0xFF;
-        var bgr = (blue << 16) | (green << 8) | red;
-        colors = new ElezenStrings.Colour(Foreground: bgr);
+        bgr = (blue << 16) | (green << 8) | red;
         return true;
     }
     

@@ -45,7 +45,7 @@ public class UiFactory
     {
         pair ??= _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _performanceCollectorService);
+            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _apiController, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

@@ -313,7 +313,13 @@ public partial class ApiController
             _pairManager.UpdateUserProfile(dto);
             if (_connectionDto != null && string.Equals(_connectionDto.User.UID, dto.User.UID, StringComparison.Ordinal))
             {
+                var selfHexChanged = !string.Equals(_connectionDto.User.HexString, dto.User.HexString, StringComparison.Ordinal);
+                var selfGlowHexChanged = !string.Equals(_connectionDto.User.GlowHexString, dto.User.GlowHexString, StringComparison.Ordinal);
                 _connectionDto = _connectionDto with { User = dto.User };
+                if (selfHexChanged || selfGlowHexChanged)
+                {
+                    Mediator.Publish(new NameplateRedrawMessage());
+                }
             }
             Mediator.Publish(new ClearProfileDataMessage(dto.User));
         });

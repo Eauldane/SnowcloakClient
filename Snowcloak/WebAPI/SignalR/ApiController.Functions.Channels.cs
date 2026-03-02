@@ -73,6 +73,12 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<List<ChannelDto>>(nameof(ChannelList)).ConfigureAwait(false);
     }
 
+    public async Task<Dictionary<string, int>> ChannelListUserCounts()
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<Dictionary<string, int>>(nameof(ChannelListUserCounts)).ConfigureAwait(false);
+    }
+
     public async Task<List<ChannelMemberDto>> ChannelGetMembers(ChannelDto channel)
     {
         CheckConnection();
