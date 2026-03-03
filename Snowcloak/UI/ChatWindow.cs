@@ -1597,7 +1597,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         if (!_apiController.IsConnected) return;
 
-        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        // Iterate a snapshot so membership updates can safely mutate persisted channel state.
+        var channelsToJoin = _serverManager.GetJoinedStandardChannels().ToList();
+        foreach (var channel in channelsToJoin)
         {
             await JoinStandardChannel(channel).ConfigureAwait(false);
         }
@@ -1747,8 +1749,34 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private static bool IsPermanentChannelJoinFailure(Exception ex)
     {
-        return ex.Message.Contains("Channel not found", StringComparison.OrdinalIgnoreCase)
-               || ex.Message.Contains("Invalid channel payload", StringComparison.OrdinalIgnoreCase);
+        foreach (var message in EnumerateExceptionMessages(ex))
+        {
+            if (message.Contains("Invalid channel payload", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Handle known and variant server texts for deleted/missing channels.
+            if (message.Contains("Channel not found", StringComparison.OrdinalIgnoreCase)
+                || (message.Contains("channel", StringComparison.OrdinalIgnoreCase)
+                    && message.Contains("not found", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateExceptionMessages(Exception ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                yield return current.Message;
+            }
+        }
     }
 
     private async Task LeaveStandardChannel(ChatChannelData channel)

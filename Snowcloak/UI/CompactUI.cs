@@ -143,8 +143,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             new()
             {
                 Icon = FontAwesomeIcon.GlobeEurope,
-                ShowTooltip = () => ImGui.SetTooltip("Discord"),
-                Click = (btn) => Util.OpenLink("https://discord.gg/snowcloak")
+                ShowTooltip = () => ImGui.SetTooltip("Discord/Forums"),
+                Click = (btn) => Util.OpenLink("https://snowcloak-sync.com")
             },
             new()
             {

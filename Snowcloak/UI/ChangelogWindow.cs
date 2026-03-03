@@ -258,7 +258,7 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                     "Profiles can now have tags set on them to let other users know what you're looking for.",
                     "Tags are split into categories: Chat Style, Writing Style, Liked Characters, Own Character, Timezones, Kinks, and Other.",
                     "Tags are shared between both public and private profiles, and are visible to users inspecting you as a potential Frostbrand pair.",
-                    "Kink tags will only be visible to other users who have the same kink set. Other categories are always visible.",
+                    "Kink tags will only be visible to other users who have the same kink on their profile. Other categories are always visible.",
                     "A selection of default tags are available, with the option to write in your own."
                 ]),
                 new ChangelogSection("Chat Fixes and Changes",
@@ -280,13 +280,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
                     "Channel names are now properly enforced as IRC-style names.",
                     "Server now correctly enforces channel modes for mute/voice-only/slow mode.",
                     "The \"disable chat globally\" setting now correctly suppresses messages from direct and syncshell chats.",
-                    "In-game chat window now shows user notes instead of raw UID if one is set."
+                    "In-game chat window now shows user notes instead of raw UID if one is set.",
+                    "Made the client handle deleted channels better."
                 ]),
                 new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Vanity colours now have the option to add a glow.",
                     "Vanity colours will show in chat windows if you're paired with a user who has one.",
-                    "Vanity IDs no longer require XIVAuth. Note that due to current limitations, XIVAuth is still required to link Patreon to get vanity colours - this will be rectified soon."
+                    "Vanity IDs no longer require XIVAuth. Note that due to current limitations, XIVAuth is still required to link Patreon to get vanity colours - this will be rectified soon.",
+                    "Fixed an issue where particularly heavy modsets could fail to upload properly."
                 ])
             ]),
             new(VersionFromString("2.3.2"), 
