@@ -285,7 +285,7 @@ internal sealed class GroupPanel
         }
 
         if (_showRegionJoinError)
-            ElezenImgui.ColouredWrappedText("The regional syncshell you're trying to join is either full and awaiting server expansion, or you don't have XIVAuth enabled. Try again later!", ImGuiColors.DalamudRed);
+            ElezenImgui.ColouredWrappedText("The regional syncshell you're trying to join is either full and awaiting server expansion, or currently unavailable. Try again later!", ImGuiColors.DalamudRed);
         
         
         DrawPublicSyncshellWarningModal();
