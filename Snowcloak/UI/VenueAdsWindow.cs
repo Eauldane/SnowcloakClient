@@ -464,6 +464,12 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             ImGui.InputTextMultiline("##VenueAdText", ref _adText, MaxAdTextLength, ImGuiHelpers.ScaledVector2(-1, 140));
         }
+        ImGui.TextUnformatted("Preview (BBCode renderer)");
+        using (ImRaii.Child("##VenueAdTextPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))
+        {
+            _uiSharedService.RenderBbCode(_adText, ImGui.GetContentRegionAvail().X,
+                new BbCodeRenderOptions(AllowImages: false));
+        }
 
         ImGuiHelpers.ScaledDummy(4);
         ImGui.TextUnformatted("Schedule (Local Time)");

@@ -21,6 +21,10 @@ namespace Snowcloak.UI;
 
 public class EditProfileUi : WindowMediatorSubscriberBase
 {
+    private const float ProfileDescriptionRenderWidth = 256f;
+    private const float ProfileDescriptionPreviewHeight = 256f;
+    private const float ProfileDescriptionEditorHeight = 200f;
+
     private readonly ApiController _apiController;
     private readonly FileDialogManager _fileDialogManager;
     private readonly SnowProfileManager _snowProfileManager;
@@ -50,8 +54,8 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         IsOpen = false;
         this.SizeConstraints = new()
         {
-            MinimumSize = new(768, 512),
-            MaximumSize = new(768, 2000)
+            MinimumSize = new(550, 512),
+            MaximumSize = new(550, 2000)
         };
         _apiController = apiController;
         _uiSharedService = uiSharedService;
@@ -125,12 +129,14 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             ImGui.Image(_pfpTextureWrap.Handle, ImGuiHelpers.ScaledVector2(_pfpTextureWrap.Width, _pfpTextureWrap.Height));
         }
 
-        var spacing = ImGui.GetStyle().ItemSpacing.X + 200;
-        ImGuiHelpers.ScaledRelativeSameLine(256, spacing);
+        var spacing = ImGui.GetStyle().ItemSpacing.X + 5;
+        ImGuiHelpers.ScaledRelativeSameLine(ProfileDescriptionRenderWidth, spacing);
         using (_uiSharedService.GameFont.Push())
         {
-            var descriptionTextSize = ImGui.CalcTextSize(profile.Description, hideTextAfterDoubleHash: false, 256f);
-            var childFrame = ImGuiHelpers.ScaledVector2(256 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize, 256);
+            var descriptionTextSize = ImGui.CalcTextSize(profile.Description, hideTextAfterDoubleHash: false, ProfileDescriptionRenderWidth);
+            var childFrame = ImGuiHelpers.ScaledVector2(
+                ProfileDescriptionRenderWidth + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize,
+                ProfileDescriptionPreviewHeight);
             _adjustedForScollBarsOnlineProfile = (descriptionTextSize.Y > childFrame.Y);
             childFrame = childFrame with
             {
@@ -210,21 +216,23 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, isNsfw, ProfilePictureBase64: null, Description: null, Visibility: _editingVisibility));
         }
         _uiSharedService.DrawHelpText("If your profile description or image can be considered NSFW, toggle this to ON");
-        var widthTextBox = 400;
+        var widthTextBox = ProfileDescriptionRenderWidth;
         var posX = ImGui.GetCursorPosX();
         ImGui.TextUnformatted(string.Format("Description {0}/1500", _descriptionText.Length));
         ImGui.SetCursorPosX(posX);
         ImGuiHelpers.ScaledRelativeSameLine(widthTextBox, ImGui.GetStyle().ItemSpacing.X);
-        ImGui.TextUnformatted("Preview (approximate)");
+        ImGui.TextUnformatted("Preview (BBCode renderer)");
         using (_uiSharedService.GameFont.Push())
-            ImGui.InputTextMultiline("##description", ref _descriptionText, 1500, ImGuiHelpers.ScaledVector2(widthTextBox, 200));
+            ImGui.InputTextMultiline("##description", ref _descriptionText, 1500,
+                ImGuiHelpers.ScaledVector2(widthTextBox, ProfileDescriptionEditorHeight));
 
         ImGui.SameLine();
 
         using (_uiSharedService.GameFont.Push())
         {
-            var previewFrameSize = ImGuiHelpers.ScaledVector2(256 + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize,
-                200);
+            var previewFrameSize = ImGuiHelpers.ScaledVector2(
+                ProfileDescriptionRenderWidth + ImGui.GetStyle().WindowPadding.X + ImGui.GetStyle().WindowBorderSize,
+                ProfileDescriptionEditorHeight);
             var adjustedPreviewSize = previewFrameSize with
             {
                 X = previewFrameSize.X + (_adjustedForScollBarsLocalProfile ? ImGui.GetStyle().ScrollbarSize : 0),
@@ -254,6 +262,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         _uiSharedService.BigText("Profile Tags (Shared)");
         ElezenImgui.ColouredWrappedText("These tags appear on both your private and public profiles.", ImGuiColors.DalamudGrey);
         ElezenImgui.ColouredWrappedText("Kinks are only shown to viewers who have the same kink tag on their own profile.", ImGuiColors.DalamudGrey);
+        ElezenImgui.ColouredWrappedText("Default tags are suggestions; use the Add Tag button to register a custom tag.", ImGuiColors.DalamudGrey);
 
         var selectedTagLabel = ProfileTagChipRenderer.GetTypeLabel(_newTagType);
         if (ImGui.BeginCombo("Tag Type", selectedTagLabel))

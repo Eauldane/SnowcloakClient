@@ -1,6 +1,7 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Style;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
@@ -40,6 +41,14 @@ public class CompactUi : WindowMediatorSubscriberBase
         IndividualPairs,
         Syncshells,
         Frostbrand
+    }
+
+    private enum PatreonLoginFeedbackLevel
+    {
+        None,
+        Failure,
+        LoggedInNoPledge,
+        Success
     }
 
     // currebnt selected tab and sidebar state
@@ -89,6 +98,11 @@ public class CompactUi : WindowMediatorSubscriberBase
     private Vector3 _vanityGlowColour = Vector3.Zero;
     private bool _useVanityColour;
     private bool _useVanityGlowColour;
+    private bool _patreonStatusLoading;
+    private bool _patreonLoginInProgress;
+    private AccountRegistrationService.PatreonStatusResult _patreonStatus = new();
+    private string? _patreonLoginFeedback;
+    private PatreonLoginFeedbackLevel _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
@@ -791,6 +805,8 @@ public class CompactUi : WindowMediatorSubscriberBase
                 if (_uiSharedService.IconButton(FontAwesomeIcon.Pen))
                 {
                     _vanityIdInput = _apiController.VanityId ?? string.Empty;
+                    _patreonLoginFeedback = null;
+                    _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
                     if (_apiController.HexAllowed)
                     {
                         _useVanityColour = !string.IsNullOrWhiteSpace(_apiController.DisplayColour)
@@ -800,6 +816,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                         _vanityGlowColour = ParseHexColourOrDefault(_apiController.DisplayGlowColour, Vector3.Zero);
                     }
                     _showVanityIdModal = true;
+                    RefreshPatreonStatus();
                 }
             }
             UiSharedService.AttachToolTip("Edit vanity ID");
@@ -827,8 +844,53 @@ public class CompactUi : WindowMediatorSubscriberBase
         {
             ElezenImgui.WrappedText("Set your vanity ID (3-25 characters, letters/numbers/underscores/hyphens). Leave blank to clear.");
             ImGui.InputTextWithHint("##vanity-id", "Enter vanity ID (optional)", ref _vanityIdInput, 25);
-            
-            if (_apiController.HexAllowed)
+
+            var canUseVanityColours = _apiController.HexAllowed || _patreonStatus.HasBenefits;
+
+            ImGui.Spacing();
+            if (_patreonStatusLoading)
+            {
+                ImGui.TextUnformatted("Checking Patreon status...");
+            }
+            else if (!_patreonStatus.HasBenefits)
+            {
+                ElezenImgui.WrappedText("Patreon subscribers get vanity colours! If you have a pledge, log in and get them.");
+                using (ImRaii.Disabled(_patreonLoginInProgress))
+                {
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Heart, "Log in with Patreon"))
+                    {
+                        StartPatreonLogin();
+                    }
+                }
+
+                if (_patreonLoginInProgress)
+                {
+                    ImGui.TextUnformatted("Waiting for Patreon login...");
+                }
+                else if (!_patreonStatus.Success && !string.IsNullOrWhiteSpace(_patreonStatus.ErrorMessage))
+                {
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, _patreonStatus.ErrorMessage);
+                }
+            }
+            else
+            {
+                ElezenImgui.ColouredWrappedText("Donator benefits are active! You can set a custom display colour and glow.", ElezenColours.BooleanGreen);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_patreonLoginFeedback))
+            {
+                ImGui.Spacing();
+                var feedbackColor = _patreonLoginFeedbackLevel switch
+                {
+                    PatreonLoginFeedbackLevel.Failure => ImGuiColors.DalamudRed,
+                    PatreonLoginFeedbackLevel.LoggedInNoPledge => ImGuiColors.DalamudYellow,
+                    PatreonLoginFeedbackLevel.Success => ImGuiColors.HealerGreen,
+                    _ => ImGui.GetStyle().Colors[(int)ImGuiCol.Text]
+                };
+                ElezenImgui.ColouredWrappedText(_patreonLoginFeedback, feedbackColor);
+            }
+
+            if (canUseVanityColours)
             {
                 ImGui.Spacing();
                 ElezenImgui.WrappedText("Optional: set a custom display color and glow.");
@@ -849,7 +911,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 var vanityId = string.IsNullOrEmpty(trimmed) ? null : trimmed;
                 string? hexString = null;
                 string? glowHexString = null;
-                if (_apiController.HexAllowed)
+                if (canUseVanityColours)
                 {
                     if (_useVanityColour)
                     {
@@ -871,9 +933,118 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 _showVanityIdModal = false;
             }
-            UiSharedService.SetScaledWindowSize(320);
+            UiSharedService.SetScaledWindowSize(360);
             ImGui.EndPopup();
         }
+    }
+
+    private void RefreshPatreonStatus()
+    {
+        _patreonStatusLoading = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _patreonStatus = await _registerService.GetPatreonStatus(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to refresh Patreon status");
+                _patreonStatus = new AccountRegistrationService.PatreonStatusResult
+                {
+                    Success = false,
+                    ErrorMessage = "Unable to check Patreon status right now."
+                };
+            }
+            finally
+            {
+                _patreonStatusLoading = false;
+            }
+        });
+    }
+
+    private void StartPatreonLogin()
+    {
+        _patreonLoginInProgress = true;
+        _patreonLoginFeedback = null;
+        _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var loginResult = await _registerService.LoginWithPatreon(CancellationToken.None).ConfigureAwait(false);
+                _patreonLoginFeedback = BuildPatreonLoginFeedback(loginResult);
+                _patreonLoginFeedbackLevel = GetPatreonLoginFeedbackLevel(loginResult);
+
+                if (loginResult.Success)
+                {
+                    try
+                    {
+                        await _apiController.GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to refresh connection dto after Patreon login");
+                    }
+
+                    _patreonStatus = await _registerService.GetPatreonStatus(CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Patreon login flow failed");
+                _patreonLoginFeedback = "Patreon login failed. Please try again.";
+                _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.Failure;
+            }
+            finally
+            {
+                _patreonLoginInProgress = false;
+            }
+        });
+    }
+
+    private static PatreonLoginFeedbackLevel GetPatreonLoginFeedbackLevel(AccountRegistrationService.PatreonLoginResult result)
+    {
+        if (!result.Success)
+        {
+            return PatreonLoginFeedbackLevel.Failure;
+        }
+
+        return (result.IsPayingPatron || result.IsCreatorForCampaign)
+            ? PatreonLoginFeedbackLevel.Success
+            : PatreonLoginFeedbackLevel.LoggedInNoPledge;
+    }
+
+    private static string BuildPatreonLoginFeedback(AccountRegistrationService.PatreonLoginResult result)
+    {
+        if (!result.Success)
+        {
+            return string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? "Patreon login failed. Please try again."
+                : result.ErrorMessage;
+        }
+
+        if (result.IsCreatorForCampaign)
+        {
+            return "Login succeeded! Creator account detected for the configured campaign. This account is treated as subscribed and perks are active.";
+        }
+
+        if (result.IsPayingPatron)
+        {
+            return "Login succeeded! Your Patreon perks are now active.";
+        }
+
+        if (result.IsCompetitionWinner)
+        {
+            return "Login succeeded! No active paid membership detected, but you won one of our competitions! Winner status keeps your benefits active permanently.";
+        }
+
+        if (result.IsTestOverride)
+        {
+            return "Login succeeded! No active paid membership detected. Test override is active for this account.";
+        }
+
+        return "Login succeeded! No active subscription was detected for your account. Log in again once you have one to unlock vanity colours!";
     }
     
     private static Vector3 ParseHexColourOrDefault(string? hex, Vector3 fallback)

@@ -7,6 +7,7 @@ using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Services;
+using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Services.Venue;
@@ -16,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Numerics;
 using System.Threading.Tasks;
 
@@ -53,7 +55,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
         SizeConstraints = new WindowSizeConstraints()
         {
-            MinimumSize = new Vector2(550, 650)
+            MinimumSize = new Vector2(550, 750)
         };
 
         Mediator.Subscribe<OpenVenueRegistryWindowMessage>(this, (_) =>
@@ -154,7 +156,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             var selected = _ownedVenues[_selectedVenueIndex];
             if (!string.IsNullOrWhiteSpace(selected.AssociatedHousing))
             {
-                ElezenImgui.ColouredWrappedText($"Housing: {selected.AssociatedHousing}", ImGuiColors.DalamudGrey);
+                ElezenImgui.ColouredWrappedText($"Housing: {FormatHousingLocation(selected.AssociatedHousing)}", ImGuiColors.DalamudGrey);
             }
         }
     }
@@ -176,6 +178,12 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             ImGui.InputTextMultiline("##VenueRegistryDescription", ref _venueDescription, 2000,
                 ImGuiHelpers.ScaledVector2(-1, 160));
         }
+        ImGui.TextUnformatted("Preview (BBCode renderer)");
+        if (ImGui.BeginChild("##VenueRegistryDescriptionPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))
+        {
+            _uiSharedService.RenderBbCode(_venueDescription, ImGui.GetContentRegionAvail().X);
+        }
+        ImGui.EndChild();
 
         if (ImGui.Checkbox("List this venue publicly", ref _isListed))
         {
@@ -254,6 +262,80 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         var name = string.IsNullOrWhiteSpace(entry.VenueName) ? "Unnamed Venue" : entry.VenueName;
         var listed = entry.IsListed ? "Listed" : "Unlisted";
         return string.Format(CultureInfo.InvariantCulture, "{0} ({1})", name, listed);
+    }
+
+    // TODO: Move this to ElezenTools maybe? Other devs might use different string formats tho
+    // Decide then make it a reusable function instead of copy pasting
+    private string FormatHousingLocation(string associatedHousing)
+    {
+        if (!TryParseHousingLocation(associatedHousing, out var location))
+            return associatedHousing;
+
+        var worldName = _uiSharedService.WorldData.GetValueOrDefault((ushort)location.WorldId, location.WorldId.ToString(CultureInfo.InvariantCulture));
+        var territoryName = _uiSharedService.TerritoryData.GetValueOrDefault(location.TerritoryId, $"Territory {location.TerritoryId.ToString(CultureInfo.InvariantCulture)}");
+
+        var builder = new StringBuilder();
+        builder.Append(worldName);
+        builder.Append(" - ");
+        builder.Append(territoryName);
+        builder.Append(" - Ward ");
+        builder.Append(location.WardId.ToString(CultureInfo.InvariantCulture));
+        if (location.DivisionId > 0)
+        {
+            builder.Append(" Subdivision");
+        }
+
+        if (location.IsApartment)
+        {
+            builder.Append(" Apartments");
+            if (location.RoomId > 0)
+            {
+                builder.Append(" Room ");
+                builder.Append(location.RoomId.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+        else
+        {
+            builder.Append(" Plot ");
+            builder.Append(location.PlotId.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool TryParseHousingLocation(string associatedHousing, out HousingPlotLocation location)
+    {
+        location = default;
+        var parts = associatedHousing.Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length < 6)
+            return false;
+
+        if (!uint.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var worldId)
+            || !uint.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var territoryId)
+            || !uint.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var divisionId)
+            || !uint.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out var wardId)
+            || !uint.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var plotId)
+            || !uint.TryParse(parts[5], NumberStyles.None, CultureInfo.InvariantCulture, out var roomId))
+        {
+            return false;
+        }
+
+        // `AssociatedHousing` commonly stores FullId, but may include a boolean apartment flag.
+        var isApartment = roomId > 0;
+        if (parts.Length >= 7)
+        {
+            if (bool.TryParse(parts[6], out var parsedBool))
+            {
+                isApartment = parsedBool;
+            }
+            else if (uint.TryParse(parts[6], NumberStyles.None, CultureInfo.InvariantCulture, out var parsedNumeric))
+            {
+                isApartment = parsedNumeric != 0;
+            }
+        }
+
+        location = new HousingPlotLocation(worldId, territoryId, divisionId, wardId, plotId, roomId, isApartment);
+        return true;
     }
 
     private void SelectVenue(int index)

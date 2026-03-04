@@ -251,6 +251,17 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.4.1"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Patreon subscribers no longer need to use XIVAuth, and can log in directly through the client.",
+                    "Tweaked profile editor UI.",
+                    "Fixed missing BBCode previews on profile editor, venue ad editor, and venue management window.",
+                    "Fixed venue management window showing the internal housing ID rather than the friendly name.",
+                    "Fixed public syncshells sometimes still requiring XIVAuth, even though they're not supposed to."
+                ])
+            ]),
             new(VersionFromString("2.4.0"),
             [
                 new ChangelogSection("New Feature: Profile Tagging",
