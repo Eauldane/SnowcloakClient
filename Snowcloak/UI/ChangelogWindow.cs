@@ -251,6 +251,13 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.4.2.1"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Internals updates."
+                ])
+            ]),
             new(VersionFromString("2.4.1"), 
             [
                 new ChangelogSection("Changes and Bug Fixes",
