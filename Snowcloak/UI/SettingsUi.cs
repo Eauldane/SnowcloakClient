@@ -620,7 +620,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.UseMultithreadedCompression = useMultithreadedCompression;
             _configService.Save();
         }
-        ElezenImgui.DrawHelpText("When enabled, compression will use a number of workers equal to your CPU thread count. This will alter performance characteristics with different results based on your CPU, enable/disable based on your experience.");
+        ElezenImgui.DrawHelpText("Allow larger files to use multithreaded compression.");
         int compressionLevel = _configService.Current.CompressionLevel;
         if (ImGui.SliderInt("Compression level", ref compressionLevel, 3, 9, "%d"))
         {
