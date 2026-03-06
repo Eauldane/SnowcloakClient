@@ -114,7 +114,7 @@ internal sealed class GroupPanel
         {
             _syncShellToJoin = string.Empty;
         }
-        UiSharedService.AttachToolTip("Clear");
+        ElezenImgui.AttachTooltip("Clear");
         ImGui.SameLine();
 
         bool userCanJoinMoreGroups = _pairManager.GroupPairs.Count < ApiController.ServerInfo.MaxGroupsJoinedByUser;
@@ -145,7 +145,7 @@ internal sealed class GroupPanel
                 }
             }
         }
-        UiSharedService.AttachToolTip(_syncShellToJoin.IsNullOrEmpty()
+        ElezenImgui.AttachTooltip(_syncShellToJoin.IsNullOrEmpty()
             ? (userCanCreateMoreGroups ? "Create a new Syncshell" : string.Format(CultureInfo.CurrentCulture, "You cannot create more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsCreatedByUser))
             : (userCanJoinMoreGroups ? string.Format(CultureInfo.CurrentCulture, "Join Syncshell {0}", _syncShellToJoin) : string.Format(CultureInfo.CurrentCulture, "You cannot join more than {0} Syncshells", ApiController.ServerInfo.MaxGroupsJoinedByUser)));
 
@@ -268,7 +268,7 @@ internal sealed class GroupPanel
                     _showPublicSyncshellWarning = true;
                     ImGui.OpenPopup("Join Public Syncshell");
                 }
-                UiSharedService.AttachToolTip(alreadyInRegionShell
+                ElezenImgui.AttachTooltip(alreadyInRegionShell
                     ? "You are already a member of your home region Syncshell."
                     : userCanJoinMoreGroups
                         ? string.Format(CultureInfo.CurrentCulture, "Join the regional Snowcloak Syncshell for {0}.", regionName)
@@ -281,7 +281,7 @@ internal sealed class GroupPanel
             {
                 ImGui.Button("Join regional Snowcloak Syncshell", new Vector2(-1, 0));
             }
-            UiSharedService.AttachToolTip("Regional Syncshell is unavailable because your datacenter region could not be determined.");
+            ElezenImgui.AttachTooltip("Regional Syncshell is unavailable because your datacenter region could not be determined.");
         }
 
         if (_showRegionJoinError)
@@ -425,7 +425,7 @@ internal sealed class GroupPanel
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.Crown.ToIconString());
             ImGui.PopFont();
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "You are the owner of Syncshell {0}", groupName));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "You are the owner of Syncshell {0}", groupName));
             ImGui.SameLine();
         }
         else if (groupDto.GroupUserInfo.IsModerator())
@@ -433,7 +433,7 @@ internal sealed class GroupPanel
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.UserShield.ToIconString());
             ImGui.PopFont();
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "You are a moderator of Syncshell {0}", groupName));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "You are a moderator of Syncshell {0}", groupName));
             ImGui.SameLine();
         }
 
@@ -451,13 +451,13 @@ internal sealed class GroupPanel
             if (!_snowcloakConfig.Current.DisableChat && shellConfig.Enabled)
             {
                 ImGui.TextUnformatted($"[{shellNumber}]");
-                UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellNumber));
+                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellNumber));
             }
             if (textIsGid) ImGui.PushFont(UiBuilder.MonoFont);
             ImGui.SameLine();
             ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupDto.Group.DisplayColour), groupName);
             if (textIsGid) ImGui.PopFont();
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Left click to switch between GID display and comment{0}Right click to change comment for {1}{0}{0}Users: {2}, Owner: {3}",
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Left click to switch between GID display and comment{0}Right click to change comment for {1}{0}{0}Users: {2}, Owner: {3}",
                 Environment.NewLine, groupName, validPairsInGroup.Count + 1, groupDto.OwnerAliasOrUID));
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
@@ -493,7 +493,7 @@ internal sealed class GroupPanel
             {
                 _editGroupEntry = string.Empty;
             }
-            UiSharedService.AttachToolTip("Hit ENTER to save\nRight click to cancel");
+            ElezenImgui.AttachTooltip("Hit ENTER to save\nRight click to cancel");
         }
 
 
@@ -842,7 +842,7 @@ internal sealed class GroupPanel
             var userPerm = groupDto.GroupUserPermissions ^ GroupUserPermissions.Paused;
             _ = ApiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(groupDto.Group, new UserData(ApiController.UID), userPerm));
         }
-        UiSharedService.AttachToolTip((groupDto.GroupUserPermissions.IsPaused() ? "Resume" : "Pause") + " pairing with all users in this Syncshell");
+        ElezenImgui.AttachTooltip((groupDto.GroupUserPermissions.IsPaused() ? "Resume" : "Pause") + " pairing with all users in this Syncshell");
         ImGui.SameLine();
 
         if (_uiShared.IconButton(FontAwesomeIcon.Bars))
@@ -856,7 +856,7 @@ internal sealed class GroupPanel
             {
                 _ = ApiController.GroupLeave(groupDto);
             }
-            UiSharedService.AttachToolTip("Hold CTRL and click to leave this Syncshell" + (!string.Equals(groupDto.OwnerUID, ApiController.UID, StringComparison.Ordinal) ? string.Empty : Environment.NewLine
+            ElezenImgui.AttachTooltip("Hold CTRL and click to leave this Syncshell" + (!string.Equals(groupDto.OwnerUID, ApiController.UID, StringComparison.Ordinal) ? string.Empty : Environment.NewLine
                 + "WARNING: This action is irreversible" + Environment.NewLine + "Leaving an owned Syncshell will transfer the ownership to a random person in the Syncshell."));
 
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy ID"))
@@ -864,14 +864,14 @@ internal sealed class GroupPanel
                 ImGui.CloseCurrentPopup();
                 ImGui.SetClipboardText(groupDto.GroupAliasOrGID);
             }
-            UiSharedService.AttachToolTip("Copy Syncshell ID to Clipboard");
+            ElezenImgui.AttachTooltip("Copy Syncshell ID to Clipboard");
             
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Copy Notes"))
             {
                 ImGui.CloseCurrentPopup();
                 ImGui.SetClipboardText(UiSharedService.GetNotes(groupPairs));
             }
-            UiSharedService.AttachToolTip("Copies all your notes for all users in this Syncshell to the clipboard." + Environment.NewLine + "They can be imported via Settings -> General -> Notes -> Import notes from clipboard");
+            ElezenImgui.AttachTooltip("Copies all your notes for all users in this Syncshell to the clipboard." + Environment.NewLine + "They can be imported via Settings -> General -> Notes -> Import notes from clipboard");
 
             var chatText = shellConfig.Enabled ? "Leave chat" : "Join chat";
             using (ImRaii.Disabled(!ApiController.IsConnected))
@@ -892,7 +892,7 @@ internal sealed class GroupPanel
                     }
                 }
             }
-            UiSharedService.AttachToolTip("Toggle whether this syncshell appears in your chat window and receives chat messages.");
+            ElezenImgui.AttachTooltip("Toggle whether this syncshell appears in your chat window and receives chat messages.");
             
             var soundsText = userSoundsDisabled ? "Enable sound sync" : "Disable sound sync";
             if (ElezenImgui.ShowIconButton(userSoundsIcon, soundsText))
@@ -902,7 +902,7 @@ internal sealed class GroupPanel
                 perm.SetDisableSounds(!perm.IsDisableSounds());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            UiSharedService.AttachToolTip("Sets your allowance for sound synchronization for users of this syncshell."
+            ElezenImgui.AttachTooltip("Sets your allowance for sound synchronization for users of this syncshell."
                                           + Environment.NewLine + "Disabling the synchronization will stop applying sound modifications for users of this syncshell."
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."
                                           + Environment.NewLine + "Note: this setting does not apply to individual pairs that are also in the syncshell.");
@@ -915,7 +915,7 @@ internal sealed class GroupPanel
                 perm.SetDisableAnimations(!perm.IsDisableAnimations());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            UiSharedService.AttachToolTip("Sets your allowance for animations synchronization for users of this syncshell."
+            ElezenImgui.AttachTooltip("Sets your allowance for animations synchronization for users of this syncshell."
                                           + Environment.NewLine + "Disabling the synchronization will stop applying animations modifications for users of this syncshell."
                                           + Environment.NewLine + "Note: this setting might also affect sound synchronization"
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."
@@ -929,7 +929,7 @@ internal sealed class GroupPanel
                 perm.SetDisableVFX(!perm.IsDisableVFX());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            UiSharedService.AttachToolTip("Sets your allowance for VFX synchronization for users of this syncshell."
+            ElezenImgui.AttachTooltip("Sets your allowance for VFX synchronization for users of this syncshell."
                                           + Environment.NewLine + "Disabling the synchronization will stop applying VFX modifications for users of this syncshell."
                                           + Environment.NewLine + "Note: this setting might also affect animation synchronization to some degree"
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."

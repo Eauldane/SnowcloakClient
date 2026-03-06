@@ -237,7 +237,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 _statusIsError = false;
             }
         }
-        UiSharedService.AttachToolTip("Remove every venue reminder bookmark.");
+        ElezenImgui.AttachTooltip("Remove every venue reminder bookmark.");
         ImGuiHelpers.ScaledDummy(4);
 
         var adById = _browseAds
@@ -346,7 +346,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 _statusIsError = false;
             }
         }
-        UiSharedService.AttachToolTip(eventBookmarked
+        ElezenImgui.AttachTooltip(eventBookmarked
             ? "Remove reminder for this event."
             : "Bookmark this event for a reminder in the final hour before start, or while running.");
 
@@ -366,7 +366,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 _statusIsError = false;
             }
         }
-        UiSharedService.AttachToolTip(venueBookmarked
+        ElezenImgui.AttachTooltip(venueBookmarked
             ? "Remove reminder bookmark for this venue."
             : "Bookmark this venue for reminders on all future events.");
 
@@ -404,7 +404,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             {
                 _venueRegistrationService.BeginRegistrationFromCommand();
             }
-            UiSharedService.AttachToolTip("Open the placard for your plot to verify ownership.");
+            ElezenImgui.AttachTooltip("Open the placard for your plot to verify ownership.");
         }
         UiSharedService.DistanceSeparator();
         if (_ownedVenues.Count != 0)
@@ -413,7 +413,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
             {
                 Mediator.Publish(new OpenVenueRegistryWindowMessage());
             }
-            UiSharedService.AttachToolTip("Open the venue manager to edit your listing details.");
+            ElezenImgui.AttachTooltip("Open the venue manager to edit your listing details.");
             UiSharedService.DistanceSeparator();
 
         }
@@ -503,14 +503,14 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
                 _ = Task.Run(async () => await HandleBannerSelectionAsync(file).ConfigureAwait(false));
             });
         }
-        UiSharedService.AttachToolTip("Upload a 720x300 PNG banner.");
+        ElezenImgui.AttachTooltip("Upload a 720x300 PNG banner.");
 
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear banner"))
         {
             ClearBanner();
         }
-        UiSharedService.AttachToolTip("Remove the banner from this ad.");
+        ElezenImgui.AttachTooltip("Remove the banner from this ad.");
 
         ImGuiHelpers.ScaledDummy(4);
         ImGui.Checkbox("Ad is active", ref _adIsActive);
@@ -558,7 +558,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         {
             _ = OpenVenueInfoAsync(ad);
         }
-        UiSharedService.AttachToolTip("Open venue details.");
+        ElezenImgui.AttachTooltip("Open venue details.");
 
         DrawAdMetadata(ad);
 

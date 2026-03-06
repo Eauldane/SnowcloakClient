@@ -196,7 +196,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 using (ImRaii.PushFont(UiBuilder.IconFont))
                     ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
+                ElezenImgui.AttachTooltip("Click \"Start analysis\" to calculate download size");
                 
             }
         }
@@ -244,7 +244,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                         ImGui.SameLine();
                         using (ImRaii.PushFont(UiBuilder.IconFont))
                             ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                        UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
+                        ElezenImgui.AttachTooltip("Click \"Start analysis\" to calculate download size");
                     }
                 }
                 ImGui.TextUnformatted(string.Format("{0} VRAM usage:", kvp.Key));
@@ -350,7 +350,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(string.Format("(and {0} more)", filePaths.Count - 1));
                 ImGui.SameLine();
                 ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
-                UiSharedService.AttachToolTip(string.Join(Environment.NewLine, filePaths.Skip(1)));
+                ElezenImgui.AttachTooltip(string.Join(Environment.NewLine, filePaths.Skip(1)));
             }
 
             var gamepaths = item.GamePaths;
@@ -363,7 +363,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(string.Format("(and {0} more)", gamepaths.Count - 1));
                 ImGui.SameLine();
                 ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
-                UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
+                ElezenImgui.AttachTooltip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
             }
             
             if (string.Equals(item.FileType, "tex", StringComparison.OrdinalIgnoreCase) && item.TextureTraits != null)
@@ -529,7 +529,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         ImGui.SameLine();
                         ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle);
-                        UiSharedService.AttachToolTip("Texture flagged as risky for conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");                        if (!toConvert)
+                        ElezenImgui.AttachTooltip("Texture flagged as risky for conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");                        if (!toConvert)
                         {
                             _texturesToConvert.Remove(filePath);
                         }

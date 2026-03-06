@@ -87,7 +87,7 @@ public class DrawUserPair : DrawPairBase
                 }
             }
 
-            UiSharedService.AttachToolTip(string.IsNullOrEmpty(connectionText)
+            ElezenImgui.AttachTooltip(string.IsNullOrEmpty(connectionText)
                 ? visibleTooltip
                 : connectionText + UiSharedService.TooltipSeparator + visibleTooltip);
             return;
@@ -97,7 +97,7 @@ public class DrawUserPair : DrawPairBase
         ImGui.PushFont(UiBuilder.IconFont);
         ElezenImgui.ColouredText(connectionIcon.ToIconString(), connectionColor);
         ImGui.PopFont();
-        UiSharedService.AttachToolTip(connectionText);
+        ElezenImgui.AttachTooltip(connectionText);
     }
 
 
@@ -125,7 +125,7 @@ public class DrawUserPair : DrawPairBase
                 ImGui.OpenPopup(flyoutMenuTitle);
             }
         }
-        UiSharedService.AttachToolTip("More actions");
+        ElezenImgui.AttachTooltip("More actions");
         if (ImGui.BeginPopup(flyoutMenuTitle))
         {
             using (ImRaii.PushId($"buttons-{_pair.UserData.UID}")) DrawPairedClientMenu(_pair);
@@ -144,7 +144,7 @@ public class DrawUserPair : DrawPairBase
                 perm.SetPaused(!perm.IsPaused());
                 _ = _apiController.UserSetPairPermissions(new(_pair.UserData, perm));
             }
-            UiSharedService.AttachToolTip(!_pair.UserPair!.OwnPermissions.IsPaused()
+            ElezenImgui.AttachTooltip(!_pair.UserPair!.OwnPermissions.IsPaused()
                 ? string.Format(CultureInfo.CurrentCulture, "Pause pairing with {0}", entryUID)
                 : string.Format(CultureInfo.CurrentCulture, "Resume pairing with {0}", entryUID));
 
@@ -218,7 +218,7 @@ public class DrawUserPair : DrawPairBase
             ImGui.SameLine(rightSidePos);
             ElezenImgui.ShowIcon(icon);
 
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "This user has shared {0} Character Data Sets with you.", sharedData.Count) + UiSharedService.TooltipSeparator
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "This user has shared {0} Character Data Sets with you.", sharedData.Count) + UiSharedService.TooltipSeparator
                 + "Click to open the Character Data Hub and show the entries.");
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
@@ -244,14 +244,14 @@ public class DrawUserPair : DrawPairBase
                 _displayHandler.OpenProfile(entry);
                 ImGui.CloseCurrentPopup();
             }
-            UiSharedService.AttachToolTip("Opens the profile for this user in a new window");
+            ElezenImgui.AttachTooltip("Opens the profile for this user in a new window");
         }
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report User"))
         {
             _mediator.Publish(new OpenReportPopupMessage(entry));
             ImGui.CloseCurrentPopup();
         }
-        UiSharedService.AttachToolTip("Report this user's profile.");
+        ElezenImgui.AttachTooltip("Report this user's profile.");
         if (entry.IsVisible)
         {
 #if DEBUG
@@ -266,7 +266,7 @@ public class DrawUserPair : DrawPairBase
                 entry.ApplyLastReceivedData(forced: true);
                 ImGui.CloseCurrentPopup();
             }
-            UiSharedService.AttachToolTip("This reapplies the last received character data to this character");
+            ElezenImgui.AttachTooltip("This reapplies the last received character data to this character");
         }
 
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, "Cycle pause state"))
@@ -279,7 +279,7 @@ public class DrawUserPair : DrawPairBase
         {
             _selectGroupForPairUi.Open(entry);
         }
-        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Choose pair groups for {0}", entryUID));
+        ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Choose pair groups for {0}", entryUID));
 
         var isDisableSounds = entry.UserPair!.OwnPermissions.IsDisableSounds();
         string disableSoundsText = isDisableSounds ? "Enable sound sync" : "Disable sound sync";
@@ -315,7 +315,7 @@ public class DrawUserPair : DrawPairBase
         {
             _ = _apiController.UserRemovePair(new(entry.UserData));
         }
-        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL and click to unpair permanently from {0}", entryUID));
+        ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL and click to unpair permanently from {0}", entryUID));
     }
     
 }

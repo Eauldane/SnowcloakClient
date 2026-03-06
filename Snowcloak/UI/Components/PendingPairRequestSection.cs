@@ -97,7 +97,7 @@ public sealed class PendingPairRequestSection
                     ImGui.TextDisabled($"({request.AliasOrUid})");
                 }
                 var requestedAtTemplate = "Requested at {0:HH:mm:ss}";
-                UiSharedService.AttachToolTip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
+                ElezenImgui.AttachTooltip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
                 ImGui.TableSetColumnIndex(1);
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Add"))
                 {

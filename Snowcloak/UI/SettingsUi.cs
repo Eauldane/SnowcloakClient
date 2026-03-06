@@ -230,7 +230,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.HoldUploadsUntilInRange = holdUploadsUntilInRange;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("When enabled, Snowcloak will wait to upload your files until a paired player is nearby.");
+        ElezenImgui.DrawHelpText("When enabled, Snowcloak will wait to upload your files until a paired player is nearby.");
 
         
         ImGui.Separator();
@@ -242,7 +242,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ShowTransferWindow = showTransferWindow;
             _configService.Save();
         }
-        _uiShared.DrawHelpText($"The download window will show the current progress of outstanding downloads.{Environment.NewLine}{Environment.NewLine}" +
+        ElezenImgui.DrawHelpText($"The download window will show the current progress of outstanding downloads.{Environment.NewLine}{Environment.NewLine}" +
                                                               $"What do W/Q/P/D stand for?{Environment.NewLine}W = Waiting for Slot (see Maximum Parallel Downloads){Environment.NewLine}" +
                                                               $"Q = Queued on Server, waiting for queue ready signal{Environment.NewLine}" +
                                                               $"P = Processing download (aka downloading){Environment.NewLine}" +
@@ -263,7 +263,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ShowTransferBars = showTransferBars;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will render a progress bar during the download at the feet of the player you are downloading from.");
+        ElezenImgui.DrawHelpText("This will render a progress bar during the download at the feet of the player you are downloading from.");
         
         if (!showTransferBars) ImGui.BeginDisabled();
         ImGui.Indent();
@@ -273,7 +273,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.TransferBarsShowText = transferBarShowText;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Shows download text (amount of MiB downloaded) in the transfer bars");
+        ElezenImgui.DrawHelpText("Shows download text (amount of MiB downloaded) in the transfer bars");
         int transferBarWidth = _configService.Current.TransferBarsWidth;
         ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderInt("Transfer Bar Width", ref transferBarWidth, 0, 500))
@@ -283,7 +283,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.TransferBarsWidth = transferBarWidth;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Width of the displayed transfer bars (will never be less wide than the displayed text)");
+        ElezenImgui.DrawHelpText("Width of the displayed transfer bars (will never be less wide than the displayed text)");
         int transferBarHeight = _configService.Current.TransferBarsHeight;
         ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderInt("Transfer Bar Height", ref transferBarHeight, 0, 50))
@@ -293,14 +293,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.TransferBarsHeight = transferBarHeight;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Height of the displayed transfer bars (will never be less tall than the displayed text)");
+        ElezenImgui.DrawHelpText("Height of the displayed transfer bars (will never be less tall than the displayed text)");
         bool showUploading = _configService.Current.ShowUploading;
         if (ImGui.Checkbox("Show 'Uploading' text below players that are currently uploading", ref showUploading))
         {
             _configService.Current.ShowUploading = showUploading;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will render an 'Uploading' text at the feet of the player that is in progress of uploading data.");
+        ElezenImgui.DrawHelpText("This will render an 'Uploading' text at the feet of the player that is in progress of uploading data.");
         
         ImGui.Unindent();
         if (!showUploading) ImGui.BeginDisabled();
@@ -311,7 +311,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ShowUploadingBigText = showUploadingBigText;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will render an 'Uploading' text in a larger font.");
+        ElezenImgui.DrawHelpText("This will render an 'Uploading' text in a larger font.");
         
         ImGui.Unindent();
 
@@ -408,7 +408,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.DisableChat = disableChat;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Global setting to disable chat.");
+        ElezenImgui.DrawHelpText("Global setting to disable chat.");
 
         bool applyVanityColoursToGameChat = _configService.Current.ApplyVanityColoursToGameChat;
         if (ImGui.Checkbox("Apply vanity colours to names in chat", ref applyVanityColoursToGameChat))
@@ -416,7 +416,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ApplyVanityColoursToGameChat = applyVanityColoursToGameChat;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Colours player names in normal game chat when they match paired users.");
+        ElezenImgui.DrawHelpText("Colours player names in normal game chat when they match paired users.");
 
         ImGui.TextWrapped("The chat system is currently under active development. If you use it, you're encouraged to check back here often" +
                           "to see if there's any new settings to play with!");
@@ -475,7 +475,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 ImGui.SetClipboardText("ERROR: No created character data, cannot copy.");
             }
         }
-        UiSharedService.AttachToolTip("Use this when reporting mods being rejected from the server.");
+        ElezenImgui.AttachTooltip("Use this when reporting mods being rejected from the server.");
         
         _uiShared.DrawCombo("Log Level", Enum.GetValues<LogLevel>(), (l) => l.ToString(), (l) =>
         {
@@ -489,7 +489,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.LogPerformance = logPerformance;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Enabling this can incur a (slight) performance impact. Enabling this for extended periods of time is not recommended.");
+        ElezenImgui.DrawHelpText("Enabling this can incur a (slight) performance impact. Enabling this for extended periods of time is not recommended.");
         
         using (ImRaii.Disabled(!logPerformance))
         {
@@ -560,7 +560,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _cacheMonitor.StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
                 _cacheMonitor.InvokeScan();
             }
-            UiSharedService.AttachToolTip("Attempts to resume monitoring for both Penumbra and Snowcloak Storage. "
+            ElezenImgui.AttachTooltip("Attempts to resume monitoring for both Penumbra and Snowcloak Storage. "
                                                                              + "Resuming the monitoring will also force a full scan to run." + Environment.NewLine
                                                                              + "If the button remains present after clicking it, consult /xllog for errors");
         }
@@ -573,7 +573,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     _cacheMonitor.StopMonitoring();
                 }
             }
-            UiSharedService.AttachToolTip("Stops the monitoring for both Penumbra and Snowcloak Storage. "
+            ElezenImgui.AttachTooltip("Stops the monitoring for both Penumbra and Snowcloak Storage. "
                                                                            + "Do not stop the monitoring, unless you plan to move the Penumbra and Snowcloak Storage folders, to ensure correct functionality of Snowcloak." + Environment.NewLine
                                                                            + "If you stop the monitoring to move folders around, resume it after you are finished moving the files."
                                                                            + UiSharedService.TooltipSeparator + "Hold CTRL to enable this button");
@@ -604,7 +604,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
         }
 
-        _uiShared.DrawHelpText(
+        ElezenImgui.DrawHelpText(
             "The file compactor can massively reduce your saved files. It might incur a minor penalty on loading files on a slow CPU." +
             Environment.NewLine
             + "It is recommended to leave it enabled to save on space.");
@@ -620,7 +620,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.UseMultithreadedCompression = useMultithreadedCompression;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("When enabled, compression will use a number of workers equal to your CPU thread count. This will alter performance characteristics with different results based on your CPU, enable/disable based on your experience.");
+        ElezenImgui.DrawHelpText("When enabled, compression will use a number of workers equal to your CPU thread count. This will alter performance characteristics with different results based on your CPU, enable/disable based on your experience.");
         int compressionLevel = _configService.Current.CompressionLevel;
         if (ImGui.SliderInt("Compression level", ref compressionLevel, 3, 9, "%d"))
         {
@@ -628,7 +628,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.CompressionLevel = compressionLevel;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Higher compression levels create smaller uploads. This uses more of your CPU, but allows sync partners to download faster. Level 3 is the default.");
+        ElezenImgui.DrawHelpText("Higher compression levels create smaller uploads. This uses more of your CPU, but allows sync partners to download faster. Level 3 is the default.");
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
         ImGui.Separator();
         ElezenImgui.WrappedText("File Storage validation can make sure that all files in your local storage folder are valid. " +
@@ -692,7 +692,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
             });
         }
-        UiSharedService.AttachToolTip("You normally do not need to do this. THIS IS NOT SOMETHING YOU SHOULD BE DOING TO TRY TO FIX SYNC ISSUES." + Environment.NewLine
+        ElezenImgui.AttachTooltip("You normally do not need to do this. THIS IS NOT SOMETHING YOU SHOULD BE DOING TO TRY TO FIX SYNC ISSUES." + Environment.NewLine
             + "This will solely remove all downloaded data from all players and will require you to re-download everything again." + Environment.NewLine
             + "Snowcloak's storage is self-clearing and will not surpass the limit you have set it to." + Environment.NewLine
             + "If you still think you need to do this hold CTRL while pressing the button.");
@@ -724,7 +724,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
         ImGui.SameLine();
         ImGui.Checkbox("Overwrite existing notes", ref _overwriteExistingLabels);
-        _uiShared.DrawHelpText("If this option is selected all already existing notes for UIDs will be overwritten by the imported notes.");
+        ElezenImgui.DrawHelpText("If this option is selected all already existing notes for UIDs will be overwritten by the imported notes.");
         if (_notesSuccessfullyApplied.HasValue && _notesSuccessfullyApplied.Value)
         {
             ElezenImgui.ColouredWrappedText("User Notes successfully imported", ImGuiColors.HealerGreen);
@@ -741,7 +741,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.OpenPopupOnAdd = openPopupOnAddition;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will open a popup that allows you to set the notes for a user after successfully adding them to your individual pairs.");
+        ElezenImgui.DrawHelpText("This will open a popup that allows you to set the notes for a user after successfully adding them to your individual pairs.");
         
         var autofillNotes = _configService.Current.AutofillEmptyNotesFromCharaName;
         if (ImGui.Checkbox("Automatically update empty notes with player names", ref autofillNotes))
@@ -749,7 +749,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.AutofillEmptyNotesFromCharaName = autofillNotes;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will automatically set a user's note with their player name unless you override it");
+        ElezenImgui.DrawHelpText("This will automatically set a user's note with their player name unless you override it");
         
         ImGui.Separator();
         _uiShared.BigText("Venues");
@@ -759,7 +759,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.AutoJoinVenueSyncshells = autoJoinVenues;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
+        ElezenImgui.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
         
         var disableServerNewsInChat = _configService.Current.DisableServerNewsInChat;
         if (ImGui.Checkbox("Disable server news posts in chat", ref disableServerNewsInChat))
@@ -767,7 +767,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.DisableServerNewsInChat = disableServerNewsInChat;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Stops Snowcloak server news announcements from being posted to in-game chat.");
+        ElezenImgui.DrawHelpText("Stops Snowcloak server news announcements from being posted to in-game chat.");
         ImGui.Separator();
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;
@@ -794,20 +794,20 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ShowChangelog = showChangelog;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
+        ElezenImgui.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
         if (ImGui.Checkbox("Enable Game Right Click Menu Entries", ref enableRightClickMenu))
         {
             _configService.Current.EnableRightClickMenus = enableRightClickMenu;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
+        ElezenImgui.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
         
         if (ImGui.Checkbox("Display status and visible pair count in Server Info Bar", ref enableDtrEntry))
         {
             _configService.Current.EnableDtrEntry = enableDtrEntry;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will add Snowcloak connection status and visible pair count in the Server Info Bar.\nYou can further configure this through your Dalamud Settings.");
+        ElezenImgui.DrawHelpText("This will add Snowcloak connection status and visible pair count in the Server Info Bar.\nYou can further configure this through your Dalamud Settings.");
         
         using (ImRaii.Disabled(!enableDtrEntry))
         {
@@ -911,7 +911,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ShowVisibleUsersSeparately = showVisibleSeparate;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will show all currently visible users in a special 'Visible' group in the main UI.");
+        ElezenImgui.DrawHelpText("This will show all currently visible users in a special 'Visible' group in the main UI.");
         if (ImGui.Checkbox("Sort visible syncshell users by VRAM usage", ref sortSyncshellByVRAM))
         {
             _configService.Current.SortSyncshellsByVRAM = sortSyncshellByVRAM;
@@ -919,20 +919,20 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will put users using the most VRAM in a syncshell at the top of the list.");
+        ElezenImgui.DrawHelpText("This will put users using the most VRAM in a syncshell at the top of the list.");
         if (ImGui.Checkbox("Group users by connection status", ref showOfflineSeparate))
         {
             _configService.Current.ShowOfflineUsersSeparately = showOfflineSeparate;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will categorize users by their connection status in the main UI.");
+        ElezenImgui.DrawHelpText("This will categorize users by their connection status in the main UI.");
         
         if (ImGui.Checkbox("Show player names", ref showCharacterNames))
         {
             _configService.Current.ShowCharacterNames = showCharacterNames;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will show character names instead of UIDs when possible");
+        ElezenImgui.DrawHelpText("This will show character names instead of UIDs when possible");
         
         if (ImGui.Checkbox("Show Profiles on Hover", ref showProfiles))
         {
@@ -940,7 +940,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ProfilesShow = showProfiles;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("This will show the configured user profile after a set delay");
+        ElezenImgui.DrawHelpText("This will show the configured user profile after a set delay");
         ImGui.Indent();
         if (!showProfiles) ImGui.BeginDisabled();
         if (ImGui.Checkbox("Popout profiles on the right", ref profileOnRight))
@@ -949,14 +949,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Save();
             Mediator.Publish(new CompactUiChange(Vector2.Zero, Vector2.Zero));
         }
-        _uiShared.DrawHelpText("Will show profiles on the right side of the main UI");
+        ElezenImgui.DrawHelpText("Will show profiles on the right side of the main UI");
         ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat("Hover Delay", ref profileDelay, 1, 10))
         {
             _configService.Current.ProfileDelay = profileDelay;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Delay until the profile should be displayed");
+        ElezenImgui.DrawHelpText("Delay until the profile should be displayed");
         if (!showProfiles) ImGui.EndDisabled();
         ImGui.Unindent();
         if (ImGui.Checkbox("Show profiles marked as NSFW", ref showNsfwProfiles))
@@ -965,14 +965,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ProfilesAllowNsfw = showNsfwProfiles;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Will show profiles that have the NSFW tag enabled");
+        ElezenImgui.DrawHelpText("Will show profiles that have the NSFW tag enabled");
         
         if (ImGui.Checkbox("Render BBCode images", ref allowBbCodeImages))
         {
             _configService.Current.AllowBbCodeImages = allowBbCodeImages;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Disable this to show [img] tags as text instead of loading external images.");
+        ElezenImgui.DrawHelpText("Disable this to show [img] tags as text instead of loading external images.");
         
         ImGui.Separator();
 
@@ -989,7 +989,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.InfoNotification = i;
             _configService.Save();
         }, _configService.Current.InfoNotification);
-        _uiShared.DrawHelpText("The location where \"Info\" notifications will display."
+        ElezenImgui.DrawHelpText("The location where \"Info\" notifications will display."
                                                                            + Environment.NewLine + "'Nowhere' will not show any Info notifications"
                                                                            + Environment.NewLine + "'Chat' will print Info notifications in chat"
                                                                            + Environment.NewLine + "'Toast' will show Warning toast notifications in the bottom right corner"
@@ -1002,7 +1002,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.WarningNotification = i;
             _configService.Save();
         }, _configService.Current.WarningNotification);
-        _uiShared.DrawHelpText("The location where \"Warning\" notifications will display."
+        ElezenImgui.DrawHelpText("The location where \"Warning\" notifications will display."
                                                                               + Environment.NewLine + "'Nowhere' will not show any Warning notifications"
                                                                               + Environment.NewLine + "'Chat' will print Warning notifications in chat"
                                                                               + Environment.NewLine + "'Toast' will show Warning toast notifications in the bottom right corner"
@@ -1015,7 +1015,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ErrorNotification = i;
             _configService.Save();
         }, _configService.Current.ErrorNotification);
-        _uiShared.DrawHelpText("The location where \"Error\" notifications will display."
+        ElezenImgui.DrawHelpText("The location where \"Error\" notifications will display."
                                                                             + Environment.NewLine + "'Nowhere' will not show any Error notifications"
                                                                             + Environment.NewLine + "'Chat' will print Error notifications in chat"
                                                                             + Environment.NewLine + "'Toast' will show Error toast notifications in the bottom right corner"
@@ -1026,13 +1026,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.DisableOptionalPluginWarnings = disableOptionalPluginWarnings;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Enabling this will not show any \"Warning\" labeled messages for missing optional plugins.");
+        ElezenImgui.DrawHelpText("Enabling this will not show any \"Warning\" labeled messages for missing optional plugins.");
         if (ImGui.Checkbox("Enable online notifications", ref onlineNotifs))
         {
             _configService.Current.ShowOnlineNotifications = onlineNotifs;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Enabling this will show a small notification (type: Info) in the bottom right corner when pairs go online.");
+        ElezenImgui.DrawHelpText("Enabling this will show a small notification (type: Info) in the bottom right corner when pairs go online.");
         
         using (ImRaii.Disabled(!onlineNotifs))
         {
@@ -1042,13 +1042,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _configService.Current.ShowOnlineNotificationsOnlyForIndividualPairs = onlineNotifsPairsOnly;
                 _configService.Save();
             }
-            _uiShared.DrawHelpText("Enabling this will only show online notifications (type: Info) for individual pairs.");
+            ElezenImgui.DrawHelpText("Enabling this will only show online notifications (type: Info) for individual pairs.");
             if (ImGui.Checkbox("Notify only for named pairs", ref onlineNotifsNamedOnly))
             {
                 _configService.Current.ShowOnlineNotificationsOnlyForNamedPairs = onlineNotifsNamedOnly;
                 _configService.Save();
             }
-            _uiShared.DrawHelpText("Enabling this will only show online notifications (type: Info) for pairs where you have set an individual note.");
+            ElezenImgui.DrawHelpText("Enabling this will only show online notifications (type: Info) for pairs where you have set an individual note.");
         }
     }
 
@@ -1083,7 +1083,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preference));
             },
             _configService.Current.TextureCompressionPreference);
-        _uiShared.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players. The default " +
+        ElezenImgui.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players. The default " +
                                "setting is to use whatever they have their end; but you can override this to force " +
                                "compressed or high-quality textures if you'd like.");
 
@@ -1100,7 +1100,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _cacheMonitor.ClearSubstStorage();
             }
         }
-        _uiShared.DrawHelpText("Automatically shrinks texture resolution of synced players to reduce VRAM utilization." 
+        ElezenImgui.DrawHelpText("Automatically shrinks texture resolution of synced players to reduce VRAM utilization." 
                                                                     + UiSharedService.TooltipSeparator + "Texture Size Limit (DXT/BC5/BC7 Compressed): 2048x2048" + Environment.NewLine
                                                                     + "Texture Size Limit (A8R8G8B8 Uncompressed): 1024x1024" + UiSharedService.TooltipSeparator
                                                                     + "Enable to reduce lag in large crowds." + Environment.NewLine
@@ -1118,7 +1118,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     _cacheMonitor.RecalculateFileCacheSize(CancellationToken.None);
                 });
             }
-            _uiShared.DrawHelpText("Deletes original, full-sized, textures from disk after downloading and shrinking." + UiSharedService.TooltipSeparator
+            ElezenImgui.DrawHelpText("Deletes original, full-sized, textures from disk after downloading and shrinking." + UiSharedService.TooltipSeparator
                 + "Caution!!! This will cause a re-download of all textures when the shrink option is disabled.");
         }
 
@@ -1140,7 +1140,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _playerPerformanceConfigService.Save();
             recalculatePerformance = true;
         }
-        _uiShared.DrawHelpText("When enabled, it will automatically block the modded appearance of all players that exceed the thresholds defined below." + Environment.NewLine
+        ElezenImgui.DrawHelpText("When enabled, it will automatically block the modded appearance of all players that exceed the thresholds defined below." + Environment.NewLine
             + "Will print a warning in chat when a player is blocked automatically.");
         using (ImRaii.Disabled(!autoPause))
         {
@@ -1168,7 +1168,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             ImGui.SameLine();
             ImGui.Text("(MiB)");
-            _uiShared.DrawHelpText("When a loading in player and their VRAM usage exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
+            ElezenImgui.DrawHelpText("When a loading in player and their VRAM usage exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
                 + "Default: 500 MiB");
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("Auto Block Triangle threshold", ref trisAuto))
@@ -1179,7 +1179,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             ImGui.SameLine();
             ImGui.Text("(thousand triangles)");
-            _uiShared.DrawHelpText("When a loading in player and their triangle count exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
+            ElezenImgui.DrawHelpText("When a loading in player and their triangle count exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
                 + "Default: 400 thousand");
             using (ImRaii.Disabled(!_perfUnapplied))
             {
@@ -1201,7 +1201,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _playerPerformanceConfigService.Save();
             recalculatePerformance = true;
         }
-        _uiShared.DrawHelpText("Individual pairs will never be affected by auto blocks.");
+        ElezenImgui.DrawHelpText("Individual pairs will never be affected by auto blocks.");
         ImGui.Dummy(new Vector2(5));
         ElezenImgui.WrappedText("The entries in the list below will be not have auto block thresholds enforced.");
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
@@ -1223,7 +1223,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
         }
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
-        _uiShared.DrawHelpText("Hint: UIDs are case sensitive.\nVanity IDs are also acceptable.");
+        ElezenImgui.DrawHelpText("Hint: UIDs are case sensitive.\nVanity IDs are also acceptable.");
         ImGui.Dummy(new Vector2(10));
         var playerList = _serverConfigurationManager.Whitelist;
         if (_selectedEntry > playerList.Count - 1)
@@ -1246,7 +1246,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     {
                         ImGui.SameLine();
                         ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
-                        UiSharedService.AttachToolTip(string.Format(CultureInfo.InvariantCulture, "Last seen name: {0}", lastSeenName));
+                        ElezenImgui.AttachTooltip(string.Format(CultureInfo.InvariantCulture, "Last seen name: {0}", lastSeenName));
                     }
                 }
             }
@@ -1287,7 +1287,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 _uidToAddForIgnoreBlacklist = string.Empty;
             }
         }
-        _uiShared.DrawHelpText("Hint: UIDs are case sensitive.\nVanity IDs are also acceptable.");
+        ElezenImgui.DrawHelpText("Hint: UIDs are case sensitive.\nVanity IDs are also acceptable.");
         ImGui.Dummy(new Vector2(10));
         var blacklist = _serverConfigurationManager.Blacklist;
         if (_selectedEntryBlacklist > blacklist.Count - 1)
@@ -1310,7 +1310,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     {
                         ImGui.SameLine();
                         ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
-                        UiSharedService.AttachToolTip(string.Format(CultureInfo.InvariantCulture,"Last seen name: {0}", lastSeenName));
+                        ElezenImgui.AttachTooltip(string.Format(CultureInfo.InvariantCulture,"Last seen name: {0}", lastSeenName));
                     }
                 }
             }
@@ -1378,7 +1378,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 ImGui.OpenPopup(deleteAccountPopupTitle);
             }
 
-            _uiShared.DrawHelpText("Completely deletes your currently connected account.");
+            ElezenImgui.DrawHelpText("Completely deletes your currently connected account.");
             
             if (ImGui.BeginPopupModal(deleteAccountPopupTitle, ref _deleteAccountPopupModalShown, UiSharedService.PopupWindowFlags))
             {
@@ -1462,7 +1462,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                         ElezenImgui.ShowIcon(thisIsYou ? FontAwesomeIcon.Star : FontAwesomeIcon.None);
 
                         if (thisIsYou)
-                            UiSharedService.AttachToolTip("Current character");
+                            ElezenImgui.AttachTooltip("Current character");
                         
                         ImGui.SameLine(windowPadding + iconWidth + itemSpacing);
                         float beforeName = ImGui.GetCursorPosX();
@@ -1503,7 +1503,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                         if (_uiShared.IconButton(FontAwesomeIcon.Trash))
                             _serverConfigurationManager.RemoveCharacterFromServer(idx, item);
-                        UiSharedService.AttachToolTip("Delete character assignment");
+                        ElezenImgui.AttachTooltip("Delete character assignment");
                         i++;
                     }
 
@@ -1705,7 +1705,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                             }
                         }
                         if (!disableAssignment)
-                            UiSharedService.AttachToolTip(string.Format(CultureInfo.InvariantCulture, "Use this secret key for {0} @ {1}", playerName, playerWorldName));
+                            ElezenImgui.AttachTooltip(string.Format(CultureInfo.InvariantCulture, "Use this secret key for {0} @ {1}", playerName, playerWorldName));
                     }
 
                     ImGui.SameLine();
@@ -1716,7 +1716,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                         _serverConfigurationManager.Save();
                     }
                     if (!keyInUse)
-                        UiSharedService.AttachToolTip("Hold CTRL to delete this secret key entry");
+                        ElezenImgui.AttachTooltip("Hold CTRL to delete this secret key entry");
                     
                     if (keyInUse)
                     {
@@ -1806,7 +1806,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
                 if (isMain)
                 {
-                    _uiShared.DrawHelpText("You cannot edit the URI of the main service.");
+                    ElezenImgui.DrawHelpText("You cannot edit the URI of the main service.");
                 }
 
                 if (ImGui.InputText("Service Name", ref serverName, 255, flags))
@@ -1816,7 +1816,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 }
                 if (isMain)
                 {
-                    _uiShared.DrawHelpText("You cannot edit the name of the main service.");
+                    ElezenImgui.DrawHelpText("You cannot edit the name of the main service.");
                 }
 
                 if (!isMain && selectedServer != _serverConfigurationManager.CurrentServer)
@@ -1825,25 +1825,25 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     {
                         _serverConfigurationManager.DeleteServer(selectedServer);
                     }
-                    _uiShared.DrawHelpText("Hold CTRL to delete this service");
+                    ElezenImgui.DrawHelpText("Hold CTRL to delete this service");
                 }
 
                 ImGui.Separator();
                 _uiShared.BigText("Snowcloak Backup");
-                _uiShared.DrawHelpText("Export and restore secret keys, character assignments, and notes for this service as a backup file for if you plan to reinstall the game.");
+                ElezenImgui.DrawHelpText("Export and restore secret keys, character assignments, and notes for this service as a backup file for if you plan to reinstall the game.");
 
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Export secret key backup"))
                 {
                     BeginSecretKeyBackupExport(selectedServer);
                 }
-                UiSharedService.AttachToolTip("Choose a location to save the backup file.");
+                ElezenImgui.AttachTooltip("Choose a location to save the backup file.");
 
                 ImGui.SameLine();
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileImport, "Restore secret key backup"))
                 {
                     BeginSecretKeyBackupImport(selectedServer);
                 }
-                UiSharedService.AttachToolTip("Restore secret keys, character assignments, and notes from a JSON backup file.");
+                ElezenImgui.AttachTooltip("Restore secret keys, character assignments, and notes from a JSON backup file.");
 
                 if (!_secretKeyBackupMessage.IsNullOrEmpty())
                 {

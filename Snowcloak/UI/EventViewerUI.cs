@@ -102,7 +102,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, unfreezeLabel))
                     _isPaused = false;
                 if (newEventsAvailable)
-                    UiSharedService.AttachToolTip(newEventsTooltip);
+                    ElezenImgui.AttachTooltip(newEventsTooltip);
             }
         }
         else
@@ -193,7 +193,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
 
                 ImGui.TableNextColumn();
                 ElezenImgui.ShowIcon(icon, iconColor == new Vector4() ? null : iconColor);
-                UiSharedService.AttachToolTip(ev.EventSeverity.ToString());
+                ElezenImgui.AttachTooltip(ev.EventSeverity.ToString());
                 ImGui.TableNextColumn();
                 ImGui.AlignTextToFramePadding();
                 ImGui.TextUnformatted(ev.EventTime.ToString("T", CultureInfo.CurrentCulture));
@@ -242,7 +242,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(msg);
                 if (!string.Equals(msg, ev.Message, StringComparison.Ordinal))
                 {
-                    UiSharedService.AttachToolTip(ev.Message);
+                    ElezenImgui.AttachTooltip(ev.Message);
                 }
             }
         }

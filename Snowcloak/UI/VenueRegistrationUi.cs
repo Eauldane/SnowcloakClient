@@ -145,7 +145,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
                 ImGui.EndCombo();
             }
-            UiSharedService.AttachToolTip( "Choose which syncshell will own this venue entry.");
+            ElezenImgui.AttachTooltip( "Choose which syncshell will own this venue entry.");
             ImGui.EndDisabled();
             
             if (!string.Equals(previousSelectedGroup, _selectedGroupGid, StringComparison.Ordinal))
@@ -155,28 +155,28 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         _uiSharedService.BigText("Venue details");
         
         ImGui.InputText("Venue name", ref _venueName, 100);
-        UiSharedService.AttachToolTip("Required: this is the display name shown to visitors.");
+        ElezenImgui.AttachTooltip("Required: this is the display name shown to visitors.");
         ImGui.InputText("Syncshell name", ref _syncshellAlias, 100);
 
-        UiSharedService.AttachToolTip("Optional: set how this syncshell should appear; the server applies it as the syncshell alias.");
+        ElezenImgui.AttachTooltip("Optional: set how this syncshell should appear; the server applies it as the syncshell alias.");
 
         ImGui.ColorEdit3("Venue name colour", ref _venueNameColour,
             ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8);
-        UiSharedService.AttachToolTip("Leave as white to use the default syncshell colour, or pick a custom override for the venue name.");
+        ElezenImgui.AttachTooltip("Leave as white to use the default syncshell colour, or pick a custom override for the venue name.");
         
         ImGui.InputText("Host / contact", ref _venueHost, 200);
-        UiSharedService.AttachToolTip("Optional: who should be listed as the venue host.");
+        ElezenImgui.AttachTooltip("Optional: who should be listed as the venue host.");
 
         ImGui.InputText("Website", ref _venueWebsite, 200);
-        UiSharedService.AttachToolTip("Optional: external link for the venue.");
+        ElezenImgui.AttachTooltip("Optional: external link for the venue.");
         
         ImGui.InputText("Discord webhook URL", ref _venueWebhookUrl, 2048);
-        UiSharedService.AttachToolTip("Optional: Discord webhook URL used to auto-post venue ads when they are published.");
+        ElezenImgui.AttachTooltip("Optional: Discord webhook URL used to auto-post venue ads when they are published.");
 
         ImGui.TextUnformatted("Description");
         ImGui.InputTextMultiline("##VenueDescription", ref _venueDescription, 2000,
             ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120));
-        UiSharedService.AttachToolTip("Optional: a short description shown on the venue listing.");
+        ElezenImgui.AttachTooltip("Optional: a short description shown on the venue listing.");
         
         ImGui.TextUnformatted("Preview (BBCode renderer)");
         if (ImGui.BeginChild("##VenueDescriptionPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))

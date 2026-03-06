@@ -89,7 +89,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         {
             SwitchEditingVisibility(ProfileVisibility.Public);
         }
-        _uiSharedService.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Frostbrand profile requests.");
+        ElezenImgui.DrawHelpText("Private profiles are shared with pairs; public profiles are visible to Frostbrand profile requests.");
         
         ImGui.Separator();
         _uiSharedService.BigText("Current Profile (as saved on server)");
@@ -199,13 +199,13 @@ public class EditProfileUi : WindowMediatorSubscriberBase
                 });
             });
         }
-        UiSharedService.AttachToolTip("Select and upload a new profile picture");
+        ElezenImgui.AttachTooltip("Select and upload a new profile picture");
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear uploaded profile picture"))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, "", Description: null, Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Clear your currently uploaded profile picture");
+        ElezenImgui.AttachTooltip("Clear your currently uploaded profile picture");
         if (!_showFileDialogError.IsNullOrEmpty())
         {
             ElezenImgui.ColouredWrappedText(_showFileDialogError, ImGuiColors.DalamudRed);
@@ -215,7 +215,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, isNsfw, ProfilePictureBase64: null, Description: null, Visibility: _editingVisibility));
         }
-        _uiSharedService.DrawHelpText("If your profile description or image can be considered NSFW, toggle this to ON");
+        ElezenImgui.DrawHelpText("If your profile description or image can be considered NSFW, toggle this to ON");
         var widthTextBox = ProfileDescriptionRenderWidth;
         var posX = ImGui.GetCursorPosX();
         ImGui.TextUnformatted(string.Format("Description {0}/1500", _descriptionText.Length));
@@ -250,13 +250,13 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, _descriptionText, Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Sets your profile description text");
+        ElezenImgui.AttachTooltip("Sets your profile description text");
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear Description"))
         {
             _ = _apiController.UserSetProfile(new UserProfileDto(new UserData(_apiController.UID), Disabled: false, IsNSFW: null, ProfilePictureBase64: null, "", Visibility: _editingVisibility));
         }
-        UiSharedService.AttachToolTip("Clears your profile description text");
+        ElezenImgui.AttachTooltip("Clears your profile description text");
 
         ImGui.Separator();
         _uiSharedService.BigText("Profile Tags (Shared)");
@@ -295,7 +295,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         {
             AddTagFromInput();
         }
-        UiSharedService.AttachToolTip("Press Enter or click Add Tag.");
+        ElezenImgui.AttachTooltip("Press Enter or click Add Tag.");
 
         DrawDefaultTagSuggestions();
 
@@ -316,14 +316,14 @@ public class EditProfileUi : WindowMediatorSubscriberBase
                 _editableTags.RemoveAt(removedTagIndex);
                 _tagEditorError = string.Empty;
             }
-            UiSharedService.AttachToolTip("Click a tag to remove it.");
+            ElezenImgui.AttachTooltip("Click a tag to remove it.");
         }
 
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Tags"))
         {
             SaveTags();
         }
-        UiSharedService.AttachToolTip("Save your shared profile tags.");
+        ElezenImgui.AttachTooltip("Save your shared profile tags.");
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear Tags"))
         {
@@ -331,7 +331,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
             _tagEditorError = string.Empty;
             SaveTags();
         }
-        UiSharedService.AttachToolTip("Remove all profile tags and save.");
+        ElezenImgui.AttachTooltip("Remove all profile tags and save.");
     }
 
     private void AddTagFromInput()
@@ -393,7 +393,7 @@ public class EditProfileUi : WindowMediatorSubscriberBase
         }
 
         ImGui.EndListBox();
-        _uiSharedService.DrawHelpText("Type to filter defaults. Click a suggestion to add it immediately.");
+        ElezenImgui.DrawHelpText("Type to filter defaults. Click a suggestion to add it immediately.");
     }
 
     private void SaveTags()

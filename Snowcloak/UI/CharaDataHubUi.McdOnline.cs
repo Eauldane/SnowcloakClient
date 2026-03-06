@@ -128,7 +128,7 @@ internal sealed partial class CharaDataHubUi
 
             ImGui.EndCombo();
         }
-        _uiSharedService.DrawHelpText("You can control who has access to your character data based on the access restrictions." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("You can control who has access to your character data based on the access restrictions." + UiSharedService.TooltipSeparator
             + "Specified: Only people and syncshells you directly specify in 'Specific Individuals / Syncshells' can access this character data" + Environment.NewLine
             + "Direct Pairs: Only people you have directly paired can access this character data" + Environment.NewLine
             + "All Pairs: All people you have paired can access this character data" + Environment.NewLine
@@ -155,7 +155,7 @@ internal sealed partial class CharaDataHubUi
                 ImGui.EndCombo();
             }
         }
-        _uiSharedService.DrawHelpText("This regulates how you want to distribute this character data." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("This regulates how you want to distribute this character data." + UiSharedService.TooltipSeparator
             + "Code Only: People require to have the code to download this character data" + Environment.NewLine
             + "Shared: People that are allowed through 'Access Restrictions' will have this character data entry displayed in 'Shared with You' (it can also be accessed through the code)" + UiSharedService.TooltipSeparator
             + "Note: Shared is incompatible with Access Restriction 'Everyone'");
@@ -170,7 +170,7 @@ internal sealed partial class CharaDataHubUi
         {
             _charaDataManager.SetAppearanceData(dataDto.Id);
         }
-        _uiSharedService.DrawHelpText("This will overwrite the appearance data currently stored in this Character Data entry with your current appearance.");
+        ElezenImgui.DrawHelpText("This will overwrite the appearance data currently stored in this Character Data entry with your current appearance.");
         ImGui.SameLine();
         using (ImRaii.Disabled(dataDto.HasMissingFiles || !updateDto.IsAppearanceEqual || _charaDataManager.DataApplicationTask != null))
         {
@@ -179,7 +179,7 @@ internal sealed partial class CharaDataHubUi
                 _charaDataManager.ApplyDataToSelf(dataDto);
             }
         }
-        _uiSharedService.DrawHelpText("This will download and apply the saved character data to yourself. Once loaded it will automatically revert itself within 15 seconds." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("This will download and apply the saved character data to yourself. Once loaded it will automatically revert itself within 15 seconds." + UiSharedService.TooltipSeparator
             + "Note: Weapons will not be displayed correctly unless using the same job as the saved data.");
 
         ImGui.TextUnformatted("Contains Glamourer Data");
@@ -260,7 +260,7 @@ internal sealed partial class CharaDataHubUi
         {
             ImGui.SetClipboardText(code);
         }
-        UiSharedService.AttachToolTip("Copy Code to Clipboard");
+        ElezenImgui.AttachTooltip("Copy Code to Clipboard");
 
         string creationTime = dataDto.CreatedDate.ToLocalTime().ToString();
         string updateTime = dataDto.UpdatedDate.ToLocalTime().ToString();
@@ -301,7 +301,7 @@ internal sealed partial class CharaDataHubUi
         }
         ImGui.SameLine();
         ImGui.TextUnformatted("Description");
-        _uiSharedService.DrawHelpText("Description for this Character Data." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Description for this Character Data." + UiSharedService.TooltipSeparator
             + "Note: the description will be visible to anyone who can access this character data. See 'Access Restrictions' and 'Sharing' below.");
 
         var expiryDate = updateDto.ExpiryDate;
@@ -310,7 +310,7 @@ internal sealed partial class CharaDataHubUi
         {
             updateDto.SetExpiry(isExpiring);
         }
-        _uiSharedService.DrawHelpText("If expiration is enabled, the uploaded character data will be automatically deleted from the server at the specified date.");
+        ElezenImgui.DrawHelpText("If expiration is enabled, the uploaded character data will be automatically deleted from the server at the specified date.");
         using (ImRaii.Disabled(!isExpiring))
         {
             ImGui.SameLine();
@@ -368,7 +368,7 @@ internal sealed partial class CharaDataHubUi
         }
         if (!UiSharedService.CtrlPressed())
         {
-            UiSharedService.AttachToolTip("Hold CTRL and click to delete the current data. This operation is irreversible.");
+            ElezenImgui.AttachTooltip("Hold CTRL and click to delete the current data. This operation is irreversible.");
         }
     }
 
@@ -414,7 +414,7 @@ internal sealed partial class CharaDataHubUi
             {
                 ImGui.SameLine(50);
                 ElezenImgui.ShowIcon(FontAwesomeIcon.Plus, ImGuiColors.DalamudYellow);
-                UiSharedService.AttachToolTip("This pose has not been added to the server yet. Save changes to upload this Pose data.");
+                ElezenImgui.AttachTooltip("This pose has not been added to the server yet. Save changes to upload this Pose data.");
             }
 
             bool poseHasChanges = updateDto.PoseHasChanges(pose);
@@ -422,7 +422,7 @@ internal sealed partial class CharaDataHubUi
             {
                 ImGui.SameLine(50);
                 ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudYellow);
-                UiSharedService.AttachToolTip("This pose has changes that have not been saved to the server yet.");
+                ElezenImgui.AttachTooltip("This pose has changes that have not been saved to the server yet.");
             }
 
             ImGui.SameLine(75);
@@ -449,7 +449,7 @@ internal sealed partial class CharaDataHubUi
                 ImGui.SameLine();
                 bool hasPoseData = !string.IsNullOrEmpty(pose.PoseData);
                 ElezenImgui.ShowIcon(FontAwesomeIcon.Running, ElezenImgui.GetBooleanColour(hasPoseData));
-                UiSharedService.AttachToolTip(hasPoseData
+                ElezenImgui.AttachTooltip(hasPoseData
                     ? "This Pose entry has pose data attached"
                     : "This Pose entry has no pose data attached");
                 ImGui.SameLine();
@@ -461,7 +461,7 @@ internal sealed partial class CharaDataHubUi
                     {
                         _charaDataManager.AttachPoseData(pose, updateDto);
                     }
-                    UiSharedService.AttachToolTip("Apply current pose data to pose");
+                    ElezenImgui.AttachTooltip("Apply current pose data to pose");
                 }
                 ImGui.SameLine();
                 using (ImRaii.Disabled(!hasPoseData))
@@ -472,7 +472,7 @@ internal sealed partial class CharaDataHubUi
                         pose.PoseData = string.Empty;
                         updateDto.UpdatePoseList();
                     }
-                    UiSharedService.AttachToolTip("Delete current pose data from pose");
+                    ElezenImgui.AttachTooltip("Delete current pose data from pose");
                 }
 
                 ImGui.SameLine();
@@ -486,7 +486,7 @@ internal sealed partial class CharaDataHubUi
                 {
                     tooltipText += UiSharedService.TooltipSeparator + "Click to show location on map";
                 }
-                UiSharedService.AttachToolTip(tooltipText);
+                ElezenImgui.AttachTooltip(tooltipText);
                 if (hasWorldData && ImGui.IsItemClicked(ImGuiMouseButton.Left))
                 {
                     _dalamudUtilService.SetMarkerAndOpenMap(position: new Vector3(worldData.PositionX, worldData.PositionY, worldData.PositionZ),
@@ -500,7 +500,7 @@ internal sealed partial class CharaDataHubUi
                     {
                         _charaDataManager.AttachWorldData(pose, updateDto);
                     }
-                    UiSharedService.AttachToolTip("Apply current world position data to pose");
+                    ElezenImgui.AttachTooltip("Apply current world position data to pose");
                 }
                 ImGui.SameLine();
                 using (ImRaii.Disabled(!hasWorldData))
@@ -511,7 +511,7 @@ internal sealed partial class CharaDataHubUi
                         pose.WorldData = default(WorldData);
                         updateDto.UpdatePoseList();
                     }
-                    UiSharedService.AttachToolTip("Delete current world position data from pose");
+                    ElezenImgui.AttachTooltip("Delete current world position data from pose");
                 }
             }
 
@@ -548,7 +548,7 @@ internal sealed partial class CharaDataHubUi
         }
         if (_charaDataManager.DataGetTimeoutTask != null && !_charaDataManager.DataGetTimeoutTask.IsCompleted)
         {
-            UiSharedService.AttachToolTip("You can only refresh all character data from server every minute. Please wait.");
+            ElezenImgui.AttachTooltip("You can only refresh all character data from server every minute. Please wait.");
         }
 
         using (var table = ImRaii.Table("Own Character Data", 12, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.ScrollY,
@@ -585,7 +585,7 @@ internal sealed partial class CharaDataHubUi
                     if (uDto?.HasChanges ?? false)
                     {
                         ElezenImgui.ColouredText(idText, ImGuiColors.DalamudYellow);
-                        UiSharedService.AttachToolTip("This entry has unsaved changes");
+                        ElezenImgui.AttachTooltip("This entry has unsaved changes");
                     }
                     else
                     {
@@ -596,7 +596,7 @@ internal sealed partial class CharaDataHubUi
                     ImGui.TableNextColumn();
                     ImGui.TextUnformatted(entry.Description);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
-                    UiSharedService.AttachToolTip(entry.Description);
+                    ElezenImgui.AttachTooltip(entry.Description);
 
                     ImGui.TableNextColumn();
                     ImGui.TextUnformatted(entry.CreatedDate.ToLocalTime().ToString());
@@ -615,25 +615,25 @@ internal sealed partial class CharaDataHubUi
                         && !string.IsNullOrEmpty(entry.GlamourerData);
                     ElezenImgui.GetBooleanIcon(isDownloadable, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
-                    UiSharedService.AttachToolTip(isDownloadable ? "Can be downloaded by others" : "Cannot be downloaded: Has missing files or data, please review this entry manually");
+                    ElezenImgui.AttachTooltip(isDownloadable ? "Can be downloaded by others" : "Cannot be downloaded: Has missing files or data, please review this entry manually");
 
                     ImGui.TableNextColumn();
                     var count = entry.FileGamePaths.Concat(entry.FileSwaps).Count();
                     ImGui.TextUnformatted(count.ToString());
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
-                    UiSharedService.AttachToolTip(count == 0 ? "No File data attached" : "Has File data attached");
+                    ElezenImgui.AttachTooltip(count == 0 ? "No File data attached" : "Has File data attached");
 
                     ImGui.TableNextColumn();
                     bool hasGlamourerData = !string.IsNullOrEmpty(entry.GlamourerData);
                     ElezenImgui.GetBooleanIcon(hasGlamourerData, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
-                    UiSharedService.AttachToolTip(string.IsNullOrEmpty(entry.GlamourerData) ? "No Glamourer data attached" : "Has Glamourer data attached");
+                    ElezenImgui.AttachTooltip(string.IsNullOrEmpty(entry.GlamourerData) ? "No Glamourer data attached" : "Has Glamourer data attached");
 
                     ImGui.TableNextColumn();
                     bool hasCustomizeData = !string.IsNullOrEmpty(entry.CustomizeData);
                     ElezenImgui.GetBooleanIcon(hasCustomizeData, false);
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
-                    UiSharedService.AttachToolTip(string.IsNullOrEmpty(entry.CustomizeData) ? "No Customize+ data attached" : "Has Customize+ data attached");
+                    ElezenImgui.AttachTooltip(string.IsNullOrEmpty(entry.CustomizeData) ? "No Customize+ data attached" : "Has Customize+ data attached");
 
                     ImGui.TableNextColumn();
                     FontAwesomeIcon eIcon = FontAwesomeIcon.None;
@@ -643,7 +643,7 @@ internal sealed partial class CharaDataHubUi
                     if (ImGui.IsItemClicked()) SelectedDtoId = entry.Id;
                     if (eIcon != FontAwesomeIcon.None)
                     {
-                        UiSharedService.AttachToolTip($"This entry will expire on {entry.ExpiryDate.ToLocalTime()}");
+                        ElezenImgui.AttachTooltip($"This entry will expire on {entry.ExpiryDate.ToLocalTime()}");
                     }
                 }
             }
@@ -659,11 +659,11 @@ internal sealed partial class CharaDataHubUi
         }
         if (_charaDataManager.DataCreationTask != null)
         {
-            UiSharedService.AttachToolTip("You can only create new character data every few seconds. Please wait.");
+            ElezenImgui.AttachTooltip("You can only create new character data every few seconds. Please wait.");
         }
         if (!_charaDataManager.Initialized)
         {
-            UiSharedService.AttachToolTip("Please use the button \"Get Own Chara Data\" once before you can add new data entries.");
+            ElezenImgui.AttachTooltip("Please use the button \"Get Own Chara Data\" once before you can add new data entries.");
         }
 
         if (_charaDataManager.Initialized)
@@ -728,7 +728,7 @@ internal sealed partial class CharaDataHubUi
                     }
                     ImGui.SameLine();
                     ImGui.TextUnformatted("UID/Vanity UID to Add");
-                    _uiSharedService.DrawHelpText("Users added to this list will be able to access this character data regardless of your pause or pair state with them." + UiSharedService.TooltipSeparator
+                    ElezenImgui.DrawHelpText("Users added to this list will be able to access this character data regardless of your pause or pair state with them." + UiSharedService.TooltipSeparator
                         + "Note: Mistyped entries will be automatically removed on updating data to server.");
 
                     using (var lb = ImRaii.ListBox("Allowed Individuals", new(200, 200)))
@@ -775,7 +775,7 @@ internal sealed partial class CharaDataHubUi
                     }
                     ImGui.SameLine();
                     ImGui.TextUnformatted("GID/Vanity GID to Add");
-                    _uiSharedService.DrawHelpText("Users in Syncshells added to this list will be able to access this character data regardless of your pause or pair state with them." + UiSharedService.TooltipSeparator
+                    ElezenImgui.DrawHelpText("Users in Syncshells added to this list will be able to access this character data regardless of your pause or pair state with them." + UiSharedService.TooltipSeparator
                         + "Note: Mistyped entries will be automatically removed on updating data to server.");
 
                     using (var lb = ImRaii.ListBox("Allowed Syncshells", new(200, 200)))

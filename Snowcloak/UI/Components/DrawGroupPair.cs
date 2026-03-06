@@ -83,7 +83,7 @@ public class DrawGroupPair : DrawPairBase
             ElezenImgui.ColouredText(FontAwesomeIcon.PauseCircle.ToIconString(), ImGuiColors.DalamudYellow);
             ImGui.PopFont();
 
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Pairing status with {0} is paused", entryUID));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Pairing status with {0} is paused", entryUID));
         }
         else
         {
@@ -91,7 +91,7 @@ public class DrawGroupPair : DrawPairBase
             ElezenImgui.ColouredText(FontAwesomeIcon.Check.ToIconString(), ImGuiColors.ParsedGreen);
             ImGui.PopFont();
 
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "You are paired with {0}", entryUID));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "You are paired with {0}", entryUID));
         }
 
         if (!pausedByYou && isOnlineForDisplay && !isVisibleForDisplay)
@@ -127,7 +127,7 @@ public class DrawGroupPair : DrawPairBase
                 }
             }
         }
-        UiSharedService.AttachToolTip(presenceText);
+        ElezenImgui.AttachTooltip(presenceText);
 
         if (entryIsOwner)
         {
@@ -136,7 +136,7 @@ public class DrawGroupPair : DrawPairBase
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.Crown.ToIconString());
             ImGui.PopFont();
-            UiSharedService.AttachToolTip("User is owner of this Syncshell");
+            ElezenImgui.AttachTooltip("User is owner of this Syncshell");
         }
         else if (entryIsMod)
         {
@@ -145,7 +145,7 @@ public class DrawGroupPair : DrawPairBase
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.UserShield.ToIconString());
             ImGui.PopFont();
-            UiSharedService.AttachToolTip("User is moderator of this Syncshell");
+            ElezenImgui.AttachTooltip("User is moderator of this Syncshell");
         }
         else if (entryIsPinned)
         {
@@ -154,7 +154,7 @@ public class DrawGroupPair : DrawPairBase
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.Thumbtack.ToIconString());
             ImGui.PopFont();
-            UiSharedService.AttachToolTip("User is pinned in this Syncshell");
+            ElezenImgui.AttachTooltip("User is pinned in this Syncshell");
         }
     }
 
@@ -208,7 +208,7 @@ public class DrawGroupPair : DrawPairBase
         {
             ElezenImgui.ShowIcon(FontAwesomeIcon.Running);
 
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture,"This user has shared {0} Character Data Sets with you.", sharedData!.Count) + UiSharedService.TooltipSeparator
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture,"This user has shared {0} Character Data Sets with you.", sharedData!.Count) + UiSharedService.TooltipSeparator
                 + "Click to open the Character Data Hub and show the entries.");
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
@@ -315,7 +315,7 @@ public class DrawGroupPair : DrawPairBase
             {
                 _ = _apiController.UserAddPair(new UserDto(new(_pair.UserData.UID)));
             }
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Pair with {0} individually", entryUID));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Pair with {0} individually", entryUID));
             ImGui.SameLine();
         }
         if (showPause)
@@ -342,7 +342,7 @@ public class DrawGroupPair : DrawPairBase
                 }
             }
 
-            UiSharedService.AttachToolTip(!pausedByYou
+            ElezenImgui.AttachTooltip(!pausedByYou
                 ? string.Format(CultureInfo.CurrentCulture, "Pause pairing with {0}", entryUID)
                 : string.Format(CultureInfo.CurrentCulture, "Resume pairing with {0}", entryUID));
             ImGui.SameLine();
@@ -359,7 +359,7 @@ public class DrawGroupPair : DrawPairBase
                     ImGui.OpenPopup("Popup");
                 }
             }
-            UiSharedService.AttachToolTip("More actions");
+            ElezenImgui.AttachTooltip("More actions");
         }
         if (ImGui.BeginPopup("Popup"))
         {
@@ -372,7 +372,7 @@ public class DrawGroupPair : DrawPairBase
                     var userInfo = _fullInfoDto.GroupPairStatusInfo ^ GroupUserInfo.IsPinned;
                     _ = _apiController.GroupSetUserInfo(new GroupPairUserInfoDto(_fullInfoDto.Group, _fullInfoDto.User, userInfo));
                 }
-                UiSharedService.AttachToolTip("Pin this user to the Syncshell. Pinned users will not be deleted in case of a manually initiated Syncshell clean");
+                ElezenImgui.AttachTooltip("Pin this user to the Syncshell. Pinned users will not be deleted in case of a manually initiated Syncshell clean");
                 
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Remove user") && UiSharedService.CtrlPressed())
                 {
@@ -380,13 +380,13 @@ public class DrawGroupPair : DrawPairBase
                     _ = _apiController.GroupRemoveUser(_fullInfoDto);
                 }
 
-                UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture,"Hold CTRL and click to remove user {0} from Syncshell", _pair.UserData.AliasOrUID));
+                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture,"Hold CTRL and click to remove user {0} from Syncshell", _pair.UserData.AliasOrUID));
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserSlash, "Ban User"))
                 {
                     ImGui.CloseCurrentPopup();
                     _mediator.Publish(new OpenBanUserPopupMessage(_pair, _group));
                 }
-                UiSharedService.AttachToolTip("Ban user from this Syncshell");
+                ElezenImgui.AttachTooltip("Ban user from this Syncshell");
             }
 
             if (userIsOwner)
@@ -398,14 +398,14 @@ public class DrawGroupPair : DrawPairBase
                     var userInfo = _fullInfoDto.GroupPairStatusInfo ^ GroupUserInfo.IsModerator;
                     _ = _apiController.GroupSetUserInfo(new GroupPairUserInfoDto(_fullInfoDto.Group, _fullInfoDto.User, userInfo));
                 }
-                UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL to change the moderator status for {0}", _fullInfoDto.UserAliasOrUID) + Environment.NewLine +
+                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL to change the moderator status for {0}", _fullInfoDto.UserAliasOrUID) + Environment.NewLine +
                                               "Moderators can kick, ban/unban, pin/unpin users and clear the Syncshell.");
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Crown, "Transfer Ownership") && UiSharedService.CtrlPressed() && UiSharedService.ShiftPressed())
                 {
                     ImGui.CloseCurrentPopup();
                     _ = _apiController.GroupChangeOwnership(_fullInfoDto);
                 }
-                UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL and SHIFT and click to transfer ownership of this Syncshell to {0}", _fullInfoDto.UserAliasOrUID) + Environment.NewLine + "WARNING: This action is irreversible.");
+                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL and SHIFT and click to transfer ownership of this Syncshell to {0}", _fullInfoDto.UserAliasOrUID) + Environment.NewLine + "WARNING: This action is irreversible.");
             }
 
             if (userIsOwner || (userIsModerator && !(entryIsMod || entryIsOwner)))
@@ -428,7 +428,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                UiSharedService.AttachToolTip("Sets your allowance for sound synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Sets your allowance for sound synchronization for this Syncshell member." +
                                               Environment.NewLine + "Disabling applies even without an individual pair.");
 
                 var isDisableAnims = permissions.IsDisableAnimations();
@@ -444,7 +444,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                UiSharedService.AttachToolTip("Sets your allowance for animation synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Sets your allowance for animation synchronization for this Syncshell member." +
                                               Environment.NewLine +"Disabling applies even without an individual pair.");
 
                 var isDisableVfx = permissions.IsDisableVFX();
@@ -460,7 +460,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                UiSharedService.AttachToolTip("Sets your allowance for VFX synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Sets your allowance for VFX synchronization for this Syncshell member." +
                                               Environment.NewLine + "Disabling applies even without an individual pair.");
 
                 ImGui.Separator();
@@ -481,7 +481,7 @@ public class DrawGroupPair : DrawPairBase
                 _mediator.Publish(new OpenReportPopupMessage(_pair));
                 ImGui.CloseCurrentPopup();
             }
-            UiSharedService.AttachToolTip("Report this user's profile.");
+            ElezenImgui.AttachTooltip("Report this user's profile.");
             if (_pair.IsVisible)
             {
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PersonCircleQuestion,  "Open Analysis"))
@@ -494,7 +494,7 @@ public class DrawGroupPair : DrawPairBase
                     _pair.ApplyLastReceivedData(forced: true);
                     ImGui.CloseCurrentPopup();
                 }
-                UiSharedService.AttachToolTip("This reapplies the last received character data to this character");
+                ElezenImgui.AttachTooltip("This reapplies the last received character data to this character");
             }
             ImGui.EndPopup();
         }

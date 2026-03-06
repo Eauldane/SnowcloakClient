@@ -1,4 +1,5 @@
 ﻿using Dalamud.Interface.Utility.Raii;
+using ElezenTools.UI;
 using Snowcloak.API.Dto.CharaData;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.CharaData.Models;
@@ -82,7 +83,7 @@ internal sealed partial class CharaDataHubUi
 		}
 		if (sb.Length > 0)
 		{
-			UiSharedService.AttachToolTip(sb.ToString());
+			ElezenImgui.AttachTooltip(sb.ToString());
 		}
 	}
 
@@ -125,7 +126,7 @@ internal sealed partial class CharaDataHubUi
 		}
 		if (sb.Length > 0)
 		{
-			UiSharedService.AttachToolTip(sb.ToString());
+			ElezenImgui.AttachTooltip(sb.ToString());
 		}
 	}
 

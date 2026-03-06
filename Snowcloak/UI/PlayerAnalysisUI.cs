@@ -130,7 +130,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
                 ImGui.SameLine();
                 using (ImRaii.PushFont(UiBuilder.IconFont))
                     ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
+                ElezenImgui.AttachTooltip("Click \"Start analysis\" to calculate download size");
             }
         }
         ImGui.TextUnformatted(string.Format("Total modded model triangles: {0}", UiSharedService.TrisToString(_cachedAnalysis.Sum(c => c.Value.Sum(f => f.Value.Triangles)))));
@@ -186,7 +186,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
                         ImGui.SameLine();
                         using (ImRaii.PushFont(UiBuilder.IconFont))
                             ImGui.TextUnformatted(FontAwesomeIcon.ExclamationCircle.ToIconString());
-                        UiSharedService.AttachToolTip("Click \"Start analysis\" to calculate download size");
+                        ElezenImgui.AttachTooltip("Click \"Start analysis\" to calculate download size");
                     }
                 }
                 ImGui.TextUnformatted(string.Format("{0} VRAM usage:", kvp.Key));
@@ -266,7 +266,7 @@ public class PlayerAnalysisUI : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(string.Format("(and {0} more)", gamepaths.Count - 1));
                 ImGui.SameLine();
                 ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
-                UiSharedService.AttachToolTip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
+                ElezenImgui.AttachTooltip(string.Join(Environment.NewLine, gamepaths.Skip(1)));
             }
         }
     }

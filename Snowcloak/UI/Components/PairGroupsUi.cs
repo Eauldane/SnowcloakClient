@@ -72,11 +72,11 @@ public class PairGroupsUi
         }
         if (allArePaused)
         {
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Resume pairing with all pairs in {0}", tag));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Resume pairing with all pairs in {0}", tag));
         }
         else
         {
-            UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Pause pairing with all pairs in {0}", tag));
+            ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Pause pairing with all pairs in {0}", tag));
         }
 
         var buttonDeleteOffset = windowX + windowWidth - flyoutMenuX;
@@ -149,13 +149,13 @@ public class PairGroupsUi
         {
             _selectGroupForPairUi.Open(tag);
         }
-        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Add more users to Group {0}", tag));
+        ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Add more users to Group {0}", tag));
         
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, string.Format(CultureInfo.CurrentCulture, "Delete {0}", tag)) && UiSharedService.CtrlPressed())
         {
             _tagHandler.RemoveTag(tag);
         }
-        UiSharedService.AttachToolTip(string.Format(CultureInfo.CurrentCulture, "Delete Group {0} (Will not delete the pairs){1}Hold CTRL to delete", tag, Environment.NewLine));
+        ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Delete Group {0} (Will not delete the pairs){1}Hold CTRL to delete", tag, Environment.NewLine));
     }
 
     private void DrawName(string tag, bool isSpecialTag, int visible, int online, int paused, int? total)

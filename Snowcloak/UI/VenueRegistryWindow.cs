@@ -113,14 +113,14 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         {
             _ = RefreshOwnedVenuesAsync();
         }
-        UiSharedService.AttachToolTip("Reload your owned venues from the server.");
+        ElezenImgui.AttachTooltip("Reload your owned venues from the server.");
 
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
         {
             _venueRegistrationService.BeginRegistrationFromCommand();
         }
-        UiSharedService.AttachToolTip("Start the placard verification flow for the plot you are standing on.");
+        ElezenImgui.AttachTooltip("Start the placard verification flow for the plot you are standing on.");
 
         if (!string.IsNullOrWhiteSpace(_statusMessage))
         {
@@ -170,7 +170,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         ImGui.InputText("Host / contact", ref _venueHost, 200);
         ImGui.InputText("Website", ref _venueWebsite, 200);
         ImGui.InputText("Discord webhook URL", ref _venueWebhookUrl, 2048);
-        _uiSharedService.DrawHelpText("Optional: If you have a Discord server you want to publish event ads to, paste the webhook URL here.");
+        ElezenImgui.DrawHelpText("Optional: If you have a Discord server you want to publish event ads to, paste the webhook URL here.");
 
         ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "Description {0}/2000", _venueDescription.Length));
         using (_uiSharedService.GameFont.Push())
@@ -189,7 +189,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         {
             // immediate update to toggle value
         }
-        _uiSharedService.DrawHelpText("Unlisted venues remain editable but won't show up in public searches or ads.");
+        ElezenImgui.DrawHelpText("Unlisted venues remain editable but won't show up in public searches or ads.");
 
         ImGui.EndDisabled();
 
@@ -207,7 +207,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             _ = SaveVenueAsync();
         }
         ImGui.EndDisabled();
-        UiSharedService.AttachToolTip("Save updates to the selected venue listing.");
+        ElezenImgui.AttachTooltip("Save updates to the selected venue listing.");
 
         ImGui.SameLine();
         ImGui.BeginDisabled(string.IsNullOrWhiteSpace(embedCode));
@@ -218,7 +218,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             _statusIsError = false;
         }
         ImGui.EndDisabled();
-        UiSharedService.AttachToolTip("Copy an iframe snippet to include on a website, carrd etc that'll show your currently running ad.");
+        ElezenImgui.AttachTooltip("Copy an iframe snippet to include on a website, carrd etc that'll show your currently running ad.");
     }
 
     private string BuildVenueEmbedUrl(Guid registryId)

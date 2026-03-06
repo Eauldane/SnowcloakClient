@@ -147,30 +147,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     public Dictionary<uint, string> TerritoryData => _dalamudUtil.TerritoryData.Value;
     public uint WorldId => _dalamudUtil.GetHomeWorldId();
     public string DataCenterRegion => _dalamudUtil.GetDataCenterRegion();
-
-    public static void AttachToolTip(string text)
-    {
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-        {
-            ImGui.BeginTooltip();
-            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35f);
-            if (text.Contains(TooltipSeparator, StringComparison.Ordinal))
-            {
-                var splitText = text.Split(TooltipSeparator, StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < splitText.Length; i++)
-                {
-                    ImGui.TextUnformatted(splitText[i]);
-                    if (i != splitText.Length - 1) ImGui.Separator();
-                }
-            }
-            else
-            {
-                ImGui.TextUnformatted(text);
-            }
-            ImGui.PopTextWrapPos();
-            ImGui.EndTooltip();
-        }
-    }
+    
 
     public static string ByteToString(long bytes, bool addSuffix = true)
     {
@@ -495,7 +472,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         }
         if (_cacheMonitor.SnowWatcher != null)
         {
-            AttachToolTip("Stop the Monitoring before changing the Storage folder. As long as monitoring is active, you cannot change the Storage folder location.");
+            ElezenImgui.AttachTooltip("Stop the Monitoring before changing the Storage folder. As long as monitoring is active, you cannot change the Storage folder location.");
         }
 
         if (_isPenumbraDirectory)
@@ -526,7 +503,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             _configService.Current.MaxLocalCacheInGiB = maxCacheSize;
             _configService.Save();
         }
-        DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");
+        ElezenImgui.DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");
         ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
         DrawCombo( "Eviction Strategy", Enum.GetValues<CacheEvictionMode>(),
             mode => mode switch
@@ -541,7 +518,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
                 _configService.Current.CacheEvictionMode = mode;
                 _configService.Save();
             }, _configService.Current.CacheEvictionMode);
-        DrawHelpText("Choose how Snowcloak removes files when the storage exceeds the configured size. TTL automatically purges files that have not been used in the last 30 days.");
+        ElezenImgui.DrawHelpText("Choose how Snowcloak removes files when the storage exceeds the configured size. TTL automatically purges files that have not been used in the last 30 days.");
     }
     
     public T? DrawCombo<T>(string comboName, IEnumerable<T> comboItems, Func<T, string> toName,
@@ -643,7 +620,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             ImGui.TextUnformatted(_cacheMonitor.TotalFiles == 1
                 ? "Collecting files"
                 : string.Format("Processing {0}/{1} from storage ({2} scanned in)", _cacheMonitor.CurrentFileProgress, _cacheMonitor.TotalFilesStorage, _cacheMonitor.TotalFiles));
-            AttachToolTip("Note: it is possible to have more files in storage than scanned in, this is due to the scanner normally ignoring those files but the game loading them in and using them on your character, so they get added to the local storage.");
+            ElezenImgui.AttachTooltip("Note: it is possible to have more files in storage than scanned in, this is due to the scanner normally ignoring those files but the game loading them in and using them on your character, so they get added to the local storage.");
         }
         else if (_cacheMonitor.HaltScanLocks.Any(f => f.Value.Value > 0))
         {
@@ -669,13 +646,6 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             }
         }
     }
-    
-    public void DrawHelpText(string helpText)
-    {
-        ImGui.SameLine();
-        ElezenImgui.ShowIcon(FontAwesomeIcon.QuestionCircle, ImGui.GetColorU32(ImGuiCol.TextDisabled));
-        AttachToolTip(helpText);
-    }
 
     public bool DrawOtherPluginState(bool intro = false)
     {
@@ -695,13 +665,13 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_penumbraExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"Penumbra is {(_penumbraExists ? "available and up to date." : "unavailable or not up to date.")}");
         
         ImGui.TextUnformatted("Glamourer");
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_glamourerExists, inline: false);
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"Glamourer is {(_glamourerExists ? "available and up to date." : "unavailable or not up to date.")}");
         
         if (intro)
@@ -723,7 +693,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_heelsExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"SimpleHeels is {(_heelsExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
@@ -732,7 +702,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_customizePlusExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"Customize+ is {(_customizePlusExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
@@ -741,7 +711,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_honorificExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"Honorific is {(_honorificExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
@@ -750,7 +720,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_petNamesExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip(
+        ElezenImgui.AttachTooltip(
             $"PetNicknames is {(_petNamesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
@@ -759,7 +729,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_moodlesExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip($"Moodles is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
+        ElezenImgui.AttachTooltip($"Moodles is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         ImGui.SameLine();
@@ -767,7 +737,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_brioExists, inline: false);
         ImGui.SameLine();
-        AttachToolTip($"Brio is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
+        ElezenImgui.AttachTooltip($"Brio is {(_moodlesExists ? "available and up to date." : "unavailable or not up to date.")}");
         ImGui.Spacing();
 
         if (!_penumbraExists || !_glamourerExists)

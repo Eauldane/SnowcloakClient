@@ -95,7 +95,7 @@ public class FrostbrandPanel
                 SetPairingSystemEnabled(requestedPairingEnabled);
             }
         }
-        _uiShared.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
+        ElezenImgui.DrawHelpText("Disable to hide pairing highlights, suppress right-click pairing actions, and pause auto-rejection.");
 
         if (pairingEnabled != _wasPairingEnabled)
         {
@@ -304,7 +304,7 @@ public class FrostbrandPanel
             _configService.Save();
             _guiHookService.RequestRedraw();
         }
-        _uiShared.DrawHelpText("Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled.");
+        ElezenImgui.DrawHelpText("Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled.");
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
         ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Opted-in user preview");
@@ -328,7 +328,7 @@ public class FrostbrandPanel
             _configService.Current.PairRequestMinimumLevel = minimumLevel;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Set to 0 to disable level-based rejection.");
+        ElezenImgui.DrawHelpText("Set to 0 to disable level-based rejection.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
         var friendsOnly = _configService.Current.PairRequestFriendsOnly;
@@ -337,7 +337,7 @@ public class FrostbrandPanel
             _configService.Current.PairRequestFriendsOnly = friendsOnly;
             _configService.Save();
         }
-        _uiShared.DrawHelpText("Only allow pairing with characters marked as friends in your nameplates.");
+        ElezenImgui.DrawHelpText("Only allow pairing with characters marked as friends in your nameplates.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
         ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box"
@@ -398,7 +398,7 @@ public class FrostbrandPanel
 
         _uiShared.BigText("Homeworld filters");
         ImGui.TextWrapped("Reject requests from specific homeworlds.");
-        _uiShared.DrawHelpText("Checked homeworlds are filtered out when Frostbrand pairing is enabled.");
+        ElezenImgui.DrawHelpText("Checked homeworlds are filtered out when Frostbrand pairing is enabled.");
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
         ImGui.SetNextItemWidth(-1);

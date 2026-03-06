@@ -35,21 +35,21 @@ internal partial class CharaDataHubUi
                 _configService.Current.NearbyOwnServerOnly = onlyCurrent;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Show the location of shared Poses with World Data from current world only");
+            ElezenImgui.DrawHelpText("Show the location of shared Poses with World Data from current world only");
             bool showOwn = _configService.Current.NearbyShowOwnData;
             if (ImGui.Checkbox("Also show your own data", ref showOwn))
             {
                 _configService.Current.NearbyShowOwnData = showOwn;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Show your own Poses as well");
+            ElezenImgui.DrawHelpText("Show your own Poses as well");
             bool ignoreHousing = _configService.Current.NearbyIgnoreHousingLimitations;
             if (ImGui.Checkbox("Ignore Housing Limitations", ref ignoreHousing))
             {
                 _configService.Current.NearbyIgnoreHousingLimitations = ignoreHousing;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Display all poses in their location regardless of housing limitations. (Ignoring Ward, Plot, Room)" + UiSharedService.TooltipSeparator
+            ElezenImgui.DrawHelpText("Display all poses in their location regardless of housing limitations. (Ignoring Ward, Plot, Room)" + UiSharedService.TooltipSeparator
                 + "Note: Poses that utilize housing props, furniture, etc. will not be displayed correctly if not spawned in the right location.");
             bool showWisps = _configService.Current.NearbyDrawWisps;
             if (ImGui.Checkbox("Show Pose Wisps in the overworld", ref showWisps))
@@ -57,7 +57,7 @@ internal partial class CharaDataHubUi
                 _configService.Current.NearbyDrawWisps = showWisps;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Draw floating wisps where other's poses are in the world.");
+            ElezenImgui.DrawHelpText("Draw floating wisps where other's poses are in the world.");
             int poseDetectionDistance = _configService.Current.NearbyDistanceFilter;
             ImGui.SetNextItemWidth(100);
             if (ImGui.SliderInt("Detection Distance", ref poseDetectionDistance, 5, 1000))
@@ -65,14 +65,14 @@ internal partial class CharaDataHubUi
                 _configService.Current.NearbyDistanceFilter = poseDetectionDistance;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Maximum distance in which poses will be shown. Set it to the maximum if you want to see all poses on the current map.");
+            ElezenImgui.DrawHelpText("Maximum distance in which poses will be shown. Set it to the maximum if you want to see all poses on the current map.");
             bool alwaysShow = _configService.Current.NearbyShowAlways;
             if (ImGui.Checkbox("Keep active outside Poses Nearby tab", ref alwaysShow))
             {
                 _configService.Current.NearbyShowAlways = alwaysShow;
                 _configService.Save();
             }
-            _uiSharedService.DrawHelpText("Continue the calculation of position of wisps etc. active outside of the 'Poses Nearby' tab." + UiSharedService.TooltipSeparator
+            ElezenImgui.DrawHelpText("Continue the calculation of position of wisps etc. active outside of the 'Poses Nearby' tab." + UiSharedService.TooltipSeparator
                 + "Note: The wisps etc. will disappear during combat and performing.");
         });
 
@@ -120,7 +120,7 @@ internal partial class CharaDataHubUi
                     ImGui.SameLine();
                     ElezenImgui.ShowIcon(FontAwesomeIcon.ExternalLinkAlt, ImGuiColors.DalamudGrey);
                 }
-                UiSharedService.AttachToolTip(pose.Key.MetaInfo.Description);
+                ElezenImgui.AttachTooltip(pose.Key.MetaInfo.Description);
                 ElezenImgui.ColouredText("Description", ImGuiColors.DalamudGrey);
                 ImGui.SameLine();
                 ElezenImgui.WrappedText(pose.Key.Description ?? "No Pose Description was set", circleOriginX);
@@ -130,7 +130,7 @@ internal partial class CharaDataHubUi
                 if (circleOffsetY < 0) circleOffsetY = 0;
                 ImGui.SetCursorPos(new Vector2(circleOriginX, pos.Y));
                 ImGui.Dummy(new Vector2(circleDiameter, circleDiameter));
-                UiSharedService.AttachToolTip("Click to open corresponding map and set map marker" + UiSharedService.TooltipSeparator
+                ElezenImgui.AttachTooltip("Click to open corresponding map and set map marker" + UiSharedService.TooltipSeparator
                     + pose.Key.WorldDataDescriptor);
                 if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
                 {
@@ -202,7 +202,7 @@ internal partial class CharaDataHubUi
         }
         if (_charaDataManager.GetSharedWithYouTimeoutTask != null && !_charaDataManager.GetSharedWithYouTimeoutTask.IsCompleted)
         {
-            UiSharedService.AttachToolTip("You can only refresh all character data from server every minute. Please wait.");
+            ElezenImgui.AttachTooltip("You can only refresh all character data from server every minute. Please wait.");
         }
     }
 }

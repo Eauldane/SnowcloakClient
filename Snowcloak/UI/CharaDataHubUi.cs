@@ -251,7 +251,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     }
                 }
                 if (!_uiSharedService.IsInGpose)
-                    UiSharedService.AttachToolTip("Only available in GPose");
+                    ElezenImgui.AttachTooltip("Only available in GPose");
                 
                 using (var nearbyPosesTabItem = ImRaii.TabItem("Poses Nearby"))
                 {
@@ -327,7 +327,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         }
         if (_isHandlingSelf)
         {
-            UiSharedService.AttachToolTip("Cannot use creation tools while having Character Data applied to self.");
+            ElezenImgui.AttachTooltip("Cannot use creation tools while having Character Data applied to self.");
         }
 
         using (var settingsTabItem = ImRaii.TabItem("Settings"))
@@ -360,13 +360,13 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         if (_configService.Current.FavoriteCodes.ContainsKey(id))
         {
             ElezenImgui.ShowIcon(FontAwesomeIcon.Star, ImGuiColors.ParsedGold);
-            UiSharedService.AttachToolTip($"Custom Description: {favorite?.CustomDescription ?? string.Empty}" + UiSharedService.TooltipSeparator
+            ElezenImgui.AttachTooltip($"Custom Description: {favorite?.CustomDescription ?? string.Empty}" + UiSharedService.TooltipSeparator
                 + "Click to remove from Favorites");
         }
         else
         {
             ElezenImgui.ShowIcon(FontAwesomeIcon.Star, ImGuiColors.DalamudGrey);
-            UiSharedService.AttachToolTip("Click to add to Favorites");
+            ElezenImgui.AttachTooltip("Click to add to Favorites");
         }
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
@@ -428,7 +428,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                     }
                 }
                 ImGui.SameLine();
-                UiSharedService.AttachToolTip($"Target the GPose Character {CharaName(actor.Name.TextValue)}");
+                ElezenImgui.AttachTooltip($"Target the GPose Character {CharaName(actor.Name.TextValue)}");
                 ImGui.AlignTextToFramePadding();
                 var pos = ImGui.GetCursorPosX();
                 using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen, actor.Address == gposeTargetAddress))
@@ -441,7 +441,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 {
                     ElezenImgui.ShowIcon(FontAwesomeIcon.InfoCircle);
                     var id = string.IsNullOrEmpty(handled?.MetaInfo.Uploader.UID) ? handled?.MetaInfo.Id : handled.MetaInfo.FullId;
-                    UiSharedService.AttachToolTip($"Applied Data: {id ?? "No data applied"}");
+                    ElezenImgui.AttachTooltip($"Applied Data: {id ?? "No data applied"}");
 
                     ImGui.SameLine();
                     // maybe do this better, check with brio for handled charas or sth
@@ -451,14 +451,14 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                         {
                             _charaDataManager.RemoveChara(actor.Name.TextValue);
                         }
-                        UiSharedService.AttachToolTip($"Remove character {CharaName(actor.Name.TextValue)}");
+                        ElezenImgui.AttachTooltip($"Remove character {CharaName(actor.Name.TextValue)}");
                     }
                     ImGui.SameLine();
                     if (_uiSharedService.IconButton(FontAwesomeIcon.Undo))
                     {
                         _charaDataManager.RevertChara(handled);
                     }
-                    UiSharedService.AttachToolTip($"Revert applied data from {CharaName(actor.Name.TextValue)}");
+                    ElezenImgui.AttachTooltip($"Revert applied data from {CharaName(actor.Name.TextValue)}");
                     ImGui.SetCursorPosX(pos);
                     DrawPoseData(handled?.MetaInfo, actor.Name.TextValue, true);
                 }
@@ -558,21 +558,21 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                             ElezenImgui.GetBooleanIcon(metaInfo != null, false);
                             if (metaInfo != null)
                             {
-                                UiSharedService.AttachToolTip("Metainfo present" + UiSharedService.TooltipSeparator
+                                ElezenImgui.AttachTooltip("Metainfo present" + UiSharedService.TooltipSeparator
                                     + $"Last Updated: {metaInfo!.UpdatedDate}" + Environment.NewLine
                                     + $"Description: {metaInfo!.Description}" + Environment.NewLine
                                     + $"Poses: {metaInfo!.PoseData.Count}");
                             }
                             else
                             {
-                                UiSharedService.AttachToolTip("Metainfo could not be downloaded." + UiSharedService.TooltipSeparator
+                                ElezenImgui.AttachTooltip("Metainfo could not be downloaded." + UiSharedService.TooltipSeparator
                                     + "The data associated with the code is either not present on the server anymore or you have no access to it");
                             }
                         }
                         else
                         {
                             ElezenImgui.ShowIcon(FontAwesomeIcon.QuestionCircle, ImGuiColors.DalamudGrey);
-                            UiSharedService.AttachToolTip("Unknown accessibility state. Click the button on the right to refresh.");
+                            ElezenImgui.AttachTooltip("Unknown accessibility state. Click the button on the right to refresh.");
                         }
 
                         ImGui.SameLine();
@@ -585,7 +585,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                                 UpdateFilteredItems();
                             }
                         }
-                        UiSharedService.AttachToolTip(isInTimeout ? "Timeout for refreshing active, please wait before refreshing again."
+                        ElezenImgui.AttachTooltip(isInTimeout ? "Timeout for refreshing active, please wait before refreshing again."
                             : "Refresh data for this entry from the Server.");
 
                         ImGui.SameLine();
@@ -742,7 +742,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 }
                 if (_charaDataManager.DataGetTimeoutTask != null && !_charaDataManager.DataGetTimeoutTask.IsCompleted)
                 {
-                    UiSharedService.AttachToolTip("You can only refresh all character data from server every minute. Please wait.");
+                    ElezenImgui.AttachTooltip("You can only refresh all character data from server every minute. Please wait.");
                 }
 
                 ImGuiHelpers.ScaledDummy(5);
@@ -864,7 +864,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                             _charaDataManager.LoadMcdf(path);
                         }, 1, Directory.Exists(_configService.Current.LastSavedCharaDataLocation) ? _configService.Current.LastSavedCharaDataLocation : null);
                     }
-                    UiSharedService.AttachToolTip("Load MCDF Metadata into memory");
+                    ElezenImgui.AttachTooltip("Load MCDF Metadata into memory");
                     if ((_charaDataManager.LoadedMcdfHeader?.IsCompleted ?? false))
                     {
                         ImGui.TextUnformatted("Loaded file");
@@ -882,7 +882,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                             {
                                 _ = _charaDataManager.McdfApplyToGposeTarget();
                             }
-                            UiSharedService.AttachToolTip($"Apply to {_gposeTarget}");
+                            ElezenImgui.AttachTooltip($"Apply to {_gposeTarget}");
                             ImGui.SameLine();
                             using (ImRaii.Disabled(!_charaDataManager.BrioAvailable))
                             {
@@ -968,7 +968,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ElezenImgui.ColouredText(data.FullId, ElezenImgui.GetBooleanColour(data.CanBeDownloaded));
             if (!data.CanBeDownloaded)
             {
-                UiSharedService.AttachToolTip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the MCD Online tab.");
+                ElezenImgui.AttachTooltip("This data is incomplete on the server and cannot be downloaded. Contact the owner so they can fix it. If you are the owner, review the data in the MCD Online tab.");
             }
 
             var offsetFromRight = availableWidth - ElezenImgui.GetIconSize(FontAwesomeIcon.Calendar).X - ElezenImgui.GetIconButtonSize(FontAwesomeIcon.ArrowRight).X
@@ -977,7 +977,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             ImGui.SameLine();
             ImGui.SetCursorPosX(offsetFromRight);
             ElezenImgui.ShowIcon(FontAwesomeIcon.Calendar);
-            UiSharedService.AttachToolTip($"Last Update: {data.UpdatedDate}");
+            ElezenImgui.AttachTooltip($"Last Update: {data.UpdatedDate}");
 
             ImGui.SameLine();
             GposeMetaInfoAction((meta) =>
@@ -1010,7 +1010,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
                 }
                 if (_isHandlingSelf)
                 {
-                    UiSharedService.AttachToolTip("Cannot use MCD Online while having Character Data applied to self.");
+                    ElezenImgui.AttachTooltip("Cannot use MCD Online while having Character Data applied to self.");
                 }
             }
 
@@ -1061,7 +1061,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             if (!isInGpose)
             {
                 start = DrawIcon(start);
-                UiSharedService.AttachToolTip(tooltip + UiSharedService.TooltipSeparator + (item.HasWorldData ? GetWorldDataTooltipText(item) + UiSharedService.TooltipSeparator + "Click to show on Map" : string.Empty));
+                ElezenImgui.AttachTooltip(tooltip + UiSharedService.TooltipSeparator + (item.HasWorldData ? GetWorldDataTooltipText(item) + UiSharedService.TooltipSeparator + "Click to show on Map" : string.Empty));
                 if (item.HasWorldData && ImGui.IsItemClicked(ImGuiMouseButton.Left))
                 {
                     _dalamudUtilService.SetMarkerAndOpenMap(item.Position, item.Map);
@@ -1101,14 +1101,14 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             _configService.Current.OpenMareHubOnGposeStart = openInGpose;
             _configService.Save();
         }
-        _uiSharedService.DrawHelpText("This will automatically open the import menu when loading into Gpose. If unchecked you can open the menu manually with /mare gpose");
+        ElezenImgui.DrawHelpText("This will automatically open the import menu when loading into Gpose. If unchecked you can open the menu manually with /mare gpose");
         bool downloadDataOnConnection = _configService.Current.DownloadMcdDataOnConnection;
         if (ImGui.Checkbox("Download MCD Online Data on connecting", ref downloadDataOnConnection))
         {
             _configService.Current.DownloadMcdDataOnConnection = downloadDataOnConnection;
             _configService.Save();
         }
-        _uiSharedService.DrawHelpText("This will automatically download MCD Online data (Your Own and Shared with You) once a connection is established to the server.");
+        ElezenImgui.DrawHelpText("This will automatically download MCD Online data (Your Own and Shared with You) once a connection is established to the server.");
 
         bool showHelpTexts = _configService.Current.ShowHelpTexts;
         if (ImGui.Checkbox("Show \"What is this? (Explanation / Help)\" foldouts", ref showHelpTexts))
@@ -1118,7 +1118,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         }
 
         ImGui.Checkbox("Abbreviate Chara Names", ref _abbreviateCharaName);
-        _uiSharedService.DrawHelpText("This setting will abbreviate displayed names. This setting is not persistent and will reset between restarts.");
+        ElezenImgui.DrawHelpText("This setting will abbreviate displayed names. This setting is not persistent and will reset between restarts.");
 
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted("Last Export Folder");
@@ -1130,7 +1130,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
             _configService.Current.LastSavedCharaDataLocation = string.Empty;
             _configService.Save();
         }
-        _uiSharedService.DrawHelpText("Use this if the Load or Save MCDF file dialog does not open");
+        ElezenImgui.DrawHelpText("Use this if the Load or Save MCDF file dialog does not open");
     }
 
     private void DrawHelpFoldout(string text)

@@ -59,7 +59,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetPaused(paused);
         }
-        _uiSharedService.DrawHelpText("Pausing will completely cease any sync with this user." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Pausing will completely cease any sync with this user." + UiSharedService.TooltipSeparator
             +"Note: this is bidirectional, either user pausing will cease sync completely.");
         var otherPerms = Pair.UserPair.OtherPermissions;
 
@@ -84,7 +84,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableSounds(disableSounds);
         }
-        _uiSharedService.DrawHelpText("Disabling sounds will remove all sounds synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling sounds will remove all sounds synced with this user on both sides." + UiSharedService.TooltipSeparator
             + "Note: this is bidirectional, either user disabling sound sync will stop sound sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -98,7 +98,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableAnimations(disableAnimations);
         }
-        _uiSharedService.DrawHelpText("Disabling animationss will remove all animations synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling animationss will remove all animations synced with this user on both sides." + UiSharedService.TooltipSeparator
             + "Note: this is bidirectional, either user disabling animation sync will stop animation sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -112,7 +112,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableVFX(disableVfx);
         }
-        _uiSharedService.DrawHelpText("Disabling sounds will remove all VFX synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling sounds will remove all VFX synced with this user on both sides." + UiSharedService.TooltipSeparator
             + "Note: this is bidirectional, either user disabling VFX sync will stop VFX sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -133,7 +133,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             {
                 _ = _apiController.UserSetPairPermissions(new(Pair.UserData, _ownPermissions));
             }
-        UiSharedService.AttachToolTip("Save and apply all changes");
+        ElezenImgui.AttachTooltip("Save and apply all changes");
         
         var rightSideButtons = ElezenImgui.GetIconButtonTextSize(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert") +
                                ElezenImgui.GetIconButtonTextSize(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default");
@@ -146,7 +146,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             {
                 _ownPermissions = Pair.UserPair.OwnPermissions.DeepClone();
             }
-        UiSharedService.AttachToolTip("Revert all changes");
+        ElezenImgui.AttachTooltip("Revert all changes");
         
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.ArrowsSpin, "Reset to Default"))
@@ -157,7 +157,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
             _ownPermissions.SetDisableAnimations(false);
             _ = _apiController.UserSetPairPermissions(new(Pair.UserData, _ownPermissions));
         }
-        UiSharedService.AttachToolTip("This will set all permissions to their default setting");
+        ElezenImgui.AttachTooltip("This will set all permissions to their default setting");
         
         var ySize = ImGui.GetCursorPosY() + style.FramePadding.Y * ImGuiHelpers.GlobalScale + style.FrameBorderSize;
         ImGui.SetWindowSize(new(400, ySize));

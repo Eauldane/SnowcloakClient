@@ -1301,7 +1301,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         if (role == ChannelUserRole.Owner && !isSelected && ImGui.IsItemHovered())
         {
-            UiSharedService.AttachToolTip("Warning: assigning Owner will transfer channel ownership.");
+            ElezenImgui.AttachTooltip("Warning: assigning Owner will transfer channel ownership.");
         }
     }
 

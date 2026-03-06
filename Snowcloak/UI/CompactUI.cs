@@ -200,7 +200,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 _selectedMenu = menu;
             }
-            UiSharedService.AttachToolTip(label);
+            ElezenImgui.AttachTooltip(label);
         }
         else
         {
@@ -220,7 +220,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 onClick();
             }
-            UiSharedService.AttachToolTip(label);
+            ElezenImgui.AttachTooltip(label);
         }
         else
         {
@@ -255,7 +255,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 _sidebarCollapsed = !_sidebarCollapsed;
             }
-            UiSharedService.AttachToolTip(_sidebarCollapsed
+            ElezenImgui.AttachTooltip(_sidebarCollapsed
                 ? "Expand Sidebar"
                 : "Collapse Sidebar");
             
@@ -337,7 +337,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     _ = _apiController.CreateConnections();
                 });
                 ImGui.PopStyleColor();
-                UiSharedService.AttachToolTip(!_serverManager.CurrentServer.FullPause
+                ElezenImgui.AttachTooltip(!_serverManager.CurrentServer.FullPause
                     ? string.Format("Disconnect from {0}", _serverManager.CurrentServer.ServerName)
                     : string.Format("Connect to {0}", _serverManager.CurrentServer.ServerName));
             }
@@ -575,7 +575,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         {
             _pairToAdd = string.Empty;
         }
-        UiSharedService.AttachToolTip("Clear");
+        ElezenImgui.AttachTooltip("Clear");
         ImGui.SameLine();
         var canAdd = !_pairManager.DirectPairs.Any(p => string.Equals(p.UserData.UID, _pairToAdd, StringComparison.Ordinal) || string.Equals(p.UserData.Alias, _pairToAdd, StringComparison.Ordinal));
         using (ImRaii.Disabled(!canAdd))
@@ -585,7 +585,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _ = _apiController.UserAddPair(new(new(_pairToAdd)));
                 _pairToAdd = string.Empty;
             }
-            UiSharedService.AttachToolTip(string.Format("Send pair request to {0}", _pairToAdd.IsNullOrEmpty() ? "another player" : _pairToAdd));
+            ElezenImgui.AttachTooltip(string.Format("Send pair request to {0}", _pairToAdd.IsNullOrEmpty() ? "another player" : _pairToAdd));
         }
         ImGui.PopStyleVar();
 
@@ -653,9 +653,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                 _buttonState = !_buttonState;
             }
             if (!_timeout.IsRunning)
-                UiSharedService.AttachToolTip(string.Format("Hold Control to {0} pairing with {1} out of {2} displayed users.", button == FontAwesomeIcon.Play ? "resume" : "pause", users.Count, userCount));
+                ElezenImgui.AttachTooltip(string.Format("Hold Control to {0} pairing with {1} out of {2} displayed users.", button == FontAwesomeIcon.Play ? "resume" : "pause", users.Count, userCount));
             else
-                UiSharedService.AttachToolTip(string.Format("Next execution is available at {0} seconds", (5000 - _timeout.ElapsedMilliseconds) / 1000));
+                ElezenImgui.AttachTooltip(string.Format("Next execution is available at {0} seconds", (5000 - _timeout.ElapsedMilliseconds) / 1000));
         }
     }
 
@@ -778,7 +778,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             {
                 ImGui.SetClipboardText(_apiController.DisplayName);
             }
-            UiSharedService.AttachToolTip("Click to copy");
+            ElezenImgui.AttachTooltip("Click to copy");
             
                         
             if (!string.Equals(_apiController.DisplayName, _apiController.UID, StringComparison.Ordinal))
@@ -790,7 +790,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                 {
                     ImGui.SetClipboardText(_apiController.UID);
                 }
-                UiSharedService.AttachToolTip("Click to copy");
+                ElezenImgui.AttachTooltip("Click to copy");
             }
             
             var headerEnd = ImGui.GetCursorPos();
@@ -819,7 +819,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     RefreshPatreonStatus();
                 }
             }
-            UiSharedService.AttachToolTip("Edit vanity ID");
+            ElezenImgui.AttachTooltip("Edit vanity ID");
             ImGui.SetCursorPos(headerEnd);
         }
 
