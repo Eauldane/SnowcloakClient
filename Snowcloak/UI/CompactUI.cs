@@ -466,7 +466,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     "Account registered. Welcome to Snowcloak!");
             }
 
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account"))
             {
                 BeginCharacterRegistration(
                     _registerService.RegisterAccount,

@@ -1554,8 +1554,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 if (!hasSecretKey || invalidSecretKey)
                 {
                     var xivAuthPrompt = invalidSecretKey
-                        ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a legacy key."
-                        : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a legacy key.";
+                        ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
+                        : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a standalone key.";
                     ElezenImgui.ColouredWrappedText(
                         xivAuthPrompt,
                         ImGuiColors.DalamudYellow);
@@ -1576,7 +1576,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                         }
 
                         ImGui.SameLine();
-                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create and assign legacy key"))
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create and assign key"))
                         {
                             BeginCurrentCharacterSecretKeyRegistration(
                                 selectedServer,
@@ -1585,8 +1585,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
                                 removeInvalidSecretKey,
                                 invalidSecretKeyIdx,
                                 _registerService.RegisterAccount,
-                                "Legacy key created successfully. Added a new secret key and assigned it to your current character.",
-                                "Legacy key registration failed");
+                                "Standalone key created successfully. Added a new secret key and assigned it to your current character.",
+                                "Standalone key registration failed");
                         }
                     }
 
@@ -1690,7 +1690,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 if (true) // Enable registration button for all servers
                 {
                     ImGui.SameLine();
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register a Snowcloak account (legacy method)"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register a Snowcloak account"))
                     {
                         _registrationInProgress = true;
                         _ = Task.Run(async () => {

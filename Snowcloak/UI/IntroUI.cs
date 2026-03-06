@@ -297,7 +297,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                     });
                 }
                 ImGui.SameLine();
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account"))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {
