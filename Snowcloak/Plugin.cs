@@ -99,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<DatabaseService>();
 
             collection.AddSingleton<ServerConfigurationManager>();
+            collection.AddSingleton<SecretKeyBackupService>();
             collection.AddSingleton<ApiController>();
             collection.AddSingleton<PerformanceCollectorService>();
             collection.AddSingleton<HubFactory>();

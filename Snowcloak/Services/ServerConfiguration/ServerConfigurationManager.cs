@@ -192,10 +192,13 @@ public class ServerConfigurationManager
         Save();
     }
 
-    internal void AddCurrentCharacterToServer(int serverSelectionIndex = -1, bool save = true)
+    internal void AddCurrentCharacterToServer(int serverSelectionIndex = -1, int? secretKeyIdx = null, bool save = true)
     {
         if (serverSelectionIndex == -1) serverSelectionIndex = CurrentServerIndex;
         var server = GetServerByIndex(serverSelectionIndex);
+        if (!server.SecretKeys.Any())
+            return;
+
         if (server.Authentications.Any(c => string.Equals(c.CharacterName, _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult(), StringComparison.Ordinal)
                 && c.WorldId == _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult()))
             return;
@@ -204,11 +207,21 @@ public class ServerConfigurationManager
         {
             CharacterName = _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult(),
             WorldId = _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult(),
-            SecretKeyIdx = server.SecretKeys.Last().Key,
+            SecretKeyIdx = secretKeyIdx ?? server.SecretKeys.Last().Key,
         });
 
         if (save)
             Save();
+    }
+
+    internal bool HasCurrentCharacterAssignment(int serverSelectionIndex = -1)
+    {
+        if (serverSelectionIndex == -1) serverSelectionIndex = CurrentServerIndex;
+        var server = GetServerByIndex(serverSelectionIndex);
+        var playerName = _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult();
+        var worldId = _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult();
+        return server.Authentications.Any(c => string.Equals(c.CharacterName, playerName, StringComparison.Ordinal)
+            && c.WorldId == worldId);
     }
 
     internal void AddEmptyCharacterToServer(int serverSelectionIndex)

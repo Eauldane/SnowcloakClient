@@ -6,6 +6,7 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
 using ElezenTools.UI;
+using Snowcloak.API.Dto.Account;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
@@ -53,6 +54,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private readonly PlayerPerformanceService _playerPerformanceService;
     private readonly AccountRegistrationService _registerService;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly SecretKeyBackupService _secretKeyBackupService;
     private readonly UiSharedService _uiShared;
     private bool _deleteAccountPopupModalShown = false;
     private string _lastTab = string.Empty;
@@ -71,7 +73,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _xivAuthRegistrationInProgress = false;
     private bool _xivAuthRegistrationSuccess = false;
     private string? _xivAuthRegistrationMessage;
-    private const int SecretKeyBackupVersion = 1;
     private bool _secretKeyBackupSuccess = false;
     private string? _secretKeyBackupMessage = null;
     private string _lastSecretKeyBackupDirectory = string.Empty;
@@ -80,6 +81,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         UiSharedService uiShared, SnowcloakConfigService configService,
         PairManager pairManager, PairRequestService pairRequestService, ChatService chatService, GuiHookService guiHookService,
         ServerConfigurationManager serverConfigurationManager,
+        SecretKeyBackupService secretKeyBackupService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PlayerPerformanceService playerPerformanceService,
         SnowMediator mediator, PerformanceCollectorService performanceCollector,
         FileUploadManager fileTransferManager,
@@ -96,6 +98,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _chatService = chatService;
         _guiHookService = guiHookService;
         _serverConfigurationManager = serverConfigurationManager;
+        _secretKeyBackupService = secretKeyBackupService;
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _playerPerformanceService = playerPerformanceService;
         _performanceCollector = performanceCollector;
@@ -1561,88 +1564,35 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     {
                         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                         {
-                            var currentPlayerName = playerName;
-                            var currentPlayerWorldId = playerWorldId;
+                            BeginCurrentCharacterSecretKeyRegistration(
+                                selectedServer,
+                                playerName,
+                                playerWorldId,
+                                removeInvalidSecretKey,
+                                invalidSecretKeyIdx,
+                                _registerService.XIVAuth,
+                                "XIVAuth login successful. Added a new secret key and assigned it to your current character.",
+                                "XIVAuth registration failed");
+                        }
 
-                            _xivAuthRegistrationInProgress = true;
-                            _xivAuthRegistrationMessage = null;
-                            _xivAuthRegistrationSuccess = false;
-
-                            var server = selectedServer;
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
-                                    if (!reply.Success)
-                                    {
-                                        _logger.LogWarning("XIVAuth registration failed: {err}", reply.ErrorMessage);
-                                        _xivAuthRegistrationMessage = reply.ErrorMessage;
-                                        if (_xivAuthRegistrationMessage.IsNullOrEmpty())
-                                            _xivAuthRegistrationMessage = "An unknown error occured. Please try again later.";
-                                        return;
-                                    }
-
-                                    var assignedCharacter = server.Authentications.Find(a =>
-                                        string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
-                                        && a.WorldId == currentPlayerWorldId);
-
-                                    var newSecretKeyIdx = server.SecretKeys.Any() ? server.SecretKeys.Max(p => p.Key) + 1 : 0;
-                                    server.SecretKeys.Add(newSecretKeyIdx, new SecretKey()
-                                    {
-                                        FriendlyName = string.Format(CultureInfo.InvariantCulture, "{0} {1}", reply.UID,
-                                            string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
-                                        Key = reply.SecretKey ?? string.Empty
-                                    });
-
-                                    if (removeInvalidSecretKey && invalidSecretKeyIdx.HasValue)
-                                    {
-                                        foreach (var auth in server.Authentications.Where(a => a.SecretKeyIdx == invalidSecretKeyIdx.Value).ToList())
-                                        {
-                                            auth.SecretKeyIdx = newSecretKeyIdx;
-                                        }
-                                        server.SecretKeys.Remove(invalidSecretKeyIdx.Value);
-                                    }
-                                    else
-                                    {
-                                        if (assignedCharacter == null)
-                                        {
-                                            server.Authentications.Add(new Authentication()
-                                            {
-                                                CharacterName = currentPlayerName,
-                                                WorldId = currentPlayerWorldId,
-                                                SecretKeyIdx = newSecretKeyIdx
-                                            });
-                                        }
-                                        else
-                                        {
-                                            assignedCharacter.SecretKeyIdx = newSecretKeyIdx;
-                                        }
-                                    }
-
-                                    _serverConfigurationManager.Save();
-                                    _ = _apiController.CreateConnections();
-
-                                    _xivAuthRegistrationSuccess = true;
-                                    _xivAuthRegistrationMessage = "XIVAuth login successful. Added a new secret key and assigned it to your current character.";
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogWarning(ex, "XIVAuth registration failed");
-                                    _xivAuthRegistrationSuccess = false;
-                                    _xivAuthRegistrationMessage ="An unknown error occured. Please try again later.";
-                                }
-                                finally
-                                {
-                                    _xivAuthRegistrationInProgress = false;
-                                }
-                            }, CancellationToken.None);
+                        ImGui.SameLine();
+                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create and assign legacy key"))
+                        {
+                            BeginCurrentCharacterSecretKeyRegistration(
+                                selectedServer,
+                                playerName,
+                                playerWorldId,
+                                removeInvalidSecretKey,
+                                invalidSecretKeyIdx,
+                                _registerService.RegisterAccount,
+                                "Legacy key created successfully. Added a new secret key and assigned it to your current character.",
+                                "Legacy key registration failed");
                         }
                     }
 
                     if (_xivAuthRegistrationInProgress)
                     {
-                        ImGui.TextUnformatted("Waiting for XIVAuth...");
+                        ImGui.TextUnformatted("Waiting for the server...");
                     }
                     else if (!_xivAuthRegistrationMessage.IsNullOrEmpty())
                     {
@@ -1867,23 +1817,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
             try
             {
-                var notes = _serverConfigurationManager.GetNotesForServer(selectedServer.ServerUri);
-
-                var backup = new SecretKeyBackupFile()
-                {
-                    Version = SecretKeyBackupVersion,
-                    ExportedAtUtc = DateTime.UtcNow,
-                    ServiceName = selectedServer.ServerName,
-                    ServiceUri = selectedServer.ServerUri,
-                    SecretKeys = CloneSecretKeys(selectedServer.SecretKeys),
-                    CharacterAssignments = CloneAuthentications(selectedServer.Authentications),
-                    Notes = CloneNotes(notes)
-                };
-
-                File.WriteAllText(path, JsonSerializer.Serialize(backup, new JsonSerializerOptions() { WriteIndented = true }));
+                var backup = _secretKeyBackupService.Export(selectedServer, path);
                 _lastSecretKeyBackupDirectory = Path.GetDirectoryName(path) ?? string.Empty;
                 SetSecretKeyBackupStatus(
-                    $"Snowcloak backup exported: {backup.SecretKeys.Count} key(s), {backup.CharacterAssignments.Count} assignment(s), {backup.Notes.UidServerComments.Count} user note(s).",
+                    $"Snowcloak backup exported: {backup.SecretKeyCount} key(s), {backup.CharacterAssignmentCount} assignment(s), {backup.UserNoteCount} user note(s).",
                     success: true);
             }
             catch (Exception ex)
@@ -1904,38 +1841,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
             try
             {
-                var fileContent = File.ReadAllText(path);
-                var imported = JsonSerializer.Deserialize<SecretKeyBackupFile>(fileContent, new JsonSerializerOptions()
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-                if (imported == null)
-                {
-                    throw new InvalidDataException("Backup file could not be parsed.");
-                }
-                if (imported.Version > SecretKeyBackupVersion)
-                {
-                    throw new InvalidDataException($"Backup version {imported.Version} is not supported by this client.");
-                }
-
-                imported.SecretKeys ??= [];
-                imported.CharacterAssignments ??= [];
-                imported.Notes ??= new ServerNotesStorage();
-
-                if (imported.CharacterAssignments.Any(a =>
-                        a.SecretKeyIdx != -1 && !imported.SecretKeys.ContainsKey(a.SecretKeyIdx)))
-                {
-                    throw new InvalidDataException("Backup contains character assignments that reference missing secret keys.");
-                }
-
-                selectedServer.SecretKeys = CloneSecretKeys(imported.SecretKeys);
-                selectedServer.Authentications = CloneAuthentications(imported.CharacterAssignments);
-                _serverConfigurationManager.ReplaceNotesForServer(selectedServer.ServerUri, CloneNotes(imported.Notes), save: true);
-                _serverConfigurationManager.Save();
-
+                var imported = _secretKeyBackupService.ImportIntoServer(path, selectedServer);
                 _lastSecretKeyBackupDirectory = Path.GetDirectoryName(path) ?? string.Empty;
                 SetSecretKeyBackupStatus(
-                    $"Secret key backup restored: {selectedServer.SecretKeys.Count} key(s), {selectedServer.Authentications.Count} assignment(s), {imported.Notes.UidServerComments.Count} user note(s).",
+                    $"Secret key backup restored: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s).",
                     success: true);
             }
             catch (Exception ex)
@@ -1952,51 +1861,85 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _secretKeyBackupSuccess = success;
     }
 
-    private static Dictionary<int, SecretKey> CloneSecretKeys(Dictionary<int, SecretKey> source)
+    private void BeginCurrentCharacterSecretKeyRegistration(ServerStorage server, string currentPlayerName, uint currentPlayerWorldId,
+        bool removeInvalidSecretKey, int? invalidSecretKeyIdx, Func<CancellationToken, Task<RegisterReplyDto>> registrationFunc,
+        string successMessage, string failureLogMessage)
     {
-        return source.ToDictionary(
-            kvp => kvp.Key,
-            kvp => new SecretKey()
+        _xivAuthRegistrationInProgress = true;
+        _xivAuthRegistrationMessage = null;
+        _xivAuthRegistrationSuccess = false;
+
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                FriendlyName = kvp.Value.FriendlyName,
-                Key = kvp.Value.Key
+                var reply = await registrationFunc(CancellationToken.None).ConfigureAwait(false);
+                if (!reply.Success)
+                {
+                    _logger.LogWarning("{msg}: {err}", failureLogMessage, reply.ErrorMessage);
+                    _xivAuthRegistrationMessage = reply.ErrorMessage;
+                    if (_xivAuthRegistrationMessage.IsNullOrEmpty())
+                        _xivAuthRegistrationMessage = "An unknown error occured. Please try again later.";
+                    return;
+                }
+
+                AssignRegisteredKeyToCurrentCharacter(server, currentPlayerName, currentPlayerWorldId, reply, removeInvalidSecretKey, invalidSecretKeyIdx);
+
+                _serverConfigurationManager.Save();
+                _ = _apiController.CreateConnections();
+
+                _xivAuthRegistrationSuccess = true;
+                _xivAuthRegistrationMessage = successMessage;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, failureLogMessage);
+                _xivAuthRegistrationSuccess = false;
+                _xivAuthRegistrationMessage = "An unknown error occured. Please try again later.";
+            }
+            finally
+            {
+                _xivAuthRegistrationInProgress = false;
+            }
+        }, CancellationToken.None);
+    }
+
+    private static void AssignRegisteredKeyToCurrentCharacter(ServerStorage server, string currentPlayerName, uint currentPlayerWorldId,
+        RegisterReplyDto reply, bool removeInvalidSecretKey, int? invalidSecretKeyIdx)
+    {
+        var assignedCharacter = server.Authentications.Find(a =>
+            string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
+            && a.WorldId == currentPlayerWorldId);
+
+        var newSecretKeyIdx = server.SecretKeys.Any() ? server.SecretKeys.Max(p => p.Key) + 1 : 0;
+        server.SecretKeys.Add(newSecretKeyIdx, new SecretKey()
+        {
+            FriendlyName = string.Format(CultureInfo.InvariantCulture, "{0} {1}", reply.UID,
+                string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
+            Key = reply.SecretKey ?? string.Empty
+        });
+
+        if (removeInvalidSecretKey && invalidSecretKeyIdx.HasValue)
+        {
+            foreach (var auth in server.Authentications.Where(a => a.SecretKeyIdx == invalidSecretKeyIdx.Value).ToList())
+            {
+                auth.SecretKeyIdx = newSecretKeyIdx;
+            }
+            server.SecretKeys.Remove(invalidSecretKeyIdx.Value);
+        }
+        else if (assignedCharacter == null)
+        {
+            server.Authentications.Add(new Authentication()
+            {
+                CharacterName = currentPlayerName,
+                WorldId = currentPlayerWorldId,
+                SecretKeyIdx = newSecretKeyIdx
             });
-    }
-
-    private static List<Authentication> CloneAuthentications(IEnumerable<Authentication> source)
-    {
-        return source.Select(a => new Authentication()
+        }
+        else
         {
-            CharacterName = a.CharacterName,
-            WorldId = a.WorldId,
-            SecretKeyIdx = a.SecretKeyIdx
-        }).ToList();
-    }
-
-    private static ServerNotesStorage CloneNotes(ServerNotesStorage notes)
-    {
-        var gidComments = notes.GidServerComments ?? new Dictionary<string, string>(StringComparer.Ordinal);
-        var uidComments = notes.UidServerComments ?? new Dictionary<string, string>(StringComparer.Ordinal);
-        var uidNames = notes.UidLastSeenNames ?? new Dictionary<string, string>(StringComparer.Ordinal);
-
-        return new ServerNotesStorage()
-        {
-            GidServerComments = gidComments.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
-            UidServerComments = uidComments.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
-            UidLastSeenNames = uidNames.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal)
-        };
-    }
-
-    [Serializable]
-    private sealed class SecretKeyBackupFile
-    {
-        public int Version { get; set; } = SecretKeyBackupVersion;
-        public DateTime ExportedAtUtc { get; set; } = DateTime.UtcNow;
-        public string ServiceName { get; set; } = string.Empty;
-        public string ServiceUri { get; set; } = string.Empty;
-        public Dictionary<int, SecretKey> SecretKeys { get; set; } = [];
-        public List<Authentication> CharacterAssignments { get; set; } = [];
-        public ServerNotesStorage Notes { get; set; } = new();
+            assignedCharacter.SecretKeyIdx = newSecretKeyIdx;
+        }
     }
 
     private string _uidToAddForIgnore = string.Empty;

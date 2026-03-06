@@ -461,35 +461,16 @@ public class CompactUi : WindowMediatorSubscriberBase
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
             {
-                _registrationInProgress = true;
-                _ = Task.Run(async () => {
-                    try
-                    {
-                        var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
-                        if (!reply.Success)
-                        {
-                            _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
-                            _registrationMessage = reply.ErrorMessage;
-                            if (_registrationMessage.IsNullOrEmpty())
-                                _registrationMessage = "An unknown error occured. Please try again later.";
-                            return;
-                        }
-                        _registrationMessage = "Account registered. Welcome to Snowcloak!";
-                        _secretKey = reply.SecretKey ?? "";
-                        _registrationReply = reply;
-                        _registrationSuccess = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Registration failed");
-                        _registrationSuccess = false;
-                        _registrationMessage = "An unknown error occured. Please try again later.";
-                    }
-                    finally
-                    {
-                        _registrationInProgress = false;
-                    }
-                });
+                BeginCharacterRegistration(
+                    _registerService.XIVAuth,
+                    "Account registered. Welcome to Snowcloak!");
+            }
+
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account (legacy method)"))
+            {
+                BeginCharacterRegistration(
+                    _registerService.RegisterAccount,
+                    "New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.");
             }
 
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add character with existing key"))
@@ -549,6 +530,46 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
+    }
+
+    private void BeginCharacterRegistration(Func<CancellationToken, Task<RegisterReplyDto>> registrationFunc, string successMessage)
+    {
+        _registrationInProgress = true;
+        _registrationMessage = null;
+        _registrationSuccess = false;
+        _registrationReply = null;
+        _secretKey = string.Empty;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var reply = await registrationFunc(CancellationToken.None).ConfigureAwait(false);
+                if (!reply.Success)
+                {
+                    _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
+                    _registrationMessage = reply.ErrorMessage;
+                    if (_registrationMessage.IsNullOrEmpty())
+                        _registrationMessage = "An unknown error occured. Please try again later.";
+                    return;
+                }
+
+                _registrationMessage = successMessage;
+                _secretKey = reply.SecretKey ?? "";
+                _registrationReply = reply;
+                _registrationSuccess = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Registration failed");
+                _registrationSuccess = false;
+                _registrationMessage = "An unknown error occured. Please try again later.";
+            }
+            finally
+            {
+                _registrationInProgress = false;
+            }
+        });
     }
 
     private void DrawAddPair()

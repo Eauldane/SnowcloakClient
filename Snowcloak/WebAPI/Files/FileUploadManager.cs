@@ -111,10 +111,22 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             progress.Report($"Uploading file {i++}/{filesToUpload.Count}. Please wait until the upload is completed.");
             Logger.LogDebug("[{hash}] Compressing", file);
             var data = await _fileDbManager.GetCompressedFileData(file.Hash, ct ?? CancellationToken.None).ConfigureAwait(false);
-            Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)!.ResolvedFilepath);
-            await uploadTask.ConfigureAwait(false);
-            uploadTask = UploadFile(data.Item2, file.Hash, false, ct ?? CancellationToken.None);
-            (ct ?? CancellationToken.None).ThrowIfCancellationRequested();
+            MemoryStream? compressedStream = data.Item2;
+            try
+            {
+                Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)!.ResolvedFilepath);
+                await uploadTask.ConfigureAwait(false);
+                uploadTask = UploadFile(compressedStream, file.Hash, false, ct ?? CancellationToken.None);
+                compressedStream = null;
+                (ct ?? CancellationToken.None).ThrowIfCancellationRequested();
+            }
+            finally
+            {
+                if (compressedStream != null)
+                {
+                    await compressedStream.DisposeAsync().ConfigureAwait(false);
+                }
+            }
         }
 
         await uploadTask.ConfigureAwait(false);
@@ -156,10 +168,22 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             Logger.LogDebug("[{hash}] Compressing", file);
             metadataByHash.TryGetValue(file.Hash, out var metadata);
             var data = await _fileDbManager.GetCompressedFileData(file.Hash, ct ?? CancellationToken.None, metadata).ConfigureAwait(false);
-            Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)!.ResolvedFilepath);
-            await uploadTask.ConfigureAwait(false);
-            uploadTask = UploadFile(data.Item2, file.Hash, false, ct ?? CancellationToken.None);
-            (ct ?? CancellationToken.None).ThrowIfCancellationRequested();
+            MemoryStream? compressedStream = data.Item2;
+            try
+            {
+                Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)!.ResolvedFilepath);
+                await uploadTask.ConfigureAwait(false);
+                uploadTask = UploadFile(compressedStream, file.Hash, false, ct ?? CancellationToken.None);
+                compressedStream = null;
+                (ct ?? CancellationToken.None).ThrowIfCancellationRequested();
+            }
+            finally
+            {
+                if (compressedStream != null)
+                {
+                    await compressedStream.DisposeAsync().ConfigureAwait(false);
+                }
+            }
         }
 
         await uploadTask.ConfigureAwait(false);
@@ -250,18 +274,19 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         _verifiedUploadedHashes.Clear();
     }
 
-    private async Task UploadFile(byte[] compressedFile, string fileHash, bool postProgress, CancellationToken uploadToken,
+    private async Task UploadFile(Stream compressedFile, string fileHash, bool postProgress, CancellationToken uploadToken,
         IReadOnlyList<FileTransfer>? trackedUploads = null)
     {
         if (!_orchestrator.IsInitialized) throw new InvalidOperationException("FileTransferManager is not initialized");
+        await using var uploadStream = compressedFile;
 
-        Logger.LogInformation("[{hash}] Uploading {size}", fileHash, UiSharedService.ByteToString(compressedFile.Length));
+        Logger.LogInformation("[{hash}] Uploading {size}", fileHash, UiSharedService.ByteToString(uploadStream.Length));
 
         if (uploadToken.IsCancellationRequested) return;
 
         try
         {
-            await UploadFileStream(compressedFile, fileHash, munged: false, postProgress, uploadToken, trackedUploads).ConfigureAwait(false);
+            await UploadFileStream(uploadStream, fileHash, munged: false, postProgress, uploadToken, trackedUploads).ConfigureAwait(false);
             _verifiedUploadedHashes[fileHash] = DateTime.UtcNow;
         }
         catch (Exception ex)
@@ -270,13 +295,16 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         }
     }
 
-    private async Task UploadFileStream(byte[] compressedFile, string fileHash, bool munged, bool postProgress, CancellationToken uploadToken,
+    private async Task UploadFileStream(Stream compressedFile, string fileHash, bool munged, bool postProgress, CancellationToken uploadToken,
         IReadOnlyList<FileTransfer>? trackedUploads)
     {
         if (munged)
             throw new InvalidOperationException();
 
-        using var ms = new MemoryStream(compressedFile);
+        if (compressedFile.CanSeek)
+        {
+            compressedFile.Position = 0;
+        }
 
         Progress<UploadProgress>? progressTracker = !postProgress ? null : new((update) =>
         {
@@ -304,7 +332,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             }
         });
 
-        var streamContent = new ProgressableStreamContent(ms, progressTracker);
+        using var streamContent = new ProgressableStreamContent(compressedFile, progressTracker);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         HttpResponseMessage response;
         if (!munged)
@@ -391,23 +419,35 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         {
             Logger.LogDebug("[{hash}] Compressing", file);
             var data = await _fileDbManager.GetCompressedFileData(file.Hash, uploadToken).ConfigureAwait(false);
-            if (!trackedUploadsByHash.TryGetValue(file.Hash, out var trackedUploads) || trackedUploads.Count == 0)
+            MemoryStream? compressedStream = data.Item2;
+            try
             {
-                Logger.LogWarning("[{hash}] Missing upload tracking entry while setting compressed size", file.Hash);
-                continue;
-            }
+                if (!trackedUploadsByHash.TryGetValue(file.Hash, out var trackedUploads) || trackedUploads.Count == 0)
+                {
+                    Logger.LogWarning("[{hash}] Missing upload tracking entry while setting compressed size", file.Hash);
+                    continue;
+                }
 
-            foreach (var upload in trackedUploads)
+                foreach (var upload in trackedUploads)
+                {
+                    upload.Total = compressedStream.Length;
+                    upload.Transferred = 0;
+                }
+
+                var uploadPath = cachedEntriesByHash.TryGetValue(file.Hash, out var uploadEntry) ? uploadEntry.ResolvedFilepath : string.Empty;
+                Logger.LogDebug("[{hash}] Starting upload for {filePath}", file.Hash, uploadPath);
+                await uploadTask.ConfigureAwait(false);
+                uploadTask = UploadFile(compressedStream, file.Hash, true, uploadToken, trackedUploads);
+                compressedStream = null;
+                uploadToken.ThrowIfCancellationRequested();
+            }
+            finally
             {
-                upload.Total = data.Item2.Length;
-                upload.Transferred = 0;
+                if (compressedStream != null)
+                {
+                    await compressedStream.DisposeAsync().ConfigureAwait(false);
+                }
             }
-
-            var uploadPath = cachedEntriesByHash.TryGetValue(file.Hash, out var uploadEntry) ? uploadEntry.ResolvedFilepath : string.Empty;
-            Logger.LogDebug("[{hash}] Starting upload for {filePath}", file.Hash, uploadPath);
-            await uploadTask.ConfigureAwait(false);
-            uploadTask = UploadFile(data.Item2, file.Hash, true, uploadToken, trackedUploads);
-            uploadToken.ThrowIfCancellationRequested();
         }
 
         if (HasCurrentUploads())

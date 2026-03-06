@@ -25,6 +25,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private readonly SnowcloakConfigService _configService;
     private readonly CacheMonitor _cacheMonitor;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly SecretKeyBackupService _secretKeyBackupService;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly AccountRegistrationService _registerService;
     private readonly UiSharedService _uiShared;
@@ -37,16 +38,21 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private bool _registrationSuccess = false;
     private string? _registrationMessage;
     private RegisterReplyDto? _registrationReply;
+    private bool _secretKeyBackupSuccess = false;
+    private string? _secretKeyBackupMessage;
+    private string _lastSecretKeyBackupDirectory = string.Empty;
     
     public IntroUi(ILogger<IntroUi> logger, UiSharedService uiShared, SnowcloakConfigService configService,
         CacheMonitor fileCacheManager, ServerConfigurationManager serverConfigurationManager, SnowMediator snowMediator,
-        PerformanceCollectorService performanceCollectorService, DalamudUtilService dalamudUtilService, AccountRegistrationService registerService)
+        PerformanceCollectorService performanceCollectorService, DalamudUtilService dalamudUtilService,
+        AccountRegistrationService registerService, SecretKeyBackupService secretKeyBackupService)
         : base(logger, snowMediator, "Snowcloak Setup", performanceCollectorService)
     {
         _uiShared = uiShared;
         _configService = configService;
         _cacheMonitor = fileCacheManager;
         _serverConfigurationManager = serverConfigurationManager;
+        _secretKeyBackupService = secretKeyBackupService;
         _dalamudUtilService = dalamudUtilService;
         _registerService = registerService;
         IsOpen = false;
@@ -243,8 +249,20 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             if (true) // Enable registration button for all servers
             {
-                ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
                 ImGui.Separator();
+                ImGui.TextUnformatted("If you already exported a Snowcloak backup, restore it here to reuse your existing service setup.");
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileImport, "Import Snowcloak backup"))
+                {
+                    BeginSecretKeyBackupImport();
+                }
+                ElezenImgui.AttachTooltip("Restore secret keys, character assignments, and notes from a Snowcloak backup JSON.");
+                if (!_secretKeyBackupMessage.IsNullOrEmpty())
+                {
+                    ElezenImgui.ColouredWrappedText(_secretKeyBackupMessage, _secretKeyBackupSuccess ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
+                }
+
+                ImGui.Separator();
+                ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
                 ImGui.TextUnformatted("If you have not used Snowcloak before, click below to register a new account.");
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                 {
@@ -387,6 +405,49 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             Mediator.Publish(new SwitchToMainUiMessage());
             IsOpen = false;
         }
+    }
+
+    private void BeginSecretKeyBackupImport()
+    {
+        string? initialDirectory = Directory.Exists(_lastSecretKeyBackupDirectory) ? _lastSecretKeyBackupDirectory : null;
+        _uiShared.FileDialogManager.OpenFileDialog("Import backup", ".json", (success, paths) =>
+        {
+            if (!success) return;
+            if (paths.FirstOrDefault() is not string path) return;
+
+            try
+            {
+                var imported = _secretKeyBackupService.ImportForInitialSetup(path);
+                _lastSecretKeyBackupDirectory = Path.GetDirectoryName(path) ?? string.Empty;
+                _secretKey = string.Empty;
+                _registrationMessage = null;
+                _registrationReply = null;
+                _registrationSuccess = false;
+                SetSecretKeyBackupStatus(
+                    imported.CurrentCharacterAssigned
+                        ? imported.AutoAssignedCurrentCharacter
+                            ? $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). This character was assigned to the only key in the backup. Attempting to connect."
+                            : $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). Attempting to connect."
+                        : $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). This character is not assigned to a key in the backup.",
+                    success: imported.CurrentCharacterAssigned);
+
+                if (imported.CurrentCharacterAssigned)
+                {
+                    _ = Task.Run(() => _uiShared.ApiController.CreateConnections());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to import secret key backup during initial setup");
+                SetSecretKeyBackupStatus("Secret key backup import failed. Ensure the file is a valid backup JSON.", success: false);
+            }
+        }, 1, initialDirectory);
+    }
+
+    private void SetSecretKeyBackupStatus(string message, bool success)
+    {
+        _secretKeyBackupMessage = message;
+        _secretKeyBackupSuccess = success;
     }
 
 #pragma warning disable MA0009

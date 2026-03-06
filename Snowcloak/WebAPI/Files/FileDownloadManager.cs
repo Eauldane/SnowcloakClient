@@ -9,7 +9,9 @@ using Snowcloak.Utils;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.Files.Models;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 
@@ -17,6 +19,10 @@ namespace Snowcloak.WebAPI.Files;
 
 public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
+    private const int SmallDownloadBufferSize = 64 * 1024;
+    private const int LargeDownloadBufferSize = 256 * 1024;
+    private const long DownloadProgressReportByteInterval = 256 * 1024;
+    private static readonly TimeSpan DownloadProgressReportMinInterval = TimeSpan.FromMilliseconds(100);
     private readonly ConcurrentDictionary<string, FileDownloadStatus> _downloadStatus;
     private readonly FileCacheManager _fileDbManager;
     private readonly FileTransferOrchestrator _orchestrator;
@@ -164,21 +170,51 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             var fileStream = File.Create(tempPath);
             await using (fileStream.ConfigureAwait(false))
             {
-                var bufferSize = response.Content.Headers.ContentLength > 1024 * 1024 ? 65536 : 8196;
-                var buffer = new byte[bufferSize];
+                var bufferSize = response.Content.Headers.ContentLength > 1024 * 1024
+                    ? LargeDownloadBufferSize
+                    : SmallDownloadBufferSize;
+                var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
 
                 var bytesRead = 0;
+                long pendingProgressBytes = 0;
+                long lastProgressReportTimestamp = Stopwatch.GetTimestamp();
                 var limit = _orchestrator.DownloadLimitPerSlot();
                 Logger.LogTrace("Starting Download of {id} with a speed limit of {limit} to {tempPath}", requestId, limit, tempPath);
                 stream = new ThrottledStream(await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), limit);
                 _activeDownloadStreams.Add(stream);
-                while ((bytesRead = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
+                    while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, bufferSize), ct).ConfigureAwait(false)) > 0)
+                    {
+                        ct.ThrowIfCancellationRequested();
 
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
+                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
 
-                    progress.Report(bytesRead);
+                        pendingProgressBytes += bytesRead;
+
+                        long currentTimestamp = Stopwatch.GetTimestamp();
+                        bool byteThresholdReached = pendingProgressBytes >= DownloadProgressReportByteInterval;
+                        bool timeThresholdReached =
+                            Stopwatch.GetElapsedTime(lastProgressReportTimestamp, currentTimestamp) >= DownloadProgressReportMinInterval;
+
+                        if (!byteThresholdReached && !timeThresholdReached)
+                        {
+                            continue;
+                        }
+
+                        progress.Report(pendingProgressBytes);
+                        pendingProgressBytes = 0;
+                        lastProgressReportTimestamp = currentTimestamp;
+                    }
+
+                    if (pendingProgressBytes > 0)
+                    {
+                        progress.Report(pendingProgressBytes);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
                 }
 
                 Logger.LogDebug("{requestUrl} downloaded to {tempPath}", requestUrl, tempPath);
@@ -314,6 +350,10 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             FileStream? fileBlockStream = null;
             var threadCount = Math.Clamp((int)(Environment.ProcessorCount / 2.0f), 2, 8);
             var tasks = new List<Task>();
+            var expectedExtensionByHash = fileReplacement
+                .GroupBy(replacement => replacement.Hash, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().GamePaths[0].Split(".")[^1], StringComparer.OrdinalIgnoreCase);
+            using var extractionConcurrency = new SemaphoreSlim(threadCount, threadCount);
             try
             {
                 if (_downloadStatus.TryGetValue(fileGroup.Key, out var status))
@@ -328,12 +368,16 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                     var chunkPosition = fileBlockStream.Position;
                     fileBlockStream.Position += fileLengthBytes;
 
-                    while (tasks.Count > threadCount && tasks.Count(t => !t.IsCompleted) > 4)
-                        await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+                    if (!expectedExtensionByHash.TryGetValue(fileHash, out var expectedExtension))
+                    {
+                        throw new InvalidDataException($"Missing expected extension metadata for {fileHash}.");
+                    }
 
-                    var expectedExtension = fileReplacement.First(f => string.Equals(f.Hash, fileHash, StringComparison.OrdinalIgnoreCase)).GamePaths[0].Split(".")[^1];
+                    tasks.Add(ExtractBlockChunkAsync());
 
-                    tasks.Add(Task.Run(async () => {
+                    async Task ExtractBlockChunkAsync()
+                    {
+                        await extractionConcurrency.WaitAsync(CancellationToken.None).ConfigureAwait(false);
                         try
                         {
                             await using var fileChunkStream = new FileStream(blockFile, new FileStreamOptions()
@@ -384,10 +428,12 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                             foreach (var fr in fileReplacement)
                                 Logger.LogWarning(" - {h}: {x}", fr.Hash, fr.GamePaths[0]);
                         }
-                    }, CancellationToken.None));
+                        finally
+                        {
+                            extractionConcurrency.Release();
+                        }
+                    }
                 }
-
-                Task.WaitAll([..tasks], CancellationToken.None);
             }
             catch (EndOfStreamException)
             {
@@ -399,7 +445,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             }
             finally
             {
-                Task.WaitAll([..tasks], CancellationToken.None);
+                await Task.WhenAll(tasks).ConfigureAwait(false);
                 _orchestrator.ReleaseDownloadSlot();
                 if (fileBlockStream != null)
                     await fileBlockStream.DisposeAsync().ConfigureAwait(false);

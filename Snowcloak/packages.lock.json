@@ -43,9 +43,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[14.0.0-rc3, )",
-        "resolved": "14.0.0-rc3",
-        "contentHash": "rGAJQdymHJzlMkf3XlzqTqTCBP7reRqAoO0khkRT8HHP8XYX+9apok2Qu7oxKDYpRKZcsobu2dzaiyLFuAzdaw=="
+        "requested": "[14.0.0-rc5, )",
+        "resolved": "14.0.0-rc5",
+        "contentHash": "zjL/CVA3lazF5c9p0R0qDycchzxUjzLPSzlPD2nVQR2TmA6axNTmOGwpE3RsOKEs7/36S839XP6pVgsuqOfSyA=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -196,9 +196,9 @@
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[3.1.0, )",
-        "resolved": "3.1.0",
-        "contentHash": "TmK/RDc6Hc4e797CVQCKdxjotf+F6iY2v+BmXmvFkqoGgVsyb16M2bBUaD6q6+fNlk+IQEnKqPGGKUCfPpzGhw==",
+        "requested": "[3.2.0, )",
+        "resolved": "3.2.0",
+        "contentHash": "kKJh/MtbxpUZ0/7qEvttTBulDQ3jAqHVZcr9ee1fcdR3BOnM00PxVBLVLqnFoaC2w97y6dj0suR9WwniQtbWxA==",
         "dependencies": {
           "Blake3": "2.2.0",
           "K4os.Compression.LZ4.Streams": "1.3.8",

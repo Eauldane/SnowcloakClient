@@ -251,6 +251,17 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.4.3"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Reworked download handler.",
+                    "Optimised file decompression.",
+                    "Removed \"legacy key\" verbiage since they're not really legacy keys anymore.",
+                    "Fresh installs get the option to import backups on the setup screen.",
+                    "Logging in with a character not linked to a key yet shows the option to register a key."
+                ])
+            ]),
             new(VersionFromString("2.4.2.1"), 
             [
                 new ChangelogSection("Changes and Bug Fixes",

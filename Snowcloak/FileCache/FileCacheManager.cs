@@ -170,32 +170,41 @@ public sealed class FileCacheManager : IHostedService
         return Path.Combine(SubstFolder, hash + "." + extension);
     }
 
-    public async Task<(string, byte[])> GetCompressedFileData(string fileHash, CancellationToken uploadToken, IReadOnlyDictionary<string, byte[]>? optionalMetadataFields = null)
+    public async Task<(string, MemoryStream)> GetCompressedFileData(string fileHash, CancellationToken uploadToken, IReadOnlyDictionary<string, byte[]>? optionalMetadataFields = null)
     {
         var fileCache = GetFileCacheByHash(fileHash)!;
         await using var fs = File.OpenRead(fileCache.ResolvedFilepath);
-        using var ms = new MemoryStream(64 * 1024);
+        var ms = new MemoryStream(64 * 1024);
 
-        var extension = Path.GetExtension(fileCache.ResolvedFilepath);
-        var fileExtension = SupportedFileTypes.ParseFileExtension(extension);
-        var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
-        var compressionType = ChooseCompressionType(fileCache.ResolvedFilepath, fileExtension);
+        try
+        {
+            var extension = Path.GetExtension(fileCache.ResolvedFilepath);
+            var fileExtension = SupportedFileTypes.ParseFileExtension(extension);
+            var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
+            var compressionType = ChooseCompressionType(fileCache.ResolvedFilepath, fileExtension);
 
-        var header = await ScfFile.CreateSCFFile(
-            fs,
-            ms,
-            fileExtension,
-            null,
-            uploadToken,
-            _configService.Current.CompressionLevel,
-            _configService.Current.UseMultithreadedCompression,
-            metadata.TriangleCount,
-            metadata.VramUsage,
-            compressionType,
-            optionalMetadata: null,
-            optionalMetadataFields: optionalMetadataFields).ConfigureAwait(false);
-        fileCache.CompressedSize = header.CompressedSize + ScfFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
-        return (fileHash, ms.ToArray());
+            var header = await ScfFile.CreateSCFFile(
+                fs,
+                ms,
+                fileExtension,
+                null,
+                uploadToken,
+                _configService.Current.CompressionLevel,
+                _configService.Current.UseMultithreadedCompression,
+                metadata.TriangleCount,
+                metadata.VramUsage,
+                compressionType,
+                optionalMetadata: null,
+                optionalMetadataFields: optionalMetadataFields).ConfigureAwait(false);
+            fileCache.CompressedSize = header.CompressedSize + ScfFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
+            ms.Position = 0;
+            return (fileHash, ms);
+        }
+        catch
+        {
+            ms.Dispose();
+            throw;
+        }
     }
     
     private (long TriangleCount, long VramUsage) CalculateFileMetadata(string filePath, FileExtension fileExtension)

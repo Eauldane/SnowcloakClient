@@ -753,7 +753,11 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
     {
         string[] comboEntries = _serverConfigurationManager.GetServerNames();
 
-        if (_serverSelectionIndex == -1)
+        if (selectOnChange)
+        {
+            _serverSelectionIndex = _serverConfigurationManager.CurrentServerIndex;
+        }
+        else if (_serverSelectionIndex == -1)
         {
             _serverSelectionIndex = Array.IndexOf(_serverConfigurationManager.GetServerApiUrls(), _serverConfigurationManager.CurrentApiUrl);
         }
