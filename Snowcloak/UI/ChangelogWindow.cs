@@ -251,6 +251,13 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.4.4"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Fixed an issue where the game forgot who a message was from if they were using vanity colours.",
+                ])
+            ]),
             new(VersionFromString("2.4.3"), 
             [
                 new ChangelogSection("Changes and Bug Fixes",

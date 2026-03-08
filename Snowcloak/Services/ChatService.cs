@@ -285,13 +285,13 @@ public class ChatService : DisposableMediatorSubscriberBase
             return;
         }
 
-        var senderDisplayText = ResolvePreferredSenderDisplayName(sender, message);
-        if (string.IsNullOrWhiteSpace(senderDisplayText))
+        var colouredSender = BuildVanityColouredSender(sender, colours);
+        if (colouredSender == null)
         {
             return;
         }
 
-        sender = ElezenStrings.BuildColouredString(senderDisplayText, colours);
+        sender = colouredSender;
     }
 
     private bool TryResolveVanityForGameChatSender(SeString sender, SeString message, out string? foregroundHex, out string? glowHex)
@@ -403,25 +403,20 @@ public class ChatService : DisposableMediatorSubscriberBase
         }
     }
 
-    private static string ResolvePreferredSenderDisplayName(SeString sender, SeString message)
+    private static SeString? BuildVanityColouredSender(SeString sender, ElezenStrings.Colour colours)
     {
-        if (!string.IsNullOrWhiteSpace(sender.TextValue))
+        if (sender.Payloads.Count == 0)
         {
-            return sender.TextValue;
+            return string.IsNullOrWhiteSpace(sender.TextValue)
+                ? null
+                : ElezenStrings.BuildColouredString(sender.TextValue, colours);
         }
 
-        var playerPayload = EnumeratePlayerPayloads(sender, message).FirstOrDefault();
-        if (playerPayload == null)
-        {
-            return string.Empty;
-        }
-
-        if (!string.IsNullOrWhiteSpace(playerPayload.DisplayedName))
-        {
-            return playerPayload.DisplayedName;
-        }
-
-        return playerPayload.PlayerName ?? string.Empty;
+        var builder = new SeStringBuilder();
+        builder.Append(ElezenStrings.BuildColourStartString(colours));
+        builder.Append(sender);
+        builder.Append(ElezenStrings.BuildColourEndString(colours));
+        return builder.Build();
     }
 
     private static IEnumerable<PlayerPayload> EnumeratePlayerPayloads(SeString sender, SeString message)
