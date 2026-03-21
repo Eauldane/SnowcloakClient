@@ -146,23 +146,10 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         {
             status.DownloadStatus = DownloadStatus.Downloading;
         }
-        HttpResponseMessage response = null!;
         var requestUrl = SnowFiles.CacheGetFullPath(fileTransfer[0].DownloadUri, requestId);
 
         Logger.LogDebug("Downloading {requestUrl} for request {id}", requestUrl, requestId);
-        try
-        {
-            response = await _orchestrator.SendRequestAsync(HttpMethod.Get, requestUrl, ct, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-        }
-        catch (HttpRequestException ex)
-        {
-            Logger.LogWarning(ex, "Error during download of {requestUrl}, HttpStatusCode: {code}", requestUrl, ex.StatusCode);
-            if (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized)
-            {
-                throw new InvalidDataException($"Http error {ex.StatusCode} (cancelled: {ct.IsCancellationRequested}): {requestUrl}", ex);
-            }
-        }
+        using var response = await SendDownloadRequestAsync(requestUrl, ct).ConfigureAwait(false);
 
         ThrottledStream? stream = null;
         try
@@ -247,6 +234,26 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         }
     }
 
+    private async Task<HttpResponseMessage> SendDownloadRequestAsync(Uri requestUrl, CancellationToken ct)
+    {
+        try
+        {
+            var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, requestUrl, ct, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            return response;
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogWarning(ex, "Error during download of {requestUrl}, HttpStatusCode: {code}", requestUrl, ex.StatusCode);
+            if (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized)
+            {
+                throw new InvalidDataException($"Http error {ex.StatusCode} (cancelled: {ct.IsCancellationRequested}): {requestUrl}", ex);
+            }
+
+            throw;
+        }
+    }
+
     public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct)
     {
         Logger.LogDebug("Download start: {id}", gameObjectHandler.Name);
@@ -298,12 +305,14 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         async (fileGroup, token) =>
         {
             // let server predownload files
-            var requestIdResponse = await _orchestrator.SendRequestAsync(HttpMethod.Post, SnowFiles.RequestEnqueueFullPath(fileGroup.First().DownloadUri),
+            using var requestIdResponse = await _orchestrator.SendRequestAsync(HttpMethod.Post, SnowFiles.RequestEnqueueFullPath(fileGroup.First().DownloadUri),
                 fileGroup.Select(c => c.Hash), token).ConfigureAwait(false);
+            requestIdResponse.EnsureSuccessStatusCode();
+            var requestIdContent = await requestIdResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false);
             Logger.LogDebug("Sent request for {n} files on server {uri} with result {result}", fileGroup.Count(), fileGroup.First().DownloadUri,
-                await requestIdResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false));
+                requestIdContent);
 
-            Guid requestId = Guid.Parse((await requestIdResponse.Content.ReadAsStringAsync().ConfigureAwait(false)).Trim('"'));
+            Guid requestId = Guid.Parse(requestIdContent.Trim('"'));
 
             Logger.LogDebug("GUID {requestId} for {n} files on server {uri}", requestId, fileGroup.Count(), fileGroup.First().DownloadUri);
 
@@ -461,7 +470,8 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
     private async Task<List<DownloadFileDto>> FilesGetSizes(List<string> hashes, CancellationToken ct)
     {
         if (!_orchestrator.IsInitialized) throw new InvalidOperationException("FileTransferManager is not initialized");
-        var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.ServerFilesGetSizesFullPath(_orchestrator.FilesCdnUri!), hashes, ct).ConfigureAwait(false);
+        using var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.ServerFilesGetSizesFullPath(_orchestrator.FilesCdnUri!), hashes, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<List<DownloadFileDto>>(cancellationToken: ct).ConfigureAwait(false) ?? [];
     }
 
@@ -503,7 +513,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                 {
                     if (downloadCt.IsCancellationRequested) throw;
 
-                    var req = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCheckQueueFullPath(downloadFileTransfer[0].DownloadUri, requestId),
+                    using var req = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCheckQueueFullPath(downloadFileTransfer[0].DownloadUri, requestId),
                         downloadFileTransfer.Select(c => c.Hash).ToList(), downloadCt).ConfigureAwait(false);
                     req.EnsureSuccessStatusCode();
                     localTimeoutCts.Dispose();
@@ -523,7 +533,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         {
             try
             {
-                await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCancelFullPath(downloadFileTransfer[0].DownloadUri, requestId)).ConfigureAwait(false);
+                using var _ = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCancelFullPath(downloadFileTransfer[0].DownloadUri, requestId)).ConfigureAwait(false);
                 alreadyCancelled = true;
             }
             catch
@@ -539,7 +549,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             {
                 try
                 {
-                    await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCancelFullPath(downloadFileTransfer[0].DownloadUri, requestId)).ConfigureAwait(false);
+                    using var _ = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCancelFullPath(downloadFileTransfer[0].DownloadUri, requestId)).ConfigureAwait(false);
                 }
                 catch
                 {

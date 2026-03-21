@@ -1,8 +1,11 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Plugin.Services;
 using ElezenTools.UI;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Logging;
+using NAudio.Wave;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
@@ -15,6 +18,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -23,6 +27,30 @@ namespace Snowcloak.UI;
 
 public class ChatWindow : WindowMediatorSubscriberBase
 {
+    public enum ChatSoundOption
+    {
+        None = 0,
+        FrostChime = 1,
+        BrightPing = 2,
+        TwinBell = 3,
+        GameSoundEffect1 = 100,
+        GameSoundEffect2,
+        GameSoundEffect3,
+        GameSoundEffect4,
+        GameSoundEffect5,
+        GameSoundEffect6,
+        GameSoundEffect7,
+        GameSoundEffect8,
+        GameSoundEffect9,
+        GameSoundEffect10,
+        GameSoundEffect11,
+        GameSoundEffect12,
+        GameSoundEffect13,
+        GameSoundEffect14,
+        GameSoundEffect15,
+        GameSoundEffect16
+    }
+
     private enum ChannelKind
     {
         Syncshell,
@@ -33,10 +61,13 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly record struct ChatChannelKey(ChannelKind Kind, string Id);
 
     private sealed record ChatLine(DateTime Timestamp, string SenderUid, string Sender, string Message, Vector4? SenderColor, Vector4? SenderGlowColor);
+    private readonly record struct ToneStep(double Frequency, int DurationMs, double Volume, int SilenceAfterMs = 0);
 
     private readonly ApiController _apiController;
     private readonly ChatService _chatService;
     private readonly DalamudUtilService _dalamudUtil;
+    private readonly IFramework _framework;
+    private readonly IGameGui _gameGui;
     private readonly SnowcloakConfigService _configService;
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverManager;
@@ -56,15 +87,57 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly HashSet<string> _loadedSyncshellHistory = new(StringComparer.Ordinal);
     private string _standardChannelTopicDraft = string.Empty;
     private bool _isEditingStandardChannelTopic;
+    private readonly object _messageSoundLock = new();
+    private WaveOutEvent? _messageSoundOutput;
+
+    private const string ChatLogAddonName = "ChatLog";
+    private const int FirstGameSoundEffectOptionValue = (int)ChatSoundOption.GameSoundEffect1;
+    private const int LastGameSoundEffectOptionValue = (int)ChatSoundOption.GameSoundEffect16;
+    private const int MessageSoundSampleRate = 44100;
+    private static readonly WaveFormat MessageSoundWaveFormat = new(MessageSoundSampleRate, 16, 1);
+    private static readonly Dictionary<ChatSoundOption, byte[]> MessageSoundBuffers = new()
+    {
+        [ChatSoundOption.FrostChime] = CreateToneBuffer(
+            new ToneStep(880, 70, 0.18, 18),
+            new ToneStep(1174, 120, 0.16)),
+        [ChatSoundOption.TwinBell] = CreateToneBuffer(
+            new ToneStep(1046, 65, 0.18, 42),
+            new ToneStep(1318, 130, 0.15)),
+    };
+
+    public static IReadOnlyList<ChatSoundOption> AvailableChatSoundOptions { get; } =
+    [
+        ChatSoundOption.None,
+        ChatSoundOption.GameSoundEffect1,
+        ChatSoundOption.GameSoundEffect2,
+        ChatSoundOption.GameSoundEffect3,
+        ChatSoundOption.GameSoundEffect4,
+        ChatSoundOption.GameSoundEffect5,
+        ChatSoundOption.GameSoundEffect6,
+        ChatSoundOption.GameSoundEffect7,
+        ChatSoundOption.GameSoundEffect8,
+        ChatSoundOption.GameSoundEffect9,
+        ChatSoundOption.GameSoundEffect10,
+        ChatSoundOption.GameSoundEffect11,
+        ChatSoundOption.GameSoundEffect12,
+        ChatSoundOption.GameSoundEffect13,
+        ChatSoundOption.GameSoundEffect14,
+        ChatSoundOption.GameSoundEffect15,
+        ChatSoundOption.GameSoundEffect16,
+        ChatSoundOption.FrostChime,
+        ChatSoundOption.TwinBell,
+    ];
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ApiController apiController,
         PairManager pairManager, ServerConfigurationManager serverManager, PerformanceCollectorService performanceCollectorService,
-        ChatService chatService, DalamudUtilService dalamudUtil, SnowcloakConfigService configService)
+        ChatService chatService, DalamudUtilService dalamudUtil, SnowcloakConfigService configService, IFramework framework, IGameGui gameGui)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChatWindow", performanceCollectorService)
     {
         _apiController = apiController;
         _chatService = chatService;
         _dalamudUtil = dalamudUtil;
+        _framework = framework;
+        _gameGui = gameGui;
         _configService = configService;
         _pairManager = pairManager;
         _serverManager = serverManager;
@@ -100,6 +173,52 @@ public class ChatWindow : WindowMediatorSubscriberBase
     protected override void DrawInternal()
     {
         DrawChatLayout();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            WaveOutEvent? activeOutput;
+            lock (_messageSoundLock)
+            {
+                activeOutput = _messageSoundOutput;
+                _messageSoundOutput = null;
+            }
+
+            activeOutput?.Stop();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    public static string GetChatSoundOptionLabel(ChatSoundOption option)
+    {
+        if (TryGetGameSoundEffectId(option, out var soundEffectId))
+        {
+            return $"Game Sound Effect {soundEffectId}";
+        }
+
+        return option switch
+        {
+            ChatSoundOption.None => "None",
+            ChatSoundOption.FrostChime => "Frost Chime",
+            ChatSoundOption.BrightPing => "Bright Ping (Legacy)",
+            ChatSoundOption.TwinBell => "Twin Bell",
+            _ => option.ToString()
+        };
+    }
+
+    public static IReadOnlyList<ChatSoundOption> GetAvailableChatSoundOptions(ChatSoundOption currentOption)
+    {
+        if (AvailableChatSoundOptions.Contains(currentOption))
+        {
+            return AvailableChatSoundOptions;
+        }
+
+        var options = AvailableChatSoundOptions.ToList();
+        options.Add(currentOption);
+        return options;
     }
 
     private void DrawChatLayout()
@@ -597,9 +716,14 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
         var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true,
+        var isSelf = string.Equals(message.ChatMsg.Sender.UID, _apiController.UID, StringComparison.Ordinal);
+        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: !isSelf,
             senderColor: senderColors.Foreground,
             senderGlowColor: senderColors.Glow);
+        if (!isSelf)
+        {
+            PlayMessageSound(_configService.Current.SnowChatGroupSound);
+        }
     }
 
     private void AddDirectMessage(SignedChatMessage message)
@@ -610,10 +734,15 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var text = DecodeMessage(message.PayloadContent);
         var displayName = FormatSenderName(channel, message.Sender);
         var senderColors = ResolveSenderColors(channel, message.Sender);
-        AppendMessage(channel, message.Sender.UID, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: true,
+        var isSelf = string.Equals(message.Sender.UID, _apiController.UID, StringComparison.Ordinal);
+        AppendMessage(channel, message.Sender.UID, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: !isSelf,
             senderColor: senderColors.Foreground,
             senderGlowColor: senderColors.Glow);
         _pinnedDirectChannels.Add(channel.Id);
+        if (!isSelf)
+        {
+            PlayMessageSound(_configService.Current.SnowChatDirectSound);
+        }
 
     }
 
@@ -631,9 +760,14 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var text = DecodeMessage(message.ChatMsg.PayloadContent);
         var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
         var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
-        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: true,
+        var isSelf = string.Equals(message.ChatMsg.Sender.UID, _apiController.UID, StringComparison.Ordinal);
+        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: !isSelf,
             senderColor: senderColors.Foreground,
             senderGlowColor: senderColors.Glow);
+        if (!isSelf)
+        {
+            PlayMessageSound(_configService.Current.SnowChatGroupSound);
+        }
     }
 
     private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
@@ -758,6 +892,148 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             _selectedChannel = channel;
         }
+    }
+
+    private void PlayMessageSound(ChatSoundOption option)
+    {
+        if (option == ChatSoundOption.None) return;
+
+        if (TryGetGameSoundEffectId(option, out var soundEffectId))
+        {
+            _ = _framework.RunOnFrameworkThread(() =>
+            {
+                try
+                {
+                    if (!TryPlayGameSoundEffect(soundEffectId))
+                    {
+                        _logger.LogDebug("ChatLog addon was unavailable for SnowChat sound effect {SoundEffectId}", soundEffectId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to play SnowChat game sound effect {SoundEffectId}", soundEffectId);
+                }
+            });
+            return;
+        }
+
+        if (!MessageSoundBuffers.TryGetValue(option, out var buffer)) return;
+
+        var memoryStream = new MemoryStream(buffer, writable: false);
+        var sourceStream = new RawSourceWaveStream(memoryStream, MessageSoundWaveFormat);
+        var output = new WaveOutEvent();
+
+        try
+        {
+            output.Init(sourceStream);
+            output.PlaybackStopped += (_, _) => DisposeMessageSound(output, sourceStream, memoryStream);
+
+            WaveOutEvent? previousOutput;
+            lock (_messageSoundLock)
+            {
+                previousOutput = _messageSoundOutput;
+                _messageSoundOutput = output;
+            }
+
+            previousOutput?.Stop();
+            output.Play();
+        }
+        catch (Exception ex)
+        {
+            output.Dispose();
+            sourceStream.Dispose();
+            memoryStream.Dispose();
+            _logger.LogWarning(ex, "Failed to play SnowChat sound {SoundOption}", option);
+        }
+    }
+
+    private unsafe bool TryPlayGameSoundEffect(int soundEffectId)
+    {
+        var addon = TryGetChatLogAddon();
+        if (addon == null)
+        {
+            return false;
+        }
+
+        addon->PlaySoundEffect(soundEffectId);
+        return true;
+    }
+
+    private unsafe AtkUnitBase* TryGetChatLogAddon()
+    {
+        var addon = _gameGui.GetAddonByName<AtkUnitBase>(ChatLogAddonName);
+        if (addon != null)
+        {
+            return addon;
+        }
+
+        return _gameGui.GetAddonByName<AtkUnitBase>(ChatLogAddonName, 1);
+    }
+
+    private void DisposeMessageSound(WaveOutEvent output, WaveStream sourceStream, MemoryStream memoryStream)
+    {
+        lock (_messageSoundLock)
+        {
+            if (ReferenceEquals(_messageSoundOutput, output))
+            {
+                _messageSoundOutput = null;
+            }
+        }
+
+        output.Dispose();
+        sourceStream.Dispose();
+        memoryStream.Dispose();
+    }
+
+    private static byte[] CreateToneBuffer(params ToneStep[] steps)
+    {
+        var totalSamples = steps.Sum(step => MessageSoundSampleRate * (step.DurationMs + step.SilenceAfterMs) / 1000);
+        var buffer = new byte[totalSamples * sizeof(short)];
+        var sampleIndex = 0;
+
+        foreach (var step in steps)
+        {
+            var toneSamples = MessageSoundSampleRate * step.DurationMs / 1000;
+            var fadeSamples = Math.Min(toneSamples / 4, MessageSoundSampleRate / 200);
+
+            for (var i = 0; i < toneSamples; i++)
+            {
+                var envelope = 1.0;
+                if (fadeSamples > 0)
+                {
+                    if (i < fadeSamples)
+                    {
+                        envelope = i / (double)fadeSamples;
+                    }
+                    else if (i >= toneSamples - fadeSamples)
+                    {
+                        envelope = (toneSamples - i - 1) / (double)fadeSamples;
+                    }
+                }
+
+                var sampleValue = Math.Sin(2 * Math.PI * step.Frequency * i / MessageSoundSampleRate) * step.Volume * Math.Max(0, envelope);
+                var clampedSample = (short)Math.Clamp(sampleValue * short.MaxValue, short.MinValue, short.MaxValue);
+                BinaryPrimitives.WriteInt16LittleEndian(buffer.AsSpan(sampleIndex * sizeof(short), sizeof(short)), clampedSample);
+                sampleIndex++;
+            }
+
+            sampleIndex += MessageSoundSampleRate * step.SilenceAfterMs / 1000;
+        }
+
+        return buffer;
+    }
+
+    private static bool TryGetGameSoundEffectId(ChatSoundOption option, out int soundEffectId)
+    {
+        var optionValue = (int)option;
+        if (optionValue >= FirstGameSoundEffectOptionValue && optionValue <= LastGameSoundEffectOptionValue)
+        {
+            soundEffectId = optionValue - FirstGameSoundEffectOptionValue + 1;
+            return true;
+        }
+
+        soundEffectId = 0;
+        return false;
     }
 
     private string DecodeMessage(byte[] payload)

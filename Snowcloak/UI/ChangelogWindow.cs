@@ -251,6 +251,18 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.5.0"), 
+            [
+                new ChangelogSection("New Features",
+                [
+                    
+                ]),
+                new ChangelogSection("Changes and Bugfixes",
+                [
+                    "Added options for SnowChat messages to play sounds.",
+                    "Fixed some issues that prevent the standalone chat client from communicating with the server properly."
+                ])
+            ]),
             new(VersionFromString("2.4.4"), 
             [
                 new ChangelogSection("Changes and Bug Fixes",

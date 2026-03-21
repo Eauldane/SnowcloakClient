@@ -421,6 +421,29 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         ElezenImgui.DrawHelpText("Colours player names in normal game chat when they match paired users.");
 
+        ImGui.Separator();
+        _uiShared.BigText("Message Sounds");
+        DrawChatSoundSetting(
+            "Direct message sound",
+            "DirectChatSound",
+            _configService.Current.SnowChatDirectSound,
+            option =>
+            {
+                _configService.Current.SnowChatDirectSound = option;
+                _configService.Save();
+            },
+            "Choose which in-game sound effect or Snowcloak extra plays when you receive a direct SnowChat message.");
+        DrawChatSoundSetting(
+            "Group chat sound",
+            "GroupChatSound",
+            _configService.Current.SnowChatGroupSound,
+            option =>
+            {
+                _configService.Current.SnowChatGroupSound = option;
+                _configService.Save();
+            },
+            "Choose which in-game sound effect or Snowcloak extra plays when you receive a syncshell or standard channel SnowChat message.");
+
         ImGui.TextWrapped("The chat system is currently under active development. If you use it, you're encouraged to check back here often" +
                           "to see if there's any new settings to play with!");
         
@@ -1859,6 +1882,18 @@ public class SettingsUi : WindowMediatorSubscriberBase
     {
         _secretKeyBackupMessage = message;
         _secretKeyBackupSuccess = success;
+    }
+
+    private void DrawChatSoundSetting(string label, string id, ChatWindow.ChatSoundOption currentOption, Action<ChatWindow.ChatSoundOption> updateOption, string helpText)
+    {
+        ImGui.SetNextItemWidth(260 * ImGuiHelpers.GlobalScale);
+        _uiShared.DrawCombo(
+            $"{label}##{id}",
+            ChatWindow.GetAvailableChatSoundOptions(currentOption),
+            ChatWindow.GetChatSoundOptionLabel,
+            option => updateOption(option),
+            currentOption);
+        ElezenImgui.DrawHelpText(helpText);
     }
 
     private void BeginCurrentCharacterSecretKeyRegistration(ServerStorage server, string currentPlayerName, uint currentPlayerWorldId,

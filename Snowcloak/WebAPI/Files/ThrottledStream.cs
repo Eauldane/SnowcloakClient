@@ -2,7 +2,6 @@
 {
     /// <summary>
     ///     Class for streaming data with throttling support.
-    ///     Borrowed from https://github.com/bezzad/Downloader
     /// </summary>
     internal class ThrottledStream : Stream
     {
