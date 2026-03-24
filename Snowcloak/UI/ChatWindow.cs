@@ -87,7 +87,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly HashSet<string> _loadedSyncshellHistory = new(StringComparer.Ordinal);
     private string _standardChannelTopicDraft = string.Empty;
     private bool _isEditingStandardChannelTopic;
-    private readonly object _messageSoundLock = new();
+    private readonly Lock _messageSoundLock = new();
     private WaveOutEvent? _messageSoundOutput;
 
     private const string ChatLogAddonName = "ChatLog";

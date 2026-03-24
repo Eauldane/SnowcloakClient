@@ -40,6 +40,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     {
         IndividualPairs,
         Syncshells,
+        Performance,
         Frostbrand
     }
 
@@ -65,6 +66,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     private readonly PairGroupsUi _pairGroupsUi;
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
+    private readonly PerformanceDashboardPanel _performanceDashboardPanel;
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly SelectPairForGroupUi _selectPairsForGroupUi;
     private readonly ServerConfigurationManager _serverManager;
@@ -106,7 +108,9 @@ public class CompactUi : WindowMediatorSubscriberBase
 
     public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
         GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
-        PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService)
+        PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, SyncshellBudgetService syncshellBudgetService,
+        GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
+        PlayerPerformanceConfigService playerPerformanceConfigService)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _uiSharedService = uiShared;
@@ -123,8 +127,9 @@ public class CompactUi : WindowMediatorSubscriberBase
         _tagHandler = new TagHandler(_serverManager);
         _pendingPairRequestSection = new PendingPairRequestSection(_pairRequestService, _serverManager, _uiSharedService);
         _frostbrandPanel = new FrostbrandPanel(_configService, _pairRequestService, _uiSharedService, _guiHookService, _pendingPairRequestSection, "SettingsUi");
+        _performanceDashboardPanel = new PerformanceDashboardPanel(_pairManager, playerPerformanceService, playerPerformanceConfigService, gpuMemoryBudgetService);
         
-        _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager);
+        _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager, syncshellBudgetService);
         _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService);
         _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler);
         _pairGroupsUi = new(configService, _tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService);
@@ -264,6 +269,10 @@ public class CompactUi : WindowMediatorSubscriberBase
             // Buttons with state change
             DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
             DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.UserFriends, "Syncshells");
+            if (_configService.Current.ShowCompactUiPerformanceTab)
+            {
+                DrawSidebarButton(Menu.Performance, FontAwesomeIcon.ChartBar, "Performance");
+            }
             if (_apiController.ServerState is ServerState.Connected)
             {
                 DrawSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
@@ -379,6 +388,9 @@ public class CompactUi : WindowMediatorSubscriberBase
                         break;
                     case Menu.Syncshells:
                         using (ImRaii.PushId("syncshells")) _groupPanel.DrawSyncshells();
+                        break;
+                    case Menu.Performance:
+                        using (ImRaii.PushId("performance")) _performanceDashboardPanel.Draw();
                         break;
                     case Menu.Frostbrand:
                         using (ImRaii.PushId("frostbrand")) _frostbrandPanel.Draw();
@@ -705,7 +717,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return isPaired && u.IsOnline && !u.IsVisible && !otherPaused && !ownPaused;
-        }).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+        }).Select(c => new DrawUserPair("Online" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _configService)).ToList();
         var pausedUsers = users.Where(u =>
         {
             var pair = u.UserPair;
@@ -713,8 +725,8 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return isPaired && ownPaused;
-        }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
-        var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+        }).Select(c => new DrawUserPair("Paused" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _configService)).ToList();
+        var visibleUsers = users.Where(u => u.IsVisible).Select(c => new DrawUserPair("Visible" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _configService)).ToList();
 
         var offlineUsers = users.Where(u =>
         {
@@ -724,7 +736,7 @@ public class CompactUi : WindowMediatorSubscriberBase
             var ownPaused = pair?.OwnPermissions.IsPaused() ?? false;
 
             return !isPaired || (!ownPaused && (!u.IsOnline || otherPaused));
-        }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager)).ToList();
+        }).Select(c => new DrawUserPair("Offline" + c.UserData.UID, c, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi, _uiSharedService, _charaDataManager, _configService)).ToList();
         ImGui.BeginChild("list", new Vector2(WindowContentWidth, ySize), border: false);
 
         _pairGroupsUi.Draw(visibleUsers, onlineUsers, pausedUsers, offlineUsers);

@@ -123,6 +123,9 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<UidDisplayHandler>();
             collection.AddSingleton<PluginWatcherService>();
             collection.AddSingleton<PlayerPerformanceService>();
+            collection.AddSingleton<SyncTroubleshootingService>();
+            collection.AddSingleton<GpuMemoryBudgetService>();
+            collection.AddSingleton<SyncshellBudgetService>();
             collection.AddSingleton<BbCodeRenderer>();
             collection.AddSingleton<CharaDataManager>();
             collection.AddSingleton<CharaDataFileHandler>();
@@ -225,6 +228,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddHostedService(p => p.GetRequiredService<NotificationService>());
             collection.AddHostedService(p => p.GetRequiredService<FileCacheManager>());
             collection.AddHostedService(p => p.GetRequiredService<DalamudUtilService>());
+            collection.AddHostedService(p => p.GetRequiredService<SyncTroubleshootingService>());
             collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
             collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());
             collection.AddHostedService(p => p.GetRequiredService<PairingAvailabilityDtrEntry>());

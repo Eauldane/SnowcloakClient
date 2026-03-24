@@ -60,7 +60,7 @@ public class UidDisplayHandler
         }
     }
 
-    public void DrawPairText(string id, Pair pair, float textPosX, float originalY, Func<float> editBoxWidth)
+    public float DrawPairText(string id, Pair pair, float textPosX, float originalY, Func<float> editBoxWidth)
     {
         ImGui.SameLine(textPosX);
         (bool textIsUid, string playerText) = GetPlayerText(pair);
@@ -145,6 +145,8 @@ public class UidDisplayHandler
             }
             ElezenImgui.AttachTooltip("Hit ENTER to save\nRight click to cancel");
         }
+
+        return ImGui.GetItemRectMax().X;
     }
 
     public (bool isUid, string text) GetPlayerText(Pair pair)

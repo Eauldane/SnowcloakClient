@@ -76,6 +76,17 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_GroupPairChangeLabels(GroupMemberLabelsDto dto)
+    {
+        Logger.LogTrace("Client_GroupPairChangeLabels: {dto}", dto);
+        ExecuteSafely(() =>
+        {
+            if (string.Equals(dto.UID, UID, StringComparison.Ordinal)) _pairManager.SetGroupMemberLabels(dto);
+            else _pairManager.SetGroupPairMemberLabels(dto);
+        });
+        return Task.CompletedTask;
+    }
+
     public Task Client_GroupDelete(GroupDto groupDto)
     {
         Logger.LogTrace("Client_GroupDelete: {dto}", groupDto);
@@ -414,6 +425,12 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_GroupPairChangePermissions), act);
+    }
+
+    public void OnGroupPairChangeLabels(Action<GroupMemberLabelsDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_GroupPairChangeLabels), act);
     }
 
     public void OnGroupDelete(Action<GroupDto> act)

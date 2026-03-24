@@ -7,6 +7,7 @@ using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.User;
+using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
@@ -22,11 +23,12 @@ public class DrawUserPair : DrawPairBase
     protected readonly SnowMediator _mediator;
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly CharaDataManager _charaDataManager;
+    private readonly SnowcloakConfigService _configService;
     public long VramUsage { get; set; }
 
     public DrawUserPair(string id, Pair entry, UidDisplayHandler displayHandler, ApiController apiController,
         SnowMediator snowMediator, SelectGroupForPairUi selectGroupForPairUi,
-        UiSharedService uiSharedService, CharaDataManager charaDataManager)
+        UiSharedService uiSharedService, CharaDataManager charaDataManager, SnowcloakConfigService configService)
         : base(id, entry, apiController, displayHandler, uiSharedService)
     {
         if (_pair.UserPair == null) throw new ArgumentException("Pair must be UserPair", nameof(entry));
@@ -34,6 +36,7 @@ public class DrawUserPair : DrawPairBase
         _selectGroupForPairUi = selectGroupForPairUi;
         _mediator = snowMediator;
         _charaDataManager = charaDataManager;
+        _configService = configService;
     }
 
     public bool IsOnline => _pair.IsOnline;
@@ -87,9 +90,24 @@ public class DrawUserPair : DrawPairBase
                 }
             }
 
+            if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+            {
+                visibleTooltip += UiSharedService.TooltipSeparator + _pair.AutoPauseTooltip;
+            }
+
             ElezenImgui.AttachTooltip(string.IsNullOrEmpty(connectionText)
                 ? visibleTooltip
                 : connectionText + UiSharedService.TooltipSeparator + visibleTooltip);
+
+            if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+            {
+                ImGui.SameLine();
+                using var warningColor = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.TextUnformatted(FontAwesomeIcon.ExclamationTriangle.ToIconString());
+                ImGui.PopFont();
+                ElezenImgui.AttachTooltip(_pair.AutoPauseTooltip);
+            }
             return;
         }
         
@@ -97,7 +115,21 @@ public class DrawUserPair : DrawPairBase
         ImGui.PushFont(UiBuilder.IconFont);
         ElezenImgui.ColouredText(connectionIcon.ToIconString(), connectionColor);
         ImGui.PopFont();
+        if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+        {
+            connectionText += UiSharedService.TooltipSeparator + _pair.AutoPauseTooltip;
+        }
         ElezenImgui.AttachTooltip(connectionText);
+
+        if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+        {
+            ImGui.SameLine();
+            using var warningColor = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.TextUnformatted(FontAwesomeIcon.ExclamationTriangle.ToIconString());
+            ImGui.PopFont();
+            ElezenImgui.AttachTooltip(_pair.AutoPauseTooltip);
+        }
     }
 
 
@@ -252,6 +284,16 @@ public class DrawUserPair : DrawPairBase
             ImGui.CloseCurrentPopup();
         }
         ElezenImgui.AttachTooltip("Report this user's profile.");
+        if (_configService.Current.EnableDebugFeatures
+            && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
+        {
+            _mediator.Publish(new OpenSyncTroubleshootingWindow(entry));
+            ImGui.CloseCurrentPopup();
+        }
+        if (_configService.Current.EnableDebugFeatures)
+        {
+            ElezenImgui.AttachTooltip("Open a local diagnostic report for this user.");
+        }
         if (entry.IsVisible)
         {
 #if DEBUG

@@ -25,7 +25,8 @@ public class Pair : DisposableMediatorSubscriberBase
     public enum AutoPauseReason
     {
         Vram,
-        Triangles
+        Triangles,
+        CrowdPriority
     }
     
     private readonly PairHandlerFactory _cachedPlayerFactory;
@@ -35,6 +36,7 @@ public class Pair : DisposableMediatorSubscriberBase
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private const string AutoPauseVramReason = "AutoPause-VRAM";
     private const string AutoPauseTriangleReason = "AutoPause-Triangles";
+    private const string AutoPauseCrowdPriorityReason = "AutoPause-CrowdPriority";
     private bool _autoPauseNotificationShown;
     private readonly Dictionary<AutoPauseReason, string> _autoPauseReasons = new();
     private CancellationTokenSource _applicationCts = new();
@@ -71,7 +73,10 @@ public class Pair : DisposableMediatorSubscriberBase
 
     public bool IsDownloadBlocked => HoldDownloadLocks.Any(f => f.Value > 0);
     public bool IsApplicationBlocked => HoldApplicationLocks.Any(f => f.Value > 0) || IsDownloadBlocked;
-    public bool IsAutoPaused => HoldDownloadLocks.ContainsKey(AutoPauseVramReason) || HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason);
+    public bool IsAutoPaused => HoldDownloadLocks.ContainsKey(AutoPauseVramReason)
+        || HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason)
+        || HoldDownloadLocks.ContainsKey(AutoPauseCrowdPriorityReason);
+    public bool IsCrowdPriorityAutoPaused => HoldDownloadLocks.ContainsKey(AutoPauseCrowdPriorityReason);
     public IEnumerable<string> AutoPauseReasons => _autoPauseReasons.Values;
     public bool AutoPauseNotificationShown => _autoPauseNotificationShown;
 
@@ -172,7 +177,8 @@ public class Pair : DisposableMediatorSubscriberBase
         LastReportedApproximateVRAMBytes = data.ReportedVramBytes;
         LastReportedTriangles = data.ReportedTriangles;
 
-        ClearAutoPaused();
+        ClearAutoPaused(AutoPauseReason.Vram);
+        ClearAutoPaused(AutoPauseReason.Triangles);
         if (CachedPlayer == null)
         {
             _logger.LogDebug("Received Data for {uid} but CachedPlayer does not exist, waiting", data.User.UID);
@@ -365,6 +371,12 @@ public class Pair : DisposableMediatorSubscriberBase
     {
         _autoPauseNotificationShown = true;
     }
+
+    public bool HasBlockingReasonsOtherThanCrowdPriority()
+    {
+        return HoldApplicationLocks.Any(f => f.Value > 0)
+            || HoldDownloadLocks.Any(f => f.Value > 0 && !string.Equals(f.Key, AutoPauseCrowdPriorityReason, StringComparison.Ordinal));
+    }
     
     public bool HasAutoPauseReason(AutoPauseReason reason)
     {
@@ -372,6 +384,7 @@ public class Pair : DisposableMediatorSubscriberBase
         {
             AutoPauseReason.Vram => HoldDownloadLocks.ContainsKey(AutoPauseVramReason),
             AutoPauseReason.Triangles => HoldDownloadLocks.ContainsKey(AutoPauseTriangleReason),
+            AutoPauseReason.CrowdPriority => HoldDownloadLocks.ContainsKey(AutoPauseCrowdPriorityReason),
             _ => false
         };
     }
@@ -386,6 +399,9 @@ public class Pair : DisposableMediatorSubscriberBase
                 break;
             case AutoPauseReason.Triangles:
                 HoldDownloads(AutoPauseTriangleReason, maxValue: 1);
+                break;
+            case AutoPauseReason.CrowdPriority:
+                HoldDownloads(AutoPauseCrowdPriorityReason, maxValue: 1);
                 break;
         }
 
@@ -407,6 +423,12 @@ public class Pair : DisposableMediatorSubscriberBase
         {
             _autoPauseReasons.Remove(AutoPauseReason.Triangles);
             UnholdDownloads(AutoPauseTriangleReason, skipApplication: true);
+        }
+
+        if (reason == null || reason == AutoPauseReason.CrowdPriority)
+        {
+            _autoPauseReasons.Remove(AutoPauseReason.CrowdPriority);
+            UnholdDownloads(AutoPauseCrowdPriorityReason, skipApplication: true);
         }
 
         if (!IsAutoPaused)

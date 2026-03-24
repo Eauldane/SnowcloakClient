@@ -4,48 +4,72 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
+using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Configuration;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
 using System.Globalization;
+using System.Numerics;
+using System.Text;
 
 namespace Snowcloak.UI;
 
 public class SyncshellAdminUI : WindowMediatorSubscriberBase
 {
+    private const int AuditPageSize = 50;
     private readonly ApiController _apiController;
+    private readonly SnowcloakConfigService _configService;
     private readonly bool _isModerator = false;
     private readonly bool _isOwner = false;
     private readonly List<string> _oneTimeInvites = [];
     private readonly PairManager _pairManager;
+    private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
     private readonly UiSharedService _uiSharedService;
+    private GroupAuditAction? _auditActionFilter;
+    private List<GroupAuditEntryDto> _auditEntries = [];
+    private Task<GroupAuditPageDto>? _auditLogTask;
+    private string _auditSearch = string.Empty;
+    private int _auditSkip;
+    private int _auditTotalCount;
     private List<BannedGroupUserDto> _bannedUsers = [];
     private int _multiInvites;
     private string _newPassword;
+    private GroupPairFullInfoDto? _memberLabelEditorTarget;
+    private List<string> _memberLabelDraft = [];
+    private string _memberLabelError = string.Empty;
+    private bool _memberLabelEditorPopupPendingOpen;
     private bool _pwChangeSuccess;
     private Task<int>? _pruneTestTask;
     private Task<int>? _pruneTask;
     private int _pruneDays = 14;
+    private bool _showMemberLabelEditor;
 
     public SyncshellAdminUI(ILogger<SyncshellAdminUI> logger, SnowMediator mediator, ApiController apiController,
-        UiSharedService uiSharedService, PairManager pairManager, GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService)
+        SnowcloakConfigService configService,
+        UiSharedService uiSharedService, PairManager pairManager, GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService,
+        SyncshellBudgetService syncshellBudgetService)
         : base(logger, mediator, string.Format("Syncshell Admin Panel ({0})", groupFullInfo.GroupAliasOrGID), performanceCollectorService)
     {
         GroupFullInfo = groupFullInfo;
         _apiController = apiController;
+        _configService = configService;
         _uiSharedService = uiSharedService;
         _pairManager = pairManager;
+        _syncshellBudgetPanel = new(syncshellBudgetService);
         _isOwner = string.Equals(GroupFullInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal);
         _isModerator = GroupFullInfo.GroupUserInfo.IsModerator();
         _newPassword = string.Empty;
         _multiInvites = 30;
         _pwChangeSuccess = true;
         IsOpen = true;
+        RequestAuditLogPage(0);
         SizeConstraints = new WindowSizeConstraints()
         {
             MinimumSize = new(700, 500),
@@ -58,6 +82,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
     protected override void DrawInternal()
     {
         if (!_isModerator && !_isOwner) return;
+        ConsumeAuditLogTask();
 
         GroupFullInfo = _pairManager.Groups[GroupFullInfo.Group];
 
@@ -72,6 +97,25 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
 
         if (tabbar)
         {
+            if (_configService.Current.ShowSyncshellBudgetDashboard)
+            {
+                var budgetTab = ImRaii.TabItem("Performance");
+                if (budgetTab)
+                {
+                    if (_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var budgetPairs))
+                    {
+                        _syncshellBudgetPanel.Draw(GroupFullInfo, budgetPairs
+                            .Where(p => !string.Equals(p.UserData.UID, _apiController.UID, StringComparison.Ordinal))
+                            .ToList());
+                    }
+                    else
+                    {
+                        _syncshellBudgetPanel.Draw(GroupFullInfo, []);
+                    }
+                }
+                budgetTab.Dispose();
+            }
+
             var inviteTab = ImRaii.TabItem("Invites");
             if (inviteTab)
             {
@@ -126,11 +170,12 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                     }
                     else
                     {
-                        using var table = ImRaii.Table("userList#" + GroupFullInfo.Group.GID, 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY);
+                        using var table = ImRaii.Table("userList#" + GroupFullInfo.Group.GID, 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY);
                         if (table)
                         {
                             ImGui.TableSetupColumn("Alias/UID/Note", ImGuiTableColumnFlags.None, 3);
                             ImGui.TableSetupColumn("Online/Name", ImGuiTableColumnFlags.None, 2);
+                            ImGui.TableSetupColumn("Roles", ImGuiTableColumnFlags.None, 2);
                             ImGui.TableSetupColumn("Flags", ImGuiTableColumnFlags.None, 1);
                             ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.None, 2);
                             ImGui.TableHeadersRow();
@@ -147,6 +192,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                             }).ThenBy(p => p.Key.GetNote() ?? p.Key.UserData.AliasOrUID, StringComparer.OrdinalIgnoreCase))
                             {
                                 using var tableId = ImRaii.PushId("userTable_" + pair.Key.UserData.UID);
+                                pair.Key.GroupPair.TryGetValue(GroupFullInfo, out GroupPairFullInfoDto? memberInfo);
 
                                 ImGui.TableNextColumn(); // alias/uid/note
                                 var note = pair.Key.GetNote();
@@ -164,6 +210,16 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                                 var boolcolor = ElezenImgui.GetBooleanColour(pair.Key.IsOnline);
                                 ImGui.AlignTextToFramePadding();
                                 ElezenImgui.ColouredText(onlineText, boolcolor);
+
+                                ImGui.TableNextColumn(); // roles
+                                if (memberInfo != null && memberInfo.MemberLabels.Count > 0)
+                                {
+                                    ElezenImgui.WrappedText(SyncshellMemberLabelUi.FormatLabels(memberInfo.MemberLabels));
+                                }
+                                else
+                                {
+                                    ElezenImgui.ColouredText("None", ImGuiColors.DalamudGrey);
+                                }
 
                                 ImGui.TableNextColumn(); // special flags
                                 if (pair.Value != null && (pair.Value.Value.IsModerator() || pair.Value.Value.IsPinned()))
@@ -196,6 +252,16 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                                         _ = _apiController.GroupSetUserInfo(new GroupPairUserInfoDto(GroupFullInfo.Group, pair.Key.UserData, userInfo));
                                     }
                                     ElezenImgui.AttachTooltip(pair.Value != null && pair.Value.Value.IsModerator() ? "Demod user" : "Mod user");
+                                    ImGui.SameLine();
+                                }
+
+                                if (memberInfo != null && _uiSharedService.IconButton(FontAwesomeIcon.IdBadge))
+                                {
+                                    OpenMemberLabelEditor(memberInfo);
+                                }
+                                if (memberInfo != null)
+                                {
+                                    ElezenImgui.AttachTooltip("Edit shared syncshell roles for this member.");
                                     ImGui.SameLine();
                                 }
 
@@ -408,6 +474,13 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
             }
             permissionTab.Dispose();
 
+            var auditTab = ImRaii.TabItem("Audit History");
+            if (auditTab)
+            {
+                DrawAuditHistory();
+            }
+            auditTab.Dispose();
+
             if (_isOwner)
             {
                 var ownerTab = ImRaii.TabItem("Owner Settings");
@@ -449,10 +522,321 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                 ownerTab.Dispose();
             }
         }
+
+        DrawMemberLabelEditorModal();
     }
 
     public override void OnClose()
     {
         Mediator.Publish(new RemoveWindowMessage(this));
+    }
+
+    private void ConsumeAuditLogTask()
+    {
+        if (_auditLogTask == null || !_auditLogTask.IsCompleted)
+        {
+            return;
+        }
+
+        if (_auditLogTask.IsCompletedSuccessfully)
+        {
+            var result = _auditLogTask.Result;
+            _auditEntries = result.Entries;
+            _auditTotalCount = result.TotalCount;
+        }
+        else if (_auditLogTask.Exception != null)
+        {
+            _logger.LogWarning(_auditLogTask.Exception, "Failed to load syncshell audit history for {gid}", GroupFullInfo.GID);
+        }
+
+        _auditLogTask = null;
+    }
+
+    private void DrawAuditHistory()
+    {
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Retweet, "Refresh Audit Log"))
+        {
+            RequestAuditLogPage(_auditSkip);
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!_auditEntries.Any()))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy Current Page"))
+            {
+                ImGui.SetClipboardText(BuildAuditClipboardText());
+            }
+        }
+
+        ImGuiHelpers.ScaledDummy(2f);
+
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo("Action Filter", _auditActionFilter.HasValue ? FormatAuditAction(_auditActionFilter.Value) : "All Actions"))
+        {
+            if (ImGui.Selectable("All Actions", !_auditActionFilter.HasValue))
+            {
+                _auditActionFilter = null;
+            }
+
+            foreach (var action in Enum.GetValues<GroupAuditAction>())
+            {
+                var selected = _auditActionFilter == action;
+                if (ImGui.Selectable(FormatAuditAction(action), selected))
+                {
+                    _auditActionFilter = action;
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##auditSearch", "Filter actor/target/details", ref _auditSearch, 100);
+        ImGui.SameLine();
+        if (ImGui.Button("Apply Filters"))
+        {
+            RequestAuditLogPage(0);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Reset"))
+        {
+            _auditActionFilter = null;
+            _auditSearch = string.Empty;
+            RequestAuditLogPage(0);
+        }
+
+        ImGuiHelpers.ScaledDummy(2f);
+
+        using (ImRaii.Disabled(_auditSkip <= 0 || _auditLogTask != null))
+        {
+            if (ImGui.Button("Previous"))
+            {
+                RequestAuditLogPage(Math.Max(0, _auditSkip - AuditPageSize));
+            }
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_auditSkip + AuditPageSize >= _auditTotalCount || _auditLogTask != null))
+        {
+            if (ImGui.Button("Next"))
+            {
+                RequestAuditLogPage(_auditSkip + AuditPageSize);
+            }
+        }
+
+        ImGui.SameLine();
+        var pageStart = _auditTotalCount == 0 ? 0 : _auditSkip + 1;
+        var pageEnd = Math.Min(_auditSkip + _auditEntries.Count, _auditTotalCount);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted($"Showing {pageStart}-{pageEnd} of {_auditTotalCount}");
+
+        if (_auditLogTask != null)
+        {
+            ElezenImgui.ColouredWrappedText("Loading audit history...", ImGuiColors.DalamudYellow);
+        }
+
+        using var table = ImRaii.Table("auditHistoryTable_" + GroupFullInfo.GID, 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY);
+        if (!table)
+        {
+            return;
+        }
+
+        ImGui.TableSetupColumn("Timestamp", ImGuiTableColumnFlags.WidthFixed, 170 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 140 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Actor", ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Target", ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableHeadersRow();
+
+        if (!_auditEntries.Any() && _auditLogTask == null)
+        {
+            ImGui.TableNextColumn();
+            ElezenImgui.ColouredWrappedText("No audit entries found for the current filters.", ImGuiColors.DalamudYellow);
+            return;
+        }
+
+        foreach (var entry in _auditEntries)
+        {
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(entry.Timestamp.ToLocalTime().ToString(CultureInfo.CurrentCulture));
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(FormatAuditAction(entry.Action));
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(entry.ActorUID);
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(entry.TargetUID ?? "-");
+
+            ImGui.TableNextColumn();
+            ElezenImgui.WrappedText(entry.Details ?? string.Empty);
+        }
+    }
+
+    private string BuildAuditClipboardText()
+    {
+        StringBuilder builder = new();
+        foreach (var entry in _auditEntries)
+        {
+            builder.Append(entry.Timestamp.ToString("O", CultureInfo.InvariantCulture));
+            builder.Append('\t');
+            builder.Append(entry.GroupGID);
+            builder.Append('\t');
+            builder.Append(FormatAuditAction(entry.Action));
+            builder.Append('\t');
+            builder.Append(entry.ActorUID);
+            builder.Append('\t');
+            builder.Append(entry.TargetUID ?? string.Empty);
+            builder.Append('\t');
+            builder.Append(entry.Details ?? string.Empty);
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FormatAuditAction(GroupAuditAction action)
+    {
+        return action switch
+        {
+            GroupAuditAction.Create => "Create",
+            GroupAuditAction.Join => "Join",
+            GroupAuditAction.Leave => "Leave",
+            GroupAuditAction.Kick => "Kick",
+            GroupAuditAction.Ban => "Ban",
+            GroupAuditAction.Unban => "Unban",
+            GroupAuditAction.Mod => "Mod",
+            GroupAuditAction.Unmod => "Unmod",
+            GroupAuditAction.Pin => "Pin",
+            GroupAuditAction.Unpin => "Unpin",
+            GroupAuditAction.OwnershipTransfer => "Ownership Transfer",
+            GroupAuditAction.PermissionChange => "Permission Change",
+            GroupAuditAction.PasswordChange => "Password Change",
+            GroupAuditAction.TempInviteCreate => "Temp Invite Create",
+            GroupAuditAction.GroupClear => "Group Clear",
+            GroupAuditAction.VenueRegistrationChange => "Venue Change",
+            GroupAuditAction.MemberLabelAdd => "Role Add",
+            GroupAuditAction.MemberLabelRemove => "Role Remove",
+            _ => action.ToString(),
+        };
+    }
+
+    private void RequestAuditLogPage(int skip)
+    {
+        _auditSkip = Math.Max(0, skip);
+        _auditLogTask = _apiController.GroupGetAuditLog(new GroupAuditQueryDto(GroupFullInfo.Group, _auditSkip, AuditPageSize)
+        {
+            Action = _auditActionFilter,
+            Search = string.IsNullOrWhiteSpace(_auditSearch) ? null : _auditSearch.Trim()
+        });
+    }
+
+    private void OpenMemberLabelEditor(GroupPairFullInfoDto memberInfo)
+    {
+        _memberLabelEditorTarget = memberInfo;
+        _memberLabelDraft = SyncshellMemberLabelUi.NormalizeSingleSelection(memberInfo.MemberLabels);
+        _memberLabelError = string.Empty;
+        _showMemberLabelEditor = true;
+        _memberLabelEditorPopupPendingOpen = true;
+    }
+
+    private void DrawMemberLabelEditorModal()
+    {
+        var popupTitle = "Edit Syncshell Roles";
+        if (_memberLabelEditorPopupPendingOpen)
+        {
+            ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing, new Vector2(0.5f));
+            ImGui.OpenPopup(popupTitle);
+            _memberLabelEditorPopupPendingOpen = false;
+        }
+
+        if (ImGui.BeginPopupModal(popupTitle, ref _showMemberLabelEditor, UiSharedService.PopupWindowFlags))
+        {
+            if (_memberLabelEditorTarget == null)
+            {
+                _showMemberLabelEditor = false;
+                ImGui.EndPopup();
+                return;
+            }
+
+            ElezenImgui.WrappedText($"Select shared roles for {_memberLabelEditorTarget.UserAliasOrUID} in {GroupFullInfo.GroupAliasOrGID}.");
+            ElezenImgui.ColouredWrappedText(
+                "Choose a role for this user in your syncshell. They'll be given a special icon to help people identify their job.",
+                ImGuiColors.DalamudGrey);
+            ImGui.Separator();
+
+            foreach (var role in GroupMemberLabelValidator.AvailableLabels)
+            {
+                using var roleId = ImRaii.PushId($"admin-member-role-{role.Value}");
+                var isSelected = SyncshellMemberLabelUi.IsLabelSelected(_memberLabelDraft, role.Value);
+                if (ImGui.Checkbox("##selected", ref isSelected))
+                {
+                    if (SyncshellMemberLabelUi.TrySetExclusiveLabelSelected(role.Value, isSelected, out var updatedLabels, out var errorMessage))
+                    {
+                        _memberLabelDraft = updatedLabels;
+                        _memberLabelError = string.Empty;
+                    }
+                    else
+                    {
+                        _memberLabelError = errorMessage ?? "Unable to update the selected roles.";
+                    }
+                }
+                ImGui.SameLine();
+                if (SyncshellMemberLabelUi.TryGetLabelPresentation(role.Value, out var icon, out var color, out var displayName, out _))
+                {
+                    using var roleColor = ImRaii.PushColor(ImGuiCol.Text, color);
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.TextUnformatted(icon.ToIconString());
+                    ImGui.PopFont();
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted(displayName);
+                }
+                else
+                {
+                    ImGui.TextUnformatted(role.DisplayName);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(_memberLabelError))
+            {
+                ElezenImgui.ColouredWrappedText(_memberLabelError, ImGuiColors.DalamudRed);
+            }
+
+            ImGuiHelpers.ScaledDummy(2f);
+            if (_memberLabelDraft.Count == 0)
+            {
+                ElezenImgui.ColouredWrappedText("No role selected.", ImGuiColors.DalamudGrey);
+            }
+            else
+            {
+                ElezenImgui.WrappedText("Selected Role: " + SyncshellMemberLabelUi.FormatLabels(_memberLabelDraft));
+            }
+
+            ImGui.Separator();
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Role"))
+            {
+                var success = _apiController.GroupSetMemberLabels(new GroupMemberLabelsDto(GroupFullInfo.Group, _memberLabelEditorTarget.User, _memberLabelDraft)).Result;
+                if (success)
+                {
+                    _showMemberLabelEditor = false;
+                }
+                else
+                {
+                    _memberLabelError = "Unable to save roles. The member may have left the syncshell, your permissions changed, or the selection failed validation.";
+                }
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel"))
+            {
+                _showMemberLabelEditor = false;
+            }
+
+            UiSharedService.SetScaledWindowSize(430, centerWindow: false);
+            ImGui.EndPopup();
+        }
     }
 }

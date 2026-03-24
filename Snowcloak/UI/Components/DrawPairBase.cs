@@ -27,6 +27,19 @@ public abstract class DrawPairBase
     public string ImGuiID => _id;
     public string UID => _pair.UserData.UID;
 
+    protected abstract void DrawLeftSide(float textPosY, float originalY);
+
+    protected abstract float DrawRightSide(float textPosY, float originalY);
+
+    protected virtual void DrawAfterName(float originalY, float textEndX, float rightSide)
+    {
+    }
+
+    private float DrawName(float originalY, float leftSide, float rightSide)
+    {
+        return _displayHandler.DrawPairText(_id, _pair, leftSide, originalY, () => rightSide - leftSide);
+    }
+
     public void DrawPairedClient()
     {
         var originalY = ImGui.GetCursorPosY();
@@ -52,15 +65,7 @@ public abstract class DrawPairBase
         ImGui.SameLine();
         var posX = ImGui.GetCursorPosX();
         var rightSide = DrawRightSide(textPosY, originalY);
-        DrawName(originalY, posX, rightSide);
-    }
-
-    protected abstract void DrawLeftSide(float textPosY, float originalY);
-
-    protected abstract float DrawRightSide(float textPosY, float originalY);
-
-    private void DrawName(float originalY, float leftSide, float rightSide)
-    {
-        _displayHandler.DrawPairText(_id, _pair, leftSide, originalY, () => rightSide - leftSide);
+        var textEndX = DrawName(originalY, posX, rightSide);
+        DrawAfterName(originalY, textEndX, rightSide);
     }
 }

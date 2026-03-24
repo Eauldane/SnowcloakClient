@@ -354,6 +354,13 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         RecreateLazy();
     }
 
+    internal void SetGroupPairMemberLabels(GroupMemberLabelsDto dto)
+    {
+        var group = _allGroups[dto.Group];
+        _allClientPairs[dto.User].GroupPair[group].MemberLabels = dto.Labels;
+        RecreateLazy();
+    }
+
     internal void SetGroupPairUserPermissions(GroupPairUserPermissionDto dto)
     {
         var group = _allGroups[dto.Group];
@@ -386,6 +393,12 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     internal void SetGroupStatusInfo(GroupPairUserInfoDto dto)
     {
         _allGroups[dto.Group].GroupUserInfo = dto.GroupUserInfo;
+        RecreateLazy();
+    }
+
+    internal void SetGroupMemberLabels(GroupMemberLabelsDto dto)
+    {
+        _allGroups[dto.Group].MemberLabels = dto.Labels;
         RecreateLazy();
     }
 

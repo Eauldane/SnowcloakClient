@@ -87,6 +87,17 @@ public sealed class UiService : DisposableMediatorSubscriberBase
             }
         });
 
+        Mediator.Subscribe<OpenSyncTroubleshootingWindow>(this, (msg) =>
+        {
+            if (!_createdWindows.Exists(p => p is SyncTroubleshootingUi ui
+                && msg.Pair == ui.Pair))
+            {
+                var window = _uiFactory.CreateSyncTroubleshootingUi(msg.Pair);
+                _createdWindows.Add(window);
+                _windowSystem.AddWindow(window);
+            }
+        });
+
         Mediator.Subscribe<RemoveWindowMessage>(this, (msg) =>
         {
             _windowSystem.RemoveWindow(msg.Window);

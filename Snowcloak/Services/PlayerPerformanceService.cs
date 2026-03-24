@@ -1,7 +1,10 @@
 using Snowcloak.API.Data;
+using Snowcloak.API.Data.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Snowcloak.FileCache;
 using Snowcloak.Configuration;
+using Snowcloak.Configuration.Configurations;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
@@ -15,22 +18,42 @@ namespace Snowcloak.Services;
 
 public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 {
+    public const int CurrentPerformanceConfigVersion = 5;
+    public const int RecommendedVisibleMembersThreshold = 100;
+    public const int RecommendedTrianglesThresholdThousands = 20000;
+    public const int FallbackRecommendedVramThresholdMiB = 8192;
+    private const double RecommendedVramUsageFraction = 0.75d;
+
     // Limits that will still be enforced when no limits are enabled
     public const int MaxVRAMUsageThreshold = 2000; // 2GB
     public const int MaxTriUsageThreshold = 2000000; // 2 million triangles
+    private const int LegacyAutoBlockVramThresholdMiB = 500;
+    private const int LegacyAutoBlockTrianglesThresholdThousands = 400;
+    private const int LegacyCrowdVisibleMembersThreshold = 20;
+    private const int LegacyCrowdVramThresholdMiB = 2048;
+    private const int LegacyCrowdTrianglesThresholdThousands = 1500;
 
     private readonly FileCacheManager _fileCacheManager;
+    private readonly GpuMemoryBudgetService _gpuMemoryBudgetService;
     private readonly XivDataAnalyzer _xivDataAnalyzer;
     private readonly ILogger<PlayerPerformanceService> _logger;
     private readonly SnowMediator _mediator;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly DalamudUtilService _dalamudUtilService;
     private readonly PlayerPerformanceConfigService _playerPerformanceConfigService;
+    private readonly Lock _crowdPrioritySync = new();
     private readonly Dictionary<string, bool> _warnedForPlayers = new(StringComparer.Ordinal);
+    private DateTime _lastCrowdPriorityEvaluationUtc = DateTime.MinValue;
+    private HashSet<uint> _partyMemberIds = [];
+    private static readonly TimeSpan CrowdPriorityEvaluationInterval = TimeSpan.FromMilliseconds(500);
+    private PairManager PairManager => _serviceProvider.GetRequiredService<PairManager>();
 
     public PlayerPerformanceService(ILogger<PlayerPerformanceService> logger, SnowMediator mediator,
         ServerConfigurationManager serverConfigurationManager,
         PlayerPerformanceConfigService playerPerformanceConfigService, FileCacheManager fileCacheManager,
-        XivDataAnalyzer xivDataAnalyzer)
+        XivDataAnalyzer xivDataAnalyzer, IServiceProvider serviceProvider, DalamudUtilService dalamudUtilService,
+        GpuMemoryBudgetService gpuMemoryBudgetService)
         : base(logger, mediator)
     {
         _logger = logger;
@@ -39,6 +62,229 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _fileCacheManager = fileCacheManager;
         _xivDataAnalyzer = xivDataAnalyzer;
+        _serviceProvider = serviceProvider;
+        _dalamudUtilService = dalamudUtilService;
+        _gpuMemoryBudgetService = gpuMemoryBudgetService;
+
+        EnsureRecommendedDefaults();
+
+        Mediator.Subscribe<DelayedFrameworkUpdateMessage>(this, _ =>
+        {
+            UpdatePartyMemberCache();
+            if (DateTime.UtcNow - _lastCrowdPriorityEvaluationUtc >= CrowdPriorityEvaluationInterval)
+            {
+                ReevaluateCrowdPriority(force: true);
+            }
+        });
+        Mediator.Subscribe<RecalculatePerformanceMessage>(this, _ => ReevaluateCrowdPriority(force: true));
+        Mediator.Subscribe<DisconnectedMessage>(this, _ => ClearAllCrowdPriorityAutoPauses());
+    }
+
+    private void EnsureRecommendedDefaults()
+    {
+        var config = _playerPerformanceConfigService.Current;
+        if (config.Version >= CurrentPerformanceConfigVersion)
+        {
+            return;
+        }
+
+        var recommendedVramThresholdMiB = GetRecommendedVramThresholdMiB();
+        var legacyRecommendedVramThresholdMiB = GetRecommendedVramThresholdMiB(useReservedFraction: false);
+        var changed = false;
+
+        if (config.Version >= 4 && (config.VRAMSizeAutoPauseThresholdMiB == recommendedVramThresholdMiB
+            || config.VRAMSizeAutoPauseThresholdMiB == legacyRecommendedVramThresholdMiB))
+        {
+            config.VRAMSizeAutoPauseThresholdMiB = LegacyAutoBlockVramThresholdMiB;
+            changed = true;
+        }
+        if (config.Version >= 4 && config.TrisAutoPauseThresholdThousands == RecommendedTrianglesThresholdThousands)
+        {
+            config.TrisAutoPauseThresholdThousands = LegacyAutoBlockTrianglesThresholdThousands;
+            changed = true;
+        }
+
+        if (config.CrowdPriorityVisibleMembersThreshold == LegacyCrowdVisibleMembersThreshold)
+        {
+            config.CrowdPriorityVisibleMembersThreshold = RecommendedVisibleMembersThreshold;
+            changed = true;
+        }
+
+        if (config.CrowdPriorityVRAMThresholdMiB == LegacyCrowdVramThresholdMiB
+            || config.CrowdPriorityVRAMThresholdMiB == legacyRecommendedVramThresholdMiB)
+        {
+            config.CrowdPriorityVRAMThresholdMiB = recommendedVramThresholdMiB;
+            changed = true;
+        }
+
+        if (config.CrowdPriorityTrianglesThresholdThousands == LegacyCrowdTrianglesThresholdThousands)
+        {
+            config.CrowdPriorityTrianglesThresholdThousands = RecommendedTrianglesThresholdThousands;
+            changed = true;
+        }
+
+        if (!config.CrowdPriorityModeEnabled)
+        {
+            config.CrowdPriorityModeEnabled = true;
+            changed = true;
+        }
+
+        if (config.Version != CurrentPerformanceConfigVersion)
+        {
+            config.Version = CurrentPerformanceConfigVersion;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            _playerPerformanceConfigService.Save();
+        }
+    }
+
+    private int GetRecommendedVramThresholdMiB(bool useReservedFraction = true)
+    {
+        var budgetSnapshot = _gpuMemoryBudgetService.GetCurrentBudget();
+        if (budgetSnapshot == null)
+        {
+            return FallbackRecommendedVramThresholdMiB;
+        }
+
+        var budgetBytes = budgetSnapshot.TotalBytes > 0
+            ? budgetSnapshot.TotalBytes
+            : budgetSnapshot.BudgetBytes > 0
+                ? budgetSnapshot.BudgetBytes
+                : budgetSnapshot.AvailableBytes;
+        if (budgetBytes <= 0)
+        {
+            return FallbackRecommendedVramThresholdMiB;
+        }
+
+        var recommendedBytes = useReservedFraction
+            ? (long)Math.Floor(budgetBytes * RecommendedVramUsageFraction)
+            : budgetBytes;
+
+        return (int)Math.Clamp(recommendedBytes / (1024L * 1024L), 512L, int.MaxValue);
+    }
+
+    public CrowdPrioritySnapshot GetCrowdPrioritySnapshot()
+    {
+        var config = _playerPerformanceConfigService.Current;
+        var visibleShellPairs = GetVisibleShellPairs()
+            .Where(pair => !pair.IsPaused)
+            .ToList();
+        var activeShellPairs = visibleShellPairs
+            .Where(pair => !pair.IsApplicationBlocked)
+            .ToList();
+
+        var activeVramBytes = activeShellPairs.Sum(GetEstimatedVisibleVramBytes);
+        var activeTriangleCount = activeShellPairs.Sum(GetEstimatedVisibleTriangleCount);
+        var thresholdState = GetCrowdPriorityThresholdState(config, activeShellPairs.Count, activeVramBytes, activeTriangleCount);
+
+        return new CrowdPrioritySnapshot(
+            config.CrowdPriorityModeEnabled,
+            visibleShellPairs.Count,
+            activeShellPairs.Count,
+            visibleShellPairs.Count(pair => pair.HasAutoPauseReason(Pair.AutoPauseReason.CrowdPriority)),
+            activeVramBytes,
+            activeTriangleCount,
+            thresholdState);
+    }
+
+    public void ReevaluateCrowdPriority(bool force = false)
+    {
+        lock (_crowdPrioritySync)
+        {
+            if (!force && DateTime.UtcNow - _lastCrowdPriorityEvaluationUtc < CrowdPriorityEvaluationInterval)
+            {
+                return;
+            }
+
+            _lastCrowdPriorityEvaluationUtc = DateTime.UtcNow;
+
+            var config = _playerPerformanceConfigService.Current;
+            if (!config.CrowdPriorityModeEnabled || !HasAnyCrowdPriorityThresholdEnabled(config))
+            {
+                ClearAllCrowdPriorityAutoPauses();
+                return;
+            }
+
+            var visibleShellPairs = GetVisibleShellPairs()
+                .Where(pair => !pair.IsPaused)
+                .ToList();
+            var activeCandidates = visibleShellPairs
+                .Where(pair => !pair.HasBlockingReasonsOtherThanCrowdPriority())
+                .ToList();
+
+            foreach (var pair in EnumerateAllGroupPairs().Except(visibleShellPairs))
+            {
+                ClearCrowdPriorityAutoPause(pair);
+            }
+
+            foreach (var pair in visibleShellPairs.Where(pair => pair.HasBlockingReasonsOtherThanCrowdPriority()))
+            {
+                ClearCrowdPriorityAutoPause(pair);
+            }
+
+            if (activeCandidates.Count == 0)
+            {
+                return;
+            }
+
+            var activeCount = activeCandidates.Count;
+            var activeVramBytes = activeCandidates.Sum(GetEstimatedVisibleVramBytes);
+            var activeTriangleCount = activeCandidates.Sum(GetEstimatedVisibleTriangleCount);
+            var initialThresholdState = GetCrowdPriorityThresholdState(config, activeCount, activeVramBytes, activeTriangleCount);
+
+            var keepPairs = new HashSet<Pair>(activeCandidates);
+            if (initialThresholdState.AnyExceeded)
+            {
+                var removalOrder = activeCandidates
+                    .Select(pair => new CrowdPriorityCandidate(
+                        pair,
+                        ClassifyCrowdPriority(pair, _partyMemberIds),
+                        GetEstimatedVisibleVramBytes(pair),
+                        GetEstimatedVisibleTriangleCount(pair),
+                        GetCrowdPriorityBurden(config, pair)))
+                    .OrderByDescending(candidate => candidate.Classification.Tier)
+                    .ThenByDescending(candidate => candidate.Burden)
+                    .ThenByDescending(candidate => candidate.EstimatedVramBytes)
+                    .ThenByDescending(candidate => candidate.EstimatedTriangleCount)
+                    .ThenBy(candidate => candidate.Pair.UserData.AliasOrUID, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var candidate in removalOrder)
+                {
+                    if (!GetCrowdPriorityThresholdState(config, activeCount, activeVramBytes, activeTriangleCount).AnyExceeded)
+                    {
+                        break;
+                    }
+
+                    if (!keepPairs.Remove(candidate.Pair))
+                    {
+                        continue;
+                    }
+
+                    activeCount--;
+                    activeVramBytes -= candidate.EstimatedVramBytes;
+                    activeTriangleCount -= candidate.EstimatedTriangleCount;
+                }
+            }
+
+            foreach (var pair in activeCandidates)
+            {
+                if (!keepPairs.Contains(pair))
+                {
+                    var classification = ClassifyCrowdPriority(pair, _partyMemberIds);
+                    pair.SetAutoPaused(
+                        Pair.AutoPauseReason.CrowdPriority,
+                        BuildCrowdPriorityTooltip(pair, classification, config, initialThresholdState, activeCandidates.Count, activeCandidates.Sum(GetEstimatedVisibleVramBytes), activeCandidates.Sum(GetEstimatedVisibleTriangleCount)));
+                }
+                else
+                {
+                    ClearCrowdPriorityAutoPause(pair);
+                }
+            }
+        }
     }
     
     public bool CheckReportedThresholds(PairHandler pairHandler, long? reportedTriangles, long? reportedVramBytes)
@@ -61,7 +307,7 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         {
             triUsageThreshold = MaxTriUsageThreshold;
             vramUsageThreshold = MaxVRAMUsageThreshold * 1024L * 1024L;
-            pair.ClearAutoPaused();
+            ClearThresholdAutoPaused(pair);
         }
 
         bool passed = true;
@@ -332,7 +578,7 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         {
             triUsageThreshold = MaxTriUsageThreshold;
             vramUsageThreshold = MaxVRAMUsageThreshold * 1024L * 1024L;
-            pair.ClearAutoPaused();
+            ClearThresholdAutoPaused(pair);
         }
 
         // Re-run reported checks so newly raised thresholds can clear holds without waiting for fresh DTOs.
@@ -367,6 +613,167 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
                 pair.ClearAutoPaused(Pair.AutoPauseReason.Triangles);
             }
         }
+    }
+
+    private void ClearThresholdAutoPaused(Pair pair)
+    {
+        pair.ClearAutoPaused(Pair.AutoPauseReason.Vram);
+        pair.ClearAutoPaused(Pair.AutoPauseReason.Triangles);
+    }
+
+    private void ClearAllCrowdPriorityAutoPauses()
+    {
+        foreach (var pair in EnumerateAllGroupPairs())
+        {
+            ClearCrowdPriorityAutoPause(pair);
+        }
+    }
+
+    private void ClearCrowdPriorityAutoPause(Pair pair)
+    {
+        var hadCrowdPriorityPause = pair.HasAutoPauseReason(Pair.AutoPauseReason.CrowdPriority);
+        if (!hadCrowdPriorityPause)
+        {
+            return;
+        }
+
+        pair.ClearAutoPaused(Pair.AutoPauseReason.CrowdPriority);
+        if (pair.IsVisible && !pair.IsPaused && !pair.IsApplicationBlocked)
+        {
+            pair.ApplyLastReceivedData(forced: true);
+        }
+    }
+
+    private static bool HasAnyCrowdPriorityThresholdEnabled(PlayerPerformanceConfig config)
+    {
+        return config.CrowdPriorityVisibleMembersThreshold > 0
+            || config.CrowdPriorityVRAMThresholdMiB > 0
+            || config.CrowdPriorityTrianglesThresholdThousands > 0;
+    }
+
+    private void UpdatePartyMemberCache()
+    {
+        _partyMemberIds = _dalamudUtilService.GetPartyPlayerCharacters()
+            .Select(member => member.EntityId)
+            .Where(id => id != uint.MaxValue)
+            .ToHashSet();
+    }
+
+    private IEnumerable<Pair> EnumerateAllGroupPairs()
+    {
+        return PairManager.GroupPairs
+            .SelectMany(entry => entry.Value)
+            .Distinct();
+    }
+
+    private IEnumerable<Pair> GetVisibleShellPairs()
+    {
+        return EnumerateAllGroupPairs()
+            .Where(pair => pair.IsVisible);
+    }
+
+    private static long GetEstimatedVisibleVramBytes(Pair pair)
+    {
+        return Math.Max(pair.LastAppliedApproximateVRAMBytes, pair.LastReportedApproximateVRAMBytes ?? 0);
+    }
+
+    private static long GetEstimatedVisibleTriangleCount(Pair pair)
+    {
+        return Math.Max(pair.LastAppliedDataTris, pair.LastReportedTriangles ?? 0);
+    }
+
+    private static CrowdPriorityThresholdState GetCrowdPriorityThresholdState(PlayerPerformanceConfig config, int activeCount, long activeVramBytes, long activeTriangleCount)
+    {
+        return new CrowdPriorityThresholdState(
+            config.CrowdPriorityVisibleMembersThreshold > 0 && activeCount > config.CrowdPriorityVisibleMembersThreshold,
+            config.CrowdPriorityVRAMThresholdMiB > 0 && activeVramBytes > config.CrowdPriorityVRAMThresholdMiB * 1024L * 1024L,
+            config.CrowdPriorityTrianglesThresholdThousands > 0 && activeTriangleCount > config.CrowdPriorityTrianglesThresholdThousands * 1000L);
+    }
+
+    private static double GetCrowdPriorityBurden(PlayerPerformanceConfig config, Pair pair)
+    {
+        var burden = 0d;
+        if (config.CrowdPriorityVisibleMembersThreshold > 0)
+        {
+            burden += 1d / config.CrowdPriorityVisibleMembersThreshold;
+        }
+
+        if (config.CrowdPriorityVRAMThresholdMiB > 0)
+        {
+            burden += (double)GetEstimatedVisibleVramBytes(pair) / (config.CrowdPriorityVRAMThresholdMiB * 1024d * 1024d);
+        }
+
+        if (config.CrowdPriorityTrianglesThresholdThousands > 0)
+        {
+            burden += (double)GetEstimatedVisibleTriangleCount(pair) / (config.CrowdPriorityTrianglesThresholdThousands * 1000d);
+        }
+
+        return burden;
+    }
+
+    private static CrowdPriorityClassification ClassifyCrowdPriority(Pair pair, IReadOnlySet<uint> partyMemberIds)
+    {
+        if (pair.UserPair != null)
+        {
+            return new CrowdPriorityClassification(CrowdPriorityTier.DirectPair, "direct pair");
+        }
+
+        if (partyMemberIds.Contains(pair.PlayerCharacterId))
+        {
+            return new CrowdPriorityClassification(CrowdPriorityTier.PartyMember, "party member");
+        }
+
+        if (pair.GroupPair.Keys.Any(group => string.Equals(group.OwnerUID, pair.UserData.UID, StringComparison.Ordinal)))
+        {
+            return new CrowdPriorityClassification(CrowdPriorityTier.SyncshellOwner, "syncshell owner");
+        }
+
+        if (pair.GroupPair.Values.Any(groupPair => groupPair.GroupPairStatusInfo.IsModerator()))
+        {
+            return new CrowdPriorityClassification(CrowdPriorityTier.SyncshellModerator, "syncshell moderator");
+        }
+
+        if (pair.GroupPair.Values.Any(groupPair => groupPair.GroupPairStatusInfo.IsPinned()))
+        {
+            return new CrowdPriorityClassification(CrowdPriorityTier.PinnedSyncshellMember, "pinned syncshell member");
+        }
+
+        return new CrowdPriorityClassification(CrowdPriorityTier.SyncshellMember, "syncshell member");
+    }
+
+    private static string BuildCrowdPriorityTooltip(Pair pair, CrowdPriorityClassification classification, PlayerPerformanceConfig config,
+        CrowdPriorityThresholdState thresholdState, int visibleMemberCount, long totalVramBytes, long totalTriangleCount)
+    {
+        var exceededReasons = new List<string>();
+        if (thresholdState.VisibleMembersExceeded && config.CrowdPriorityVisibleMembersThreshold > 0)
+        {
+            exceededReasons.Add(string.Format(CultureInfo.InvariantCulture,
+                "visible syncshell members {0}/{1}",
+                visibleMemberCount,
+                config.CrowdPriorityVisibleMembersThreshold));
+        }
+
+        if (thresholdState.VramExceeded && config.CrowdPriorityVRAMThresholdMiB > 0)
+        {
+            exceededReasons.Add(string.Format(CultureInfo.InvariantCulture,
+                "shell-visible VRAM {0}/{1}",
+                UiSharedService.ByteToString(totalVramBytes, addSuffix: true),
+                UiSharedService.ByteToString(config.CrowdPriorityVRAMThresholdMiB * 1024L * 1024L, addSuffix: true)));
+        }
+
+        if (thresholdState.TrianglesExceeded && config.CrowdPriorityTrianglesThresholdThousands > 0)
+        {
+            exceededReasons.Add(string.Format(CultureInfo.InvariantCulture,
+                "shell-visible triangles {0}/{1}",
+                SyncshellBudgetService.FormatTriangles(totalTriangleCount),
+                SyncshellBudgetService.FormatTriangles(config.CrowdPriorityTrianglesThresholdThousands * 1000L)));
+        }
+
+        return string.Format(CultureInfo.InvariantCulture,
+            "Local crowd-priority hold: {0} ({1}) is temporarily paused because {2} exceeded your local crowd thresholds. This is local only, not a server pause, and Snowcloak will restore them automatically when pressure drops.",
+            pair.UserData.AliasOrUID,
+            classification.Label,
+            string.Join("; ", exceededReasons));
     }
        
     public async Task<bool> ShrinkTextures(PairHandler pairHandler, CharacterData charaData, CancellationToken token)
@@ -544,4 +951,40 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
             "Player {0} ({1}) exceeded your configured VRAM auto block threshold ({2}/{3}MiB) and has been automatically blocked.",
             pair.PlayerName, pair.UserData.AliasOrUID, UiSharedService.ByteToString(vramUsageBytes, addSuffix: true), vramThresholdMiB);
     }
+}
+
+public sealed record CrowdPrioritySnapshot(
+    bool Enabled,
+    int VisibleMembers,
+    int ActiveMembers,
+    int CrowdPausedMembers,
+    long ActiveVramBytes,
+    long ActiveTriangleCount,
+    CrowdPriorityThresholdState ThresholdState);
+
+public sealed record CrowdPriorityThresholdState(
+    bool VisibleMembersExceeded,
+    bool VramExceeded,
+    bool TrianglesExceeded)
+{
+    public bool AnyExceeded => VisibleMembersExceeded || VramExceeded || TrianglesExceeded;
+}
+
+internal sealed record CrowdPriorityClassification(CrowdPriorityTier Tier, string Label);
+
+internal sealed record CrowdPriorityCandidate(
+    Pair Pair,
+    CrowdPriorityClassification Classification,
+    long EstimatedVramBytes,
+    long EstimatedTriangleCount,
+    double Burden);
+
+internal enum CrowdPriorityTier
+{
+    DirectPair = 0,
+    PartyMember = 1,
+    SyncshellOwner = 2,
+    SyncshellModerator = 3,
+    PinnedSyncshellMember = 4,
+    SyncshellMember = 5,
 }

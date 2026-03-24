@@ -61,12 +61,12 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         _downloadStatus.Clear();
     }
 
-    public async Task DownloadFiles(GameObjectHandler gameObject, List<FileReplacementData> fileReplacementDto, CancellationToken ct)
+    public async Task DownloadFiles(GameObjectHandler gameObject, List<FileReplacementData> fileReplacementDto, CancellationToken ct, string? uid = null)
     {
         Mediator.Publish(new HaltScanMessage(nameof(DownloadFiles)));
         try
         {
-            await DownloadFilesInternal(gameObject, fileReplacementDto, ct).ConfigureAwait(false);
+            await DownloadFilesInternal(gameObject, fileReplacementDto, ct, uid).ConfigureAwait(false);
         }
         catch
         {
@@ -74,7 +74,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         }
         finally
         {
-            Mediator.Publish(new DownloadFinishedMessage(gameObject));
+            Mediator.Publish(new DownloadFinishedMessage(gameObject, uid));
             Mediator.Publish(new ResumeScanMessage(nameof(DownloadFiles)));
         }
     }
@@ -279,7 +279,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         return CurrentDownloads;
     }
 
-    private async Task DownloadFilesInternal(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct)
+    private async Task DownloadFilesInternal(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct, string? uid)
     {
         var downloadGroups = CurrentDownloads.GroupBy(f => f.DownloadUri.Host + ":" + f.DownloadUri.Port, StringComparer.Ordinal);
 
@@ -295,7 +295,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             };
         }
 
-        Mediator.Publish(new DownloadStartedMessage(gameObjectHandler, _downloadStatus));
+        Mediator.Publish(new DownloadStartedMessage(gameObjectHandler, _downloadStatus, uid));
 
         await Parallel.ForEachAsync(downloadGroups, new ParallelOptions()
         {

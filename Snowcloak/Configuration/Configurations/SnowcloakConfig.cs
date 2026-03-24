@@ -15,6 +15,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool AcceptedAgreement { get; set; } = false;
     public string CacheFolder { get; set; } = string.Empty;
     public bool DisableOptionalPluginWarnings { get; set; } = false;
+    public bool EnableDebugFeatures { get; set; } = false;
     public bool EnableDtrEntry { get; set; } = true;
     public int DtrStyle { get; set; } = 0;
     public bool ShowUidInDtrTooltip { get; set; } = true;
@@ -60,6 +61,8 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ShowUploading { get; set; } = true;
     public bool ShowUploadingBigText { get; set; } = true;
     public bool ShowVisibleUsersSeparately { get; set; } = true;
+    public bool ShowSyncshellBudgetDashboard { get; set; } = false;
+    public bool ShowCompactUiPerformanceTab { get; set; } = false;
     public int TimeSpanBetweenScansInSeconds { get; set; } = 30;
     public int TransferBarsHeight { get; set; } = 12;
     public bool TransferBarsShowText { get; set; } = true;

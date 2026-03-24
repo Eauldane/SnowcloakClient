@@ -253,14 +253,24 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
         {
             new(VersionFromString("2.5.0"), 
             [
-                new ChangelogSection("New Features",
+                new ChangelogSection("New Features: Syncshell Upgrades",
                 [
-                    
+                    "Syncshell owners and mods can now assign \"roles\" to members of syncshells, letting venues tell patrons who they need to speak to for certain things.",
+                    "Added an audit log for moderation actions."
+                ]),
+                new ChangelogSection("New Feature: Crowd Control",
+                [
+                    "Added an optional setting to enable Crowd Control.",
+                    "Crowd Control detects your system capabilities, and will auto-pause users if it appears your system may become overloaded.",
+                    "Crowd Control blocks based on visible user count, allowed VRAM threshold, and triangle count",
+                    "The settings tracked apply to syncshells cumulatively, and ignore direct pairs."
                 ]),
                 new ChangelogSection("Changes and Bugfixes",
                 [
                     "Added options for SnowChat messages to play sounds.",
-                    "Fixed some issues that prevent the standalone chat client from communicating with the server properly."
+                    "Fixed some issues that prevent the standalone chat client from communicating with the server properly.",
+                    "Internal dependency updates and cleanup.",
+                    "Added utility to identify why someone isn't syncing, and provide diagnostic data if it seems to be a bug."
                 ])
             ]),
             new(VersionFromString("2.4.4"), 

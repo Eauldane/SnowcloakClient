@@ -52,6 +52,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private readonly PerformanceCollectorService _performanceCollector;
     private readonly PlayerPerformanceConfigService _playerPerformanceConfigService;
     private readonly PlayerPerformanceService _playerPerformanceService;
+    private readonly GpuMemoryBudgetService _gpuMemoryBudgetService;
     private readonly AccountRegistrationService _registerService;
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly SecretKeyBackupService _secretKeyBackupService;
@@ -89,7 +90,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         FileCacheManager fileCacheManager,
         FileCompactor fileCompactor, ApiController apiController,
         IpcManager ipcManager, IpcProvider ipcProvider, CacheMonitor cacheMonitor,
-        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService) 
+        DalamudUtilService dalamudUtilService, AccountRegistrationService registerService, GpuMemoryBudgetService gpuMemoryBudgetService) 
         : base(logger, mediator, "Snowcloak Settings", performanceCollector)
     {
         _configService = configService;
@@ -101,6 +102,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _secretKeyBackupService = secretKeyBackupService;
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _playerPerformanceService = playerPerformanceService;
+        _gpuMemoryBudgetService = gpuMemoryBudgetService;
         _performanceCollector = performanceCollector;
         _fileTransferManager = fileTransferManager;
         _fileTransferOrchestrator = fileTransferOrchestrator;
@@ -479,6 +481,14 @@ public class SettingsUi : WindowMediatorSubscriberBase
         
         ImGui.Separator();
         _uiShared.BigText("Debug");
+        bool enableDebugFeatures = _configService.Current.EnableDebugFeatures;
+        if (ImGui.Checkbox("Enable debug features", ref enableDebugFeatures))
+        {
+            _configService.Current.EnableDebugFeatures = enableDebugFeatures;
+            _configService.Save();
+        }
+        ElezenImgui.DrawHelpText("Enables debug-oriented UI actions such as local troubleshooting tools.");
+
 #if DEBUG
         if (LastCreatedCharacterData != null && ImGui.TreeNode("Last created character data"))
         {
@@ -798,6 +808,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;
         var showVisibleSeparate = _configService.Current.ShowVisibleUsersSeparately;
+        var showSyncshellBudgetDashboard = _configService.Current.ShowSyncshellBudgetDashboard;
+        var showCompactUiPerformanceTab = _configService.Current.ShowCompactUiPerformanceTab;
         var sortSyncshellByVRAM = _configService.Current.SortSyncshellsByVRAM;
         var showOfflineSeparate = _configService.Current.ShowOfflineUsersSeparately;
         var showProfiles = _configService.Current.ProfilesShow;
@@ -946,6 +958,18 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Save();
         }
         ElezenImgui.DrawHelpText("This will put users using the most VRAM in a syncshell at the top of the list.");
+        if (ImGui.Checkbox("Show syncshell performance panels", ref showSyncshellBudgetDashboard))
+        {
+            _configService.Current.ShowSyncshellBudgetDashboard = showSyncshellBudgetDashboard;
+            _configService.Save();
+        }
+        ElezenImgui.DrawHelpText("Shows the syncshell performance summary in expanded syncshells and in the syncshell admin window.");
+        if (ImGui.Checkbox("Show CompactUI performance tab", ref showCompactUiPerformanceTab))
+        {
+            _configService.Current.ShowCompactUiPerformanceTab = showCompactUiPerformanceTab;
+            _configService.Save();
+        }
+        ElezenImgui.DrawHelpText("Shows a dedicated CompactUI performance dashboard with total GPU memory pressure when available, visible Snowcloak load, auto-block totals, and top offenders.");
         if (ImGui.Checkbox("Group users by connection status", ref showOfflineSeparate))
         {
             _configService.Current.ShowOfflineUsersSeparately = showOfflineSeparate;
@@ -1083,7 +1107,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private void DrawPerformance()
     {
         _uiShared.BigText("Performance Settings");
-        ElezenImgui.WrappedText("The configuration options here are to give you more informed warnings and automation when it comes to other performance-intensive synced players.");
+        ElezenImgui.WrappedText("These settings control local-only performance protection. Per-player auto-blocking applies to direct pairs and syncshell members, while crowd control only manages visible syncshell members.");
         ImGui.Separator();
         bool recalculatePerformance = false;
         string? recalculatePerformanceUID = null;
@@ -1149,16 +1173,113 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
 
         var totalVramBytes = _pairManager.GetOnlineUserPairs().Where(p => p.IsVisible && p.LastAppliedApproximateVRAMBytes > 0).Sum(p => p.LastAppliedApproximateVRAMBytes);
+        var gpuBudget = _gpuMemoryBudgetService.GetCurrentBudget();
+        var currentVramColor = ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
+        if (gpuBudget != null)
+        {
+            var totalGpuBytes = gpuBudget.TotalBytes > 0 ? gpuBudget.TotalBytes : gpuBudget.BudgetBytes;
+            var usageRatio = totalGpuBytes <= 0
+                ? (totalVramBytes > 0 ? 1f : 0f)
+                : Math.Clamp((float)totalVramBytes / totalGpuBytes, 0f, 1f);
+            currentVramColor = SyncshellBudgetService.GetUsageColor(usageRatio);
+        }
 
-        ImGui.TextUnformatted("Current VRAM utilization by all nearby players:");
+        ImGui.TextUnformatted("Current visible VRAM utilization across nearby synced players:");
         ImGui.SameLine();
-        using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen, totalVramBytes < 2.0 * 1024.0 * 1024.0 * 1024.0))
-            using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow, totalVramBytes >= 4.0 * 1024.0 * 1024.0 * 1024.0))
-                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudRed, totalVramBytes >= 6.0 * 1024.0 * 1024.0 * 1024.0))
-                    ImGui.TextUnformatted($"{totalVramBytes / 1024.0 / 1024.0 / 1024.0:0.00} GiB");
+        using (ImRaii.PushColor(ImGuiCol.Text, currentVramColor))
+        {
+            ImGui.TextUnformatted($"{totalVramBytes / 1024.0 / 1024.0 / 1024.0:0.00} GiB");
+        }
+
+        if (gpuBudget != null)
+        {
+            ImGui.TextUnformatted("Detected local GPU VRAM:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(UiSharedService.ByteToString(gpuBudget.TotalBytes > 0 ? gpuBudget.TotalBytes : gpuBudget.BudgetBytes, true));
+
+            ElezenImgui.ColouredWrappedText($"Adapter: {gpuBudget.AdapterName} (Snowcloak defaults use 75% of total VRAM to leave headroom for the game and desktop)", ImGuiColors.DalamudGrey);
+            
+        }
+        else
+        {
+
+            ElezenImgui.ColouredWrappedText("Local GPU VRAM detection is unavailable on this system.", ImGuiColors.DalamudGrey);
+            
+        }
 
         ImGui.Separator();
-        _uiShared.BigText("Individual Limits");
+        _uiShared.BigText("Crowd Control");
+        var crowdPrioritySnapshot = _playerPerformanceService.GetCrowdPrioritySnapshot();
+        ImGui.TextUnformatted("Visible syncshell members in range:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(crowdPrioritySnapshot.VisibleMembers.ToString(CultureInfo.InvariantCulture));
+        ImGui.TextUnformatted("Currently applying after local holds:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(crowdPrioritySnapshot.ActiveMembers.ToString(CultureInfo.InvariantCulture));
+        ImGui.TextUnformatted("Current shell-visible VRAM:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(UiSharedService.ByteToString(crowdPrioritySnapshot.ActiveVramBytes, true));
+        ImGui.TextUnformatted("Current shell-visible triangles:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(SyncshellBudgetService.FormatTriangles(crowdPrioritySnapshot.ActiveTriangleCount));
+        if (crowdPrioritySnapshot.CrowdPausedMembers > 0)
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow))
+            {
+                ImGui.TextUnformatted($"{crowdPrioritySnapshot.CrowdPausedMembers} member(s) are currently locally held by crowd priority.");
+            }
+        }
+
+        bool crowdPriorityModeEnabled = _playerPerformanceConfigService.Current.CrowdPriorityModeEnabled;
+        if (ImGui.Checkbox("Enable syncshell crowd control", ref crowdPriorityModeEnabled))
+        {
+            _playerPerformanceConfigService.Current.CrowdPriorityModeEnabled = crowdPriorityModeEnabled;
+            _playerPerformanceConfigService.Save();
+            recalculatePerformance = true;
+        }
+        ElezenImgui.DrawHelpText("Local only. When crowd pressure exceeds the thresholds below, Snowcloak temporarily holds the lowest-priority visible syncshell members first."
+            + Environment.NewLine + "Priority order: direct pairs, party members, syncshell owners, moderators, pinned members, then normal syncshell members."
+            + Environment.NewLine + "Set any threshold to 0 to disable that specific limit.");
+        using (ImRaii.Disabled(!crowdPriorityModeEnabled))
+        {
+            using var indent = ImRaii.PushIndent();
+            var visibleCrowdThreshold = _playerPerformanceConfigService.Current.CrowdPriorityVisibleMembersThreshold;
+            var crowdVramThreshold = _playerPerformanceConfigService.Current.CrowdPriorityVRAMThresholdMiB;
+            var crowdTriangleThreshold = _playerPerformanceConfigService.Current.CrowdPriorityTrianglesThresholdThousands;
+
+            ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("Visible member threshold", ref visibleCrowdThreshold))
+            {
+                _playerPerformanceConfigService.Current.CrowdPriorityVisibleMembersThreshold = Math.Max(0, visibleCrowdThreshold);
+                _playerPerformanceConfigService.Save();
+                recalculatePerformance = true;
+            }
+
+            ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("Shell-visible VRAM threshold", ref crowdVramThreshold))
+            {
+                _playerPerformanceConfigService.Current.CrowdPriorityVRAMThresholdMiB = Math.Max(0, crowdVramThreshold);
+                _playerPerformanceConfigService.Save();
+                recalculatePerformance = true;
+            }
+            ImGui.SameLine();
+            ImGui.Text("(MiB)");
+            ElezenImgui.DrawHelpText("Suggested default: 75% of your detected local GPU VRAM, leaving headroom for the game and desktop, with an 8 GiB fallback.");
+
+            ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("Shell-visible triangle threshold", ref crowdTriangleThreshold))
+            {
+                _playerPerformanceConfigService.Current.CrowdPriorityTrianglesThresholdThousands = Math.Max(0, crowdTriangleThreshold);
+                _playerPerformanceConfigService.Save();
+                recalculatePerformance = true;
+            }
+            ImGui.SameLine();
+            ImGui.Text("(thousand triangles)");
+            ElezenImgui.DrawHelpText($"Suggested default: {PlayerPerformanceService.RecommendedTrianglesThresholdThousands / 1000} million triangles.");
+        }
+
+        ImGui.Separator();
+        _uiShared.BigText("Global Auto-Block Thresholds");
         bool autoPause = _playerPerformanceConfigService.Current.AutoPausePlayersExceedingThresholds;
         if (ImGui.Checkbox("Automatically block players exceeding thresholds", ref autoPause))
         {
@@ -1166,8 +1287,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _playerPerformanceConfigService.Save();
             recalculatePerformance = true;
         }
-        ElezenImgui.DrawHelpText("When enabled, it will automatically block the modded appearance of all players that exceed the thresholds defined below." + Environment.NewLine
-            + "Will print a warning in chat when a player is blocked automatically.");
+        ElezenImgui.DrawHelpText("When enabled, Snowcloak automatically blocks any synced player whose per-player load exceeds the thresholds below. This applies to direct pairs and syncshell members unless they are whitelisted.");
         using (ImRaii.Disabled(!autoPause))
         {
             using var indent = ImRaii.PushIndent();
@@ -1194,8 +1314,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             ImGui.SameLine();
             ImGui.Text("(MiB)");
-            ElezenImgui.DrawHelpText("When a loading in player and their VRAM usage exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
-                + "Default: 500 MiB");
+            ElezenImgui.DrawHelpText("When a player's individual VRAM load exceeds this amount, Snowcloak automatically blocks them." + UiSharedService.TooltipSeparator
+                + "Suggested default: 500 MiB per player.");
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("Auto Block Triangle threshold", ref trisAuto))
             {
@@ -1205,8 +1325,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
             }
             ImGui.SameLine();
             ImGui.Text("(thousand triangles)");
-            ElezenImgui.DrawHelpText("When a loading in player and their triangle count exceeds this amount, automatically blocks the synced player." + UiSharedService.TooltipSeparator
-                + "Default: 400 thousand");
+            ElezenImgui.DrawHelpText("When a player's individual triangle count exceeds this amount, Snowcloak automatically blocks them." + UiSharedService.TooltipSeparator
+                + "Suggested default: 0.4 million per player.");
             using (ImRaii.Disabled(!_perfUnapplied))
             {
                 if (ImGui.Button("Apply Changes Now"))

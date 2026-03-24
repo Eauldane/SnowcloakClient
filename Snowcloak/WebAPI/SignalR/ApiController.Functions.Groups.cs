@@ -94,6 +94,12 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(GroupDelete), group).ConfigureAwait(false);
     }
 
+    public async Task<GroupAuditPageDto> GroupGetAuditLog(GroupAuditQueryDto query)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupAuditPageDto>(nameof(GroupGetAuditLog), query).ConfigureAwait(false);
+    }
+
     public async Task<List<BannedGroupUserDto>> GroupGetBannedUsers(GroupDto group)
     {
         CheckConnection();
@@ -117,6 +123,12 @@ public partial class ApiController
     {
         CheckConnection();
         await _snowHub!.SendAsync(nameof(GroupRemoveUser), groupPair).ConfigureAwait(false);
+    }
+
+    public async Task<bool> GroupSetMemberLabels(GroupMemberLabelsDto groupPair)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<bool>(nameof(GroupSetMemberLabels), groupPair).ConfigureAwait(false);
     }
 
     public async Task GroupSetUserInfo(GroupPairUserInfoDto groupPair)

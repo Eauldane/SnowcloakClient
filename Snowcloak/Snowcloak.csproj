@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/14.0.2">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>2.4.4</Version>
+    <Version>2.5.0-rc2</Version>
     <PackageProjectUrl>https://git.snowcloak-sync.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
       <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
@@ -39,15 +39,17 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.13.1" />
+    <PackageReference Include="Snowcloak.API" Version="2.5.0-rc2" />
     <PackageReference Include="Snowcloak.CacheFile" Version="3.2.0" />
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.21.0.135717">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="System.Management" Version="9.0.9" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.16.0" />
     <PackageReference Update="DotNet.ReproducibleBuilds" Version="2.0.2" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.7" />
-    <PackageReference Include="Snowcloak.API" Version="2.4.1" />
   </ItemGroup>
 
   <PropertyGroup>

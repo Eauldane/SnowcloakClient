@@ -31,6 +31,7 @@ internal sealed class GroupPanel
     private readonly PairManager _pairManager;
     private readonly ChatService _chatService;
     private readonly SnowcloakConfigService _snowcloakConfig;
+    private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly CharaDataManager _charaDataManager;
     private readonly Dictionary<string, bool> _showGidForEntry = new(StringComparer.Ordinal);
@@ -60,10 +61,16 @@ internal sealed class GroupPanel
     private string _syncShellToJoin = string.Empty;
     private bool _showPublicSyncshellWarning;
     private string? _publicSyncshellAliasToJoin;
+    private GroupFullInfoDto? _memberLabelEditorGroup;
+    private GroupPairFullInfoDto? _memberLabelEditorUser;
+    private List<string> _memberLabelDraft = [];
+    private string _memberLabelError = string.Empty;
+    private bool _memberLabelEditorPopupPendingOpen;
+    private bool _showMemberLabelEditor;
 
     public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager, ChatService chatServivce,
         UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager,
-        CharaDataManager charaDataManager)
+        CharaDataManager charaDataManager, SyncshellBudgetService syncshellBudgetService)
     {
         _mainUi = mainUi;
         _uiShared = uiShared;
@@ -71,6 +78,7 @@ internal sealed class GroupPanel
         _chatService = chatServivce;
         _uidDisplayHandler = uidDisplayHandler;
         _snowcloakConfig = snowcloakConfig;
+        _syncshellBudgetPanel = new(syncshellBudgetService);
         _serverConfigurationManager = serverConfigurationManager;
         _charaDataManager = charaDataManager;
     }
@@ -86,6 +94,7 @@ internal sealed class GroupPanel
 
         using (ImRaii.PushId("syncshelllist")) DrawSyncshellList(listHeight);
         using (ImRaii.PushId("regionaljoin")) DrawRegionJoinButton();
+        DrawMemberLabelEditorModal();
 
         _mainUi.TransferPartHeight = ImGui.GetCursorPosY();
     }
@@ -625,6 +634,16 @@ internal sealed class GroupPanel
         ImGui.Indent(20);
         if (_expandedGroupState[groupDto.GID])
         {
+            if (_snowcloakConfig.Current.ShowSyncshellBudgetDashboard)
+            {
+                var budgetPairs = validPairsInGroup
+                    .Where(p => !string.Equals(p.UserData.UID, ApiController.UID, StringComparison.Ordinal))
+                    .ToList();
+
+                _syncshellBudgetPanel.Draw(groupDto, budgetPairs);
+                ImGui.Separator();
+            }
+
             IOrderedEnumerable<Pair> sortedPairs;
             if (!_snowcloakConfig.Current.SortSyncshellsByVRAM)
             {
@@ -661,7 +680,9 @@ internal sealed class GroupPanel
                     groupPairInfo,
                     _uidDisplayHandler,
                     _uiShared,
-                    _charaDataManager);
+                    _charaDataManager,
+                    _snowcloakConfig,
+                    OpenMemberLabelEditor);
 
                 bool pausedByYou;
                 bool pausedByOther;
@@ -957,5 +978,112 @@ internal sealed class GroupPanel
             using (ImRaii.PushId(entry.Key.Group.GID)) DrawSyncshell(entry.Key, entry.Value);
         }
         ImGui.EndChild();
+    }
+
+    private void OpenMemberLabelEditor(GroupFullInfoDto group, GroupPairFullInfoDto user)
+    {
+        _memberLabelEditorGroup = group;
+        _memberLabelEditorUser = user;
+        _memberLabelDraft = SyncshellMemberLabelUi.NormalizeSingleSelection(user.MemberLabels);
+        _memberLabelError = string.Empty;
+        _showMemberLabelEditor = true;
+        _memberLabelEditorPopupPendingOpen = true;
+    }
+
+    private void DrawMemberLabelEditorModal()
+    {
+        var popupTitle = "Edit Syncshell Roles";
+        if (_memberLabelEditorPopupPendingOpen)
+        {
+            ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing, new Vector2(0.5f));
+            ImGui.OpenPopup(popupTitle);
+            _memberLabelEditorPopupPendingOpen = false;
+        }
+
+        if (ImGui.BeginPopupModal(popupTitle, ref _showMemberLabelEditor, UiSharedService.PopupWindowFlags))
+        {
+            if (_memberLabelEditorGroup == null || _memberLabelEditorUser == null)
+            {
+                _showMemberLabelEditor = false;
+                ImGui.EndPopup();
+                return;
+            }
+
+            ElezenImgui.WrappedText($"Select shared roles for {_memberLabelEditorUser.UserAliasOrUID} in {_memberLabelEditorGroup.GroupAliasOrGID}.");
+            ElezenImgui.ColouredWrappedText(
+                "Choose a role for this user in your syncshell. They'll be given a special icon to help people identify their job.",
+                ImGuiColors.DalamudGrey);
+            ImGui.Separator();
+
+            foreach (var role in GroupMemberLabelValidator.AvailableLabels)
+            {
+                using var roleId = ImRaii.PushId($"member-role-{role.Value}");
+                var isSelected = SyncshellMemberLabelUi.IsLabelSelected(_memberLabelDraft, role.Value);
+                if (ImGui.Checkbox("##selected", ref isSelected))
+                {
+                    if (SyncshellMemberLabelUi.TrySetExclusiveLabelSelected(role.Value, isSelected, out var updatedLabels, out var errorMessage))
+                    {
+                        _memberLabelDraft = updatedLabels;
+                        _memberLabelError = string.Empty;
+                    }
+                    else
+                    {
+                        _memberLabelError = errorMessage ?? "Unable to update the selected roles.";
+                    }
+                }
+                ImGui.SameLine();
+                if (SyncshellMemberLabelUi.TryGetLabelPresentation(role.Value, out var icon, out var color, out var displayName, out _))
+                {
+                    using var roleColor = ImRaii.PushColor(ImGuiCol.Text, color);
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.TextUnformatted(icon.ToIconString());
+                    ImGui.PopFont();
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted(displayName);
+                }
+                else
+                {
+                    ImGui.TextUnformatted(role.DisplayName);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(_memberLabelError))
+            {
+                ElezenImgui.ColouredWrappedText(_memberLabelError, ImGuiColors.DalamudRed);
+            }
+
+            ImGuiHelpers.ScaledDummy(2f);
+            if (_memberLabelDraft.Count == 0)
+            {
+                ElezenImgui.ColouredWrappedText("No role selected.", ImGuiColors.DalamudGrey);
+            }
+            else
+            {
+                ElezenImgui.WrappedText("Selected Role: " + SyncshellMemberLabelUi.FormatLabels(_memberLabelDraft));
+            }
+
+            ImGui.Separator();
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Role"))
+            {
+                var success = ApiController.GroupSetMemberLabels(new GroupMemberLabelsDto(_memberLabelEditorGroup.Group, _memberLabelEditorUser.User, _memberLabelDraft)).Result;
+                if (success)
+                {
+                    _showMemberLabelEditor = false;
+                }
+                else
+                {
+                    _memberLabelError = "Unable to save roles. The member may have left the syncshell, your permissions changed, or the selection failed validation.";
+                }
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel"))
+            {
+                _showMemberLabelEditor = false;
+            }
+
+            UiSharedService.SetScaledWindowSize(430, centerWindow: false);
+            ImGui.EndPopup();
+        }
     }
 }

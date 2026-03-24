@@ -9,12 +9,14 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
+using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Handlers;
 using Snowcloak.WebAPI;
 using System.Numerics;
+using System;
 
 namespace Snowcloak.UI.Components;
 
@@ -24,17 +26,22 @@ public class DrawGroupPair : DrawPairBase
     private readonly GroupPairFullInfoDto _fullInfoDto;
     private readonly GroupFullInfoDto _group;
     private readonly CharaDataManager _charaDataManager;
+    private readonly SnowcloakConfigService _configService;
+    private readonly Action<GroupFullInfoDto, GroupPairFullInfoDto>? _openLabelEditor;
     public long VRAMUsage { get; set; }
 
     public DrawGroupPair(string id, Pair entry, ApiController apiController,
         SnowMediator snowMediator, GroupFullInfoDto group, GroupPairFullInfoDto fullInfoDto,
-        UidDisplayHandler handler, UiSharedService uiSharedService, CharaDataManager charaDataManager)
+        UidDisplayHandler handler, UiSharedService uiSharedService, CharaDataManager charaDataManager,
+        SnowcloakConfigService configService, Action<GroupFullInfoDto, GroupPairFullInfoDto>? openLabelEditor = null)
         : base(id, entry, apiController, handler, uiSharedService)
     {
         _group = group;
         _fullInfoDto = fullInfoDto;
         _mediator = snowMediator;
         _charaDataManager = charaDataManager;
+        _configService = configService;
+        _openLabelEditor = openLabelEditor;
     }
 
     private bool IsPausedByYou()
@@ -99,6 +106,13 @@ public class DrawGroupPair : DrawPairBase
         else if (!pausedByYou && isOnlineForDisplay && isVisibleForDisplay)
             presenceText = string.Format(CultureInfo.CurrentCulture, "{0} is visible: {1}{2}Click to target this player", entryUID, _pair.PlayerName, Environment.NewLine);
 
+        if (!pausedByYou && SyncshellMemberLabelUi.TryGetPresenceOverride(_fullInfoDto.MemberLabels, out var labelIcon, out var labelColor, out var labelTooltip))
+        {
+            presenceIcon = labelIcon;
+            presenceColor = (isOnlineForDisplay || isVisibleForDisplay) ? labelColor : ImGuiColors.DalamudRed;
+            presenceText += UiSharedService.TooltipSeparator + Environment.NewLine + labelTooltip;
+        }
+
         ImGui.SameLine();
         ImGui.SetCursorPosY(textPosY);
         ImGui.PushFont(UiBuilder.IconFont);
@@ -126,6 +140,11 @@ public class DrawGroupPair : DrawPairBase
                                                         + (_pair.LastAppliedDataTris > 1000 ? (_pair.LastAppliedDataTris / 1000d).ToString("0.0'k'") : _pair.LastAppliedDataTris);
                 }
             }
+        }
+
+        if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+        {
+            presenceText += UiSharedService.TooltipSeparator + _pair.AutoPauseTooltip;
         }
         ElezenImgui.AttachTooltip(presenceText);
 
@@ -155,6 +174,17 @@ public class DrawGroupPair : DrawPairBase
             ImGui.TextUnformatted(FontAwesomeIcon.Thumbtack.ToIconString());
             ImGui.PopFont();
             ElezenImgui.AttachTooltip("User is pinned in this Syncshell");
+        }
+
+        if (_pair.IsAutoPaused && !string.IsNullOrEmpty(_pair.AutoPauseTooltip))
+        {
+            ImGui.SameLine();
+            ImGui.SetCursorPosY(textPosY);
+            using var warningColor = ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.TextUnformatted(FontAwesomeIcon.ExclamationTriangle.ToIconString());
+            ImGui.PopFont();
+            ElezenImgui.AttachTooltip(_pair.AutoPauseTooltip);
         }
     }
 
@@ -408,6 +438,16 @@ public class DrawGroupPair : DrawPairBase
                 ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Hold CTRL and SHIFT and click to transfer ownership of this Syncshell to {0}", _fullInfoDto.UserAliasOrUID) + Environment.NewLine + "WARNING: This action is irreversible.");
             }
 
+            if (userIsModerator || userIsOwner)
+            {
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.IdBadge, "Edit Roles"))
+                {
+                    ImGui.CloseCurrentPopup();
+                    _openLabelEditor?.Invoke(_group, _fullInfoDto);
+                }
+                ElezenImgui.AttachTooltip("Edit shared syncshell roles for this member.");
+            }
+
             if (userIsOwner || (userIsModerator && !(entryIsMod || entryIsOwner)))
                 ImGui.Separator();
 
@@ -482,6 +522,16 @@ public class DrawGroupPair : DrawPairBase
                 ImGui.CloseCurrentPopup();
             }
             ElezenImgui.AttachTooltip("Report this user's profile.");
+            if (_configService.Current.EnableDebugFeatures
+                && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
+            {
+                _mediator.Publish(new OpenSyncTroubleshootingWindow(_pair));
+                ImGui.CloseCurrentPopup();
+            }
+            if (_configService.Current.EnableDebugFeatures)
+            {
+                ElezenImgui.AttachTooltip("Open a local diagnostic report for this user.");
+            }
             if (_pair.IsVisible)
             {
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.PersonCircleQuestion,  "Open Analysis"))
