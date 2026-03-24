@@ -253,23 +253,30 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
         {
             new(VersionFromString("2.5.0"), 
             [
-                new ChangelogSection("New Features: Syncshell Upgrades",
+                new ChangelogSection("New Feature: Syncshell Roles",
                 [
-                    "Syncshell owners and mods can now assign \"roles\" to members of syncshells, letting venues tell patrons who they need to speak to for certain things.",
-                    "Added an audit log for moderation actions."
+                    "Syncshell owners and mods can now assign \"roles\" to members of syncshells, letting venues tell patrons who they need to speak to for certain activities.",
+                    "Roles are specific to that syncshell, and show the user with a custom icon."
+                ]),
+                new ChangelogSection("New Feature: Syncshell Audit Log",
+                [
+                    "Added an audit log for moderation actions to allow for accountability.",
+                    "The audit log tracks joins, invites, kicks, bans, venue info updates, etc."
                 ]),
                 new ChangelogSection("New Feature: Crowd Control",
                 [
                     "Added an optional setting to enable Crowd Control.",
                     "Crowd Control detects your system capabilities, and will auto-pause users if it appears your system may become overloaded.",
                     "Crowd Control blocks based on visible user count, allowed VRAM threshold, and triangle count",
-                    "The settings tracked apply to syncshells cumulatively, and ignore direct pairs."
+                    "The settings tracked apply to syncshells cumulatively, and ignore direct pairs.",
+                    "Pauses are applied in a priority order, leaving direct pairs to last."
                 ]),
                 new ChangelogSection("Changes and Bugfixes",
                 [
                     "Added options for SnowChat messages to play sounds.",
                     "Fixed some issues that prevent the standalone chat client from communicating with the server properly.",
                     "Internal dependency updates and cleanup.",
+                    "Added setting to enable performance panel in the main UI.",
                     "Added utility to identify why someone isn't syncing, and provide diagnostic data if it seems to be a bug."
                 ])
             ]),
