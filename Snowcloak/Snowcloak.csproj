@@ -17,7 +17,7 @@
     <PackageReference Include="Blake3" Version="2.2.1" />
     <PackageReference Include="Brio.API" Version="3.0.1" />
     <PackageReference Include="Chaos.NaCl.Standard" Version="1.0.0" />
-    <PackageReference Include="ElezenTools" Version="14.0.0-rc5" />
+    <PackageReference Include="ElezenTools" Version="14.0.1" />
     <PackageReference Include="Glamourer.Api" Version="2.8.0" />
     <PackageReference Include="K4os.Compression.LZ4.Legacy" Version="1.3.8" />
     <PackageReference Include="K4os.Compression.LZ4.Streams" Version="1.3.8" />
@@ -29,7 +29,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="3.0.25">
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.26">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -39,13 +39,13 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.13.1" />
-    <PackageReference Include="Snowcloak.API" Version="2.5.0-rc2" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="3.2.0" />
+    <PackageReference Include="Snowcloak.API" Version="2.5.0" />
+    <PackageReference Include="Snowcloak.CacheFile" Version="3.2.1" />
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.21.0.135717">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.Management" Version="9.0.9" />
+    <PackageReference Include="System.Management" Version="10.0.5" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.16.0" />
     <PackageReference Update="DotNet.ReproducibleBuilds" Version="2.0.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />

@@ -34,9 +34,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[14.0.0-rc5, )",
-        "resolved": "14.0.0-rc5",
-        "contentHash": "zjL/CVA3lazF5c9p0R0qDycchzxUjzLPSzlPD2nVQR2TmA6axNTmOGwpE3RsOKEs7/36S839XP6pVgsuqOfSyA=="
+        "requested": "[14.0.1, )",
+        "resolved": "14.0.1",
+        "contentHash": "+Da4egTfJ+N6wFFXHWTt3pwDTno1b16wChzejg2h2i73VVJG46zx07aI0zFp4F8q7sch70UNmodiNX3X8HTIeA=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -104,9 +104,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.25, )",
-        "resolved": "3.0.25",
-        "contentHash": "8mzoeC5EWI7E5gY5he3qLomGmIMT5EBFVdLRSOzwD2XikHTtVihIL+7YrrlJ1iWqshIrdmQnOxH/OIY1Bk98ww=="
+        "requested": "[3.0.26, )",
+        "resolved": "3.0.26",
+        "contentHash": "QiunisE8zcoCVgzxu1pGdlSsnA7Hm/1JgIqCMMIdwwJJGa/wmjdKbUIi02ys8fRFTlYZizkIlr+7CXLyFy3LKw=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
@@ -191,9 +191,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[2.5.0-rc2, )",
-        "resolved": "2.5.0-rc2",
-        "contentHash": "mOBoQeHYhlPk8tzoOnxCQjlpitvG3FSD3lWvptuJzYS9NvnBAjI6mZF6TX/jlBdfh4YfbLeQm8PlT6p6tfguWQ==",
+        "requested": "[2.5.0, )",
+        "resolved": "2.5.0",
+        "contentHash": "nZk6yXXw4sGkF3hzBfbaOclHS4P9zk9oEFQdz7X6ii24dddQniHsdHW+sai7XFLm9RcfT+VgFNiY9BBwyXDa7g==",
         "dependencies": {
           "Blake3": "2.2.0",
           "MessagePack.Annotations": "3.1.4"
@@ -201,11 +201,11 @@
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[3.2.0, )",
-        "resolved": "3.2.0",
-        "contentHash": "kKJh/MtbxpUZ0/7qEvttTBulDQ3jAqHVZcr9ee1fcdR3BOnM00PxVBLVLqnFoaC2w97y6dj0suR9WwniQtbWxA==",
+        "requested": "[3.2.1, )",
+        "resolved": "3.2.1",
+        "contentHash": "WxJhSnoYcgCPdr7T5Ek8Nlqt/YA2ZapTq7CMJYShdCOxPcgf7pSHKgqt4797yJq1yPoebze1fJ0fz4+zCZQj/Q==",
         "dependencies": {
-          "Blake3": "2.2.0",
+          "Blake3": "2.2.1",
           "K4os.Compression.LZ4.Streams": "1.3.8",
           "ZstdSharp.Port": "0.8.7"
         }
@@ -228,11 +228,11 @@
       },
       "System.Management": {
         "type": "Direct",
-        "requested": "[9.0.9, )",
-        "resolved": "9.0.9",
-        "contentHash": "U+OnvxuFi/V0++P98Auba1pAyaOXU5EioSz0xczgFsB7l/sPX9Ix4rWwI+lXJG4/icPieeRsfpXPEIcSBTQShw==",
+        "requested": "[10.0.5, )",
+        "resolved": "10.0.5",
+        "contentHash": "JhBVxvWhUJ0KAquUK0dMnc3a1Ol4JyH8fMrMQZ9GgEUkrtvPy8DE57SDnGnuvOdI0maJOdguxw87N5bh2eL87A==",
         "dependencies": {
-          "System.CodeDom": "9.0.9"
+          "System.CodeDom": "10.0.5"
         }
       },
       "Vortice.DXGI": {
@@ -705,8 +705,8 @@
       },
       "System.CodeDom": {
         "type": "Transitive",
-        "resolved": "9.0.9",
-        "contentHash": "Az4ngSi0MO3Qwu1+BJRHnc2C8e7+x0oXj+Q++C/wru0vM8J2oL3QlliiZPdwPnR0VbiL0lH7izSIGQssMaRiGQ=="
+        "resolved": "10.0.5",
+        "contentHash": "hGZWDDJh1U6t7fy3iO4HlZYK1ur1fWE3sTqTNHkHk0Leh0JUcxYM//JtLBNG5g+6D2Lt0+aHH8rc7e5oIlNgCg=="
       },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
@@ -738,11 +738,11 @@
       },
       "System.Management": {
         "type": "Direct",
-        "requested": "[9.0.9, )",
-        "resolved": "9.0.9",
-        "contentHash": "U+OnvxuFi/V0++P98Auba1pAyaOXU5EioSz0xczgFsB7l/sPX9Ix4rWwI+lXJG4/icPieeRsfpXPEIcSBTQShw==",
+        "requested": "[10.0.5, )",
+        "resolved": "10.0.5",
+        "contentHash": "JhBVxvWhUJ0KAquUK0dMnc3a1Ol4JyH8fMrMQZ9GgEUkrtvPy8DE57SDnGnuvOdI0maJOdguxw87N5bh2eL87A==",
         "dependencies": {
-          "System.CodeDom": "9.0.9"
+          "System.CodeDom": "10.0.5"
         }
       },
       "SQLitePCLRaw.lib.e_sqlite3": {
