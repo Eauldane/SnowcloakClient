@@ -661,18 +661,18 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
             ImGui.SameLine();
         }
 
-        ImGui.TextUnformatted("Penumbra");
+        ImGui.TextUnformatted("Penumbra / Weave");
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_penumbraExists, inline: false);
         ImGui.SameLine();
         ElezenImgui.AttachTooltip(
-            $"Penumbra is {(_penumbraExists ? "available and up to date." : "unavailable or not up to date.")}");
+            $"Penumbra or Weave is {(_penumbraExists ? "available and up to date." : "unavailable or not up to date.")}");
         
-        ImGui.TextUnformatted("Glamourer");
+        ImGui.TextUnformatted("Glamourer / Armoire");
         ImGui.SameLine();
         ElezenImgui.GetBooleanIcon(_glamourerExists, inline: false);
         ElezenImgui.AttachTooltip(
-            $"Glamourer is {(_glamourerExists ? "available and up to date." : "unavailable or not up to date.")}");
+            $"Glamourer or Armoire is {(_glamourerExists ? "available and up to date." : "unavailable or not up to date.")}");
         
         if (intro)
         {
@@ -742,7 +742,7 @@ public partial class UiSharedService : DisposableMediatorSubscriberBase
 
         if (!_penumbraExists || !_glamourerExists)
         {
-            ImGui.TextColored(ImGuiColors.DalamudRed, "You need to install both Penumbra and Glamourer and keep them up to date to use Snowcloak.");
+            ImGui.TextColored(ImGuiColors.DalamudRed, "You need Penumbra or Weave, and Glamourer or Armoire, kept up to date to use Snowcloak.");
             return false;
         }
 
