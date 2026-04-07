@@ -119,13 +119,13 @@ public partial class IntroUi : WindowMediatorSubscriberBase
         {
             _uiShared.BigText("Welcome to Snowcloak");
             ImGui.Separator();
-            ElezenImgui.WrappedText("Snowcloak is a plugin that will replicate your full current character state including all Penumbra mods to other paired users. " +
-                                            "Note that you will have to have Penumbra as well as Glamourer installed to use this plugin.");
+            ElezenImgui.WrappedText("Snowcloak is a plugin that will replicate your full current character state including all active mods to other paired users. " +
+                                            "You need Penumbra or Weave, and Glamourer or Armoire, to use this plugin.");
             ElezenImgui.WrappedText("We will have to setup a few things first before you can start using this plugin. Click on next to continue.");
 
-            ElezenImgui.ColouredWrappedText("Note: Any modifications you have applied through anything but Penumbra cannot be shared and your character state on other clients " +
+            ElezenImgui.ColouredWrappedText("Note: Any modifications you have applied through anything but Penumbra or Weave cannot be shared and your character state on other clients " +
                                             "might look broken because of this or others players mods might not apply on your end altogether. " +
-                                            "If you want to use this plugin you will have to move your mods to Penumbra.", ImGuiColors.DalamudYellow);
+                                            "If you want to use this plugin you will have to move your mods to Penumbra or Weave.", ImGuiColors.DalamudYellow);
             if (!_uiShared.DrawOtherPluginState(intro: true)) return;
             ImGui.Separator();
             if (ImGui.Button("Next##toAgreement"))
@@ -196,18 +196,18 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             if (!_uiShared.HasValidPenumbraModPath)
             {
-                ElezenImgui.ColouredWrappedText("You do not have a valid Penumbra path set. Open Penumbra and set up a valid path for the mod directory.", ImGuiColors.DalamudRed);
+                ElezenImgui.ColouredWrappedText("You do not have a valid mod directory path set. Open Penumbra or Weave and configure a valid mod directory.", ImGuiColors.DalamudRed);
                 
             }
             else
             {
-                ElezenImgui.WrappedText("To not unnecessary download files already present on your computer, Snowcloak will have to scan your Penumbra mod directory. " +
+                ElezenImgui.WrappedText("To avoid downloading files already present on your computer, Snowcloak will have to scan your configured mod directory. " +
                                                 "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
                                                 "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service.");
                 ElezenImgui.WrappedText("Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed.");
                 ElezenImgui.ColouredWrappedText("Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
                                                 "Otherwise on the next launch a full re-scan of the file cache database will be initiated.", ImGuiColors.DalamudYellow);
-                ElezenImgui.ColouredWrappedText("Warning: if the scan is hanging and does nothing for a long time, chances are high your Penumbra folder is not set up properly.", ImGuiColors.DalamudYellow);
+                ElezenImgui.ColouredWrappedText("Warning: if the scan is hanging and does nothing for a long time, chances are high your mod directory is not set up properly.", ImGuiColors.DalamudYellow);
                 _uiShared.DrawCacheDirectorySetting();
             }
 
