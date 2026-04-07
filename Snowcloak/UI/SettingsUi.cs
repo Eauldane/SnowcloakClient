@@ -1353,7 +1353,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
         var whitelistPos = ImGui.GetCursorPos();
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
-        ImGui.InputText("##whitelistuid", ref _uidToAddForIgnore, 20);
+        ImGui.InputText("##whitelistuid", ref _uidToAddForIgnore, 25);
         using (ImRaii.Disabled(string.IsNullOrEmpty(_uidToAddForIgnore)))
         {
             ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
@@ -1418,7 +1418,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
         var blacklistPos = ImGui.GetCursorPos();
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
-        ImGui.InputText("##uid", ref _uidToAddForIgnoreBlacklist, 20);
+        ImGui.InputText("##uid", ref _uidToAddForIgnoreBlacklist, 25);
         using (ImRaii.Disabled(string.IsNullOrEmpty(_uidToAddForIgnoreBlacklist)))
         {
             ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
