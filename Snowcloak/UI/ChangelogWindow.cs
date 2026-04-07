@@ -251,6 +251,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.5.1"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Fixed blacklist and whitelist UID entries not accepting long UIDs.",
+                    "IPC and dependency updates",
+                    
+                ])
+            ]),
             new(VersionFromString("2.5.0"), 
             [
                 new ChangelogSection("New Feature: Syncshell Roles",
