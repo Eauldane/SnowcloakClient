@@ -38,7 +38,7 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
     private readonly XivDataAnalyzer _xivDataAnalyzer;
     private readonly ILogger<PlayerPerformanceService> _logger;
     private readonly SnowMediator _mediator;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ServerConfigurationManager _serverConfigurationManager;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly PlayerPerformanceConfigService _playerPerformanceConfigService;
@@ -46,13 +46,13 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
     private readonly Dictionary<string, bool> _warnedForPlayers = new(StringComparer.Ordinal);
     private DateTime _lastCrowdPriorityEvaluationUtc = DateTime.MinValue;
     private HashSet<uint> _partyMemberIds = [];
+    private PairManager? _pairManager;
     private static readonly TimeSpan CrowdPriorityEvaluationInterval = TimeSpan.FromMilliseconds(500);
-    private PairManager PairManager => _serviceProvider.GetRequiredService<PairManager>();
 
     public PlayerPerformanceService(ILogger<PlayerPerformanceService> logger, SnowMediator mediator,
         ServerConfigurationManager serverConfigurationManager,
         PlayerPerformanceConfigService playerPerformanceConfigService, FileCacheManager fileCacheManager,
-        XivDataAnalyzer xivDataAnalyzer, IServiceProvider serviceProvider, DalamudUtilService dalamudUtilService,
+        XivDataAnalyzer xivDataAnalyzer, IServiceScopeFactory serviceScopeFactory, DalamudUtilService dalamudUtilService,
         GpuMemoryBudgetService gpuMemoryBudgetService)
         : base(logger, mediator)
     {
@@ -62,7 +62,7 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _fileCacheManager = fileCacheManager;
         _xivDataAnalyzer = xivDataAnalyzer;
-        _serviceProvider = serviceProvider;
+        _serviceScopeFactory = serviceScopeFactory;
         _dalamudUtilService = dalamudUtilService;
         _gpuMemoryBudgetService = gpuMemoryBudgetService;
 
@@ -678,9 +678,38 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 
     private IEnumerable<Pair> EnumerateAllGroupPairs()
     {
-        return PairManager.GroupPairs
+        if (!TryGetPairManager(out var pairManager))
+        {
+            return [];
+        }
+
+        return pairManager.GroupPairs
             .SelectMany(entry => entry.Value)
-            .Distinct();
+            .Distinct()
+            .ToList();
+    }
+
+    private bool TryGetPairManager(out PairManager pairManager)
+    {
+        if (_pairManager != null)
+        {
+            pairManager = _pairManager;
+            return true;
+        }
+
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            _pairManager = scope.ServiceProvider.GetRequiredService<PairManager>();
+            pairManager = _pairManager;
+            return true;
+        }
+        catch (ObjectDisposedException ex)
+        {
+            _logger.LogDebug(ex, "Skipping pair enumeration because the service provider is disposed");
+            pairManager = null!;
+            return false;
+        }
     }
 
     private IEnumerable<Pair> GetVisibleShellPairs()
