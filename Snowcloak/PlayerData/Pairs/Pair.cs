@@ -131,32 +131,32 @@ public class Pair : DisposableMediatorSubscriberBase
         }
 
         bool isBlocked = IsApplicationBlocked;
-        bool isBlacklisted = _serverConfigurationManager.IsUidBlacklisted(UserData.UID);
-        bool isWhitelisted = _serverConfigurationManager.IsUidWhitelisted(UserData.UID);
+        bool isBlacklisted = _serverConfigurationManager.IsUserBlacklisted(UserData);
+        bool isWhitelisted = _serverConfigurationManager.IsUserWhitelisted(UserData);
 
         Add("Open Profile", _ => Mediator.Publish(new ProfileOpenStandaloneMessage(UserData, this)));
 
         if (!isBlocked && !isBlacklisted)
             Add("Always Block Modded Appearance", _ => {
-                    _serverConfigurationManager.AddBlacklistUid(UserData.UID);
+                    _serverConfigurationManager.AddBlacklistUser(UserData);
                     HoldApplication("Blacklist", maxValue: 1);
                     ApplyLastReceivedData(forced: true);
                 });
         else if (isBlocked && !isWhitelisted)
             Add("Always Allow Modded Appearance", _ => {
-                    _serverConfigurationManager.AddWhitelistUid(UserData.UID);
+                    _serverConfigurationManager.AddWhitelistUser(UserData);
                     UnholdApplication("Blacklist", skipApplication: true);
                     ApplyLastReceivedData(forced: true);
                 });
 
         if (isWhitelisted)
             Add("Remove from Whitelist", _ => {
-                _serverConfigurationManager.RemoveWhitelistUid(UserData.UID);
+                _serverConfigurationManager.RemoveWhitelistUser(UserData);
                 ApplyLastReceivedData(forced: true);
             });
         else if (isBlacklisted)
             Add("Remove from Blacklist", _ => {
-                _serverConfigurationManager.RemoveBlacklistUid(UserData.UID);
+                _serverConfigurationManager.RemoveBlacklistUser(UserData);
                 UnholdApplication("Blacklist", skipApplication: true);
                 ApplyLastReceivedData(forced: true);
             });
@@ -211,7 +211,7 @@ public class Pair : DisposableMediatorSubscriberBase
         if (LastReceivedCharacterData == null) return;
         if (IsDownloadBlocked) return;
 
-        if (_serverConfigurationManager.IsUidBlacklisted(UserData.UID))
+        if (_serverConfigurationManager.IsUserBlacklisted(UserData))
             HoldApplication("Blacklist", maxValue: 1);
 
         CachedPlayer.ApplyCharacterData(Guid.NewGuid(), RemoveNotSyncedFiles(LastReceivedCharacterData.DeepClone())!, forced);

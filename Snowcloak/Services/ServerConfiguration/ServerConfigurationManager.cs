@@ -508,10 +508,22 @@ public class ServerConfigurationManager
         return _cachedWhitelistedUIDs.Contains(uid);
     }
 
+    internal bool IsUserWhitelisted(UserData userData)
+    {
+        _cachedWhitelistedUIDs ??= [.. CurrentBlockStorage().Whitelist];
+        return IsUserInBlockList(userData, _cachedWhitelistedUIDs);
+    }
+
     internal bool IsUidBlacklisted(string uid)
     {
         _cachedBlacklistedUIDs ??= [.. CurrentBlockStorage().Blacklist];
         return _cachedBlacklistedUIDs.Contains(uid);
+    }
+
+    internal bool IsUserBlacklisted(UserData userData)
+    {
+        _cachedBlacklistedUIDs ??= [.. CurrentBlockStorage().Blacklist];
+        return IsUserInBlockList(userData, _cachedBlacklistedUIDs);
     }
 
     internal void AddWhitelistUid(string uid)
@@ -521,6 +533,17 @@ public class ServerConfigurationManager
         if (CurrentBlockStorage().Blacklist.RemoveAll(u => u.Equals(uid, StringComparison.Ordinal)) > 0)
             _cachedBlacklistedUIDs = null;
         CurrentBlockStorage().Whitelist.Add(uid);
+        _cachedWhitelistedUIDs = null;
+        _blockConfig.Save();
+    }
+
+    internal void AddWhitelistUser(UserData userData)
+    {
+        if (IsUserWhitelisted(userData))
+            return;
+        if (RemoveMatchingUserEntries(CurrentBlockStorage().Blacklist, userData) > 0)
+            _cachedBlacklistedUIDs = null;
+        CurrentBlockStorage().Whitelist.Add(userData.UID);
         _cachedWhitelistedUIDs = null;
         _blockConfig.Save();
     }
@@ -536,9 +559,27 @@ public class ServerConfigurationManager
         _blockConfig.Save();
     }
 
+    internal void AddBlacklistUser(UserData userData)
+    {
+        if (IsUserBlacklisted(userData))
+            return;
+        if (RemoveMatchingUserEntries(CurrentBlockStorage().Whitelist, userData) > 0)
+            _cachedWhitelistedUIDs = null;
+        CurrentBlockStorage().Blacklist.Add(userData.UID);
+        _cachedBlacklistedUIDs = null;
+        _blockConfig.Save();
+    }
+
     internal void RemoveWhitelistUid(string uid)
     {
         if (CurrentBlockStorage().Whitelist.RemoveAll(u => u.Equals(uid, StringComparison.Ordinal)) > 0)
+            _cachedWhitelistedUIDs = null;
+        _blockConfig.Save();
+    }
+
+    internal void RemoveWhitelistUser(UserData userData)
+    {
+        if (RemoveMatchingUserEntries(CurrentBlockStorage().Whitelist, userData) > 0)
             _cachedWhitelistedUIDs = null;
         _blockConfig.Save();
     }
@@ -548,6 +589,32 @@ public class ServerConfigurationManager
         if (CurrentBlockStorage().Blacklist.RemoveAll(u => u.Equals(uid, StringComparison.Ordinal)) > 0)
             _cachedBlacklistedUIDs = null;
         _blockConfig.Save();
+    }
+
+    internal void RemoveBlacklistUser(UserData userData)
+    {
+        if (RemoveMatchingUserEntries(CurrentBlockStorage().Blacklist, userData) > 0)
+            _cachedBlacklistedUIDs = null;
+        _blockConfig.Save();
+    }
+
+    private static bool IsUserInBlockList(UserData userData, HashSet<string> blockList)
+    {
+        return GetUserBlockListIdentifiers(userData).Any(blockList.Contains);
+    }
+
+    private static int RemoveMatchingUserEntries(List<string> entries, UserData userData)
+    {
+        var identifiers = GetUserBlockListIdentifiers(userData).ToHashSet(StringComparer.Ordinal);
+        return entries.RemoveAll(identifiers.Contains);
+    }
+
+    private static IEnumerable<string> GetUserBlockListIdentifiers(UserData userData)
+    {
+        if (!string.IsNullOrWhiteSpace(userData.UID))
+            yield return userData.UID;
+        if (!string.IsNullOrWhiteSpace(userData.Alias) && !string.Equals(userData.Alias, userData.UID, StringComparison.Ordinal))
+            yield return userData.Alias;
     }
 
     private ServerNotesStorage CurrentNotesStorage()

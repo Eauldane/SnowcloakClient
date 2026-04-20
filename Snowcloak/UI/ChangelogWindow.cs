@@ -251,6 +251,15 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
     {
         var entries = new List<ChangelogEntry>
         {
+            new(VersionFromString("2.5.2"), 
+            [
+                new ChangelogSection("Changes and Bug Fixes",
+                [
+                    "Whitelist now properly checks vanity IDs as well as \"real\" UIDs.",
+                    "Fixed users using over 2GB VRAM or 2 million triangles being blocked even if whitelisted.",
+                    
+                ])
+            ]),
             new(VersionFromString("2.5.1"), 
             [
                 new ChangelogSection("Changes and Bug Fixes",

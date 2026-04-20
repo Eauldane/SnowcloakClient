@@ -303,7 +303,13 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         long triUsageThreshold = config.TrisAutoPauseThresholdThousands * 1000;
         long vramUsageThreshold = config.VRAMSizeAutoPauseThresholdMiB * 1024L * 1024L;
 
-        if (!autoPause || _serverConfigurationManager.IsUidWhitelisted(pair.UserData.UID))
+        if (_serverConfigurationManager.IsUserWhitelisted(pair.UserData))
+        {
+            ClearThresholdAutoPaused(pair);
+            return true;
+        }
+
+        if (!autoPause)
         {
             triUsageThreshold = MaxTriUsageThreshold;
             vramUsageThreshold = MaxVRAMUsageThreshold * 1024L * 1024L;
@@ -422,7 +428,13 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         if (autoPause && isDirect && config.IgnoreDirectPairs)
             autoPause = false;
 
-        if (!autoPause || _serverConfigurationManager.IsUidWhitelisted(pair.UserData.UID))
+        if (_serverConfigurationManager.IsUserWhitelisted(pair.UserData))
+        {
+            ClearThresholdAutoPaused(pair);
+            return true;
+        }
+
+        if (!autoPause)
             triUsageThreshold = MaxTriUsageThreshold;
 
         if (triUsage > triUsageThreshold)
@@ -513,7 +525,13 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         if (autoPause && isDirect && config.IgnoreDirectPairs)
             autoPause = false;
 
-        if (!autoPause || _serverConfigurationManager.IsUidWhitelisted(pair.UserData.UID))
+        if (_serverConfigurationManager.IsUserWhitelisted(pair.UserData))
+        {
+            ClearThresholdAutoPaused(pair);
+            return true;
+        }
+
+        if (!autoPause)
             vramUsageThreshold = MaxVRAMUsageThreshold;
 
         if (vramUsage > vramUsageThreshold * 1024 * 1024)
@@ -574,11 +592,10 @@ public class PlayerPerformanceService : DisposableMediatorSubscriberBase
         long triUsageThreshold = (autoPause ? config.TrisAutoPauseThresholdThousands * 1000 : MaxTriUsageThreshold);
         long vramUsageThreshold = (autoPause ? config.VRAMSizeAutoPauseThresholdMiB : MaxVRAMUsageThreshold) * 1024L * 1024L;
 
-        if (_serverConfigurationManager.IsUidWhitelisted(pair.UserData.UID))
+        if (_serverConfigurationManager.IsUserWhitelisted(pair.UserData))
         {
-            triUsageThreshold = MaxTriUsageThreshold;
-            vramUsageThreshold = MaxVRAMUsageThreshold * 1024L * 1024L;
             ClearThresholdAutoPaused(pair);
+            return;
         }
 
         // Re-run reported checks so newly raised thresholds can clear holds without waiting for fresh DTOs.

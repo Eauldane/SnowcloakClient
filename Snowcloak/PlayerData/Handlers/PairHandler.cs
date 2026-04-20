@@ -120,7 +120,9 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         });
         Mediator.Subscribe<RecalculatePerformanceMessage>(this, (msg) =>
         {
-            if (msg.UID != null && !msg.UID.Equals(Pair.UserData.UID, StringComparison.Ordinal)) return;
+            if (msg.UID != null
+                && !msg.UID.Equals(Pair.UserData.UID, StringComparison.Ordinal)
+                && !msg.UID.Equals(Pair.UserData.Alias, StringComparison.Ordinal)) return;
             Logger.LogDebug("Recalculating performance for {uid}", Pair.UserData.UID);
             _playerPerformanceService.ReevaluateAutoPause(this);
             pair.ApplyLastReceivedData(forced: true);

@@ -72,8 +72,8 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         List<string> dataState = [];
         List<string> pluginState = [];
 
-        bool isBlacklisted = _serverConfigurationManager.IsUidBlacklisted(pair.UserData.UID);
-        bool isWhitelisted = _serverConfigurationManager.IsUidWhitelisted(pair.UserData.UID);
+        bool isBlacklisted = _serverConfigurationManager.IsUserBlacklisted(pair.UserData);
+        bool isWhitelisted = _serverConfigurationManager.IsUserWhitelisted(pair.UserData);
         bool hasDirectPair = pair.UserPair != null;
         bool isMutualDirectPair = hasDirectPair
             && pair.UserPair!.OwnPermissions.IsPaired()
