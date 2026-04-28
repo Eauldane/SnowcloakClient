@@ -406,11 +406,11 @@ public class FrostbrandPanel
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
 
         var rejectedHomeworlds = _configService.Current.PairRequestRejectedHomeworlds;
-        var filteredWorlds = _uiShared.WorldInfoData
+        var filteredWorlds = _uiShared.WorldDetails
             .Where(kvp => string.IsNullOrWhiteSpace(_homeworldFilterSearch)
                           || kvp.Value.Name.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase)
-                          || kvp.Value.DataCenter.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(kvp => kvp.Value.DataCenter)
+                          || kvp.Value.DataCenterName.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(kvp => kvp.Value.DataCenterName)
             .OrderBy(g => g.Key, StringComparer.Ordinal);
 
         using var homeworldList = ImRaii.Child("FrostbrandHomeworldFilters", new Vector2(0, ImGui.GetTextLineHeightWithSpacing() * 9), true);

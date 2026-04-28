@@ -31,6 +31,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using ElezenTools.Data;
 using ElezenTools.Services;
 using ElezenTools.UI;
+using ElezenWorldData = ElezenTools.Data.Classes.WorldData;
 
 namespace Snowcloak.Services;
 
@@ -95,17 +96,16 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         _blockedCharacterHandler = blockedCharacterHandler;
         Mediator = mediator;
         _performanceCollector = performanceCollector;
-        WorldInfoData = new(() =>
+        WorldDetails = new(() =>
         {
-            return gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)!
-                .Where(w => w.Name.ByteLength > 0 && w.DataCenter.RowId != 0 && (w.IsPublic || char.IsUpper((char)w.Name.Data.Span[0])))
+            return ElezenData.Worlds.GetAll(Dalamud.Game.ClientLanguage.English)
+                .Where(kvp => kvp.Value.DataCenterId != 0
+                    && (kvp.Value.IsPublic || (kvp.Value.Name.Length > 0 && char.IsUpper(kvp.Value.Name[0]))))
                 .ToDictionary(
-                    w => (ushort)w.RowId,
-                    w => new WorldInfo(
-                        w.Name.ToString(),
-                        w.DataCenter.ValueNullable?.Name.ToString() ?? "Unknown"));
+                    kvp => (ushort)kvp.Key,
+                    kvp => kvp.Value);
         });
-        WorldData = new(() => WorldInfoData.Value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name));
+        WorldData = new(() => WorldDetails.Value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name));
         TribeNames = new(() =>
         {
             return gameData.GetExcelSheet<Tribe>(Dalamud.Game.ClientLanguage.English)!
@@ -206,7 +206,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public bool HasModifiedGameFiles => _gameData.HasModifiedGameDataFiles;
     public uint ClassJobId => _classJobId!.Value;
     public Lazy<Dictionary<ushort, string>> WorldData { get; private set; }
-    public Lazy<Dictionary<ushort, WorldInfo>> WorldInfoData { get; private set; }
+    public Lazy<Dictionary<ushort, ElezenWorldData>> WorldDetails { get; private set; }
     public Lazy<Dictionary<int, Lumina.Excel.Sheets.UIColor>> UiColors { get; private set; }
     public Lazy<Dictionary<uint, string>> TerritoryData { get; private set; }
     public Lazy<Dictionary<byte, string>> TribeNames { get; private set; }
