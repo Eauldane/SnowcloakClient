@@ -221,14 +221,14 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     string fileGroupText = string.Format("{0} [{1}]", fileGroup.Key, fileGroup.Count());
                     var requiresCompute = fileGroup.Any(k => !k.IsComputed);
                     using var tabcol = ImRaii.PushColor(ImGuiCol.Tab, ElezenTools.UI.Colour.Vector4ToColour(ImGuiColors.DalamudYellow), requiresCompute);
-                    ImRaii.IEndObject fileTab;
-                    using (var textcol = ImRaii.PushColor(ImGuiCol.Text, ElezenTools.UI.Colour.Vector4ToColour(new Vector4(0, 0, 0, 1)),
+                    bool fileTabOpen;
+                    using (ImRaii.PushColor(ImGuiCol.Text, ElezenTools.UI.Colour.Vector4ToColour(new Vector4(0, 0, 0, 1)),
                         requiresCompute && !string.Equals(_selectedFileTypeTab, fileGroup.Key, StringComparison.Ordinal)))
                     {
-                        fileTab = ImRaii.TabItem(fileGroupText + "###" + fileGroup.Key);
+                        fileTabOpen = ImGui.BeginTabItem(fileGroupText + "###" + fileGroup.Key);
                     }
 
-                    if (!fileTab) { fileTab.Dispose(); continue; }
+                    if (!fileTabOpen) continue;
 
                     if (!string.Equals(fileGroup.Key, _selectedFileTypeTab, StringComparison.Ordinal))
                     {
@@ -250,8 +250,7 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
 
                     ImGui.Separator();
                     DrawTable(fileGroup);
-
-                    fileTab.Dispose();
+                    ImGui.EndTabItem();
                 }
             }
         }
