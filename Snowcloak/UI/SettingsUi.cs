@@ -12,6 +12,7 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Comparer;
 using Microsoft.Extensions.Logging;
+using Snowcloak.CacheFile.Enums;
 using Snowcloak.FileCache;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Configuration;
@@ -229,15 +230,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Current.ParallelDownloads = maxParallelDownloads;
             _configService.Save();
         }
-        bool holdUploadsUntilInRange = _configService.Current.HoldUploadsUntilInRange;
-        if (ImGui.Checkbox("Hold uploads until someone is in range", ref holdUploadsUntilInRange))
-        {
-            _configService.Current.HoldUploadsUntilInRange = holdUploadsUntilInRange;
-            _configService.Save();
-        }
-        ElezenImgui.DrawHelpText("When enabled, Snowcloak will wait to upload your files until a paired player is nearby.");
-
-        
         ImGui.Separator();
         _uiShared.BigText("Transfer UI");
         
@@ -657,14 +649,23 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _configService.Save();
         }
         ElezenImgui.DrawHelpText("Allow larger files to use multithreaded compression.");
-        int compressionLevel = _configService.Current.CompressionLevel;
-        if (ImGui.SliderInt("Compression level", ref compressionLevel, 3, 9, "%d"))
-        {
-            compressionLevel = Math.Clamp(compressionLevel, 2, 9);
-            _configService.Current.CompressionLevel = compressionLevel;
-            _configService.Save();
-        }
-        ElezenImgui.DrawHelpText("Higher compression levels create smaller uploads. This uses more of your CPU, but allows sync partners to download faster. Level 3 is the default.");
+        _uiShared.DrawCombo("Preferred download type",
+            new[] { CompressionType.ZSTD, CompressionType.LZ4, CompressionType.NONE },
+            compressionType => compressionType switch
+            {
+                CompressionType.ZSTD => "ZSTD",
+                CompressionType.LZ4 => "LZ4",
+                CompressionType.NONE => "Uncompressed",
+                _ => compressionType.ToString()
+            },
+            compressionType =>
+            {
+                _configService.Current.PreferredDownloadType = compressionType;
+                _configService.Save();
+            },
+            _configService.Current.PreferredDownloadType);
+        ElezenImgui.DrawHelpText("Choose which SCF compression variant Snowcloak prefers when downloading files from the server. " +
+                                 "ZSTD is the default, favouring smaller downloads for metered or slow connections. LZ4 is the old style compression, for slower systems. If you still struggle, compression can be disabled at the expense of bandwidth. Disabling compression is STRONGLY discouraged.");
         ImGuiHelpers.ScaledDummy(new Vector2(10, 10));
         ImGui.Separator();
         ElezenImgui.WrappedText("File Storage validation can make sure that all files in your local storage folder are valid. " +
@@ -1116,26 +1117,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
         
         bool alwaysShrinkTextures = _playerPerformanceConfigService.Current.TextureShrinkMode == TextureShrinkMode.Always;
         bool deleteOriginalTextures = _playerPerformanceConfigService.Current.TextureShrinkDeleteOriginal;
-
-        _uiShared.DrawCombo("Texture sync preference",
-            Enum.GetValues<TextureCompressionPreference>(),
-            preference => preference switch
-            {
-                TextureCompressionPreference.WhateverEquipped => "No preference",
-                TextureCompressionPreference.PreferCompressed => "Prefer compressed",
-                TextureCompressionPreference.PreferHighQuality => "Prefer high quality",
-                _ => preference.ToString()
-            },
-            preference =>
-            {
-                _configService.Current.TextureCompressionPreference = preference;
-                _configService.Save();
-                _ = _apiController.UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(preference));
-            },
-            _configService.Current.TextureCompressionPreference);
-        ElezenImgui.DrawHelpText("Choose how Snowcloak resolves texture variants from paired players. The default " +
-                               "setting is to use whatever they have their end; but you can override this to force " +
-                               "compressed or high-quality textures if you'd like.");
 
         using (ImRaii.Disabled(deleteOriginalTextures))
         {

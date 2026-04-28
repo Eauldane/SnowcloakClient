@@ -9,39 +9,27 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Numerics;
-using Penumbra.Api.Enums;
 
 namespace Snowcloak.UI;
 
 public class DataAnalysisUi : WindowMediatorSubscriberBase
 {
     private readonly CharacterAnalyzer _characterAnalyzer;
-    private readonly Progress<(string, int)> _conversionProgress = new();
-    private readonly TextureConversionService _textureConversionService;
     private readonly UiSharedService _uiSharedService;
-    private readonly Dictionary<string, (TextureType TextureType, string[] Duplicates)> _texturesToConvert = new(StringComparer.Ordinal);
     private Dictionary<ObjectKind, Dictionary<string, CharacterAnalyzer.FileDataEntry>>? _cachedAnalysis;
-    private CancellationTokenSource _conversionCancellationTokenSource = new();
-    private string _conversionCurrentFileName = string.Empty;
-    private int _conversionCurrentFileProgress = 0;
-    private Task? _conversionTask;
-    private bool _enableTextureConversionMode = false;
     private bool _hasUpdate = false;
     private bool _sortDirty = true;
-    private bool _modalOpen = false;
     private string _selectedFileTypeTab = string.Empty;
     private string _selectedHash = string.Empty;
     private ObjectKind _selectedObjectTab;
-    private bool _showModal = false;
 
     public DataAnalysisUi(ILogger<DataAnalysisUi> logger, SnowMediator mediator,
-        CharacterAnalyzer characterAnalyzer, TextureConversionService textureConversionService,
+        CharacterAnalyzer characterAnalyzer,
         PerformanceCollectorService performanceCollectorService,
         UiSharedService uiSharedService)
         : base(logger, mediator, "Snowcloak Character Data Analysis###SnowcloakDataAnalysisUI", performanceCollectorService)
     {
         _characterAnalyzer = characterAnalyzer;
-        _textureConversionService = textureConversionService;
         _uiSharedService = uiSharedService;
         WindowName = "Character Data Analysis";
         Mediator.Subscribe<CharacterDataAnalyzedMessage>(this, (_) =>
@@ -61,47 +49,10 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 Y = 2160
             }
         };
-
-        _conversionProgress.ProgressChanged += ConversionProgress_ProgressChanged;
     }
     
     protected override void DrawInternal()
     {
-        var conversionPopupTitle = "Texture Conversion in Progress";
-        if (_conversionTask != null && !_conversionTask.IsCompleted)
-        {
-            _showModal = true;
-            if (ImGui.BeginPopupModal(conversionPopupTitle))
-            {
-                ImGui.TextUnformatted(string.Format("Texture Conversion in progress: {0}/{1}", _conversionCurrentFileProgress, _texturesToConvert.Count));
-                ElezenImgui.WrappedText(string.Format("Current file: {0}", _conversionCurrentFileName));
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StopCircle, "Cancel conversion"))
-                {
-                    _conversionCancellationTokenSource.Cancel();
-                }
-                UiSharedService.SetScaledWindowSize(500);
-                ImGui.EndPopup();
-            }
-            else
-            {
-                _modalOpen = false;
-            }
-        }
-        else if (_conversionTask != null && _conversionTask.IsCompleted && _texturesToConvert.Count > 0)
-        {
-            _conversionTask = null;
-            _texturesToConvert.Clear();
-            _showModal = false;
-            _modalOpen = false;
-            _enableTextureConversionMode = false;
-        }
-
-        if (_showModal && !_modalOpen)
-        {
-            ImGui.OpenPopup(conversionPopupTitle);
-            _modalOpen = true;
-        }
-
         if (_hasUpdate)
         {
             _cachedAnalysis = _characterAnalyzer.LastAnalysis.DeepClone();
@@ -261,8 +212,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     _selectedHash = string.Empty;
                     _selectedObjectTab = kvp.Key;
                     _selectedFileTypeTab = string.Empty;
-                    _enableTextureConversionMode = false;
-                    _texturesToConvert.Clear();
                 }
 
                 using var fileTabBar = ImRaii.TabBar("fileTabs");
@@ -285,8 +234,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         _selectedFileTypeTab = fileGroup.Key;
                         _selectedHash = string.Empty;
-                        _enableTextureConversionMode = false;
-                        _texturesToConvert.Clear();
                     }
 
                     ImGui.TextUnformatted(string.Format("{0} files", fileGroup.Key));
@@ -300,29 +247,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     ImGui.TextUnformatted(string.Format("{0} files size (download size):", fileGroup.Key));
                     ImGui.SameLine();
                     ImGui.TextUnformatted(UiSharedService.ByteToString(fileGroup.Sum(c => c.CompressedSize)));
-
-                    if (string.Equals(_selectedFileTypeTab, "tex", StringComparison.Ordinal))
-                    {
-                        ImGui.Checkbox("Enable Texture Conversion Mode", ref _enableTextureConversionMode);
-                        if (_enableTextureConversionMode)
-                        {
-                            ElezenImgui.ColouredText("WARNING REGARDING TEXTURE CONVERSION:", ImGuiColors.DalamudYellow);
-                            ImGui.SameLine();
-                            ElezenImgui.ColouredText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
-                            ElezenImgui.ColouredWrappedText("- Converting textures will reduce their size (compressed and uncompressed) drastically. It is recommended to be used for large (4k+) textures." +
-                                                            Environment.NewLine + "- Snowcloak automatically selects a recommended format based on texture traits." +
-                                                            Environment.NewLine + "- Some textures, especially ones utilizing colorsets, might not be suited for conversion and might produce visual artifacts." +
-                                                            Environment.NewLine + "- Before converting textures, make sure to have the original files of the mod you are converting so you can reimport it in case of issues." +
-                                                            Environment.NewLine + "- Conversion will convert all found texture duplicates (entries with more than 1 file path) automatically." +
-                                                            Environment.NewLine + "- Converting textures is a very expensive operation and, depending on the amount of textures to convert, will take a while to complete.",
-                                ImGuiColors.DalamudYellow);
-                            if (_texturesToConvert.Count > 0 && ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, string.Format("Start conversion of {0} texture(s)", _texturesToConvert.Count)))
-                            {
-                                _conversionCancellationTokenSource = _conversionCancellationTokenSource.CancelRecreate();
-                                _conversionTask = _textureConversionService.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
-                            }
-                        }
-                    }
 
                     ImGui.Separator();
                     DrawTable(fileGroup);
@@ -374,10 +298,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ElezenImgui.WrappedText(traits.FormatSummary);
                 ElezenImgui.WrappedText(string.Format("Channel variance (RGB): {0}/{1}/{2}", traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
                 ElezenImgui.WrappedText(string.Format("Alpha transitions: {0}", traits.AlphaTransitionDensity.ToString("P1")));
-                if (IsRiskyConversion(item))
-                {
-                    ElezenImgui.ColouredWrappedText("Flagged as risky for conversion (colourset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
-                }
             }
         }
     }
@@ -386,26 +306,17 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     {
         _hasUpdate = true;
         _selectedHash = string.Empty;
-        _enableTextureConversionMode = false;
-        _texturesToConvert.Clear();
     }
 
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        _conversionProgress.ProgressChanged -= ConversionProgress_ProgressChanged;
-    }
-
-    private void ConversionProgress_ProgressChanged(object? sender, (string, int) e)
-    {
-        _conversionCurrentFileName = e.Item1;
-        _conversionCurrentFileProgress = e.Item2;
     }
 
     private void DrawTable(IGrouping<string, CharacterAnalyzer.FileDataEntry> fileGroup)
     {
         var tableColumns = string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal)
-            ? (_enableTextureConversionMode ? 7 : 6)
+            ? 6
             : (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal) ? 6 : 5);
         using var table = ImRaii.Table("Analysis", tableColumns, ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit,
             new Vector2(0, 300));
@@ -418,7 +329,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         if (string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal))
         {
             ImGui.TableSetupColumn("Format");
-            if (_enableTextureConversionMode) ImGui.TableSetupColumn("Convert to...");
         }
         if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
         {
@@ -495,46 +405,6 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(item.Format.Value);
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
-                if (_enableTextureConversionMode)
-                {
-                    ImGui.TableNextColumn();
-                    if (item.Format.Value.StartsWith("BC", StringComparison.Ordinal) || item.Format.Value.StartsWith("DXT", StringComparison.Ordinal)
-                        || item.Format.Value.StartsWith("24864", StringComparison.Ordinal)) // BC4
-                    {
-                        ImGui.TextUnformatted("");
-                        continue;
-                    }
-                    var conversionType = GetConversionType(item);
-                    var conversionLabel = GetConversionLabel(conversionType);
-                    var filePath = item.FilePaths[0];
-                    bool toConvert = _texturesToConvert.ContainsKey(filePath);
-                    if (ImGui.Checkbox("###convert" + item.Hash, ref toConvert))
-                    {
-                        if (toConvert)
-                        {
-                            _texturesToConvert[filePath] = (conversionType, item.FilePaths.Skip(1).ToArray());
-                        }
-                        else if (!toConvert && _texturesToConvert.ContainsKey(filePath))
-                        {
-                            _texturesToConvert.Remove(filePath);
-                        }
-                    }
-                    if (toConvert)
-                    {
-                        _texturesToConvert[filePath] = (conversionType, item.FilePaths.Skip(1).ToArray());
-                    }
-                    ImGui.SameLine();
-                    ImGui.TextUnformatted(conversionLabel);
-                    if (IsRiskyConversion(item))
-                    {
-                        ImGui.SameLine();
-                        ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle);
-                        ElezenImgui.AttachTooltip("Texture flagged as risky for conversion (alpha/detail patterns or dye/colorset path). Proceed with caution when converting.");                        if (!toConvert)
-                        {
-                            _texturesToConvert.Remove(filePath);
-                        }
-                    }
-                }
             }
             if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
             {
@@ -543,40 +413,5 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
             }
         }
-    }
-
-    private static TextureType GetConversionType(CharacterAnalyzer.FileDataEntry item)
-    {
-        var traits = item.TextureTraits;
-        if (traits?.IsGreyscale == true)
-        {
-            return TextureType.Bc4Tex;
-        }
-        if (traits?.IsNormalMapStyle == true)
-        {
-            return TextureType.Bc5Tex;
-        }
-        if (traits != null && !traits.HasAlpha)
-        {
-            return TextureType.Bc1Tex;
-        }
-        return TextureType.Bc7Tex;
-    }
-
-    private static bool IsRiskyConversion(CharacterAnalyzer.FileDataEntry item)
-    {
-        return item.IsRiskyTexture;
-    }
-
-    private static string GetConversionLabel(TextureType textureType)
-    {
-        return textureType switch
-        {
-            TextureType.Bc1Tex => "BC1",
-            TextureType.Bc4Tex => "BC4",
-            TextureType.Bc5Tex => "BC5",
-            TextureType.Bc7Tex => "BC7",
-            _ => textureType.ToString()
-        };
     }
 }

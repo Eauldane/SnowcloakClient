@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Snowcloak.API.Data.Enum;
+using Snowcloak.CacheFile.Enums;
 using Snowcloak.Configuration.Models;
 using Snowcloak.FileCache;
 using Snowcloak.UI;
@@ -86,8 +86,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;
     public CacheEvictionMode CacheEvictionMode { get; set; } = CacheEvictionMode.LeastRecentlyUsed;
     public bool UseMultithreadedCompression { get; set; } = false;
-    public int CompressionLevel { get; set; } = 3;
-    public TextureCompressionPreference TextureCompressionPreference { get; set; } = TextureCompressionPreference.WhateverEquipped;
+    public CompressionType PreferredDownloadType { get; set; } = CompressionType.ZSTD;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
     public List<VenueReminderBookmark> VenueReminderBookmarks { get; set; } = [];
     public bool AllowBbCodeImages { get; set; } = true;
@@ -99,6 +98,5 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
     public string LastSeenPatchNotesVersion { get; set; } = "1.0.0";
     public bool PairRequestFriendsOnly { get; set; } = false;
-    public bool HoldUploadsUntilInRange { get; set; } = false;
     public bool ShowChangelog { get; set; } = true;
 }

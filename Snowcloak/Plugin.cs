@@ -114,7 +114,6 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<PairFactory>();
             collection.AddSingleton<XivDataAnalyzer>();
             collection.AddSingleton<CharacterAnalyzer>();
-            collection.AddSingleton<TextureConversionService>();
             collection.AddSingleton<TokenProvider>();
             collection.AddSingleton<AccountRegistrationService>();
             collection.AddSingleton<PluginWarningNotificationService>();

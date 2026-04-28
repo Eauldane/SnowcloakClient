@@ -228,8 +228,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     return;
                 }
 
-                await PushTextureCompressionPreference().ConfigureAwait(false);
-
                 if (_connectionDto.CurrentClientVersion > currentClientVer)
                 {
                     Mediator.Publish(new NotificationMessage("Client outdated",
@@ -489,18 +487,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         }
     }
 
-    private async Task PushTextureCompressionPreference()
-    {
-        try
-        {
-            await UserSetTextureCompressionPreference(new TextureCompressionPreferenceDto(_configService.Current.TextureCompressionPreference)).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Failed to send texture compression preference");
-        }
-    }
-
     private void SnowHubOnClosed(Exception? arg)
     {
         _healthCheckTokenSource?.Cancel();
@@ -532,7 +518,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             }
             ServerState = ServerState.Connected;
             TriggerSystemInfoRefresh();
-            await PushTextureCompressionPreference().ConfigureAwait(false);
             await LoadIninitialPairs().ConfigureAwait(false);
             await LoadOnlinePairs().ConfigureAwait(false);
             Mediator.Publish(new ConnectedMessage(_connectionDto));

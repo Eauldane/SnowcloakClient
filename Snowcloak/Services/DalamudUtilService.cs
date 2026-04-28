@@ -198,6 +198,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     public bool IsAnythingDrawing { get; private set; } = false;
     public bool IsInCutscene { get; private set; } = false;
     public bool IsInGpose { get; private set; } = false;
+    public bool IsInPvP => _clientState.IsPvP;
     public bool IsLoggedIn { get; private set; }
     public bool IsOnFrameworkThread => _framework.IsInFrameworkUpdateThread;
     public bool IsZoning => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];

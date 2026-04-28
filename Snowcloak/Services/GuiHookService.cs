@@ -30,6 +30,7 @@ public class GuiHookService : DisposableMediatorSubscriberBase
     private readonly ApiController _apiController;
 
     private bool _isModified = false;
+    private bool _isInPvP = false;
     private bool _namePlateRoleColorsEnabled = false;
 
     public GuiHookService(ILogger<GuiHookService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, SnowcloakConfigService configService,
@@ -82,16 +83,18 @@ public class GuiHookService : DisposableMediatorSubscriberBase
 
     private void OnNamePlateUpdate(INamePlateUpdateContext context, IReadOnlyList<INamePlateUpdateHandler> handlers)
     {
-        var useNameColors = _configService.Current.UseNameColors;
-        var usePairingHighlights = _configService.Current.PairingSystemEnabled;
+        var isInPvP = _dalamudUtil.IsInPvP;
+        var useNameColors = _configService.Current.UseNameColors && !isInPvP;
+        var usePairingHighlights = _configService.Current.PairingSystemEnabled && !isInPvP;
 
         var visibleUsers = _pairManager.GetOnlineUserPairs()
             .Where(u => u.IsVisible && u.PlayerCharacterId != uint.MaxValue)
             .ToList();
         var visibleUsersIds = visibleUsers.Select(u => (ulong)u.PlayerCharacterId).ToHashSet();
         var visibleUsersDict = visibleUsers.ToDictionary(u => (ulong)u.PlayerCharacterId);
-        var hasVanityColors = visibleUsers.Any(pair => ShouldApplyVanityColor(pair));
-        var hasSelfVanityColor = TryParseVanityColor(_apiController.DisplayColour, _apiController.DisplayGlowColour, out var selfVanityColors);
+        // Yes I know doing the PvP eval first is cheaper
+        var hasVanityColors = visibleUsers.Any(pair => ShouldApplyVanityColor(pair)) && !isInPvP;
+        var hasSelfVanityColor = TryParseVanityColor(_apiController.DisplayColour, _apiController.DisplayGlowColour, out var selfVanityColors) && !isInPvP;
         
         if (!useNameColors && !usePairingHighlights && !hasVanityColors && !hasSelfVanityColor)
             return;
@@ -229,13 +232,23 @@ public class GuiHookService : DisposableMediatorSubscriberBase
     
     private void GameSettingsCheck()
     {
-        if (!_gameConfig.TryGet(Dalamud.Game.Config.UiConfigOption.NamePlateSetRoleColor, out bool namePlateRoleColorsEnabled))
-            return;
+        var requiresRedraw = false;
 
-        if (_namePlateRoleColorsEnabled != namePlateRoleColorsEnabled)
+        if (_gameConfig.TryGet(Dalamud.Game.Config.UiConfigOption.NamePlateSetRoleColor, out bool namePlateRoleColorsEnabled)
+            && _namePlateRoleColorsEnabled != namePlateRoleColorsEnabled)
         {
             _namePlateRoleColorsEnabled = namePlateRoleColorsEnabled;
-            RequestRedraw(force: true);
+            requiresRedraw = true;
         }
+
+        var isInPvP = _dalamudUtil.IsInPvP;
+        if (_isInPvP != isInPvP)
+        {
+            _isInPvP = isInPvP;
+            requiresRedraw = true;
+        }
+
+        if (requiresRedraw)
+            RequestRedraw(force: true);
     }
 }

@@ -55,6 +55,11 @@ public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     public List<FileTransfer> ForbiddenTransfers { get; } = [];
     public bool IsInitialized => FilesCdnUri != null;
 
+    public string PreferredDownloadTypeQueryValue()
+    {
+        return _snowcloakConfig.Current.PreferredDownloadType.ToString();
+    }
+
     public void ClearDownloadRequest(Guid guid)
     {
         _downloadReady.Remove(guid, out _);

@@ -10,7 +10,6 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI;
-using Snowcloak.Configuration;
 
 namespace Snowcloak.PlayerData.Pairs;
 
@@ -22,16 +21,14 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
     private readonly HashSet<PairHandler> _newVisiblePlayers = [];
     private readonly HashSet<UserData> _pendingVisibleUsers = new(UserDataComparer.Instance);
     private readonly PairManager _pairManager;
-    private readonly SnowcloakConfigService _configService;
     private CharacterData? _lastSentData;
 
     public OnlinePlayerManager(ILogger<OnlinePlayerManager> logger, ApiController apiController, DalamudUtilService dalamudUtil,
-        PairManager pairManager, SnowMediator mediator, FileUploadManager fileTransferManager, SnowcloakConfigService configService) : base(logger, mediator)
+        PairManager pairManager, SnowMediator mediator, FileUploadManager fileTransferManager) : base(logger, mediator)
     {
         _apiController = apiController;
         _dalamudUtil = dalamudUtil;
         _pairManager = pairManager;
-        _configService = configService;
         _fileTransferManager = fileTransferManager;
         Mediator.Subscribe<PlayerChangedMessage>(this, (_) => PlayerManagerOnPlayerHasChanged());
         Mediator.Subscribe<DelayedFrameworkUpdateMessage>(this, (_) => FrameworkOnUpdate());
@@ -40,7 +37,16 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
             var newData = msg.CharacterData;
             if (_lastSentData == null || (!string.Equals(newData.DataHash.Value, _lastSentData.DataHash.Value, StringComparison.Ordinal)))
             {
-                Logger.LogDebug("Pushing data for visible players");
+                var uploadableReplacementCount = newData.FileReplacements.Sum(kvp => kvp.Value.Count(v => string.IsNullOrEmpty(v.FileSwapPath)));
+                var fileSwapCount = newData.FileReplacements.Sum(kvp => kvp.Value.Count(v => !string.IsNullOrEmpty(v.FileSwapPath)));
+                Logger.LogInformation(
+                    "Built local character data {hash}: objects={objectCount}, uploadableFiles={uploadableReplacementCount}, fileSwaps={fileSwapCount}, glamourerEntries={glamourerCount}",
+                    newData.DataHash.Value,
+                    newData.FileReplacements.Count,
+                    uploadableReplacementCount,
+                    fileSwapCount,
+                    newData.GlamourerData.Count);
+                Logger.LogDebug("Pushing updated character data");
                 _lastSentData = newData;
                 var visibleUsers = _pairManager.GetVisibleUsers();
                 var pendingVisibleUsers = ConsumePendingVisibleUsers();
@@ -61,11 +67,26 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
             if (_lastSentData == null)
             {
                 _pendingVisibleUsers.Add(msg.Player.Pair.UserData);
-                return;
             }
+
             _newVisiblePlayers.Add(msg.Player);
         });
-        Mediator.Subscribe<ConnectedMessage>(this, (_) => PushCharacterData(_pairManager.GetVisibleUsers()));
+        Mediator.Subscribe<ConnectedMessage>(this, (_) =>
+        {
+            var visibleUsers = _pairManager.GetVisibleUsers();
+            if (_lastSentData == null)
+            {
+                Logger.LogInformation(
+                    "Connected to server but no cached local character data is available yet; skipping initial push. Visible users={visibleUserCount}, pending visible users={pendingVisibleUserCount}",
+                    visibleUsers.Count,
+                    _pendingVisibleUsers.Count);
+                return;
+            }
+
+            Logger.LogInformation("Connected to server, pushing cached local character data {hash} to {visibleUserCount} visible users",
+                _lastSentData.DataHash.Value, visibleUsers.Count);
+            PushCharacterData(visibleUsers);
+        });
     }
 
     private void FrameworkOnUpdate()
@@ -75,8 +96,20 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
         if (!_newVisiblePlayers.Any()) return;
         var newVisiblePlayers = _newVisiblePlayers.ToList();
         _newVisiblePlayers.Clear();
-        Logger.LogTrace("Has new visible players, pushing character data");
-        PushCharacterData(newVisiblePlayers.Select(c => c.Pair.UserData).ToList());
+        Logger.LogTrace("Has new visible players, requesting cached character data and pushing local character data");
+
+        var visiblePlayerIdents = newVisiblePlayers
+            .Select(player => player.Pair.Ident)
+            .Where(ident => !string.IsNullOrWhiteSpace(ident))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var visibleUsers = newVisiblePlayers
+            .Select(player => player.Pair.UserData)
+            .Distinct(UserDataComparer.Instance)
+            .ToList();
+
+        RequestCharacterData(visiblePlayerIdents);
+        PushCharacterData(visibleUsers);
     }
 
     private void PlayerManagerOnPlayerHasChanged()
@@ -88,9 +121,6 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
     {
         if (_lastSentData == null)
             return;
-        if (_configService.Current.HoldUploadsUntilInRange && !visiblePlayers.Any())
-            return;
-        
 
         _ = Task.Run(() => PushCharacterDataInternal(_lastSentData.DeepClone(), visiblePlayers));
     }
@@ -100,8 +130,7 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
         try
         {
             var dataToSend = await _fileTransferManager.UploadFiles(data, visiblePlayers).ConfigureAwait(false);
-            if (visiblePlayers.Any())
-                await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
+            await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -117,8 +146,27 @@ public class OnlinePlayerManager : DisposableMediatorSubscriberBase
         }
 
     }
-    
-    
+
+    private void RequestCharacterData(List<string> visiblePlayerIdents)
+    {
+        if (!visiblePlayerIdents.Any())
+            return;
+
+        _ = Task.Run(() => RequestCharacterDataInternal(visiblePlayerIdents));
+    }
+
+    private async Task RequestCharacterDataInternal(List<string> visiblePlayerIdents)
+    {
+        try
+        {
+            await _apiController.UserGetPairsInRange(visiblePlayerIdents).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Unexpected exception while requesting cached character data");
+        }
+    }
+
     private List<UserData> ConsumePendingVisibleUsers()
     {
         if (!_pendingVisibleUsers.Any())

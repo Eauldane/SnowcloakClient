@@ -173,7 +173,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
                     ElezenTools.UI.Colour.RgbaToColour(220, 220, 255, transparency), 1);
                 drawList.AddRectFilled(dlBarStart, dlBarEnd,
                     ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 1);
-                var dlProgressPercent = totalBytes > 0 ? transferredBytes / (double)totalBytes : 0d;
+                var dlProgressPercent = totalBytes > 0 ? Math.Clamp(transferredBytes / (double)totalBytes, 0d, 1d) : 0d;
                 drawList.AddRectFilled(dlBarStart,
                     dlBarEnd with { X = dlBarStart.X + (float)(dlProgressPercent * dlBarWidth) },
                     ElezenTools.UI.Colour.RgbaToColour(100, 100, 255, transparency), 1);

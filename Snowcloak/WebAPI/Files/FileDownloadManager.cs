@@ -12,6 +12,7 @@ using Snowcloak.WebAPI.Files.Models;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 
@@ -19,6 +20,7 @@ namespace Snowcloak.WebAPI.Files;
 
 public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
+    private const string DownloadSizeHeaderName = "X-Snowcloak-Download-Size";
     private const int SmallDownloadBufferSize = 64 * 1024;
     private const int LargeDownloadBufferSize = 256 * 1024;
     private const long DownloadProgressReportByteInterval = 256 * 1024;
@@ -136,20 +138,56 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         return (string.Join("", hashName), long.Parse(string.Join("", fileLength)));
     }
 
-    private async Task DownloadAndMungeFileHttpClient(string downloadGroup, Guid requestId, List<DownloadFileTransfer> fileTransfer, string tempPath, IProgress<long> progress, CancellationToken ct)
+    private static long EstimateBlockTransferBytes(string fileHash, long fileLengthBytes)
+    {
+        return fileLengthBytes + GetBlockHeaderLength(fileHash, fileLengthBytes);
+    }
+
+    private static int GetBlockHeaderLength(string fileName, long fileLengthBytes)
+    {
+        return fileName.Length + fileLengthBytes.ToString(CultureInfo.InvariantCulture).Length + 3;
+    }
+
+    private static bool TryGetReportedDownloadSize(HttpResponseMessage response, out long totalBytes)
+    {
+        totalBytes = 0;
+
+        if (response.Headers.TryGetValues(DownloadSizeHeaderName, out var headerValues))
+        {
+            var headerValue = headerValues.FirstOrDefault();
+            if (long.TryParse(headerValue, NumberStyles.None, CultureInfo.InvariantCulture, out totalBytes) && totalBytes > 0)
+            {
+                return true;
+            }
+        }
+
+        if (response.Content.Headers.ContentLength is > 0)
+        {
+            totalBytes = response.Content.Headers.ContentLength.Value;
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task DownloadAndMungeFileHttpClient(string downloadGroup, Guid requestId, List<DownloadFileTransfer> fileTransfer, string tempPath, IProgress<long> progress, string downloadType, CancellationToken ct)
     {
         Logger.LogDebug("GUID {requestId} on server {uri} for files {files}", requestId, fileTransfer[0].DownloadUri, string.Join(", ", fileTransfer.Select(c => c.Hash).ToList()));
 
-        await WaitForDownloadReady(fileTransfer, requestId, ct).ConfigureAwait(false);
+        await WaitForDownloadReady(fileTransfer, requestId, downloadType, ct).ConfigureAwait(false);
 
-        if (_downloadStatus.TryGetValue(downloadGroup, out var status))
-        {
-            status.DownloadStatus = DownloadStatus.Downloading;
-        }
         var requestUrl = SnowFiles.CacheGetFullPath(fileTransfer[0].DownloadUri, requestId);
 
         Logger.LogDebug("Downloading {requestUrl} for request {id}", requestUrl, requestId);
         using var response = await SendDownloadRequestAsync(requestUrl, ct).ConfigureAwait(false);
+        if (_downloadStatus.TryGetValue(downloadGroup, out var status))
+        {
+            if (TryGetReportedDownloadSize(response, out var reportedTotalBytes))
+            {
+                status.TotalBytes = reportedTotalBytes;
+            }
+            status.DownloadStatus = DownloadStatus.Downloading;
+        }
 
         ThrottledStream? stream = null;
         try
@@ -281,6 +319,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
 
     private async Task DownloadFilesInternal(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct, string? uid)
     {
+        var downloadType = _orchestrator.PreferredDownloadTypeQueryValue();
         var downloadGroups = CurrentDownloads.GroupBy(f => f.DownloadUri.Host + ":" + f.DownloadUri.Port, StringComparer.Ordinal);
 
         foreach (var downloadGroup in downloadGroups)
@@ -288,7 +327,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
             _downloadStatus[downloadGroup.Key] = new FileDownloadStatus()
             {
                 DownloadStatus = DownloadStatus.Initializing,
-                TotalBytes = downloadGroup.Sum(c => c.Total),
+                TotalBytes = downloadGroup.Sum(c => EstimateBlockTransferBytes(c.Hash, c.Total)),
                 TotalFiles = 1,
                 TransferredBytes = 0,
                 TransferredFiles = 0
@@ -305,7 +344,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         async (fileGroup, token) =>
         {
             // let server predownload files
-            using var requestIdResponse = await _orchestrator.SendRequestAsync(HttpMethod.Post, SnowFiles.RequestEnqueueFullPath(fileGroup.First().DownloadUri),
+            using var requestIdResponse = await _orchestrator.SendRequestAsync(HttpMethod.Post, SnowFiles.RequestEnqueueFullPath(fileGroup.First().DownloadUri, downloadType),
                 fileGroup.Select(c => c.Hash), token).ConfigureAwait(false);
             requestIdResponse.EnsureSuccessStatusCode();
             var requestIdContent = await requestIdResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false);
@@ -341,7 +380,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                         Logger.LogWarning(ex, "Could not set download progress");
                     }
                 });
-                await DownloadAndMungeFileHttpClient(fileGroup.Key, requestId, [.. fileGroup], blockFile, progress, token).ConfigureAwait(false);
+                await DownloadAndMungeFileHttpClient(fileGroup.Key, requestId, [.. fileGroup], blockFile, progress, downloadType, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -470,7 +509,9 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
     private async Task<List<DownloadFileDto>> FilesGetSizes(List<string> hashes, CancellationToken ct)
     {
         if (!_orchestrator.IsInitialized) throw new InvalidOperationException("FileTransferManager is not initialized");
-        using var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.ServerFilesGetSizesFullPath(_orchestrator.FilesCdnUri!), hashes, ct).ConfigureAwait(false);
+        using var response = await _orchestrator.SendRequestAsync(HttpMethod.Get,
+            SnowFiles.ServerFilesGetSizesFullPath(_orchestrator.FilesCdnUri!, _orchestrator.PreferredDownloadTypeQueryValue()),
+            hashes, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<List<DownloadFileDto>>(cancellationToken: ct).ConfigureAwait(false) ?? [];
     }
@@ -494,7 +535,7 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
         }
     }
 
-    private async Task WaitForDownloadReady(List<DownloadFileTransfer> downloadFileTransfer, Guid requestId, CancellationToken downloadCt)
+    private async Task WaitForDownloadReady(List<DownloadFileTransfer> downloadFileTransfer, Guid requestId, string downloadType, CancellationToken downloadCt)
     {
         bool alreadyCancelled = false;
         try
@@ -513,7 +554,8 @@ public partial class FileDownloadManager : DisposableMediatorSubscriberBase
                 {
                     if (downloadCt.IsCancellationRequested) throw;
 
-                    using var req = await _orchestrator.SendRequestAsync(HttpMethod.Get, SnowFiles.RequestCheckQueueFullPath(downloadFileTransfer[0].DownloadUri, requestId),
+                    using var req = await _orchestrator.SendRequestAsync(HttpMethod.Get,
+                        SnowFiles.RequestCheckQueueFullPath(downloadFileTransfer[0].DownloadUri, requestId, downloadType),
                         downloadFileTransfer.Select(c => c.Hash).ToList(), downloadCt).ConfigureAwait(false);
                     req.EnsureSuccessStatusCode();
                     localTimeoutCts.Dispose();

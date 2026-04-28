@@ -199,11 +199,27 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         var uploadToken = _uploadCancellationTokenSource.Token;
         Logger.LogDebug("Sending Character data {hash} to service {url}", data.DataHash.Value, _serverManager.CurrentRealApiUrl);
 
+        var uploadableHashCount = data.FileReplacements.Values
+            .SelectMany(replacements => replacements)
+            .Where(replacement => string.IsNullOrEmpty(replacement.FileSwapPath) && !string.IsNullOrEmpty(replacement.Hash))
+            .Select(replacement => replacement.Hash)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
         HashSet<string> unverifiedUploads = GetUnverifiedFiles(data);
+        Logger.LogInformation(
+            "Preparing upload verification for {hash}: uploadableHashes={uploadableHashCount}, unverifiedHashes={unverifiedHashCount}, visibleUsers={visibleUserCount}",
+            data.DataHash.Value,
+            uploadableHashCount,
+            unverifiedUploads.Count,
+            visiblePlayers.Count);
         if (unverifiedUploads.Any())
         {
-            await UploadUnverifiedFiles(unverifiedUploads, visiblePlayers, uploadToken).ConfigureAwait(false);
+            await UploadUnverifiedFiles(data.DataHash.Value, unverifiedUploads, visiblePlayers, uploadToken).ConfigureAwait(false);
             Logger.LogInformation("Upload complete for {hash}", data.DataHash.Value);
+        }
+        else
+        {
+            Logger.LogInformation("No unverified upload hashes remain for {hash}; skipping FilesSend", data.DataHash.Value);
         }
 
         foreach (var kvp in data.FileReplacements)
@@ -342,7 +358,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         Logger.LogDebug("[{hash}] Upload Status: {status}", fileHash, response.StatusCode);
     }
 
-    private async Task UploadUnverifiedFiles(HashSet<string> unverifiedUploadHashes, List<UserData> visiblePlayers, CancellationToken uploadToken)
+    private async Task UploadUnverifiedFiles(string dataHash, HashSet<string> unverifiedUploadHashes, List<UserData> visiblePlayers, CancellationToken uploadToken)
     {
         Dictionary<string, FileCacheEntity> cachedEntriesByHash = new(StringComparer.Ordinal);
         foreach (var hash in unverifiedUploadHashes)
@@ -362,6 +378,15 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
 
         Logger.LogDebug("Verifying {count} files", unverifiedUploadHashes.Count);
         var filesToUpload = await FilesSend([.. unverifiedUploadHashes], visiblePlayers.Select(p => p.UID).ToList(), uploadToken).ConfigureAwait(false);
+        var forbiddenCount = filesToUpload.Count(file => file.IsForbidden);
+        var missingCount = filesToUpload.Count - forbiddenCount;
+        Logger.LogInformation(
+            "FilesSend result for {hash}: verifiedHashes={verifiedHashCount}, serverMissingHashes={missingHashCount}, forbiddenHashes={forbiddenHashCount}, visibleUsers={visibleUserCount}",
+            dataHash,
+            unverifiedUploadHashes.Count,
+            missingCount,
+            forbiddenCount,
+            visiblePlayers.Count);
 
         HashSet<string> handledUploads = new(StringComparer.Ordinal);
         foreach (var file in filesToUpload)
