@@ -29,7 +29,6 @@ internal sealed class GroupPanel
     private readonly Dictionary<string, bool> _expandedGroupState = new(StringComparer.Ordinal);
     private readonly CompactUi _mainUi;
     private readonly PairManager _pairManager;
-    private readonly ChatService _chatService;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
     private readonly ServerConfigurationManager _serverConfigurationManager;
@@ -68,14 +67,13 @@ internal sealed class GroupPanel
     private bool _memberLabelEditorPopupPendingOpen;
     private bool _showMemberLabelEditor;
 
-    public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager, ChatService chatServivce,
+    public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager,
         UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager,
         CharaDataManager charaDataManager, SyncshellBudgetService syncshellBudgetService)
     {
         _mainUi = mainUi;
         _uiShared = uiShared;
         _pairManager = pairManager;
-        _chatService = chatServivce;
         _uidDisplayHandler = uidDisplayHandler;
         _snowcloakConfig = snowcloakConfig;
         _syncshellBudgetPanel = new(syncshellBudgetService);
@@ -406,7 +404,6 @@ internal sealed class GroupPanel
     
     private void DrawSyncshell(GroupFullInfoDto groupDto, List<Pair> pairsInGroup)
     {
-        int shellNumber = _serverConfigurationManager.GetShellNumberForGid(groupDto.GID);
         var validPairsInGroup = pairsInGroup
             .Where(p => p.GroupPair.ContainsKey(groupDto))
             .ToList();
@@ -459,11 +456,11 @@ internal sealed class GroupPanel
             var shellConfig = _serverConfigurationManager.GetShellConfigForGid(groupDto.GID);
             if (!_snowcloakConfig.Current.DisableChat && shellConfig.Enabled)
             {
-                ImGui.TextUnformatted($"[{shellNumber}]");
-                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellNumber));
+                ImGui.TextUnformatted($"[{shellConfig.ShellNumber}]");
+                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellConfig.ShellNumber));
+                ImGui.SameLine();
             }
             if (textIsGid) ImGui.PushFont(UiBuilder.MonoFont);
-            ImGui.SameLine();
             ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupDto.Group.DisplayColour), groupName);
             if (textIsGid) ImGui.PopFont();
             ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Left click to switch between GID display and comment{0}Right click to change comment for {1}{0}{0}Users: {2}, Owner: {3}",
@@ -484,7 +481,6 @@ internal sealed class GroupPanel
                 _serverConfigurationManager.SetNoteForGid(_editGroupEntry, _editGroupComment);
                 _editGroupComment = _serverConfigurationManager.GetNoteForGid(groupDto.GID) ?? string.Empty;
                 _editGroupEntry = groupDto.GID;
-                _chatService.MaybeUpdateShellName(shellNumber);
             }
         }
         else
@@ -495,7 +491,6 @@ internal sealed class GroupPanel
             {
                 _serverConfigurationManager.SetNoteForGid(groupDto.GID, _editGroupComment);
                 _editGroupEntry = string.Empty;
-                _chatService.MaybeUpdateShellName(shellNumber);
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))

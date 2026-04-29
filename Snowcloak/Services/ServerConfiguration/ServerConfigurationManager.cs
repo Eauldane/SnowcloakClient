@@ -355,11 +355,6 @@ public class ServerConfigurationManager
         return CurrentSyncshellStorage().GidShellConfig.ContainsKey(gid);
     }
 
-    internal int GetShellNumberForGid(string gid)
-    {
-        return GetShellConfigForGid(gid).ShellNumber;
-    }
-
     internal Dictionary<string, List<string>> GetUidServerPairedUserTags()
     {
         return CurrentServerTagStorage().UidServerPairedUserTags;

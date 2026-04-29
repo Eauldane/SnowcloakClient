@@ -7,7 +7,6 @@ using ElezenTools.Services;
 using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Interop;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
@@ -24,7 +23,7 @@ namespace Snowcloak.Services;
 public class ChatService : DisposableMediatorSubscriberBase
 {
     public const int DefaultColor = 710;
-    public const int CommandMaxNumber = 50;
+    public const int SyncshellCommandMaxNumber = 50;
 
     private readonly ILogger<ChatService> _logger;
     private readonly IChatGui _chatGui;
@@ -34,10 +33,8 @@ public class ChatService : DisposableMediatorSubscriberBase
     private readonly PairManager _pairManager;
     private readonly ServerConfigurationManager _serverConfigurationManager;
 
-    private readonly Lazy<GameChatHooks> _gameChatHooks;
-
     public ChatService(ILogger<ChatService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, ApiController apiController,
-        PairManager pairManager, ILoggerFactory loggerFactory, IGameInteropProvider gameInteropProvider, IChatGui chatGui,
+        PairManager pairManager, IChatGui chatGui,
         SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
     {
         _logger = logger;
@@ -51,29 +48,12 @@ public class ChatService : DisposableMediatorSubscriberBase
         Mediator.Subscribe<UserChatMsgMessage>(this, HandleUserChat);
         Mediator.Subscribe<GroupChatMsgMessage>(this, HandleGroupChat);
         _chatGui.ChatMessage += HandleIncomingGameChatMessage;
-
-        _gameChatHooks = new(() => new GameChatHooks(loggerFactory.CreateLogger<GameChatHooks>(), gameInteropProvider, SendChatShell));
-
-        // Initialize chat hooks in advance
-        _ = Task.Run(() =>
-        {
-            try
-            {
-                _ = _gameChatHooks.Value;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize chat hooks");
-            }
-        });
     }
     
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
         _chatGui.ChatMessage -= HandleIncomingGameChatMessage;
-        if (_gameChatHooks.IsValueCreated)
-            _gameChatHooks.Value!.Dispose();
     }
 
     private void HandleUserChat(UserChatMsgMessage message)
@@ -159,6 +139,16 @@ public class ChatService : DisposableMediatorSubscriberBase
 
         var sender = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
         PrintGroupChatMessage(group.GID, group.AliasOrGID, sender, payloadContent, _apiController.DisplayColour, _apiController.DisplayGlowColour);
+    }
+
+    public Task SendSyncshellCommandAsync(int shellNumber, string message)
+    {
+        if (_snowcloakConfig.Current.DisableChat || string.IsNullOrWhiteSpace(message))
+        {
+            return Task.CompletedTask;
+        }
+
+        return SendSyncshellCommandInternalAsync(shellNumber, message.Trim());
     }
 
     private void PrintGroupChatMessage(string gid, string fallbackGroupName, UserData sender, byte[] payloadContent, string? senderDisplayColour, string? senderGlowColour)
@@ -513,59 +503,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         });
     }
 
-    // Called to update the active chat shell name if its renamed
-    public void MaybeUpdateShellName(int shellNumber)
-    {
-        if (_snowcloakConfig.Current.DisableChat)
-            return;
-
-        foreach (var group in _pairManager.Groups)
-        {
-            var shellConfig = _serverConfigurationManager.GetShellConfigForGid(group.Key.GID);
-            if (shellConfig.Enabled && shellConfig.ShellNumber == shellNumber)
-            {
-                if (_gameChatHooks.IsValueCreated && _gameChatHooks.Value.ChatChannelOverride != null)
-                {
-                    // Very dumb and won't handle re-numbering -- need to identify the active chat channel more reliably later
-                    if (_gameChatHooks.Value.ChatChannelOverride.ChannelName.StartsWith($"SS [{shellNumber}]", StringComparison.Ordinal))
-                        SwitchChatShell(shellNumber);
-                }
-            }
-        }
-    }
-
-    public void SwitchChatShell(int shellNumber)
-    {
-        if (_snowcloakConfig.Current.DisableChat)
-            return;
-
-        if (TryResolveSyncshellByNumber(shellNumber, out _, out var shellDisplayName))
-        {
-            // BUG: This doesn't always update the chat window e.g. when renaming a group
-            _gameChatHooks.Value.ChatChannelOverride = new()
-            {
-                ChannelName = $"SS [{shellNumber}]: {shellDisplayName}",
-                ChatMessageHandler = chatBytes => SendChatShell(shellNumber, chatBytes)
-            };
-            return;
-        }
-
-        _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, "[Snowcloak] Syncshell number #{0} not found", shellNumber));
-        
-    }
-
-    public void SendChatShell(int shellNumber, byte[] chatBytes)
-    {
-        if (_snowcloakConfig.Current.DisableChat)
-            return;
-
-        if (chatBytes.Length == 0)
-            return;
-
-        _ = Task.Run(() => SendChatShellAsync(shellNumber, chatBytes));
-    }
-
-    private bool TryResolveSyncshellByNumber(int shellNumber, out GroupData groupData, out string shellDisplayName)
+    private bool TryResolveSyncshellByNumber(int shellNumber, out GroupData groupData)
     {
         foreach (var group in _pairManager.Groups)
         {
@@ -573,21 +511,29 @@ public class ChatService : DisposableMediatorSubscriberBase
             if (shellConfig.Enabled && shellConfig.ShellNumber == shellNumber)
             {
                 groupData = group.Key;
-                shellDisplayName = _serverConfigurationManager.GetNoteForGid(group.Key.GID) ?? group.Key.AliasOrGID;
                 return true;
             }
         }
 
         groupData = default!;
-        shellDisplayName = string.Empty;
         return false;
     }
 
-    private async Task SendChatShellAsync(int shellNumber, byte[] chatBytes)
+    private async Task<ChatMessage> BuildOutgoingChatMessageAsync(string message)
     {
-        if (!TryResolveSyncshellByNumber(shellNumber, out var group, out _))
+        return await Service.UseFramework(() => new ChatMessage
         {
-            _chatGui.PrintError(string.Format(CultureInfo.InvariantCulture, "[Snowcloak] Syncshell number #{0} not found", shellNumber));
+            SenderName = _dalamudUtil.GetPlayerName(),
+            SenderHomeWorldId = _dalamudUtil.GetHomeWorldId(),
+            PayloadContent = Encoding.UTF8.GetBytes(message)
+        }).ConfigureAwait(false);
+    }
+
+    private async Task SendSyncshellCommandInternalAsync(int shellNumber, string message)
+    {
+        if (!TryResolveSyncshellByNumber(shellNumber, out var group))
+        {
+            _chatGui.PrintError($"[Snowcloak] Syncshell number #{shellNumber} is not available. Join that syncshell chat first.");
             return;
         }
 
@@ -595,14 +541,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         {
             await _apiController.GroupChatJoin(new(group)).ConfigureAwait(false);
 
-            // Should cache the name and home world instead of fetching it every time.
-            var chatMsg = await Service.UseFramework(() => new ChatMessage
-            {
-                SenderName = _dalamudUtil.GetPlayerName(),
-                SenderHomeWorldId = _dalamudUtil.GetHomeWorldId(),
-                PayloadContent = chatBytes
-            }).ConfigureAwait(false);
-
+            var chatMsg = await BuildOutgoingChatMessageAsync(message).ConfigureAwait(false);
             await _apiController.GroupChatSendMsg(new(group), chatMsg).ConfigureAwait(false);
 
             var sender = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);

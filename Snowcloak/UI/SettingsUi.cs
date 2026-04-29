@@ -651,12 +651,11 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         ElezenImgui.DrawHelpText("Allow larger files to use multithreaded compression.");
         _uiShared.DrawCombo("Preferred download type",
-            new[] { CompressionType.ZSTD, CompressionType.LZ4, CompressionType.NONE },
+            new[] { CompressionType.ZSTD, CompressionType.LZ4 },
             compressionType => compressionType switch
             {
                 CompressionType.ZSTD => "ZSTD",
                 CompressionType.LZ4 => "LZ4",
-                CompressionType.NONE => "Uncompressed",
                 _ => compressionType.ToString()
             },
             compressionType =>

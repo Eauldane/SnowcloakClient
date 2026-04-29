@@ -22,9 +22,9 @@
       },
       "DalamudPackager": {
         "type": "Direct",
-        "requested": "[14.0.2, )",
-        "resolved": "14.0.2",
-        "contentHash": "dQJeq+8eyHzra4Cg5eZ/3LAeS3/UpvvLriYJGSncMK9LqJ7Q4B6jwcOsxo3PfxVd15xj+IzVFxkPqIBmPQu8/w=="
+        "requested": "[15.0.0, )",
+        "resolved": "15.0.0",
+        "contentHash": "411vwC8/X8Z/sQ2TI6v3SvOn66xFPeOjFn3Zn+h0d3Ox2t1kFm66AhDvmx/qcMwVrR+Hidxj0dadpQ2dgyXMBQ=="
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
@@ -34,9 +34,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[15.0.0-rc11, )",
-        "resolved": "15.0.0-rc11",
-        "contentHash": "cS2yaX2+N6EnY2hSztc1//LTcbcJhioCQ9AuR+D3twOiK2A5BujSUzpasGQjoj0PCF2JNQOW56gUeTFTyrCPaw=="
+        "requested": "[15.0.1, )",
+        "resolved": "15.0.1",
+        "contentHash": "dZLjp/pPIsus9TRSyayN4uI/x///rC4NnOdG+H0t1VAFvOHtqqNihYFqweyaxFR2myPD9N0SX0ANbLL1ivIpdQ=="
       },
       "Glamourer.Api": {
         "type": "Direct",
@@ -247,9 +247,9 @@
       },
       "ZstdSharp.Port": {
         "type": "Direct",
-        "requested": "[0.8.7, )",
-        "resolved": "0.8.7",
-        "contentHash": "+4VpxvzEKaHpfTjsLRMhQHx6brqGBkIA+fjUM3wUW8ZoWpPFAeKrO2Nf4uZDeBjjzNDNxSRvLQH4b3S9Ku4JJQ=="
+        "requested": "[0.8.8, )",
+        "resolved": "0.8.8",
+        "contentHash": "UIDFkA5DC3en3tOJ3Mof11yBx9kUQLsaeo/oFdvN6Bbkr9E9+VCqfIadHci8cu+I51K2Sl7XYWVl2R/mA75NBQ=="
       },
       "K4os.Compression.LZ4": {
         "type": "Transitive",

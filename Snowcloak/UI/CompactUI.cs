@@ -107,7 +107,7 @@ public class CompactUi : WindowMediatorSubscriberBase
     private string? _patreonLoginFeedback;
     private PatreonLoginFeedbackLevel _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
 
-    public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService, ChatService chatService,
+    public CompactUi(ILogger<CompactUi> logger, UiSharedService uiShared, SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService,
         GuiHookService guiHookService, ServerConfigurationManager serverManager, SnowMediator mediator, FileUploadManager fileTransferManager, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, SyncshellBudgetService syncshellBudgetService,
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
@@ -130,7 +130,7 @@ public class CompactUi : WindowMediatorSubscriberBase
         _frostbrandPanel = new FrostbrandPanel(_configService, _pairRequestService, _uiSharedService, _guiHookService, _pendingPairRequestSection, "SettingsUi");
         _performanceDashboardPanel = new PerformanceDashboardPanel(_pairManager, playerPerformanceService, playerPerformanceConfigService, gpuMemoryBudgetService);
         
-        _groupPanel = new(this, uiShared, _pairManager, chatService, uidDisplayHandler, _configService, _serverManager, _charaDataManager, syncshellBudgetService);
+        _groupPanel = new(this, uiShared, _pairManager, uidDisplayHandler, _configService, _serverManager, _charaDataManager, syncshellBudgetService);
         _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler, _uiSharedService);
         _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler);
         _pairGroupsUi = new(configService, _tagHandler, uidDisplayHandler, apiController, _selectPairsForGroupUi, _uiSharedService);

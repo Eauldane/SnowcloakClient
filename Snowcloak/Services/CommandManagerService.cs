@@ -27,6 +27,7 @@ public sealed class CommandManagerService : IDisposable
     private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
     private const string _venueCommand = "/venue";
+    private const string _syncshellCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
     private readonly ICommandManager _commandManager;
@@ -40,6 +41,7 @@ public sealed class CommandManagerService : IDisposable
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly PairManager _pairManager;
     private readonly VenueRegistrationService _venueRegistrationService;
+    private readonly List<string> _syncshellCommands = [];
 
     public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
@@ -79,6 +81,7 @@ public sealed class CommandManagerService : IDisposable
             HelpMessage = "Manage your venues or ads. Use /venue ad to manage advertisements."
         });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
+        RegisterSyncshellCommands();
         
     }
     
@@ -90,6 +93,10 @@ public sealed class CommandManagerService : IDisposable
         _commandManager.RemoveHandler(_animSyncCommand);
         _commandManager.RemoveHandler(_venueFinder);
         _commandManager.RemoveHandler(_venueCommand);
+        foreach (var syncshellCommand in _syncshellCommands)
+        {
+            _commandManager.RemoveHandler(syncshellCommand);
+        }
     }
 
     private void OnCommand(string command, string args)
@@ -203,6 +210,37 @@ public sealed class CommandManagerService : IDisposable
             Message = $"Housing plot identifier: {_dalamudUtilService.GetHousingString()}",
             Type = XivChatType.SystemMessage
         });
+    }
+
+    private void RegisterSyncshellCommands()
+    {
+        for (var shellNumber = 1; shellNumber <= ChatService.SyncshellCommandMaxNumber; shellNumber++)
+        {
+            var commandName = $"{_syncshellCommandPrefix}{shellNumber}";
+            _syncshellCommands.Add(commandName);
+            _commandManager.AddHandler(commandName, new CommandInfo(OnSyncshellCommand)
+            {
+                ShowInHelp = false
+            });
+        }
+    }
+
+    private void OnSyncshellCommand(string command, string args)
+    {
+        if (string.IsNullOrWhiteSpace(args))
+        {
+            _chatGui.PrintError($"[Snowcloak] Usage: {command} <message>");
+            return;
+        }
+
+        if (!command.StartsWith(_syncshellCommandPrefix, StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(command.AsSpan(_syncshellCommandPrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var shellNumber))
+        {
+            _chatGui.PrintError($"[Snowcloak] Invalid syncshell command: {command}");
+            return;
+        }
+
+        _ = _chatService.SendSyncshellCommandAsync(shellNumber, args);
     }
     
      private async Task AttemptAnimationSyncAsync()
