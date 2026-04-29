@@ -67,7 +67,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private DateTime _delayedFrameworkUpdateCheck = DateTime.UtcNow;
     private string _lastGlobalBlockPlayer = string.Empty;
     private string _lastGlobalBlockReason = string.Empty;
-    private ushort _lastZone = 0;
+    private uint _lastZone = 0;
     private readonly Dictionary<string, ElezenPlayerCharacterData> _playerCharas = new(StringComparer.Ordinal);
     private readonly List<string> _notUpdatedCharas = [];
     private bool _sentBetweenAreas = false;

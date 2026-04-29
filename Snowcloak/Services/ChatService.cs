@@ -1,3 +1,4 @@
+using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
@@ -272,26 +273,31 @@ public class ChatService : DisposableMediatorSubscriberBase
         return (sender.DisplayColour, sender.DisplayGlowColour);
     }
 
-    private void HandleIncomingGameChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    private void HandleIncomingGameChatMessage(IHandleableChatMessage chatMessage)
     {
-        if (isHandled || !_snowcloakConfig.Current.ApplyVanityColoursToGameChat)
+        if (chatMessage.IsHandled || !_snowcloakConfig.Current.ApplyVanityColoursToGameChat)
         {
             return;
         }
 
-        if (!TryResolveVanityForGameChatSender(sender, message, out var foregroundHex, out var glowHex)
+        if (chatMessage is not IMutableChatMessage mutableChatMessage)
+        {
+            return;
+        }
+
+        if (!TryResolveVanityForGameChatSender(chatMessage.Sender, chatMessage.Message, out var foregroundHex, out var glowHex)
             || !TryBuildVanityColour(foregroundHex, glowHex, out var colours))
         {
             return;
         }
 
-        var colouredSender = BuildVanityColouredSender(sender, colours);
+        var colouredSender = BuildVanityColouredSender(chatMessage.Sender, colours);
         if (colouredSender == null)
         {
             return;
         }
 
-        sender = colouredSender;
+        mutableChatMessage.Sender = colouredSender;
     }
 
     private bool TryResolveVanityForGameChatSender(SeString sender, SeString message, out string? foregroundHex, out string? glowHex)
