@@ -4,8 +4,7 @@
      <AssemblyName>Snowcloak</AssemblyName>
     <Version>2.6.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
-      <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(MSBuildThisFileDirectory)..\..\ElezenTools\ElezenTools\bin\Debug</RestoreAdditionalProjectSources>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
