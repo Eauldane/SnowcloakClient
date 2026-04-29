@@ -392,7 +392,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase
         {
             var target = await _dalamudUtilService.GetGposeTargetGameObjectAsync().ConfigureAwait(false);
             bool hasValidTarget = _dalamudUtilService.IsInGpose && target != null
-                && target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player;
+                && target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc;
             var targetAddress = target?.Address ?? nint.Zero;
             var targetName = hasValidTarget ? target!.Name.TextValue : "Invalid Target";
             lock (_gposeStateLock)
