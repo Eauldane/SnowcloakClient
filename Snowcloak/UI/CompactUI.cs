@@ -162,14 +162,14 @@ public class CompactUi : WindowMediatorSubscriberBase
             new()
             {
                 Icon = FontAwesomeIcon.GlobeEurope,
-                ShowTooltip = () => ImGui.SetTooltip("Discord/Forums"),
-                Click = (btn) => Util.OpenLink("https://snowcloak-sync.com")
+                ShowTooltip = () => ImGui.SetTooltip("Discord"),
+                Click = (btn) => Util.OpenLink("https://discord.gg/elznmods")
             },
             new()
             {
                 Icon = FontAwesomeIcon.Heart,
                 ShowTooltip = () => ImGui.SetTooltip("Patreon"),
-                Click = (btn) => Util.OpenLink("https://patreon.com/eauldane")
+                Click = (btn) => Util.OpenLink("https://patreon.com/elznmods")
             }
         ];
         // changed min size
@@ -534,7 +534,7 @@ public class CompactUi : WindowMediatorSubscriberBase
                     _ = Task.Run(() => _uiSharedService.ApiController.CreateConnections());
                 }
             }
-            _uiSharedService.DrawCombo("Secret Key#addCharacterSecretKey", keys, (f) => f.Value.FriendlyName, (f) => _secretKeyIdx = f.Key);
+            _uiSharedService.DrawCombo("Secret Key##addCharacterSecretKey", keys, (f) => f.Value.FriendlyName, (f) => _secretKeyIdx = f.Key);
         }
         else
         {

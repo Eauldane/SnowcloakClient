@@ -230,7 +230,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         var availability = _pairRequestService.GetAvailabilityFilterSnapshot();
         var resolved = availability.Accepted
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
-            .Where(tuple => tuple.pc.ObjectId != 0 && tuple.pc.Address != IntPtr.Zero)
+            .Where(tuple => tuple.pc.EntityId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();

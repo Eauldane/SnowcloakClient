@@ -2,6 +2,7 @@
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.Player;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility;
@@ -31,6 +32,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using ElezenTools.Data;
 using ElezenTools.Services;
 using ElezenTools.UI;
+using ElezenPlayerCharacterData = ElezenTools.Data.Classes.PlayerCharacterData;
 using ElezenWorldData = ElezenTools.Data.Classes.WorldData;
 
 namespace Snowcloak.Services;
@@ -41,7 +43,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     
     private struct PlayerInfo
     {
-        public PlayerCharacter Character;
+        public ElezenPlayerCharacterData Character;
         public string Hash;
     };
 
@@ -66,10 +68,9 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     private string _lastGlobalBlockPlayer = string.Empty;
     private string _lastGlobalBlockReason = string.Empty;
     private ushort _lastZone = 0;
-    private readonly Dictionary<string, PlayerCharacter> _playerCharas = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ElezenPlayerCharacterData> _playerCharas = new(StringComparer.Ordinal);
     private readonly List<string> _notUpdatedCharas = [];
     private bool _sentBetweenAreas = false;
-    private static readonly Dictionary<uint, PlayerInfo> _playerInfoCache = new();
     private bool _isOnHousingPlot = false;
     private HousingPlotLocation _lastHousingPlotLocation = default;
     private uint _lastTargetEntityId = 0;
@@ -709,7 +710,7 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
         return _gameGui.WorldToScreen(obj.Position, out var screenPos) ? screenPos : Vector2.Zero;
     }
 
-    public PlayerCharacter FindPlayerByNameHash(string ident)
+    public ElezenPlayerCharacterData FindPlayerByNameHash(string ident)
     {
         _playerCharas.TryGetValue(ident, out var result);
         return result;
@@ -717,34 +718,39 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
 
     private unsafe PlayerInfo GetPlayerInfo(DalamudGameObject chara)
     {
-        uint id = chara.EntityId;
+        var battleChara = (BattleChara*)chara.Address;
+        var customizeData = battleChara->DrawData.CustomizeData.Data;
+        var playerCharacter = chara as IPlayerCharacter;
+        var character = chara as ICharacter;
+        var homeWorldId = (uint)battleChara->Character.HomeWorld;
+        var currentWorldId = (uint)(playerCharacter?.CurrentWorld.RowId ?? 0);
+        var classJobId = (uint)(character?.ClassJob.RowId ?? battleChara->Character.ClassJob);
+        var level = (short)(character?.Level ?? 0);
 
-        if (!_playerInfoCache.TryGetValue(id, out var info))
+        var playerData = new ElezenPlayerCharacterData(
+            chara.GameObjectId,
+            chara.EntityId,
+            _objectTable.LocalPlayer?.Address == chara.Address ? _playerState.ContentId : 0,
+            chara.Address,
+            chara.Name.TextValue,
+            currentWorldId,
+            homeWorldId,
+            classJobId,
+            customizeData[(int)CustomizeIndex.Race],
+            customizeData[(int)CustomizeIndex.Tribe],
+            (Sex)customizeData[(int)CustomizeIndex.Gender],
+            level,
+            level,
+            false);
+
+        return new PlayerInfo
         {
-            info.Character.ObjectId = id;
-            info.Character.Name = chara.Name.TextValue; // ?
-            info.Character.HomeWorldId = ((BattleChara*)chara.Address)->Character.HomeWorld;
-            info.Character.Address = chara.Address;
-            info.Character.ClassJob = ((BattleChara*)chara.Address)->Character.ClassJob;
-            info.Character.Gender = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Gender];
-            info.Character.Clan = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Tribe];
-            info.Hash = Crypto.GetHash256(info.Character.Name + info.Character.HomeWorldId.ToString());
-            if (chara is IPlayerCharacter player)
-                info.Character.Level = player.Level;
-            _playerInfoCache[id] = info;
-        }
-
-        info.Character.Address = chara.Address;
-        info.Character.ClassJob = ((BattleChara*)chara.Address)->Character.ClassJob;
-        info.Character.Gender = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Gender];
-        info.Character.Clan = ((BattleChara*)chara.Address)->DrawData.CustomizeData.Data[(int)CustomizeIndex.Tribe];
-        if (chara is IPlayerCharacter updatedPlayer)
-            info.Character.Level = updatedPlayer.Level;
-
-        return info;
+            Character = playerData,
+            Hash = Crypto.GetHash256(playerData.Name + playerData.HomeWorldId.ToString())
+        };
     }
 
-    private unsafe void CheckCharacterForDrawing(PlayerCharacter p)
+    private unsafe void CheckCharacterForDrawing(ElezenPlayerCharacterData p)
     {
         var gameObj = (GameObject*)p.Address;
         var drawObj = gameObj->DrawObject;
@@ -1084,7 +1090,6 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
                     {
                         _logger.LogDebug("Zone switch/Gpose start");
                         _sentBetweenAreas = true;
-                        _playerInfoCache.Clear();
                         Mediator.Publish(new ZoneSwitchStartMessage());
                         Mediator.Publish(new HaltScanMessage(nameof(ConditionFlag.BetweenAreas)));
                     }

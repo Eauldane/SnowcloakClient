@@ -107,8 +107,8 @@ public class GuiHookService : DisposableMediatorSubscriberBase
         var availableForPairing = usePairingHighlights
             ? availabilitySnapshot.Accepted
                 .Select(id => (pc: _dalamudUtil.FindPlayerByNameHash(id), ident: id))
-                .Where(tuple => tuple.pc.ObjectId != 0)
-                .ToDictionary(tuple => (ulong)tuple.pc.ObjectId, tuple => tuple.ident)
+                .Where(tuple => tuple.pc.EntityId != 0)
+                .ToDictionary(tuple => (ulong)tuple.pc.EntityId, tuple => tuple.ident)
             : new Dictionary<ulong, string>();
 
         var partyMembers = new nint[_partyList.Count];

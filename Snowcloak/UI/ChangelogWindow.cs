@@ -253,12 +253,18 @@ public class ChangelogWindow : WindowMediatorSubscriberBase
         {
             new(VersionFromString("2.6.0"), 
             [
+                new ChangelogSection("API Updates", 
+                [
+                    "Snowcloak has been updated to Dalamud API 15."
+                ]),
                 new ChangelogSection("Changes and Bug Fixes",
                 [
                     "Nameplates no longer colour with vanity colours, active pair colours, or Frostbrand availability during PvP.",
                     "Changed the way sync data is passed around; it should be more reliable in excessively crowded areas now.",
                     "Users on less powerful machines can choose an alternative compression format to download files in. The server will generate the appropriate format automatically.",
-                    "Removed Texture Compression preferences due to issues. Users will now see whichever version pairs are wearing."
+                    "Removed Texture Compression preferences due to issues. Users will now see whichever version pairs are wearing.",
+                    "Fixed an instance where an internal label was added to a drawn label.",
+                    "Optimisations to internal dictionaries."
                 ])
             ]),
             new(VersionFromString("2.5.2"), 

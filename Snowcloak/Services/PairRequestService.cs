@@ -857,7 +857,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     private RequesterDisplay TryResolveRequester(PairingRequestDto dto, bool setNoteFromNearby)
     {
         var pc = _dalamudUtilService.FindPlayerByNameHash(dto.RequesterIdent);
-        if (pc.ObjectId != 0 && pc.Address != IntPtr.Zero && !string.IsNullOrWhiteSpace(pc.Name))
+        if (pc.EntityId != 0 && pc.Address != IntPtr.Zero && !string.IsNullOrWhiteSpace(pc.Name))
         {
             var name = pc.Name;
             var world = (ushort?)pc.HomeWorldId;
@@ -981,7 +981,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             return new AutoRejectResult(false, string.Empty, false);
         
         var pc = _dalamudUtilService.FindPlayerByNameHash(ident);
-        if (pc.ObjectId == 0 || pc.Address == IntPtr.Zero)
+        if (pc.EntityId == 0 || pc.Address == IntPtr.Zero)
             return deferIfUnavailable
                 ? new AutoRejectResult(false, string.Empty, true)
                 : new AutoRejectResult(true, "Auto rejected: requester unavailable for filtering", false);

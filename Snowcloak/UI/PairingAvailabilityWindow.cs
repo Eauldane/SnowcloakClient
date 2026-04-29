@@ -1,4 +1,5 @@
 using Dalamud.Bindings.ImGui;
+using Dalamud.Game.Player;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
@@ -115,17 +116,17 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(entry.Level > 0 ? entry.Level.ToString() : "-");
                 
                 ImGui.TableNextColumn();
-                var gender = entry.Gender switch
+                var gender = entry.Sex switch
                 {
-                    0 =>"Male",
-                    1 => "Female",
+                    Sex.Male => "Male",
+                    Sex.Female => "Female",
                     _ => "-"
                 };
                 ImGui.TextUnformatted(gender);
 
                 ImGui.TableNextColumn();
-                var clan = entry.Tribe != 0
-                           && _dalamudUtilService.TribeNames.Value.TryGetValue(entry.Tribe, out var tribe)
+                var clan = entry.TribeId != 0
+                           && _dalamudUtilService.TribeNames.Value.TryGetValue((byte)entry.TribeId, out var tribe)
                     ? tribe
                     : string.Empty;
                 ImGui.TextUnformatted(string.IsNullOrEmpty(clan) ? "-" : clan);
@@ -205,15 +206,15 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
         return availability.Accepted
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
-            .Where(tuple => tuple.pc.ObjectId != 0 && tuple.pc.Address != IntPtr.Zero)
+            .Where(tuple => tuple.pc.EntityId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => new AvailabilityEntry(
                 tuple.ident,
                 string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name,
                 tuple.pc.HomeWorldId != 0 ? (ushort?)tuple.pc.HomeWorldId : null,
-                tuple.pc.ClassJob,
+                tuple.pc.ClassJobId,
                 tuple.pc.Level,
-                tuple.pc.Gender,
-                tuple.pc.Clan))
+                tuple.pc.Sex,
+                tuple.pc.TribeId))
             .OrderBy(entry => entry.DisplayName, StringComparer.Ordinal)
             .ToList();
     }
@@ -226,6 +227,6 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
             _lockedEntries = BuildAvailabilityEntries();
     }
 
-    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, byte ClassJobId, byte Level, byte Gender, byte Tribe);
+    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, uint ClassJobId, short Level, Sex Sex, uint TribeId);
     
 }

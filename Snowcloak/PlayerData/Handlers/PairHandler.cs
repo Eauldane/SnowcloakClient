@@ -667,7 +667,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         if (string.IsNullOrEmpty(PlayerName))
         {
             var pc = _dalamudUtil.FindPlayerByNameHash(Pair.Ident);
-            if (pc.ObjectId == 0)
+            if (pc.EntityId == 0)
             {
                 Logger.LogDebug("Visibility update skipped for {this}, player not found yet; rearming tracking", this);
                 _visibilityService.StopTracking(Pair.Ident);

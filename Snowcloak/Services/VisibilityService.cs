@@ -42,7 +42,7 @@ public class VisibilityService : DisposableMediatorSubscriberBase
         {
             string ident = player.Key;
             var findResult = _dalamudUtil.FindPlayerByNameHash(ident);
-            var isVisible = findResult.ObjectId != 0;
+            var isVisible = findResult.EntityId != 0;
             
             if (player.Value == TrackedPlayerStatus.NotVisible && isVisible)
             {
