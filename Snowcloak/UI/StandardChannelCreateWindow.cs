@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.Windowing;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;

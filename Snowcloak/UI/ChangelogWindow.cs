@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Reflection;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using ElezenTools.UI;
 using Snowcloak.Services;

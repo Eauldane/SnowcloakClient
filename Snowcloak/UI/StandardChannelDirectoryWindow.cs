@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.Windowing;
 using ElezenTools.UI;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;

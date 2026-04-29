@@ -50,7 +50,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
         Mediator.Subscribe<UserChatMsgMessage>(this, HandleUserChat);
         Mediator.Subscribe<GroupChatMsgMessage>(this, HandleGroupChat);
-        _chatGui.CheckMessageHandled += HandleIncomingGameChatMessage;
+        _chatGui.ChatMessage += HandleIncomingGameChatMessage;
 
         _gameChatHooks = new(() => new GameChatHooks(loggerFactory.CreateLogger<GameChatHooks>(), gameInteropProvider, SendChatShell));
 
@@ -71,7 +71,7 @@ public class ChatService : DisposableMediatorSubscriberBase
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        _chatGui.CheckMessageHandled -= HandleIncomingGameChatMessage;
+        _chatGui.ChatMessage -= HandleIncomingGameChatMessage;
         if (_gameChatHooks.IsValueCreated)
             _gameChatHooks.Value!.Dispose();
     }

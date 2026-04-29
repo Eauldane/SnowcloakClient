@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.Windowing;
 using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;

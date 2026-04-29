@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Windowing;
 using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Extensions;

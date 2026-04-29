@@ -1,5 +1,6 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Windowing;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Handlers;
