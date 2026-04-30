@@ -483,35 +483,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
     {
         EnsureIsOnFramework();
 
-        var worldId = _objectTable.LocalPlayer?.HomeWorld.RowId ?? 0;
-        if (worldId == 0)
-            return string.Empty;
-
-        var world = _gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)?.GetRow(worldId);
-        var dataCenter = world?.DataCenter.Value;
-        if (dataCenter == null)
-            return string.Empty;
-
-        byte region = 0;
-        string fallbackName = string.Empty;
-
-        var regionProperty = dataCenter.GetType().GetProperty("Region");
-        if (regionProperty?.GetValue(dataCenter) is byte regionValue)
-            region = regionValue;
-
-        var nameProperty = dataCenter.GetType().GetProperty("Name");
-        fallbackName = nameProperty?.GetValue(dataCenter)?.ToString() ?? string.Empty;
-
-        return region switch
-        {
-            1 => "Japan",
-            2 => "North America",
-            3 => "Europe",
-            4 => "Oceania",
-            5 => "China",
-            6 => "Korea",
-            _ => fallbackName
-        };
+        var worldId = (ushort)(_objectTable.LocalPlayer?.HomeWorld.RowId ?? 0);
+        return TryGetWorldRegion(worldId, out var region) ? region : string.Empty;
     }
 
     public bool TryGetWorldRegion(ushort worldId, out string region)
@@ -521,21 +494,25 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             return false;
 
         var world = _gameData.GetExcelSheet<Lumina.Excel.Sheets.World>(Dalamud.Game.ClientLanguage.English)?.GetRow(worldId);
-        var dataCenter = world?.DataCenter.Value;
-        if (dataCenter == null)
+        if (world == null)
             return false;
 
-        byte regionValue = 0;
-        string fallbackName = string.Empty;
+        var dataCenter = world.Value.DataCenter;
+        if (!dataCenter.IsValid)
+            return false;
 
-        var regionProperty = dataCenter.GetType().GetProperty("Region");
-        if (regionProperty?.GetValue(dataCenter) is byte regionResult)
-            regionValue = regionResult;
+        var regionRef = dataCenter.Value.Region;
+        if (!regionRef.IsValid)
+            return false;
 
-        var nameProperty = dataCenter.GetType().GetProperty("Name");
-        fallbackName = nameProperty?.GetValue(dataCenter)?.ToString() ?? string.Empty;
+        region = ResolveWorldRegionName(regionRef.RowId);
 
-        region = regionValue switch
+        return !string.IsNullOrWhiteSpace(region);
+    }
+
+    private static string ResolveWorldRegionName(uint regionId)
+    {
+        return regionId switch
         {
             1 => "Japan",
             2 => "North America",
@@ -543,10 +520,8 @@ public class DalamudUtilService : IHostedService, IMediatorSubscriber
             4 => "Oceania",
             5 => "China",
             6 => "Korea",
-            _ => fallbackName
+            _ => string.Empty
         };
-
-        return !string.IsNullOrWhiteSpace(region);
     }
     
     public unsafe LocationInfo GetMapData()

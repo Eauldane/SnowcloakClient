@@ -12,5 +12,6 @@
   "RepoUrl": "https://github.com/Eauldane/SnowcloakClient",
   "CanUnloadAsync": true,
   "DalamudApiLevel": 15,
+  "Changelog": "2.6.1\\n- Fixed regression with syncshell region detection.\\n- Removed our own changelog handler; we now use Dalamud's internal one.\\n2.6.0\\n- Updated to Dalamud API 15.\\n- Nameplates no longer colour with vanity colours, active pair colours, or Frostbrand availability during PvP.\\n- Sync data handoff has been reworked to be more reliable in very crowded areas.\\n- Lower-end systems can now request an alternative download compression format, with the server generating the needed variant automatically.\\n- Removed texture compression preferences; users now receive whichever version their pairs are wearing.\\n- Fixed an internal label leaking into a drawn label.\\n- Optimised internal dictionaries.",
   "MakeZip": false
 }
