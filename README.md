@@ -3,7 +3,7 @@ The snow may cloak the world in silence, but come in, warm up, and reveal your t
 
 A Dalamud plugin.
 
-[![Discord](https://img.shields.io/discord/1408265972720078990?color=5865F2&label=discord&logo=discord&logoColor=white)](https://discord.gg/snowcloak)
+[![Discord](https://img.shields.io/discord/1408265972720078990?color=5865F2&label=discord&logo=discord&logoColor=white)](https://discord.gg/elznmods)
 
 ## Usage and Installation
 
