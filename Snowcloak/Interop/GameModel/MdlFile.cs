@@ -31,11 +31,11 @@ public class MdlFile
     public ushort Unknown9;
 
     // Offsets are stored relative to RuntimeSize instead of file start.
-    public uint[] VertexOffset = [0, 0, 0];
-    public uint[] IndexOffset = [0, 0, 0];
+    public uint[] VertexOffset;
+    public uint[] IndexOffset;
 
-    public uint[] VertexBufferSize = [0, 0, 0];
-    public uint[] IndexBufferSize = [0, 0, 0];
+    public uint[] VertexBufferSize;
+    public uint[] IndexBufferSize;
     public byte LodCount;
     public bool EnableIndexBufferStreaming;
     public bool EnableEdgeGeometry;
@@ -43,11 +43,11 @@ public class MdlFile
     public ModelFlags1 Flags1;
     public ModelFlags2 Flags2;
 
-    public VertexDeclarationStruct[] VertexDeclarations = [];
-    public ElementIdStruct[] ElementIds = [];
-    public MeshStruct[] Meshes = [];
+    public VertexDeclarationStruct[] VertexDeclarations;
+    public ElementIdStruct[] ElementIds;
+    public MeshStruct[] Meshes;
     public BoundingBoxStruct[] BoneBoundingBoxes = [];
-    public LodStruct[] Lods = [];
+    public LodStruct[] Lods;
     public ExtraLodStruct[] ExtraLods = [];
 
     public MdlFile(string filePath)

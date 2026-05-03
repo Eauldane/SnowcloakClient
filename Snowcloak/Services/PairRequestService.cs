@@ -571,14 +571,11 @@ public class PairRequestService : DisposableMediatorSubscriberBase
 
         try
         {
-            if (!_apiController.Value.IsConnected)
+            if (!_apiController.Value.IsConnected && (!force || !await WaitForApiConnectionAsync(_nearbyAvailabilityCts.Token).ConfigureAwait(false)))
             {
-                if (!force || !await WaitForApiConnectionAsync(_nearbyAvailabilityCts.Token).ConfigureAwait(false))
-                {
-                    _pushChannelAvailable = false;
-                    _availabilitySubscriptionActive = false;
-                    return false;
-                }
+                _pushChannelAvailable = false;
+                _availabilitySubscriptionActive = false;
+                return false;
             }
 
             var sendFullSnapshot = forceFullSnapshot || requiresNewSubscription;

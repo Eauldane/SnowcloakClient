@@ -1461,7 +1461,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var selfRank = GetChannelRoleRank(selfRoles);
 
         foreach (var member in members
-                     .GroupBy(member => member.User.UID)
+                     .GroupBy(member => member.User.UID, StringComparer.Ordinal)
                      .Select(group => group.OrderByDescending(entry => GetChannelRoleRank(entry.Roles)).First())
                      .OrderByDescending(member => GetChannelRoleRank(member.Roles))
                      .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))

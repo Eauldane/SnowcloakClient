@@ -264,9 +264,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         var listed = entry.IsListed ? "Listed" : "Unlisted";
         return string.Format(CultureInfo.InvariantCulture, "{0} ({1})", name, listed);
     }
-
-    // TODO: Move this to ElezenTools maybe? Other devs might use different string formats tho
-    // Decide then make it a reusable function instead of copy pasting
+    
     private string FormatHousingLocation(string associatedHousing)
     {
         if (!TryParseHousingLocation(associatedHousing, out var location))

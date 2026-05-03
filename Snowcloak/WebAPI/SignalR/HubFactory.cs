@@ -8,8 +8,6 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI.SignalR.Utils;
-using System.Net.Http.Headers;
-using System.Reflection;
 using System.Text.Json;
 
 namespace Snowcloak.WebAPI.SignalR;
@@ -67,8 +65,6 @@ public class HubFactory : MediatorSubscriberBase
     {
         var stapledWellKnown = _tokenProvider.GetStapledWellKnown(_serverConfigurationManager.CurrentApiUrl);
 
-        var apiUrl = new Uri(_serverConfigurationManager.CurrentApiUrl);
-
         HubConnectionConfig defaultConfig;
 
         if (_cachedConfig != null && _serverConfigurationManager.CurrentApiUrl.Equals(_cachedConfigFor, StringComparison.Ordinal))
@@ -93,46 +89,8 @@ public class HubFactory : MediatorSubscriberBase
         }
         else
         {
-            try
-            {
-                var httpScheme = apiUrl.Scheme.ToLowerInvariant() switch
-                {
-                    "ws" => "http",
-                    "wss" => "https",
-                    _ => apiUrl.Scheme
-                };
-
-                var wellKnownUrl = $"{httpScheme}://{apiUrl.Host}/.well-known/Snowcloak/client";
-                Logger.LogTrace("Fetching hub config for {uri} via {wk}", _serverConfigurationManager.CurrentApiUrl, wellKnownUrl);
-
-                using var httpClient = new HttpClient(
-                    new HttpClientHandler
-                    {
-                        AllowAutoRedirect = true,
-                        MaxAutomaticRedirections = 5
-                    }
-                );
-
-                var ver = Assembly.GetExecutingAssembly().GetName().Version;
-                httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
-
-                var response = await httpClient.GetAsync(wellKnownUrl).ConfigureAwait(false);
-                
-                if (!response.IsSuccessStatusCode)
-                    return defaultConfig;
-
-                var contentType = response.Content.Headers.ContentType?.MediaType;
-
-                if (contentType == null || !contentType.Equals("application/json", StringComparison.Ordinal))
-                    return defaultConfig;
-
-                jsonResponse = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                Logger.LogWarning(ex, "HTTP request failed for .well-known");
-                return defaultConfig;
-            }
+            Logger.LogTrace("No stapled hub config for {url}; using default hub config", _serverConfigurationManager.CurrentApiUrl);
+            return defaultConfig;
         }
 
         try
@@ -155,7 +113,7 @@ public class HubFactory : MediatorSubscriberBase
 
         catch (JsonException ex)
         {
-            Logger.LogWarning(ex, "Invalid JSON in .well-known response");
+            Logger.LogWarning(ex, "Invalid JSON in stapled hub config response");
             return defaultConfig;
         }
     }

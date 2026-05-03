@@ -410,7 +410,7 @@ public class FrostbrandPanel
             .Where(kvp => string.IsNullOrWhiteSpace(_homeworldFilterSearch)
                           || kvp.Value.Name.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase)
                           || kvp.Value.DataCenterName.Contains(_homeworldFilterSearch, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(kvp => kvp.Value.DataCenterName)
+            .GroupBy(kvp => kvp.Value.DataCenterName, StringComparer.OrdinalIgnoreCase)
             .OrderBy(g => g.Key, StringComparer.Ordinal);
 
         using var homeworldList = ImRaii.Child("FrostbrandHomeworldFilters", new Vector2(0, ImGui.GetTextLineHeightWithSpacing() * 9), true);

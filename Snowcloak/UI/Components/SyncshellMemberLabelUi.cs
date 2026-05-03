@@ -1,6 +1,7 @@
 using Dalamud.Interface;
 using Snowcloak.API.Data;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Snowcloak.UI.Components;
 
@@ -160,5 +161,6 @@ public static class SyncshellMemberLabelUi
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
     private readonly record struct LabelStyle(FontAwesomeIcon Icon, Vector4 Color, int Priority);
 }

@@ -50,7 +50,7 @@ public sealed class AccountRegistrationService : IDisposable
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly TokenProvider _tokenProvider;
 
-    private string GenerateSecretKey()
+    private static string GenerateSecretKey()
     {
         return Convert.ToHexString(SHA256.HashData(RandomNumberGenerator.GetBytes(64)));
     }
