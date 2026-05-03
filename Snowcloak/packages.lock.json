@@ -104,9 +104,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.59, )",
-        "resolved": "3.0.59",
-        "contentHash": "6sTfT9TjjzwriMsMlW2/bfAqx4l7rps2B6+7rtDWScsIaDqrqFBpqT4mjxQTcsUIBhF/Y7KDSplfb6JMqUHTtg=="
+        "requested": "[3.0.60, )",
+        "resolved": "3.0.60",
+        "contentHash": "tqpMEs+/Id7fE8MBQlrjCkxRyPxyO9LnyNIPxgRXKLABFAoqMA051AyTl+9O89xt6AOQI63TeQVvS3n0P5yu1Q=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
@@ -191,9 +191,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[2.6.0.3, )",
-        "resolved": "2.6.0.3",
-        "contentHash": "zfKZmrPfTTrSXddd0Vpq3cV74e/PEl+k4Sqyi2uF6ZPjEXk/qMkKyBq+QfTXsVDTVVjnlx6wfC4hACSyfcFqQw==",
+        "requested": "[2.6.2.1, )",
+        "resolved": "2.6.2.1",
+        "contentHash": "PVhWM7zGYus69unHAJ6UbME6eFmnTdvf9JxlXlCY/5T8lwTI95GTLX5iUsyGetDeVgB1lBsqq26xnmnUBcPovw==",
         "dependencies": {
           "Blake3": "2.2.1",
           "MessagePack.Annotations": "3.1.4"
