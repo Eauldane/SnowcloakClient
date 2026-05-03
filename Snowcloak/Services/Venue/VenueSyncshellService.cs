@@ -4,6 +4,7 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Configuration;
+using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Housing;
 using Snowcloak.Services.Mediator;
@@ -18,6 +19,8 @@ namespace Snowcloak.Services.Venue;
 
 public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IHostedService
 {
+    private static readonly TimeSpan AutoLeaveGracePeriod = TimeSpan.FromMinutes(90);
+    private static readonly TimeSpan AutoLeaveWarningPeriod = TimeSpan.FromMinutes(5);
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
     private readonly PairManager _pairManager;
@@ -37,17 +40,19 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
         Mediator.Subscribe<HousingPlotEnteredMessage>(this, msg => _ = HandleHousingPlotEntered(msg.Location));
         Mediator.Subscribe<HousingPlotLeftMessage>(this, msg => HandleHousingPlotLeft(msg.Location));
-        Mediator.Subscribe<DisconnectedMessage>(this, _ => ClearState());
+        Mediator.Subscribe<ConnectedMessage>(this, _ => RestorePersistedVenueState());
+        Mediator.Subscribe<DisconnectedMessage>(this, _ => ClearRuntimeState());
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        RestorePersistedVenueState();
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        ClearState();
+        ClearRuntimeState();
         return Task.CompletedTask;
     }
 
@@ -68,12 +73,15 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             {
                 Logger.LogInformation("Joined venue syncshell {GID} for {Venue}", joinGroupId, prompt.Venue.VenueName);
                 DisableAutoJoinedSyncshellChat(joinGroupId);
+                var autoJoinedVenue = new AutoJoinedVenue(prompt.Venue.JoinInfo.Group, prompt.Location);
+                CancelPendingRemoval(joinGroupId, clearPersistedDeadline: true);
                 lock (_syncRoot)
                 {
-                    _autoJoinedVenues[joinGroupId] = new(prompt.Venue.JoinInfo.Group, prompt.Location);
-                    CancelPendingRemoval(joinGroupId);
+                    _autoJoinedVenues[joinGroupId] = autoJoinedVenue;
                     _activePrompt = null;
                 }
+
+                UpsertPersistedVenue(autoJoinedVenue, leaveAfterUtc: null);
             }
 
             return joined;
@@ -105,7 +113,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         }
     }
 
-    private void ClearState()
+    private void ClearRuntimeState()
     {
         Logger.LogDebug("Clearing venue syncshell state");
         lock (_syncRoot)
@@ -121,7 +129,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         }
     }
 
-    private void CancelPendingRemoval(string groupId)
+    private void CancelPendingRemoval(string groupId, bool clearPersistedDeadline = false)
     {
         lock (_syncRoot)
         {
@@ -130,6 +138,11 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
                 pending.Cancel();
                 _pendingRemovalTokens.Remove(groupId);
             }
+        }
+
+        if (clearPersistedDeadline)
+        {
+            ClearPersistedLeaveDeadline(groupId);
         }
     }
 
@@ -144,7 +157,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
         foreach (var groupId in groupIds)
         {
-            CancelPendingRemoval(groupId);
+            CancelPendingRemoval(groupId, clearPersistedDeadline: true);
         }
     }
 
@@ -218,7 +231,17 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
     private void ScheduleAutoLeave(AutoJoinedVenue venue)
     {
+        ScheduleAutoLeave(venue, DateTime.UtcNow.Add(AutoLeaveGracePeriod), persistDeadline: true);
+    }
+
+    private void ScheduleAutoLeave(AutoJoinedVenue venue, DateTime leaveAfterUtc, bool persistDeadline, bool leaveWarningShown = false)
+    {
         CancelPendingRemoval(venue.Group.GID);
+
+        if (persistDeadline)
+        {
+            UpsertPersistedVenue(venue, leaveAfterUtc);
+        }
 
         var tokenSource = new CancellationTokenSource();
         lock (_syncRoot)
@@ -230,18 +253,38 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         {
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(2), tokenSource.Token).ConfigureAwait(false);
+                await ShowAutoLeaveWarningWhenDue(venue, leaveAfterUtc, leaveWarningShown, tokenSource.Token).ConfigureAwait(false);
+
+                var delay = leaveAfterUtc - DateTime.UtcNow;
+                if (delay < TimeSpan.Zero)
+                {
+                    delay = TimeSpan.Zero;
+                }
+
+                await Task.Delay(delay, tokenSource.Token).ConfigureAwait(false);
                 if (tokenSource.Token.IsCancellationRequested)
                     return;
 
                 if (!_apiController.IsConnected)
                 {
-                    Logger.LogWarning("Could not auto-leave venue syncshell {GID} because the client is not connected", venue.Group.GID);
+                    Logger.LogInformation("Deferring auto-leave for venue syncshell {GID} until the client reconnects", venue.Group.GID);
+                    return;
+                }
+
+                if (!IsGroupMember(venue.Group.GID))
+                {
+                    RemovePersistedVenue(venue.Group.GID);
+                    lock (_syncRoot)
+                    {
+                        _autoJoinedVenues.Remove(venue.Group.GID);
+                    }
+
                     return;
                 }
 
                 await _apiController.GroupLeave(new GroupDto(venue.Group)).ConfigureAwait(false);
                 Logger.LogInformation("Auto-left venue syncshell {GID} after grace period", venue.Group.GID);
+                RemovePersistedVenue(venue.Group.GID);
                 lock (_syncRoot)
                 {
                     _autoJoinedVenues.Remove(venue.Group.GID);
@@ -259,8 +302,13 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             {
                 lock (_syncRoot)
                 {
-                    _pendingRemovalTokens.Remove(venue.Group.GID);
+                    if (_pendingRemovalTokens.TryGetValue(venue.Group.GID, out var pending) && ReferenceEquals(pending, tokenSource))
+                    {
+                        _pendingRemovalTokens.Remove(venue.Group.GID);
+                    }
                 }
+
+                tokenSource.Dispose();
             }
         }, tokenSource.Token);
     }
@@ -293,6 +341,177 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
                 }
             }
         }
+
+        foreach (var staleGroupId in staleGroupIds)
+        {
+            RemovePersistedVenue(staleGroupId);
+        }
+    }
+
+    private void RestorePersistedVenueState()
+    {
+        List<AutoJoinedVenue> venuesWithPendingLeave = [];
+        var persisted = GetPersistedVenues();
+
+        lock (_syncRoot)
+        {
+            foreach (var entry in persisted)
+            {
+                if (string.IsNullOrWhiteSpace(entry.GroupGid))
+                {
+                    continue;
+                }
+
+                var venue = new AutoJoinedVenue(
+                    new GroupData(entry.GroupGid, entry.GroupAlias, entry.GroupHexString),
+                    new HousingPlotLocation(entry.WorldId, entry.TerritoryId, entry.DivisionId, entry.WardId, entry.PlotId, entry.RoomId, entry.IsApartment));
+
+                _autoJoinedVenues[entry.GroupGid] = venue;
+                if (entry.LeaveAfterUtc.HasValue)
+                {
+                    venuesWithPendingLeave.Add(venue);
+                }
+            }
+        }
+
+        foreach (var venue in venuesWithPendingLeave)
+        {
+            var entry = persisted.FirstOrDefault(v => string.Equals(v.GroupGid, venue.Group.GID, StringComparison.Ordinal));
+            if (entry?.LeaveAfterUtc != null)
+            {
+                ScheduleAutoLeave(venue, NormalizeUtc(entry.LeaveAfterUtc.Value), persistDeadline: false, entry.LeaveWarningShown);
+            }
+        }
+
+        if (_apiController.IsConnected)
+        {
+            RemoveStaleAutoJoinedVenues();
+        }
+    }
+
+    private List<VenueAutoJoinedSyncshell> GetPersistedVenues()
+    {
+        return _configService.Current.AutoJoinedVenueSyncshells ??= [];
+    }
+
+    private void UpsertPersistedVenue(AutoJoinedVenue venue, DateTime? leaveAfterUtc)
+    {
+        var persisted = GetPersistedVenues();
+        var entry = persisted.SingleOrDefault(v => string.Equals(v.GroupGid, venue.Group.GID, StringComparison.Ordinal));
+        if (entry == null)
+        {
+            entry = new VenueAutoJoinedSyncshell
+            {
+                GroupGid = venue.Group.GID,
+                JoinedAtUtc = DateTime.UtcNow
+            };
+            persisted.Add(entry);
+        }
+
+        entry.GroupAlias = venue.Group.Alias;
+        entry.GroupHexString = venue.Group.HexString;
+        entry.WorldId = venue.Location.WorldId;
+        entry.TerritoryId = venue.Location.TerritoryId;
+        entry.DivisionId = venue.Location.DivisionId;
+        entry.WardId = venue.Location.WardId;
+        entry.PlotId = venue.Location.PlotId;
+        entry.RoomId = venue.Location.RoomId;
+        entry.IsApartment = venue.Location.IsApartment;
+        entry.UpdatedAtUtc = DateTime.UtcNow;
+        entry.LeaveAfterUtc = leaveAfterUtc.HasValue ? NormalizeUtc(leaveAfterUtc.Value) : null;
+        entry.LeaveWarningShown = false;
+        _configService.Save();
+    }
+
+    private void ClearPersistedLeaveDeadline(string groupId)
+    {
+        var entry = GetPersistedVenues().SingleOrDefault(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal));
+        if (entry?.LeaveAfterUtc == null)
+        {
+            return;
+        }
+
+        entry.LeaveAfterUtc = null;
+        entry.LeaveWarningShown = false;
+        entry.UpdatedAtUtc = DateTime.UtcNow;
+        _configService.Save();
+    }
+
+    private async Task ShowAutoLeaveWarningWhenDue(AutoJoinedVenue venue, DateTime leaveAfterUtc, bool warningAlreadyShown, CancellationToken token)
+    {
+        if (warningAlreadyShown)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (leaveAfterUtc <= now)
+        {
+            return;
+        }
+
+        var warningAtUtc = leaveAfterUtc - AutoLeaveWarningPeriod;
+        var warningDelay = warningAtUtc - now;
+        if (warningDelay > TimeSpan.Zero)
+        {
+            await Task.Delay(warningDelay, token).ConfigureAwait(false);
+        }
+
+        if (token.IsCancellationRequested || leaveAfterUtc <= DateTime.UtcNow)
+        {
+            return;
+        }
+
+        PublishAutoLeaveWarning(venue);
+        MarkPersistedLeaveWarningShown(venue.Group.GID);
+    }
+
+    private void PublishAutoLeaveWarning(AutoJoinedVenue venue)
+    {
+        Mediator.Publish(new NotificationMessage(
+            "Venue syncshell auto-leave",
+            $"You will leave {venue.Group.AliasOrGID} in 5 minutes unless you return to the venue.",
+            NotificationType.Warning,
+            TimeSpan.FromSeconds(10)));
+
+        Logger.LogInformation("Venue syncshell {GID} will auto-leave in {Minutes} minutes", venue.Group.GID, AutoLeaveWarningPeriod.TotalMinutes);
+    }
+
+    private void MarkPersistedLeaveWarningShown(string groupId)
+    {
+        var entry = GetPersistedVenues().SingleOrDefault(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal));
+        if (entry == null || entry.LeaveWarningShown)
+        {
+            return;
+        }
+
+        entry.LeaveWarningShown = true;
+        entry.UpdatedAtUtc = DateTime.UtcNow;
+        _configService.Save();
+    }
+
+    private void RemovePersistedVenue(string groupId)
+    {
+        var persisted = GetPersistedVenues();
+        if (persisted.RemoveAll(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal)) > 0)
+        {
+            _configService.Save();
+        }
+    }
+
+    private bool IsGroupMember(string groupId)
+    {
+        return _pairManager.Groups.Keys.Any(g => string.Equals(g.GID, groupId, StringComparison.Ordinal));
+    }
+
+    private static DateTime NormalizeUtc(DateTime timestamp)
+    {
+        return timestamp.Kind switch
+        {
+            DateTimeKind.Utc => timestamp,
+            DateTimeKind.Local => timestamp.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
+        };
     }
 
 

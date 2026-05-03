@@ -88,6 +88,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool UseMultithreadedCompression { get; set; } = false;
     public CompressionType PreferredDownloadType { get; set; } = CompressionType.ZSTD;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
+    public List<VenueAutoJoinedSyncshell> AutoJoinedVenueSyncshells { get; set; } = [];
     public List<VenueReminderBookmark> VenueReminderBookmarks { get; set; } = [];
     public bool AllowBbCodeImages { get; set; } = true;
     public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
