@@ -104,9 +104,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.60, )",
-        "resolved": "3.0.60",
-        "contentHash": "tqpMEs+/Id7fE8MBQlrjCkxRyPxyO9LnyNIPxgRXKLABFAoqMA051AyTl+9O89xt6AOQI63TeQVvS3n0P5yu1Q=="
+        "requested": "[3.0.63, )",
+        "resolved": "3.0.63",
+        "contentHash": "WHkfz41Kilygfto/ABn2Q3/7xVTpxM5D74d8nJSzA4oAucACa4itSjfEh5lyvEoCRg8BvuyalD+A99GORTbjsw=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",

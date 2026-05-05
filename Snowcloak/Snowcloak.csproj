@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>2.6.2.1</Version>
+    <Version>2.6.3.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
@@ -29,7 +29,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="3.0.60">
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.63">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
