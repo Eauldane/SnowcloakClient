@@ -5,6 +5,8 @@ using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
+using Penumbra.Api.Enums;
+using Snowcloak.Interop.Ipc;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
@@ -15,22 +17,30 @@ namespace Snowcloak.UI;
 public class DataAnalysisUi : WindowMediatorSubscriberBase
 {
     private readonly CharacterAnalyzer _characterAnalyzer;
-    private readonly UiSharedService _uiSharedService;
+    private readonly Progress<(string, int)> _conversionProgress = new();
+    private readonly IpcManager _ipcManager;
+    private readonly Dictionary<string, (TextureType TextureType, string[] Duplicates)> _texturesToConvert = new(StringComparer.Ordinal);
     private Dictionary<ObjectKind, Dictionary<string, CharacterAnalyzer.FileDataEntry>>? _cachedAnalysis;
+    private CancellationTokenSource _conversionCancellationTokenSource = new();
+    private string _conversionCurrentFileName = string.Empty;
+    private int _conversionCurrentFileProgress;
+    private Task? _conversionTask;
+    private bool _enableTextureCompressionMode;
     private bool _hasUpdate = false;
+    private bool _modalOpen;
     private bool _sortDirty = true;
     private string _selectedFileTypeTab = string.Empty;
     private string _selectedHash = string.Empty;
     private ObjectKind _selectedObjectTab;
+    private bool _showModal;
 
     public DataAnalysisUi(ILogger<DataAnalysisUi> logger, SnowMediator mediator,
-        CharacterAnalyzer characterAnalyzer,
-        PerformanceCollectorService performanceCollectorService,
-        UiSharedService uiSharedService)
+        CharacterAnalyzer characterAnalyzer, IpcManager ipcManager,
+        PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Character Data Analysis###SnowcloakDataAnalysisUI", performanceCollectorService)
     {
         _characterAnalyzer = characterAnalyzer;
-        _uiSharedService = uiSharedService;
+        _ipcManager = ipcManager;
         WindowName = "Character Data Analysis";
         Mediator.Subscribe<CharacterDataAnalyzedMessage>(this, (_) =>
         {
@@ -49,10 +59,47 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 Y = 2160
             }
         };
+
+        _conversionProgress.ProgressChanged += ConversionProgress_ProgressChanged;
     }
     
     protected override void DrawInternal()
     {
+        const string conversionPopupTitle = "Texture Compression in Progress";
+        if (_conversionTask != null && !_conversionTask.IsCompleted)
+        {
+            _showModal = true;
+            if (ImGui.BeginPopupModal(conversionPopupTitle))
+            {
+                ImGui.TextUnformatted(string.Format("Texture compression in progress: {0}/{1}", _conversionCurrentFileProgress, _texturesToConvert.Count));
+                ImGui.TextWrapped(string.Format("Current file: {0}", _conversionCurrentFileName));
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StopCircle, "Cancel compression"))
+                {
+                    _conversionCancellationTokenSource.Cancel();
+                }
+                UiSharedService.SetScaledWindowSize(500);
+                ImGui.EndPopup();
+            }
+            else
+            {
+                _modalOpen = false;
+            }
+        }
+        else if (_conversionTask != null && _conversionTask.IsCompleted && _texturesToConvert.Count > 0)
+        {
+            _conversionTask = null;
+            _texturesToConvert.Clear();
+            _showModal = false;
+            _modalOpen = false;
+            _enableTextureCompressionMode = false;
+        }
+
+        if (_showModal && !_modalOpen)
+        {
+            ImGui.OpenPopup(conversionPopupTitle);
+            _modalOpen = true;
+        }
+
         if (_hasUpdate)
         {
             _cachedAnalysis = _characterAnalyzer.LastAnalysis.DeepClone();
@@ -212,6 +259,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     _selectedHash = string.Empty;
                     _selectedObjectTab = kvp.Key;
                     _selectedFileTypeTab = string.Empty;
+                    _enableTextureCompressionMode = false;
+                    _texturesToConvert.Clear();
                 }
 
                 using var fileTabBar = ImRaii.TabBar("fileTabs");
@@ -234,6 +283,8 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     {
                         _selectedFileTypeTab = fileGroup.Key;
                         _selectedHash = string.Empty;
+                        _enableTextureCompressionMode = false;
+                        _texturesToConvert.Clear();
                     }
 
                     ImGui.TextUnformatted(string.Format("{0} files", fileGroup.Key));
@@ -247,6 +298,29 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                     ImGui.TextUnformatted(string.Format("{0} files size (download size):", fileGroup.Key));
                     ImGui.SameLine();
                     ImGui.TextUnformatted(UiSharedService.ByteToString(fileGroup.Sum(c => c.CompressedSize)));
+
+                    if (string.Equals(_selectedFileTypeTab, "tex", StringComparison.Ordinal))
+                    {
+                        ImGui.Checkbox("Enable BC7 compression mode", ref _enableTextureCompressionMode);
+                        if (_enableTextureCompressionMode)
+                        {
+                            ElezenImgui.ColouredText("WARNING REGARDING TEXTURE COMPRESSION:", ImGuiColors.DalamudYellow);
+                            ImGui.SameLine();
+                            ElezenImgui.ColouredText("Converting textures is irreversible!", ImGuiColors.DalamudRed);
+                            ElezenImgui.ColouredWrappedText("- Compressing textures can reduce file size and VRAM use, especially for large textures."
+                                + Environment.NewLine + "- Selected textures will be converted to BC7."
+                                + Environment.NewLine + "- Some textures, especially colorsets, normal maps, greyscale maps, and detail maps, can produce visual artifacts after BC7 compression."
+                                + Environment.NewLine + "- Keep the original mod files available so you can reimport them if the result is wrong."
+                                + Environment.NewLine + "- Duplicate texture files are converted automatically."
+                                + Environment.NewLine + "- Texture compression is expensive and can take a while.",
+                                ImGuiColors.DalamudYellow);
+                            if (_texturesToConvert.Count > 0 && ElezenImgui.ShowIconButton(FontAwesomeIcon.PlayCircle, string.Format("Start compression of {0} texture(s)", _texturesToConvert.Count)))
+                            {
+                                _conversionCancellationTokenSource = _conversionCancellationTokenSource.CancelRecreate();
+                                _conversionTask = _ipcManager.Penumbra.ConvertTextureFiles(_logger, _texturesToConvert, _conversionProgress, _conversionCancellationTokenSource.Token);
+                            }
+                        }
+                    }
 
                     ImGui.Separator();
                     DrawTable(fileGroup);
@@ -297,6 +371,10 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ElezenImgui.WrappedText(traits.FormatSummary);
                 ElezenImgui.WrappedText(string.Format("Channel variance (RGB): {0}/{1}/{2}", traits.RedVariance.ToString("0.0"), traits.GreenVariance.ToString("0.0"), traits.BlueVariance.ToString("0.0")));
                 ElezenImgui.WrappedText(string.Format("Alpha transitions: {0}", traits.AlphaTransitionDensity.ToString("P1")));
+                if (IsRiskyConversion(item))
+                {
+                    ElezenImgui.ColouredWrappedText("Flagged as risky for compression (colorset/dye path, high alpha transitions, or greyscale map).", ImGuiColors.DalamudOrange);
+                }
             }
         }
     }
@@ -305,17 +383,35 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
     {
         _hasUpdate = true;
         _selectedHash = string.Empty;
+        _enableTextureCompressionMode = false;
+        _texturesToConvert.Clear();
     }
 
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
+        _conversionProgress.ProgressChanged -= ConversionProgress_ProgressChanged;
+        try
+        {
+            _conversionCancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            _logger.LogTrace(ex, "Texture compression cancellation token source was already disposed.");
+        }
+        _conversionCancellationTokenSource.Dispose();
+    }
+
+    private void ConversionProgress_ProgressChanged(object? sender, (string, int) e)
+    {
+        _conversionCurrentFileName = e.Item1;
+        _conversionCurrentFileProgress = e.Item2;
     }
 
     private void DrawTable(IGrouping<string, CharacterAnalyzer.FileDataEntry> fileGroup)
     {
         var tableColumns = string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal)
-            ? 6
+            ? (_enableTextureCompressionMode ? 7 : 6)
             : (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal) ? 6 : 5);
         using var table = ImRaii.Table("Analysis", tableColumns, ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit,
             new Vector2(0, 300));
@@ -328,6 +424,10 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
         if (string.Equals(fileGroup.Key, "tex", StringComparison.Ordinal))
         {
             ImGui.TableSetupColumn("Format");
+            if (_enableTextureCompressionMode)
+            {
+                ImGui.TableSetupColumn("BC7");
+            }
         }
         if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
         {
@@ -404,6 +504,43 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(item.Format.Value);
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
+                if (_enableTextureCompressionMode)
+                {
+                    ImGui.TableNextColumn();
+                    if (IsAlreadyBlockCompressed(item))
+                    {
+                        ImGui.TextUnformatted("");
+                        continue;
+                    }
+
+                    var filePath = item.FilePaths[0];
+                    var toConvert = _texturesToConvert.ContainsKey(filePath);
+                    if (ImGui.Checkbox("###convert" + item.Hash, ref toConvert))
+                    {
+                        if (toConvert)
+                        {
+                            _texturesToConvert[filePath] = (TextureType.Bc7Tex, item.FilePaths.Skip(1).ToArray());
+                        }
+                        else
+                        {
+                            _texturesToConvert.Remove(filePath);
+                        }
+                    }
+                    if (toConvert)
+                    {
+                        _texturesToConvert[filePath] = (TextureType.Bc7Tex, item.FilePaths.Skip(1).ToArray());
+                    }
+                    if (IsRiskyConversion(item))
+                    {
+                        ImGui.SameLine();
+                        ElezenImgui.ShowIcon(FontAwesomeIcon.ExclamationTriangle, ImGuiColors.DalamudOrange);
+                        ElezenImgui.AttachTooltip("Texture flagged as risky for BC7 compression. Proceed with caution.");
+                        if (!toConvert)
+                        {
+                            _texturesToConvert.Remove(filePath);
+                        }
+                    }
+                }
             }
             if (string.Equals(fileGroup.Key, "mdl", StringComparison.Ordinal))
             {
@@ -412,5 +549,18 @@ public class DataAnalysisUi : WindowMediatorSubscriberBase
                 if (ImGui.IsItemClicked()) _selectedHash = item.Hash;
             }
         }
+    }
+
+    private static bool IsAlreadyBlockCompressed(CharacterAnalyzer.FileDataEntry item)
+    {
+        var format = item.Format.Value;
+        return format.StartsWith("BC", StringComparison.OrdinalIgnoreCase)
+            || format.StartsWith("DXT", StringComparison.OrdinalIgnoreCase)
+            || format.StartsWith("24864", StringComparison.Ordinal);
+    }
+
+    private static bool IsRiskyConversion(CharacterAnalyzer.FileDataEntry item)
+    {
+        return item.IsRiskyTexture;
     }
 }
