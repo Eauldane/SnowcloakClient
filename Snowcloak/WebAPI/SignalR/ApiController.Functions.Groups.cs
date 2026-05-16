@@ -28,6 +28,12 @@ public partial class ApiController
         return _snowHub!.InvokeAsync(nameof(GroupChangeIndividualPermissionState), dto);
     }
 
+    public async Task<GroupAliasResponseDto> GroupChangeAlias(GroupAliasDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupAliasResponseDto>(nameof(GroupChangeAlias), dto).ConfigureAwait(false);
+    }
+
     public async Task GroupChangeOwnership(GroupPairDto groupPair)
     {
         CheckConnection();

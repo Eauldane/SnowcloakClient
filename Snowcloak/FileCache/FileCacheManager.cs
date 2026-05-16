@@ -189,7 +189,7 @@ public sealed class FileCacheManager : IHostedService
                 fileExtension,
                 null,
                 uploadToken,
-                3,
+                15,
                 _configService.Current.UseMultithreadedCompression,
                 metadata.TriangleCount,
                 metadata.VramUsage,

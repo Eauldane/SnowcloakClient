@@ -5,6 +5,14 @@ namespace Snowcloak.Interop.Ipc;
 
 public sealed partial class IpcManager : DisposableMediatorSubscriberBase
 {
+    public const string CustomizePlusIpcName = "CustomizePlus";
+    public const string HeelsIpcName = "Heels";
+    public const string HonorificIpcName = "Honorific";
+    public const string MoodlesIpcName = "Moodles";
+    public const string PetNamesIpcName = "PetNames";
+
+    private readonly Dictionary<string, bool> _optionalIpcAvailability = new(StringComparer.Ordinal);
+
     public IpcManager(ILogger<IpcManager> logger, SnowMediator mediator,
         IpcCallerPenumbra penumbraIpc, IpcCallerGlamourer glamourerIpc, IpcCallerCustomize customizeIpc, IpcCallerHeels heelsIpc,
         IpcCallerHonorific honorificIpc, IpcCallerMoodles moodlesIpc, IpcCallerPetNames ipcCallerPetNames, IpcCallerBrio ipcCallerBrio) : base(logger, mediator)
@@ -58,5 +66,25 @@ public sealed partial class IpcManager : DisposableMediatorSubscriberBase
         Moodles.CheckAPI();
         PetNames.CheckAPI();
         Brio.CheckAPI();
+
+        ReportOptionalApiState(CustomizePlusIpcName, CustomizePlus.APIAvailable);
+        ReportOptionalApiState(HeelsIpcName, Heels.APIAvailable);
+        ReportOptionalApiState(HonorificIpcName, Honorific.APIAvailable);
+        ReportOptionalApiState(MoodlesIpcName, Moodles.APIAvailable);
+        ReportOptionalApiState(PetNamesIpcName, PetNames.APIAvailable);
+    }
+
+    private void ReportOptionalApiState(string ipcName, bool isAvailable)
+    {
+        if (!_optionalIpcAvailability.TryGetValue(ipcName, out var wasAvailable))
+        {
+            _optionalIpcAvailability[ipcName] = isAvailable;
+            return;
+        }
+
+        if (wasAvailable == isAvailable) return;
+
+        _optionalIpcAvailability[ipcName] = isAvailable;
+        Mediator.Publish(new OptionalIpcAvailabilityChangedMessage(ipcName, isAvailable));
     }
 }

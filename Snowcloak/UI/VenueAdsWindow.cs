@@ -384,7 +384,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
 
         if (_isLoadingOwned)
         {
-            ElezenImgui.ColouredWrappedText("Loading owned venues...", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("Loading managed venues...", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -420,7 +420,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
         if (_ownedVenues.Count == 0)
         {
-            ElezenImgui.ColouredWrappedText("No owned venues were found. Register a venue before creating ads.", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("No managed venues were found. Register a venue before creating ads.", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -443,7 +443,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         var label = _selectedOwnedVenueIndex >= 0 && _selectedOwnedVenueIndex < _ownedVenues.Count
             ? _ownedVenues[_selectedOwnedVenueIndex].VenueName ?? "Venue"
             : "Select a venue...";
-        if (ImGui.BeginCombo("Owned Venue", label))
+        if (ImGui.BeginCombo("Managed Venue", label))
         {
             for (var i = 0; i < _ownedVenues.Count; i++)
             {
@@ -1087,8 +1087,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load owned venues");
-            _statusMessage = "Failed to load owned venues.";
+            _logger.LogError(ex, "Failed to load managed venues");
+            _statusMessage = "Failed to load managed venues.";
             _statusIsError = true;
         }
         finally

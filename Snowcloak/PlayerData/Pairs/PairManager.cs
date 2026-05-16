@@ -42,7 +42,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     public List<Pair> DirectPairs => _directPairsInternal.Value;
 
     public Dictionary<GroupFullInfoDto, List<Pair>> GroupPairs => _groupPairsInternal.Value;
-    public Dictionary<GroupData, GroupFullInfoDto> Groups => _allGroups.ToDictionary(k => k.Key, k => k.Value);
+    public Dictionary<GroupData, GroupFullInfoDto> Groups => _allGroups.ToDictionary(k => k.Key, k => k.Value, GroupDataComparer.Instance);
     public Pair? LastAddedUser { get; internal set; }
     private readonly ConcurrentDictionary<string, byte> _suppressedNotePairs =
         new(StringComparer.Ordinal);
@@ -274,9 +274,13 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
     public void SetGroupInfo(GroupInfoDto dto)
     {
-        _allGroups[dto.Group].Group = dto.Group;
-        _allGroups[dto.Group].Owner = dto.Owner;
-        _allGroups[dto.Group].GroupPermissions = dto.GroupPermissions;
+        if (!_allGroups.TryRemove(dto.Group, out var group))
+            return;
+
+        group.Group = dto.Group;
+        group.Owner = dto.Owner;
+        group.GroupPermissions = dto.GroupPermissions;
+        _allGroups[dto.Group] = group;
 
         RecreateLazy();
     }

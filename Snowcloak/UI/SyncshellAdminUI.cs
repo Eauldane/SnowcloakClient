@@ -41,7 +41,11 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
     private int _auditTotalCount;
     private List<BannedGroupUserDto> _bannedUsers = [];
     private int _multiInvites;
+    private Task<GroupAliasResponseDto>? _aliasChangeTask;
+    private string _aliasChangeMessage = string.Empty;
+    private bool _aliasChangeIsError;
     private string _newPassword;
+    private string _syncshellAlias;
     private GroupPairFullInfoDto? _memberLabelEditorTarget;
     private List<string> _memberLabelDraft = [];
     private string _memberLabelError = string.Empty;
@@ -67,6 +71,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         _isOwner = string.Equals(GroupFullInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal);
         _isModerator = GroupFullInfo.GroupUserInfo.IsModerator();
         _newPassword = string.Empty;
+        _syncshellAlias = groupFullInfo.Group.Alias ?? string.Empty;
         _multiInvites = 30;
         _pwChangeSuccess = true;
         IsOpen = true;
@@ -84,6 +89,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
     {
         if (!_isModerator && !_isOwner) return;
         ConsumeAuditLogTask();
+        ConsumeAliasChangeTask();
 
         GroupFullInfo = _pairManager.Groups[GroupFullInfo.Group];
 
@@ -116,6 +122,13 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
                 }
                 budgetTab.Dispose();
             }
+
+            var settingsTab = ImRaii.TabItem("Settings");
+            if (settingsTab)
+            {
+                DrawSyncshellSettings();
+            }
+            settingsTab.Dispose();
 
             var inviteTab = ImRaii.TabItem("Invites");
             if (inviteTab)
@@ -532,6 +545,81 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         Mediator.Publish(new RemoveWindowMessage(this));
     }
 
+    private void DrawSyncshellSettings()
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Syncshell ID");
+        ImGui.SameLine();
+        ImGui.TextDisabled(GroupFullInfo.GID);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Syncshell name");
+        var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
+        var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.Save, "Save Name");
+        var textSize = ImGui.CalcTextSize("Syncshell name").X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var requestedAlias = _syncshellAlias.Trim();
+        var currentAlias = GroupFullInfo.Group.Alias ?? string.Empty;
+        var aliasChanged = !string.Equals(requestedAlias, currentAlias, StringComparison.Ordinal);
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(availableWidth - buttonSize - textSize - spacing * 2);
+        ImGui.InputTextWithHint("##syncshellalias", "Blank uses Syncshell ID", ref _syncshellAlias, 50);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!aliasChanged || _aliasChangeTask != null))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Name"))
+            {
+                _aliasChangeMessage = string.Empty;
+                _aliasChangeIsError = false;
+                _aliasChangeTask = _apiController.GroupChangeAlias(new GroupAliasDto(
+                    GroupFullInfo.Group,
+                    string.IsNullOrWhiteSpace(requestedAlias) ? null : requestedAlias));
+            }
+        }
+        ElezenImgui.AttachTooltip("Syncshell names must be unique. Leave blank to show the Syncshell ID.");
+
+        if (!string.IsNullOrWhiteSpace(_aliasChangeMessage))
+        {
+            ElezenImgui.ColouredWrappedText(_aliasChangeMessage,
+                _aliasChangeIsError ? ImGuiColors.DalamudYellow : ImGuiColors.HealerGreen);
+        }
+    }
+
+    private void ConsumeAliasChangeTask()
+    {
+        if (_aliasChangeTask == null || !_aliasChangeTask.IsCompleted)
+        {
+            return;
+        }
+
+        if (_aliasChangeTask.IsCompletedSuccessfully)
+        {
+            var result = _aliasChangeTask.Result;
+            if (result.Success)
+            {
+                _syncshellAlias = result.GroupInfo?.Group.Alias ?? string.Empty;
+                _aliasChangeMessage = "Syncshell name updated.";
+                _aliasChangeIsError = false;
+            }
+            else
+            {
+                _aliasChangeMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                    ? "Failed to update syncshell name."
+                    : result.ErrorMessage;
+                _aliasChangeIsError = true;
+            }
+        }
+        else
+        {
+            _logger.LogWarning(_aliasChangeTask.Exception, "Failed to update syncshell alias for {gid}", GroupFullInfo.GID);
+            _aliasChangeMessage = "Failed to update syncshell name.";
+            _aliasChangeIsError = true;
+        }
+
+        _aliasChangeTask = null;
+    }
+
     private void ConsumeAuditLogTask()
     {
         if (_auditLogTask == null || !_auditLogTask.IsCompleted)
@@ -721,6 +809,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
             GroupAuditAction.VenueRegistrationChange => "Venue Change",
             GroupAuditAction.MemberLabelAdd => "Role Add",
             GroupAuditAction.MemberLabelRemove => "Role Remove",
+            GroupAuditAction.AliasChange => "Name Change",
             _ => action.ToString(),
         };
     }

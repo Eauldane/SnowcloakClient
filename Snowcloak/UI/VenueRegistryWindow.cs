@@ -37,9 +37,15 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
     private string _venueWebsite = string.Empty;
     private string _venueWebhookUrl = string.Empty;
     private string _venueHost = string.Empty;
+    private Vector3 _venueNameColour = Vector3.One;
     private bool _isListed = true;
     private bool _isLoading;
     private bool _isSaving;
+    private bool _isDeleting;
+    private bool _showDeregisterModal;
+    private Guid _deregisterTargetId;
+    private string _deregisterTargetName = string.Empty;
+    private string _deregisterConfirmationText = string.Empty;
     private string? _statusMessage;
     private bool _statusIsError;
     private bool _refreshOnNextDraw;
@@ -89,13 +95,13 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
         if (_isLoading)
         {
-            ElezenImgui.ColouredWrappedText("Loading owned venues...", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("Loading managed venues...", ImGuiColors.DalamudGrey);
             return;
         }
 
         if (_ownedVenues.Count == 0)
         {
-            ElezenImgui.ColouredWrappedText("No owned venues were found. You can register a plot using the button above.", ImGuiColors.DalamudGrey);
+            ElezenImgui.ColouredWrappedText("No managed venues were found. You can register a plot using the button above.", ImGuiColors.DalamudGrey);
             return;
         }
 
@@ -114,7 +120,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         {
             _ = RefreshOwnedVenuesAsync();
         }
-        ElezenImgui.AttachTooltip("Reload your owned venues from the server.");
+        ElezenImgui.AttachTooltip("Reload your managed venues from the server.");
 
         ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MapMarkedAlt, "Register current plot"))
@@ -138,7 +144,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             ? FormatVenueLabel(_ownedVenues[_selectedVenueIndex])
             : "Select a venue...";
 
-        if (ImGui.BeginCombo("Owned Venues", currentLabel))
+        if (ImGui.BeginCombo("Managed Venues", currentLabel))
         {
             for (var i = 0; i < _ownedVenues.Count; i++)
             {
@@ -164,10 +170,13 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
 
     private void DrawVenueDetails()
     {
-        ImGui.BeginDisabled(_selectedVenueIndex < 0 || _isSaving);
+        ImGui.BeginDisabled(_selectedVenueIndex < 0 || _isSaving || _isDeleting);
 
         _uiSharedService.BigText("Listing Details");
         ImGui.InputText("Venue name", ref _venueName, 100);
+        ImGui.ColorEdit3("Venue name colour", ref _venueNameColour,
+            ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8);
+        ElezenImgui.AttachTooltip("Leave as white to use the default syncshell colour, or pick a custom override for the venue name.");
         ImGui.InputText("Host / contact", ref _venueHost, 200);
         ImGui.InputText("Website", ref _venueWebsite, 200);
         ImGui.InputText("Discord webhook URL", ref _venueWebhookUrl, 2048);
@@ -201,7 +210,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         var embedUrl = BuildVenueEmbedUrl(selected.Id);
         var embedCode = string.IsNullOrWhiteSpace(embedUrl) ? string.Empty : BuildVenueEmbedCode(embedUrl);
 
-        var canSubmit = !_isSaving && !string.IsNullOrWhiteSpace(_venueName);
+        var canSubmit = !_isSaving && !_isDeleting && !string.IsNullOrWhiteSpace(_venueName);
         ImGui.BeginDisabled(!canSubmit);
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Venue"))
         {
@@ -209,6 +218,19 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         }
         ImGui.EndDisabled();
         ElezenImgui.AttachTooltip("Save updates to the selected venue listing.");
+
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_isDeleting || _isSaving);
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "De-register Venue"))
+        {
+            _deregisterTargetId = selected.Id;
+            _deregisterTargetName = selected.VenueName?.Trim() ?? string.Empty;
+            _deregisterConfirmationText = string.Empty;
+            _showDeregisterModal = true;
+            ImGui.OpenPopup("De-register Venue?");
+        }
+        ImGui.EndDisabled();
+        ElezenImgui.AttachTooltip("Remove this venue listing, housing registration, and venue ads. The syncshell remains.");
 
         ImGui.SameLine();
         ImGui.BeginDisabled(string.IsNullOrWhiteSpace(embedCode));
@@ -220,6 +242,8 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         }
         ImGui.EndDisabled();
         ElezenImgui.AttachTooltip("Copy an iframe snippet to include on a website, carrd etc that'll show your currently running ad.");
+
+        DrawDeregisterModal();
     }
 
     private string BuildVenueEmbedUrl(Guid registryId)
@@ -349,6 +373,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         _venueWebsite = selected.VenueWebsite ?? string.Empty;
         _venueWebhookUrl = selected.VenueWebhookUrl ?? string.Empty;
         _venueHost = selected.VenueHost ?? string.Empty;
+        _venueNameColour = ParseHexColourOrDefault(selected.HexString, Vector3.One);
         _isListed = selected.IsListed;
         _statusMessage = null;
     }
@@ -374,10 +399,14 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
             {
                 SelectVenue(_selectedVenueIndex);
             }
+            else
+            {
+                ClearVenueFields();
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to refresh owned venues");
+            _logger.LogError(ex, "Failed to refresh managed venues");
             _statusMessage = "Failed to load venues. Please try again.";
             _statusIsError = true;
         }
@@ -408,6 +437,7 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
                 VenueWebsite = TrimToNull(_venueWebsite),
                 VenueWebhookUrl = TrimToNull(_venueWebhookUrl),
                 VenueHost = TrimToNull(_venueHost),
+                HexString = GetVenueNameColourHex(),
                 IsListed = _isListed
             };
             var response = await _apiController.VenueRegistryUpsert(request).ConfigureAwait(false);
@@ -441,9 +471,138 @@ public sealed class VenueRegistryWindow : WindowMediatorSubscriberBase
         }
     }
 
+    private void DrawDeregisterModal()
+    {
+        const string PopupTitle = "De-register Venue?";
+
+        if (_showDeregisterModal && !ImGui.IsPopupOpen(PopupTitle))
+            ImGui.OpenPopup(PopupTitle);
+
+        if (!ImGui.BeginPopupModal(PopupTitle, ref _showDeregisterModal, UiSharedService.PopupWindowFlags))
+            return;
+
+        ElezenImgui.ColouredWrappedText(
+            "This removes the venue listing, housing registration, and all venue advertisements. The syncshell itself will not be deleted.",
+            ImGuiColors.DalamudYellow);
+        ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "Type {0} to confirm.", _deregisterTargetName));
+        ImGui.InputText("Venue name##DeregisterVenueName", ref _deregisterConfirmationText, 100);
+
+        var confirmationMatches = string.Equals(
+            _deregisterConfirmationText.Trim(),
+            _deregisterTargetName,
+            StringComparison.Ordinal);
+
+        ImGui.BeginDisabled(_isDeleting || !confirmationMatches);
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Confirm De-registration"))
+        {
+            _ = DeregisterVenueAsync(_deregisterTargetId, _deregisterConfirmationText.Trim());
+            _showDeregisterModal = false;
+            ImGui.CloseCurrentPopup();
+        }
+        ImGui.EndDisabled();
+
+        ImGui.SameLine();
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Cancel"))
+        {
+            _showDeregisterModal = false;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private async Task DeregisterVenueAsync(Guid registryId, string confirmationVenueName)
+    {
+        if (registryId == Guid.Empty || string.IsNullOrWhiteSpace(confirmationVenueName))
+            return;
+
+        _isDeleting = true;
+        _statusMessage = null;
+        _statusIsError = false;
+        try
+        {
+            var response = await _apiController.VenueRegistryDelete(
+                    new VenueRegistryDeleteRequestDto(registryId, confirmationVenueName))
+                .ConfigureAwait(false);
+
+            if (!response.Success)
+            {
+                _statusMessage = string.IsNullOrWhiteSpace(response.ErrorMessage)
+                    ? "Failed to de-register venue."
+                    : response.ErrorMessage;
+                _statusIsError = true;
+                return;
+            }
+
+            var removedIndex = _ownedVenues.FindIndex(v => v.Id == registryId);
+            if (removedIndex >= 0)
+                _ownedVenues.RemoveAt(removedIndex);
+
+            if (_ownedVenues.Count == 0)
+            {
+                _selectedVenueIndex = -1;
+                ClearVenueFields();
+            }
+            else
+            {
+                SelectVenue(Math.Min(removedIndex < 0 ? 0 : removedIndex, _ownedVenues.Count - 1));
+            }
+
+            _statusMessage = "Venue de-registered successfully.";
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to de-register venue");
+            _statusMessage = "Failed to de-register venue. Please try again.";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _isDeleting = false;
+        }
+    }
+
+    private void ClearVenueFields()
+    {
+        _venueName = string.Empty;
+        _venueDescription = string.Empty;
+        _venueWebsite = string.Empty;
+        _venueWebhookUrl = string.Empty;
+        _venueHost = string.Empty;
+        _venueNameColour = Vector3.One;
+        _isListed = true;
+    }
+
     private static string? TrimToNull(string value)
     {
         var trimmed = value.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static Vector3 ParseHexColourOrDefault(string? hex, Vector3 fallback)
+    {
+        if (hex != null && hex.Length == 6)
+        {
+            var colour = ElezenTools.UI.Colour.HexToVector4(hex);
+            return new Vector3(colour.X, colour.Y, colour.Z);
+        }
+
+        return fallback;
+    }
+
+    private string? GetVenueNameColourHex()
+    {
+        var hex = ColourVectorToHex(_venueNameColour);
+        return hex == "FFFFFF" ? null : hex;
+    }
+
+    private static string ColourVectorToHex(Vector3 colour)
+    {
+        var r = (int)Math.Clamp(colour.X * 255f, 0f, 255f);
+        var g = (int)Math.Clamp(colour.Y * 255f, 0f, 255f);
+        var b = (int)Math.Clamp(colour.Z * 255f, 0f, 255f);
+
+        return $"{r:X2}{g:X2}{b:X2}";
     }
 }

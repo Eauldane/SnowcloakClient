@@ -1,5 +1,6 @@
 ﻿using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Handlers;
@@ -128,6 +129,25 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase
             if (!string.Equals(msg.PetNicknamesData, _playerData.PetNamesData, StringComparison.Ordinal))
             {
                 Logger.LogDebug("Received Pet Nicknames change, updating player");
+                AddCacheToCreate(ObjectKind.Player);
+            }
+        });
+
+        Mediator.Subscribe<OptionalIpcAvailabilityChangedMessage>(this, (msg) =>
+        {
+            if (_isZoning) return;
+
+            Logger.LogDebug("Optional IPC {ipc} availability changed to {available}, rebuilding local character data", msg.IpcName, msg.IsAvailable);
+
+            if (string.Equals(msg.IpcName, IpcManager.CustomizePlusIpcName, StringComparison.Ordinal))
+            {
+                foreach (var objectKind in _playerRelatedObjects.Keys)
+                {
+                    AddCacheToCreate(objectKind);
+                }
+            }
+            else
+            {
                 AddCacheToCreate(ObjectKind.Player);
             }
         });

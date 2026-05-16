@@ -44,7 +44,10 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     private CombatData? _dataReceivedInDowntime;
     private CancellationTokenSource? _downloadCancellationTokenSource = new();
     private bool _forceApplyMods = false;
+    private bool _hasPlayerScopedOptionalDataApplied = false;
     private bool _isVisible;
+    private nint _lastKnownPlayerAddress = nint.Zero;
+    private nint _lastPlayerScopedOptionalAddress = nint.Zero;
     private Guid _deferred = Guid.Empty;
     private Guid _penumbraCollection = Guid.Empty;
     private bool _redrawOnNextApplication = false;
@@ -80,6 +83,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         Mediator.Subscribe<ZoneSwitchStartMessage>(this, (_) =>
         {
             _downloadCancellationTokenSource?.CancelDispose();
+            QueueClearPlayerScopedOptionalData(Guid.NewGuid());
             _charaHandler?.Invalidate();
             IsVisible = false;
         });
@@ -149,7 +153,19 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     public long LastAppliedDataBytes { get; private set; }
     public Pair Pair { get; private init; }
     public PairAnalyzer PairAnalyzer { get; private init; }
-    public nint PlayerCharacter => _charaHandler?.Address ?? nint.Zero;
+    public nint PlayerCharacter
+    {
+        get
+        {
+            var address = _charaHandler?.Address ?? nint.Zero;
+            if (address != nint.Zero)
+            {
+                _lastKnownPlayerAddress = address;
+            }
+
+            return address;
+        }
+    }
     public unsafe uint PlayerCharacterId => (_charaHandler?.Address ?? nint.Zero) == nint.Zero
         ? uint.MaxValue
         : ((FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)_charaHandler!.Address)->EntityId;
@@ -276,6 +292,100 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         }
     }
 
+    private static bool IsPlayerScopedOptionalChange(PlayerChanges change)
+    {
+        return change is PlayerChanges.Customize
+            or PlayerChanges.Heels
+            or PlayerChanges.Honorific
+            or PlayerChanges.Moodles
+            or PlayerChanges.PetNames;
+    }
+
+    private nint GetPlayerScopedOptionalCleanupAddress()
+    {
+        var address = _charaHandler?.Address ?? nint.Zero;
+        if (address != nint.Zero) return address;
+        if (_lastPlayerScopedOptionalAddress != nint.Zero) return _lastPlayerScopedOptionalAddress;
+        return _lastKnownPlayerAddress;
+    }
+
+    private bool HasPlayerScopedOptionalDataToClear()
+    {
+        var cachedCustomize = _cachedData?.CustomizePlusData.TryGetValue(ObjectKind.Player, out var customizePlusData) == true
+            ? customizePlusData
+            : string.Empty;
+
+        return _hasPlayerScopedOptionalDataApplied
+            || _customizeIds.ContainsKey(ObjectKind.Player)
+            || !string.IsNullOrEmpty(cachedCustomize)
+            || !string.IsNullOrEmpty(_cachedData?.HeelsData)
+            || !string.IsNullOrEmpty(_cachedData?.HonorificData)
+            || !string.IsNullOrEmpty(_cachedData?.MoodlesData)
+            || !string.IsNullOrEmpty(_cachedData?.PetNamesData);
+    }
+
+    private void QueueClearPlayerScopedOptionalData(Guid applicationId)
+    {
+        var address = GetPlayerScopedOptionalCleanupAddress();
+        if (address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ClearPlayerScopedOptionalDataAsync(address, applicationId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "[{applicationId}] Failed to clear player-scoped optional data for {alias}", applicationId, Pair.UserData.AliasOrUID);
+            }
+        });
+    }
+
+    private async Task ClearPlayerScopedOptionalDataAsync(nint address, Guid applicationId, CancellationToken token)
+    {
+        if (address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
+        {
+            return;
+        }
+
+        Logger.LogDebug("[{applicationId}] Clearing player-scoped optional data for {alias}/{name}", applicationId, Pair.UserData.AliasOrUID, PlayerName);
+
+        token.ThrowIfCancellationRequested();
+        if (_customizeIds.TryGetValue(ObjectKind.Player, out var customizeId))
+        {
+            _customizeIds.Remove(ObjectKind.Player);
+            if (customizeId != null)
+            {
+                await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
+            }
+            else
+            {
+                await _ipcManager.CustomizePlus.RevertAsync(address).ConfigureAwait(false);
+            }
+        }
+        else if (_cachedData?.CustomizePlusData.TryGetValue(ObjectKind.Player, out var cachedCustomize) == true
+            && !string.IsNullOrEmpty(cachedCustomize))
+        {
+            await _ipcManager.CustomizePlus.RevertAsync(address).ConfigureAwait(false);
+        }
+
+        token.ThrowIfCancellationRequested();
+        await _ipcManager.Heels.RestoreOffsetForPlayerAsync(address).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        await _ipcManager.Honorific.ClearTitleAsync(address).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        await _ipcManager.PetNames.ClearPlayerData(address).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        await _ipcManager.Moodles.RevertStatusAsync(address).ConfigureAwait(false);
+
+        _hasPlayerScopedOptionalDataApplied = false;
+        _lastPlayerScopedOptionalAddress = nint.Zero;
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
@@ -329,6 +439,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
     {
         Logger.LogDebug($"Undoing application of {Pair.UserPair}");
         var name = PlayerName;
+        var optionalCleanupAddress = GetPlayerScopedOptionalCleanupAddress();
         try
         {
             if (applicationId == default)
@@ -372,6 +483,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
                     }
                 }
             }
+
+            await ClearPlayerScopedOptionalDataAsync(optionalCleanupAddress, applicationId, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -398,6 +511,13 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             if (handler.Address == nint.Zero)
             {
                 return;
+            }
+
+            if (changes.Key == ObjectKind.Player && changes.Value.Any(IsPlayerScopedOptionalChange))
+            {
+                _hasPlayerScopedOptionalDataApplied = true;
+                _lastPlayerScopedOptionalAddress = handler.Address;
+                _lastKnownPlayerAddress = handler.Address;
             }
 
             Logger.LogDebug("[{applicationId}] Applying Customization Data for {handler}", applicationId, handler);
@@ -686,6 +806,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         if (!nowVisible && invalidate)
         {
             bool wasVisible = IsVisible;
+            QueueClearPlayerScopedOptionalData(Guid.NewGuid());
             IsVisible = false;
             _charaHandler?.Invalidate();
             _downloadCancellationTokenSource?.CancelDispose();
@@ -729,6 +850,7 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
         }
         else if (IsVisible && !nowVisible)
         {
+            QueueClearPlayerScopedOptionalData(Guid.NewGuid());
             IsVisible = false;
             _charaHandler?.Invalidate();
             _downloadCancellationTokenSource?.CancelDispose();
@@ -791,6 +913,8 @@ public sealed class PairHandler : DisposableMediatorSubscriberBase
             await _ipcManager.PetNames.ClearPlayerData(address).ConfigureAwait(false);
             Logger.LogDebug("[{applicationId}] Restoring Moodles for {alias}/{name}", applicationId, Pair.UserData.AliasOrUID, name);
             await _ipcManager.Moodles.RevertStatusAsync(address).ConfigureAwait(false);
+            _hasPlayerScopedOptionalDataApplied = false;
+            _lastPlayerScopedOptionalAddress = nint.Zero;
         }
         else if (objectKind == ObjectKind.MinionOrMount)
         {

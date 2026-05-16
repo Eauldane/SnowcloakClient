@@ -51,6 +51,12 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<VenueRegistryUpsertResponseDto>(nameof(VenueRegistryUpsert), request).ConfigureAwait(false);
     }
 
+    public async Task<VenueRegistryDeleteResponseDto> VenueRegistryDelete(VenueRegistryDeleteRequestDto request)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<VenueRegistryDeleteResponseDto>(nameof(VenueRegistryDelete), request).ConfigureAwait(false);
+    }
+
     public async Task<VenueAdvertisementUpsertResponseDto> VenueAdvertisementUpsert(VenueAdvertisementUpsertRequestDto request)
     {
         CheckConnection();
