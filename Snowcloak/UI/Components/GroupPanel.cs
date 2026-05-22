@@ -659,6 +659,7 @@ internal sealed class GroupPanel
 
             var visibleUsers = new List<DrawGroupPair>();
             var onlineUsers = new List<DrawGroupPair>();
+            var pausedUsers = new List<DrawGroupPair>();
             var offlineUsers = new List<DrawGroupPair>();
             
             
@@ -688,12 +689,15 @@ internal sealed class GroupPanel
                 }
                 else
                 {
-                    pausedByYou = groupDto.GroupUserPermissions.IsPaused();
+                    pausedByYou = groupDto.GroupUserPermissions.IsPaused()
+                        || groupPairInfo.GroupUserPermissions.IsPaused();
                     pausedByOther = groupPairInfo.GroupUserPermissions.IsPaused();
                 }
 
                 bool showAsOffline = pausedByOther && !pausedByYou;
-                if (!showAsOffline && pair.IsVisible)
+                if (pausedByYou)
+                    pausedUsers.Add(drawPair);
+                else if (!showAsOffline && pair.IsVisible)
                     visibleUsers.Add(drawPair);
                 else if (!showAsOffline && pair.IsOnline)
                     onlineUsers.Add(drawPair);
@@ -715,6 +719,13 @@ internal sealed class GroupPanel
                 ImGui.TextUnformatted("Online");
                 ImGui.Separator();
                 _uidDisplayHandler.RenderPairList(onlineUsers);
+            }
+
+            if (pausedUsers.Count > 0)
+            {
+                ImGui.TextUnformatted("Paused");
+                ImGui.Separator();
+                _uidDisplayHandler.RenderPairList(pausedUsers);
             }
 
             if (offlineUsers.Count > 0)

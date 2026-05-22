@@ -51,7 +51,7 @@ public class DrawGroupPair : DrawPairBase
             return _pair.UserPair.OwnPermissions.IsPaused();
         }
 
-        return _group.GroupUserPermissions.IsPaused();
+        return _group.GroupUserPermissions.IsPaused() || _fullInfoDto.GroupUserPermissions.IsPaused();
     }
 
     private bool IsPausedByOther()
@@ -192,7 +192,6 @@ public class DrawGroupPair : DrawPairBase
     {
         var pausedByYou = IsPausedByYou();
         var pausedByOther = IsPausedByOther();
-        var isPaused = pausedByYou || pausedByOther;
         var pauseIcon = pausedByYou ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
         var actionSpacing = spacingX + (6f * ImGuiHelpers.GlobalScale);
@@ -213,7 +212,7 @@ public class DrawGroupPair : DrawPairBase
         bool showShared = _charaDataManager.SharedWithYouData.TryGetValue(_pair.UserData, out var sharedData);
         bool showInfo = (individualAnimDisabled || individualSoundsDisabled || animDisabled || soundsDisabled);
         bool showPlus = _pair.UserPair == null;
-        bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !isPaused;
+        bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !pausedByOther || pausedByYou;
         bool showPause = true; 
         var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled) ? FontAwesomeIcon.ExclamationTriangle
             : ((soundsDisabled || animDisabled || vfxDisabled) ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
@@ -362,8 +361,8 @@ public class DrawGroupPair : DrawPairBase
                 }
                 else
                 {
-                    var groupPerm = _group.GroupUserPermissions;
-                    groupPerm.SetPaused(!groupPerm.IsPaused());
+                    var groupPerm = _fullInfoDto.GroupUserPermissions;
+                    groupPerm.SetPaused(!pausedByYou);
                     _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
                         _group.Group,
                         _pair.UserData,
