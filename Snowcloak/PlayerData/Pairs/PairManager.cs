@@ -368,11 +368,18 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     internal void SetGroupPairUserPermissions(GroupPairUserPermissionDto dto)
     {
         var group = _allGroups[dto.Group];
-        var prevPermissions = _allClientPairs[dto.User].GroupPair[group].GroupUserPermissions;
-        _allClientPairs[dto.User].GroupPair[group].GroupUserPermissions = dto.GroupPairPermissions;
-        if (prevPermissions.IsDisableAnimations() != dto.GroupPairPermissions.IsDisableAnimations()
-            || prevPermissions.IsDisableSounds() != dto.GroupPairPermissions.IsDisableSounds()
-            || prevPermissions.IsDisableVFX() != dto.GroupPairPermissions.IsDisableVFX())
+        var groupPairInfo = _allClientPairs[dto.User].GroupPair[group];
+        var prevOwnPermissions = groupPairInfo.OwnGroupUserPermissions;
+        var prevOtherPermissions = groupPairInfo.OtherGroupUserPermissions;
+        groupPairInfo.GroupUserPermissions = dto.GroupPairPermissions;
+        groupPairInfo.OwnGroupUserPermissions = dto.OwnGroupPairPermissions;
+        groupPairInfo.OtherGroupUserPermissions = dto.OtherGroupPairPermissions;
+        if (prevOwnPermissions.IsDisableAnimations() != dto.OwnGroupPairPermissions.IsDisableAnimations()
+            || prevOwnPermissions.IsDisableSounds() != dto.OwnGroupPairPermissions.IsDisableSounds()
+            || prevOwnPermissions.IsDisableVFX() != dto.OwnGroupPairPermissions.IsDisableVFX()
+            || prevOtherPermissions.IsDisableAnimations() != dto.OtherGroupPairPermissions.IsDisableAnimations()
+            || prevOtherPermissions.IsDisableSounds() != dto.OtherGroupPairPermissions.IsDisableSounds()
+            || prevOtherPermissions.IsDisableVFX() != dto.OtherGroupPairPermissions.IsDisableVFX())
         {
             _allClientPairs[dto.User].ApplyLastReceivedData();
         }

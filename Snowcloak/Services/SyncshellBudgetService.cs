@@ -154,8 +154,9 @@ public sealed class SyncshellBudgetService
         }
         else
         {
-            pausedByYou = group.GroupUserPermissions.IsPaused();
-            pausedByOther = groupPairInfo.GroupUserPermissions.IsPaused();
+            pausedByYou = group.GroupUserPermissions.IsPaused()
+                || groupPairInfo.OwnGroupUserPermissions.IsPaused();
+            pausedByOther = groupPairInfo.OtherGroupUserPermissions.IsPaused();
         }
 
         var showAsOffline = pausedByOther && !pausedByYou;

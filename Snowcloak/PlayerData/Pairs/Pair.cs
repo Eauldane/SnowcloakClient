@@ -65,7 +65,7 @@ public class Pair : DisposableMediatorSubscriberBase
     public bool IsChatOnly => _onlineUserIdentDto?.Mode == ConnectionMode.ChatOnly;
 
     public bool IsPaused => UserPair != null && UserPair.OtherPermissions.IsPaired() ? UserPair.OtherPermissions.IsPaused() || UserPair.OwnPermissions.IsPaused()
-            : GroupPair.All(p => p.Key.GroupUserPermissions.IsPaused() || p.Value.GroupUserPermissions.IsPaused());
+            : GroupPair.All(p => p.Key.GroupUserPermissions.IsPaused() || p.Value.OwnGroupUserPermissions.IsPaused() || p.Value.OtherGroupUserPermissions.IsPaused());
 
     // Download locks apply earlier in the process than Application locks
     private ConcurrentDictionary<string, int> HoldDownloadLocks { get; set; } = new(StringComparer.Ordinal);
@@ -452,17 +452,17 @@ public class Pair : DisposableMediatorSubscriberBase
             return data;
         }
 
-        var ActiveGroupPairs = GroupPair.Where(p => !p.Value.GroupUserPermissions.IsPaused() && !p.Key.GroupUserPermissions.IsPaused()).ToList();
+        var ActiveGroupPairs = GroupPair.Where(p => !p.Value.OwnGroupUserPermissions.IsPaused() && !p.Value.OtherGroupUserPermissions.IsPaused() && !p.Key.GroupUserPermissions.IsPaused()).ToList();
 
         bool disableIndividualAnimations = UserPair != null && (UserPair.OtherPermissions.IsDisableAnimations() || UserPair.OwnPermissions.IsDisableAnimations());
         bool disableIndividualVFX = UserPair != null && (UserPair.OtherPermissions.IsDisableVFX() || UserPair.OwnPermissions.IsDisableVFX());
-        bool disableGroupAnimations = ActiveGroupPairs.All(pair => pair.Value.GroupUserPermissions.IsDisableAnimations() || pair.Key.GroupPermissions.IsDisableAnimations() || pair.Key.GroupUserPermissions.IsDisableAnimations());
+        bool disableGroupAnimations = ActiveGroupPairs.All(pair => pair.Value.OwnGroupUserPermissions.IsDisableAnimations() || pair.Value.OtherGroupUserPermissions.IsDisableAnimations() || pair.Key.GroupPermissions.IsDisableAnimations() || pair.Key.GroupUserPermissions.IsDisableAnimations());
 
         bool disableAnimations = (UserPair != null && disableIndividualAnimations) || (UserPair == null && disableGroupAnimations);
 
         bool disableIndividualSounds = UserPair != null && (UserPair.OtherPermissions.IsDisableSounds() || UserPair.OwnPermissions.IsDisableSounds());
-        bool disableGroupSounds = ActiveGroupPairs.All(pair => pair.Value.GroupUserPermissions.IsDisableSounds() || pair.Key.GroupPermissions.IsDisableSounds() || pair.Key.GroupUserPermissions.IsDisableSounds());
-        bool disableGroupVFX = ActiveGroupPairs.All(pair => pair.Value.GroupUserPermissions.IsDisableVFX() || pair.Key.GroupPermissions.IsDisableVFX() || pair.Key.GroupUserPermissions.IsDisableVFX());
+        bool disableGroupSounds = ActiveGroupPairs.All(pair => pair.Value.OwnGroupUserPermissions.IsDisableSounds() || pair.Value.OtherGroupUserPermissions.IsDisableSounds() || pair.Key.GroupPermissions.IsDisableSounds() || pair.Key.GroupUserPermissions.IsDisableSounds());
+        bool disableGroupVFX = ActiveGroupPairs.All(pair => pair.Value.OwnGroupUserPermissions.IsDisableVFX() || pair.Value.OtherGroupUserPermissions.IsDisableVFX() || pair.Key.GroupPermissions.IsDisableVFX() || pair.Key.GroupUserPermissions.IsDisableVFX());
 
         bool disableSounds = (UserPair != null && disableIndividualSounds) || (UserPair == null && disableGroupSounds);
         bool disableVFX = (UserPair != null && disableIndividualVFX) || (UserPair == null && disableGroupVFX);

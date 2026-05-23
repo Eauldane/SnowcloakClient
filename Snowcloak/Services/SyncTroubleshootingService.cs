@@ -84,8 +84,22 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             .OrderBy(entry => entry.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var activeGroupRoutes = groupEntries
-            .Where(entry => !entry.Key.GroupUserPermissions.IsPaused() && !entry.Value.GroupUserPermissions.IsPaused())
+            .Where(entry => !entry.Key.GroupUserPermissions.IsPaused()
+                            && !entry.Value.OwnGroupUserPermissions.IsPaused()
+                            && !entry.Value.OtherGroupUserPermissions.IsPaused())
             .ToList();
+        var groupRoutesHiddenByRemotePause = groupEntries
+            .Where(entry => !entry.Key.GroupUserPermissions.IsPaused()
+                            && !entry.Value.OwnGroupUserPermissions.IsPaused()
+                            && entry.Value.OtherGroupUserPermissions.IsPaused())
+            .ToList();
+        var activeDirectRoute = isMutualDirectPair && !isDirectPausedByYou && !isDirectPausedByThem;
+        var directRouteHiddenByRemotePause = isMutualDirectPair && !isDirectPausedByYou && isDirectPausedByThem;
+        var showAsOfflineForRemotePause = !activeDirectRoute
+            && activeGroupRoutes.Count == 0
+            && (directRouteHiddenByRemotePause || groupRoutesHiddenByRemotePause.Count > 0);
+        var onlineForReport = pair.IsOnline && !showAsOfflineForRemotePause;
+        var visibleForReport = pair.IsVisible && !showAsOfflineForRemotePause;
         var currentDownloads = _downloadsByUid.TryGetValue(pair.UserData.UID, out var downloads)
             ? downloads.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase).ToList()
             : [];
@@ -111,7 +125,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             "Snapshot: client-side only, generated {0:u}", DateTime.UtcNow));
         localState.Add(string.Format(CultureInfo.InvariantCulture,
             "Presence: online={0}, visible={1}, chat-only={2}, player={3}",
-            YesNo(pair.IsOnline), YesNo(pair.IsVisible), YesNo(pair.IsChatOnly), pair.PlayerName ?? "-"));
+            YesNo(onlineForReport), YesNo(visibleForReport), YesNo(pair.IsChatOnly), visibleForReport ? pair.PlayerName ?? "-" : "-"));
         localState.Add(string.Format(CultureInfo.InvariantCulture,
             "Routing: direct-pair={0}, mutual-direct={1}, shared-syncshells={2}, active-syncshell-routes={3}",
             YesNo(hasDirectPair), YesNo(isMutualDirectPair), groupEntries.Count, activeGroupRoutes.Count));
@@ -126,10 +140,10 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         if (hasDirectPair)
         {
             permissions.Add(string.Format(CultureInfo.InvariantCulture,
-                "Direct pair: mutual={0}, you-paused={1}, they-paused={2}, your-flags={3}, their-flags={4}",
-                YesNo(isMutualDirectPair), YesNo(isDirectPausedByYou), YesNo(isDirectPausedByThem),
+                "Direct pair: mutual={0}, you-paused={1}, your-flags={2}, their-flags={3}",
+                YesNo(isMutualDirectPair), YesNo(isDirectPausedByYou),
                 DescribeUserPermissions(pair.UserPair!.OwnPermissions),
-                DescribeUserPermissions(pair.UserPair.OtherPermissions)));
+                DescribeUserPermissions(RedactRemotePause(pair.UserPair.OtherPermissions))));
         }
         else
         {
@@ -155,10 +169,11 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
                     memberRoles.Add("pinned");
 
                 permissions.Add(string.Format(CultureInfo.InvariantCulture,
-                    "{0}: your-group-flags={1}, member-flags={2}, group-flags={3}, member-role={4}",
+                    "{0}: your-group-flags={1}, your-member-flags={2}, their-member-flags={3}, group-flags={4}, member-role={5}",
                     group.Group.AliasOrGID,
                     DescribeGroupPermissions(group.GroupUserPermissions),
-                    DescribeGroupPermissions(member.GroupUserPermissions),
+                    DescribeGroupPermissions(member.OwnGroupUserPermissions),
+                    DescribeGroupPermissions(RedactRemotePause(member.OtherGroupUserPermissions)),
                     DescribeGroupPolicy(group.GroupPermissions),
                     memberRoles.Count > 0 ? string.Join(", ", memberRoles) : "member"));
             }
@@ -263,21 +278,20 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
                 "Resume the direct pair from their pair actions menu."));
         }
 
-        if (isMutualDirectPair && isDirectPausedByThem)
-        {
-            findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Warning,
-                "This user's direct pair with you is paused on their side.",
-                "They need to resume the pair for direct sync to work again."));
-        }
-
         if (!isMutualDirectPair && groupEntries.Count > 0 && activeGroupRoutes.Count == 0)
         {
-            findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Warning,
-                "All shared syncshell routes are currently paused.",
-                "Check the raw permissions below to see whether the pause is coming from your side, their side, or both."));
+            var hasLocalGroupPause = groupEntries.Any(entry => entry.Key.GroupUserPermissions.IsPaused()
+                                                               || entry.Value.OwnGroupUserPermissions.IsPaused());
+            findings.Add(hasLocalGroupPause
+                ? new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Warning,
+                    "All shared syncshell routes are paused by your settings.",
+                    "Resume your syncshell or member-level pause to make a route available.")
+                : new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
+                    "No active syncshell route is available for this user.",
+                    "They may be offline or currently unavailable through this syncshell."));
         }
 
-        if (!pair.IsOnline)
+        if (!onlineForReport)
         {
             findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
                 "This user is offline to your client right now.",
@@ -289,7 +303,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
                 "This user is online in chat-only mode.",
                 "Chat-only mode disables appearance sync."));
         }
-        else if (!pair.IsVisible)
+        else if (!visibleForReport)
         {
             findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
                 "This user is online but not currently visible.",
@@ -425,6 +439,18 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         if (permissions.IsDisableSounds()) flags.Add("sounds-off");
         if (permissions.IsDisableVFX()) flags.Add("vfx-off");
         return flags.Count > 0 ? string.Join(", ", flags) : "none";
+    }
+
+    private static UserPermissions RedactRemotePause(UserPermissions permissions)
+    {
+        permissions.SetPaused(false);
+        return permissions;
+    }
+
+    private static GroupUserPermissions RedactRemotePause(GroupUserPermissions permissions)
+    {
+        permissions.SetPaused(false);
+        return permissions;
     }
 
     private static string DescribeGroupPermissions(GroupUserPermissions permissions)

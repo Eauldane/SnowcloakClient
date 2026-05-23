@@ -51,7 +51,7 @@ public class DrawGroupPair : DrawPairBase
             return _pair.UserPair.OwnPermissions.IsPaused();
         }
 
-        return _group.GroupUserPermissions.IsPaused() || _fullInfoDto.GroupUserPermissions.IsPaused();
+        return _group.GroupUserPermissions.IsPaused() || _fullInfoDto.OwnGroupUserPermissions.IsPaused();
     }
 
     private bool IsPausedByOther()
@@ -61,7 +61,7 @@ public class DrawGroupPair : DrawPairBase
             return _pair.UserPair.OtherPermissions.IsPaused();
         }
 
-        return _fullInfoDto.GroupUserPermissions.IsPaused();
+        return _fullInfoDto.OtherGroupUserPermissions.IsPaused();
     }
 
     protected override void DrawLeftSide(float textPosY, float originalY)
@@ -202,20 +202,25 @@ public class DrawGroupPair : DrawPairBase
         var userIsOwner = string.Equals(_group.OwnerUID, _apiController.UID, StringComparison.OrdinalIgnoreCase);
         var userIsModerator = _group.GroupUserInfo.IsModerator();
 
-        var soundsDisabled = _fullInfoDto.GroupUserPermissions.IsDisableSounds();
-        var animDisabled = _fullInfoDto.GroupUserPermissions.IsDisableAnimations();
-        var vfxDisabled = _fullInfoDto.GroupUserPermissions.IsDisableVFX();
+        var ownSoundsDisabled = _fullInfoDto.OwnGroupUserPermissions.IsDisableSounds();
+        var ownAnimDisabled = _fullInfoDto.OwnGroupUserPermissions.IsDisableAnimations();
+        var ownVfxDisabled = _fullInfoDto.OwnGroupUserPermissions.IsDisableVFX();
+        var soundsDisabled = _fullInfoDto.OtherGroupUserPermissions.IsDisableSounds();
+        var animDisabled = _fullInfoDto.OtherGroupUserPermissions.IsDisableAnimations();
+        var vfxDisabled = _fullInfoDto.OtherGroupUserPermissions.IsDisableVFX();
         var individualSoundsDisabled = (_pair.UserPair?.OwnPermissions.IsDisableSounds() ?? false) || (_pair.UserPair?.OtherPermissions.IsDisableSounds() ?? false);
         var individualAnimDisabled = (_pair.UserPair?.OwnPermissions.IsDisableAnimations() ?? false) || (_pair.UserPair?.OtherPermissions.IsDisableAnimations() ?? false);
         var individualVFXDisabled = (_pair.UserPair?.OwnPermissions.IsDisableVFX() ?? false) || (_pair.UserPair?.OtherPermissions.IsDisableVFX() ?? false);
 
         bool showShared = _charaDataManager.SharedWithYouData.TryGetValue(_pair.UserData, out var sharedData);
-        bool showInfo = (individualAnimDisabled || individualSoundsDisabled || animDisabled || soundsDisabled);
+        bool ownGroupDisabled = ownSoundsDisabled || ownAnimDisabled || ownVfxDisabled;
+        bool otherGroupDisabled = soundsDisabled || animDisabled || vfxDisabled;
+        bool showInfo = individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled || ownGroupDisabled || otherGroupDisabled;
         bool showPlus = _pair.UserPair == null;
-        bool showBars = (userIsOwner || (userIsModerator && !entryIsMod && !entryIsOwner)) || !pausedByOther || pausedByYou;
+        bool showBars = true;
         bool showPause = true; 
-        var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled) ? FontAwesomeIcon.ExclamationTriangle
-            : ((soundsDisabled || animDisabled || vfxDisabled) ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
+        var permIcon = (individualAnimDisabled || individualSoundsDisabled || individualVFXDisabled || ownGroupDisabled) ? FontAwesomeIcon.ExclamationTriangle
+            : (otherGroupDisabled ? FontAwesomeIcon.InfoCircle : FontAwesomeIcon.None);
         var runningIconWidth = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Running).X;
         var infoIconWidth = ElezenImgui.GetIconSize(permIcon).X;
         var plusButtonWidth = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus).X;
@@ -296,7 +301,44 @@ public class DrawGroupPair : DrawPairBase
             }
             ImGui.SameLine();
         }
-        else if ((animDisabled || soundsDisabled))
+        else if (ownGroupDisabled)
+        {
+            ImGui.SetCursorPosY(textPosY);
+            ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
+            ElezenImgui.ShowIcon(permIcon);
+            ImGui.PopStyleColor();
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+
+                ImGui.TextUnformatted("Your Syncshell member permissions");
+
+                if (ownSoundsDisabled)
+                {
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.VolumeOff);
+                    ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
+                    ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Sound sync disabled with {0}", _pair.UserData.AliasOrUID));
+                }
+
+                if (ownAnimDisabled)
+                {
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.Stop);
+                    ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
+                    ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Animation sync disabled with {0}", _pair.UserData.AliasOrUID));
+                }
+
+                if (ownVfxDisabled)
+                {
+                    ElezenImgui.ShowIcon(FontAwesomeIcon.Circle);
+                    ImGui.SameLine(40 * ImGuiHelpers.GlobalScale);
+                    ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "VFX sync disabled with {0}", _pair.UserData.AliasOrUID));
+                }
+
+                ImGui.EndTooltip();
+            }
+            ImGui.SameLine();
+        }
+        else if (otherGroupDisabled)
         {
             ImGui.SetCursorPosY(textPosY);
             ElezenImgui.ShowIcon(permIcon);
@@ -361,7 +403,7 @@ public class DrawGroupPair : DrawPairBase
                 }
                 else
                 {
-                    var groupPerm = _fullInfoDto.GroupUserPermissions;
+                    var groupPerm = _fullInfoDto.OwnGroupUserPermissions;
                     groupPerm.SetPaused(!pausedByYou);
                     _ = _apiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(
                         _group.Group,
@@ -452,7 +494,7 @@ public class DrawGroupPair : DrawPairBase
 
                       if (_pair.UserPair == null)
             {
-                var permissions = _fullInfoDto.GroupUserPermissions;
+                var permissions = _fullInfoDto.OwnGroupUserPermissions;
 
                 var isDisableSounds = permissions.IsDisableSounds();
                 var disableSoundsText = isDisableSounds ? "Enable sound sync" : "Disable sound sync";
@@ -510,7 +552,7 @@ public class DrawGroupPair : DrawPairBase
                 _mediator.Publish(new TargetPairMessage(_pair));
                 ImGui.CloseCurrentPopup();
             }
-            if (!_pair.IsPaused && ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Open Profile"))
+            if ((!_pair.IsPaused || (pausedByOther && !pausedByYou)) && ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Open Profile"))
             {
                 _displayHandler.OpenProfile(_pair);
                 ImGui.CloseCurrentPopup();

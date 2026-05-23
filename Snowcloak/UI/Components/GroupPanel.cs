@@ -690,8 +690,8 @@ internal sealed class GroupPanel
                 else
                 {
                     pausedByYou = groupDto.GroupUserPermissions.IsPaused()
-                        || groupPairInfo.GroupUserPermissions.IsPaused();
-                    pausedByOther = groupPairInfo.GroupUserPermissions.IsPaused();
+                        || groupPairInfo.OwnGroupUserPermissions.IsPaused();
+                    pausedByOther = groupPairInfo.OtherGroupUserPermissions.IsPaused();
                 }
 
                 bool showAsOffline = pausedByOther && !pausedByYou;
