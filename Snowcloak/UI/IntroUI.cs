@@ -42,6 +42,13 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private bool _secretKeyBackupSuccess = false;
     private string? _secretKeyBackupMessage;
     private string _lastSecretKeyBackupDirectory = string.Empty;
+    private string _accountUsername = string.Empty;
+    private string _accountPassword = string.Empty;
+    private string _accountPasswordConfirm = string.Empty;
+    private string _accountUid = string.Empty;
+    private bool _accountInProgress = false;
+    private bool _accountSuccess = false;
+    private string? _accountMessage;
     
     public IntroUi(ILogger<IntroUi> logger, UiSharedService uiShared, SnowcloakConfigService configService,
         CacheMonitor fileCacheManager, ServerConfigurationManager serverConfigurationManager, SnowMediator snowMediator,
@@ -263,8 +270,11 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 }
 
                 ImGui.Separator();
+                DrawAccountAuthSetup();
+
+                ImGui.Separator();
                 ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
-                ImGui.TextUnformatted("If you have not used Snowcloak before, click below to register a new account.");
+                ImGui.TextUnformatted("Legacy key-only setup remains available below.");
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                 {
                     _registrationInProgress = true;
@@ -298,7 +308,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                     });
                 }
                 ImGui.SameLine();
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account"))
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone secret key"))
                 {
                     _registrationInProgress = true;
                     _ = Task.Run(async () => {
@@ -313,7 +323,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                                     _registrationMessage = "An unknown error occured. Please try again later.";
                                 return;
                             }
-                            _registrationMessage ="New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
+                            _registrationMessage ="New standalone key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
                             _secretKey = reply.SecretKey ?? "";
                             _registrationReply = reply;
                             _registrationSuccess = true;
@@ -449,6 +459,168 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     {
         _secretKeyBackupMessage = message;
         _secretKeyBackupSuccess = success;
+    }
+
+    private void DrawAccountAuthSetup()
+    {
+        if (ImGui.CollapsingHeader("Snowcloak account sign-in options"))
+        {
+            ElezenImgui.WrappedText("Snowcloak accounts are the preferred sign-in method. You choose a username and password, and Snowcloak keeps account-managed secret keys available for this character.");
+            ElezenImgui.WrappedText("Secret keys still authenticate characters. Account sign-in restores those keys so the normal connection flow continues to work.");
+            ElezenImgui.WrappedText("XIVAuth is used to prove ownership of the character when creating a new account. Existing secret-key setup remains supported.");
+        }
+
+        ImGui.TextUnformatted("Snowcloak account");
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountUsername", "Username", ref _accountUsername, 64);
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountPassword", "Password", ref _accountPassword, 128, ImGuiInputTextFlags.Password);
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountPasswordConfirm", "Confirm password for new account", ref _accountPasswordConfirm, 128, ImGuiInputTextFlags.Password);
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountUid", "Optional UID for accounts with multiple characters", ref _accountUid, 10);
+
+        var canCreate = IsAccountCredentialInputValid(requireConfirmation: true);
+        var canLogin = IsAccountCredentialInputValid(requireConfirmation: false);
+
+        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress || !canCreate))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Create account with XIVAuth"))
+            {
+                BeginAccountCreationWithXivAuth();
+            }
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress || !canLogin))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.SignInAlt, "Sign in with account"))
+            {
+                BeginAccountPasswordLogin();
+            }
+        }
+
+        if (_accountPassword.Length is > 0 and < 12)
+        {
+            ElezenImgui.ColouredWrappedText("New account passwords must be at least 12 characters long.", ImGuiColors.DalamudYellow);
+        }
+        else if (!_accountPasswordConfirm.IsNullOrEmpty() && !string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal))
+        {
+            ElezenImgui.ColouredWrappedText("The password confirmation does not match.", ImGuiColors.DalamudYellow);
+        }
+
+        if (_accountInProgress)
+        {
+            ImGui.TextUnformatted("Waiting for the server...");
+        }
+        else if (!_accountMessage.IsNullOrEmpty())
+        {
+            if (!_accountSuccess)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, _accountMessage);
+            else
+                ImGui.TextWrapped(_accountMessage);
+        }
+    }
+
+    private bool IsAccountCredentialInputValid(bool requireConfirmation)
+    {
+        if (_accountUsername.Trim().Length is < 3 or > 64)
+        {
+            return false;
+        }
+
+        if (_accountUsername.Any(char.IsWhiteSpace) || string.IsNullOrEmpty(_accountPassword))
+        {
+            return false;
+        }
+
+        return !requireConfirmation || (_accountPassword.Length >= 12 && string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal));
+    }
+
+    private void BeginAccountCreationWithXivAuth()
+    {
+        _accountInProgress = true;
+        _accountSuccess = false;
+        _accountMessage = null;
+
+        var username = _accountUsername;
+        var password = _accountPassword;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.CreateAccountWithXivAuth(username, password, CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _accountMessage = result.ErrorMessage.IsNullOrEmpty() ? "Account setup failed. Please try again later." : result.ErrorMessage;
+                    return;
+                }
+
+                _accountPassword = string.Empty;
+                _accountPasswordConfirm = string.Empty;
+                _accountSuccess = true;
+                _accountMessage = string.Format(CultureInfo.InvariantCulture,
+                    "Account created. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
+                    result.SecretKeyCount,
+                    result.NewSecretKeyCount);
+                _ = _uiShared.ApiController.CreateConnections();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Account setup failed");
+                _accountSuccess = false;
+                _accountMessage = "Account setup failed. Please try again later.";
+            }
+            finally
+            {
+                _accountInProgress = false;
+            }
+        }, CancellationToken.None);
+    }
+
+    private void BeginAccountPasswordLogin()
+    {
+        _accountInProgress = true;
+        _accountSuccess = false;
+        _accountMessage = null;
+
+        var username = _accountUsername;
+        var password = _accountPassword;
+        var uid = _accountUid;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.LoginWithPassword(username, password, uid, CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _accountMessage = result.ErrorMessage.IsNullOrEmpty() ? "Account login failed. Please try again later." : result.ErrorMessage;
+                    return;
+                }
+
+                _accountPassword = string.Empty;
+                _accountPasswordConfirm = string.Empty;
+                _secretKey = string.Empty;
+                _registrationReply = null;
+                _registrationSuccess = false;
+                _accountSuccess = true;
+                _accountMessage = string.Format(CultureInfo.InvariantCulture,
+                    "Account login succeeded. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
+                    result.SecretKeyCount,
+                    result.NewSecretKeyCount);
+                _ = _uiShared.ApiController.CreateConnections();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Account login failed");
+                _accountSuccess = false;
+                _accountMessage = "Account login failed. Please try again later.";
+            }
+            finally
+            {
+                _accountInProgress = false;
+            }
+        }, CancellationToken.None);
     }
 
 #pragma warning disable MA0009

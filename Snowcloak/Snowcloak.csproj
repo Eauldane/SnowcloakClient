@@ -18,7 +18,7 @@
     <PackageReference Include="Brio.API" Version="3.0.1" />
     <PackageReference Include="Chaos.NaCl.Standard" Version="1.0.0" />
     <PackageReference Include="ElezenTools" Version="15.0.1" />
-    <PackageReference Include="Glamourer.Api" Version="2.8.1" />
+    <PackageReference Include="Glamourer.Api" Version="2.8.2" />
     <PackageReference Include="K4os.Compression.LZ4.Legacy" Version="1.3.8" />
     <PackageReference Include="K4os.Compression.LZ4.Streams" Version="1.3.8" />
     <PackageReference Include="MessagePack" Version="3.1.6" />
@@ -29,7 +29,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="3.0.92">
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.98">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -39,9 +39,9 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
-    <PackageReference Include="Snowcloak.API" Version="2.6.6.1" />
+    <PackageReference Include="Snowcloak.API" Version="2.6.9" />
     <PackageReference Include="Snowcloak.CacheFile" Version="3.2.1.1" />
-    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.26.0.140279">
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.27.0.140913">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

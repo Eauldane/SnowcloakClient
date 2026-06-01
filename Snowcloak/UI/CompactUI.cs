@@ -472,18 +472,28 @@ public class CompactUi : WindowMediatorSubscriberBase
         if (keys.Any())
         {
             if (_secretKeyIdx == -1) _secretKeyIdx = keys.First().Key;
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+            if (_serverManager.CurrentServer.AccountLinked)
             {
-                BeginCharacterRegistration(
-                    _registerService.XIVAuth,
-                    "Account registered. Welcome to Snowcloak!");
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Create and assign account UID"))
+                {
+                    BeginAccountUidRegistration();
+                }
             }
-
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register new Snowcloak account"))
+            else
             {
-                BeginCharacterRegistration(
-                    _registerService.RegisterAccount,
-                    "New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.");
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                {
+                    BeginCharacterRegistration(
+                        _registerService.XIVAuth,
+                        "Account registered. Welcome to Snowcloak!");
+                }
+
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone key"))
+                {
+                    BeginCharacterRegistration(
+                        _registerService.RegisterAccount,
+                        "New standalone key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.");
+                }
             }
 
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add character with existing key"))
@@ -543,6 +553,45 @@ public class CompactUi : WindowMediatorSubscriberBase
         }
         ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
 
+    }
+
+    private void BeginAccountUidRegistration()
+    {
+        _registrationInProgress = true;
+        _registrationMessage = null;
+        _registrationSuccess = false;
+        _registrationReply = null;
+        _secretKey = string.Empty;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.CreateAccountUid(CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _logger.LogWarning("Account UID creation failed: {err}", result.ErrorMessage);
+                    _registrationMessage = result.ErrorMessage;
+                    if (_registrationMessage.IsNullOrEmpty())
+                        _registrationMessage = "Account UID creation failed. Please try again later.";
+                    return;
+                }
+
+                _registrationMessage = string.Format(CultureInfo.InvariantCulture, "Created account UID {0} and assigned it to this character. Attempting to connect.", result.Uid);
+                _registrationSuccess = true;
+                _ = _apiController.CreateConnections();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Account UID creation failed");
+                _registrationSuccess = false;
+                _registrationMessage = "Account UID creation failed. Please try again later.";
+            }
+            finally
+            {
+                _registrationInProgress = false;
+            }
+        }, CancellationToken.None);
     }
 
     private void BeginCharacterRegistration(Func<CancellationToken, Task<RegisterReplyDto>> registrationFunc, string successMessage)

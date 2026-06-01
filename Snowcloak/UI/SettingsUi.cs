@@ -79,6 +79,15 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private bool _secretKeyBackupSuccess = false;
     private string? _secretKeyBackupMessage = null;
     private string _lastSecretKeyBackupDirectory = string.Empty;
+    private string _accountMigrationUsername = string.Empty;
+    private string _accountMigrationPassword = string.Empty;
+    private string _accountMigrationPasswordConfirm = string.Empty;
+    private bool _accountMigrationInProgress = false;
+    private bool _accountMigrationSuccess = false;
+    private string? _accountMigrationMessage;
+    private bool _accountUidGenerationInProgress = false;
+    private bool _accountUidGenerationSuccess = false;
+    private string? _accountUidGenerationMessage;
     
     public SettingsUi(ILogger<SettingsUi> logger,
         UiSharedService uiShared, SnowcloakConfigService configService,
@@ -1670,57 +1679,82 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                 if (!hasSecretKey || invalidSecretKey)
                 {
-                    var xivAuthPrompt = invalidSecretKey
-                        ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
-                        : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a standalone key.";
+                    var xivAuthPrompt = selectedServer.AccountLinked
+                        ? "Your current character is not linked to a working account key. Create and assign a new account UID to receive a server-generated key."
+                        : invalidSecretKey
+                            ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
+                            : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a standalone key.";
                     ElezenImgui.ColouredWrappedText(
                         xivAuthPrompt,
                         ImGuiColors.DalamudYellow);
 
-                    using (ImRaii.Disabled(_xivAuthRegistrationInProgress))
+                    if (selectedServer.AccountLinked && selectedServer == _serverConfigurationManager.CurrentServer)
                     {
-                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                        using (ImRaii.Disabled(_accountUidGenerationInProgress))
                         {
-                            BeginCurrentCharacterSecretKeyRegistration(
-                                selectedServer,
-                                playerName,
-                                playerWorldId,
-                                removeInvalidSecretKey,
-                                invalidSecretKeyIdx,
-                                _registerService.XIVAuth,
-                                "XIVAuth login successful. Added a new secret key and assigned it to your current character.",
-                                "XIVAuth registration failed");
+                            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Create and assign account UID"))
+                            {
+                                BeginAccountUidGeneration();
+                            }
+                        }
+                        DrawAccountUidGenerationStatus();
+                    }
+                    else
+                    {
+                        using (ImRaii.Disabled(_xivAuthRegistrationInProgress))
+                        {
+                            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                            {
+                                BeginCurrentCharacterSecretKeyRegistration(
+                                    selectedServer,
+                                    playerName,
+                                    playerWorldId,
+                                    removeInvalidSecretKey,
+                                    invalidSecretKeyIdx,
+                                    _registerService.XIVAuth,
+                                    "XIVAuth login successful. Added a new secret key and assigned it to your current character.",
+                                    "XIVAuth registration failed");
+                            }
+
+                            ImGui.SameLine();
+                            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create and assign key"))
+                            {
+                                BeginCurrentCharacterSecretKeyRegistration(
+                                    selectedServer,
+                                    playerName,
+                                    playerWorldId,
+                                    removeInvalidSecretKey,
+                                    invalidSecretKeyIdx,
+                                    _registerService.RegisterAccount,
+                                    "Standalone key created successfully. Added a new secret key and assigned it to your current character.",
+                                    "Standalone key registration failed");
+                            }
                         }
 
-                        ImGui.SameLine();
-                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create and assign key"))
+                        if (_xivAuthRegistrationInProgress)
                         {
-                            BeginCurrentCharacterSecretKeyRegistration(
-                                selectedServer,
-                                playerName,
-                                playerWorldId,
-                                removeInvalidSecretKey,
-                                invalidSecretKeyIdx,
-                                _registerService.RegisterAccount,
-                                "Standalone key created successfully. Added a new secret key and assigned it to your current character.",
-                                "Standalone key registration failed");
+                            ImGui.TextUnformatted("Waiting for the server...");
                         }
-                    }
-
-                    if (_xivAuthRegistrationInProgress)
-                    {
-                        ImGui.TextUnformatted("Waiting for the server...");
-                    }
-                    else if (!_xivAuthRegistrationMessage.IsNullOrEmpty())
-                    {
-                        if (!_xivAuthRegistrationSuccess)
-                            ImGui.TextColored(ImGuiColors.DalamudYellow, _xivAuthRegistrationMessage);
-                        else
-                            ImGui.TextWrapped(_xivAuthRegistrationMessage);
+                        else if (!_xivAuthRegistrationMessage.IsNullOrEmpty())
+                        {
+                            if (!_xivAuthRegistrationSuccess)
+                                ImGui.TextColored(ImGuiColors.DalamudYellow, _xivAuthRegistrationMessage);
+                            else
+                                ImGui.TextWrapped(_xivAuthRegistrationMessage);
+                        }
                     }
 
                     ImGui.Separator();
-                }                
+                }
+                else if (selectedServer == _serverConfigurationManager.CurrentServer)
+                {
+                    if (selectedServer.AccountLinked)
+                        DrawAccountManagementSection();
+                    else
+                        DrawAccountMigrationSection();
+                    ImGui.Separator();
+                }
+
                 foreach (var item in selectedServer.SecretKeys.ToList())
                 {
                     using var id = ImRaii.PushId("key" + item.Key);
@@ -1804,10 +1838,10 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     _serverConfigurationManager.Save();
                 }
 
-                if (true) // Enable registration button for all servers
+                if (!selectedServer.AccountLinked)
                 {
                     ImGui.SameLine();
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Register a Snowcloak account"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone key"))
                     {
                         _registrationInProgress = true;
                         _ = Task.Run(async () => {
@@ -1822,7 +1856,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
                                         _registrationMessage = "An unknown error occured. Please try again later.";
                                     return;
                                 }
-                                _registrationMessage ="New account registered.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
+                                _registrationMessage ="New standalone key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
                                 _registrationSuccess = true;
                                 selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Any() ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
                                 {
@@ -1976,6 +2010,179 @@ public class SettingsUi : WindowMediatorSubscriberBase
     {
         _secretKeyBackupMessage = message;
         _secretKeyBackupSuccess = success;
+    }
+
+    private void DrawAccountManagementSection()
+    {
+        ImGui.TextUnformatted("Snowcloak account");
+        ElezenImgui.DrawHelpText("This service is linked to a Snowcloak account. New UIDs are created on the server and downloaded with an account-managed secret key.");
+
+        using (ImRaii.Disabled(_accountUidGenerationInProgress))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Create and assign account UID"))
+            {
+                BeginAccountUidGeneration();
+            }
+        }
+
+        DrawAccountUidGenerationStatus();
+    }
+
+    private void DrawAccountUidGenerationStatus()
+    {
+        if (_accountUidGenerationInProgress)
+        {
+            ImGui.TextUnformatted("Creating account UID...");
+        }
+        else if (!_accountUidGenerationMessage.IsNullOrEmpty())
+        {
+            if (!_accountUidGenerationSuccess)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, _accountUidGenerationMessage);
+            else
+                ImGui.TextWrapped(_accountUidGenerationMessage);
+        }
+    }
+
+    private void BeginAccountUidGeneration()
+    {
+        _accountUidGenerationInProgress = true;
+        _accountUidGenerationSuccess = false;
+        _accountUidGenerationMessage = null;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.CreateAccountUid(CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _accountUidGenerationMessage = result.ErrorMessage.IsNullOrEmpty()
+                        ? "Account UID creation failed. Please try again later."
+                        : result.ErrorMessage;
+                    return;
+                }
+
+                _accountUidGenerationSuccess = true;
+                _accountUidGenerationMessage = string.Format(CultureInfo.InvariantCulture,
+                    "Created account UID {0}. Stored {1} account key(s), including {2} new key(s), and assigned this character. Attempting to connect.",
+                    result.Uid,
+                    result.SecretKeyCount,
+                    result.NewSecretKeyCount);
+                _ = _uiShared.ApiController.CreateConnections();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Account UID creation failed");
+                _accountUidGenerationSuccess = false;
+                _accountUidGenerationMessage = "Account UID creation failed. Please try again later.";
+            }
+            finally
+            {
+                _accountUidGenerationInProgress = false;
+            }
+        }, CancellationToken.None);
+    }
+
+    private void DrawAccountMigrationSection()
+    {
+        ImGui.TextUnformatted("Snowcloak account");
+        ElezenImgui.DrawHelpText("Add username/password sign-in to this character while keeping the existing secret-key login active. Local secret keys on this service will be linked to the account so they can be restored after a password login.");
+
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountMigrationUsername", "Username", ref _accountMigrationUsername, 64);
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountMigrationPassword", "Password", ref _accountMigrationPassword, 128, ImGuiInputTextFlags.Password);
+        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
+        ImGui.InputTextWithHint("##accountMigrationPasswordConfirm", "Confirm password", ref _accountMigrationPasswordConfirm, 128, ImGuiInputTextFlags.Password);
+
+        var canMigrate = IsAccountMigrationInputValid();
+        using (ImRaii.Disabled(_accountMigrationInProgress || !canMigrate))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Add password account"))
+            {
+                BeginAccountMigration();
+            }
+        }
+
+        if (_accountMigrationPassword.Length is > 0 and < 12)
+        {
+            ElezenImgui.ColouredWrappedText("Password must be at least 12 characters long.", ImGuiColors.DalamudYellow);
+        }
+        else if (!_accountMigrationPasswordConfirm.IsNullOrEmpty()
+                 && !string.Equals(_accountMigrationPassword, _accountMigrationPasswordConfirm, StringComparison.Ordinal))
+        {
+            ElezenImgui.ColouredWrappedText("The password confirmation does not match.", ImGuiColors.DalamudYellow);
+        }
+
+        if (_accountMigrationInProgress)
+        {
+            ImGui.TextUnformatted("Updating account...");
+        }
+        else if (!_accountMigrationMessage.IsNullOrEmpty())
+        {
+            if (!_accountMigrationSuccess)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, _accountMigrationMessage);
+            else
+                ImGui.TextWrapped(_accountMigrationMessage);
+        }
+    }
+
+    private bool IsAccountMigrationInputValid()
+    {
+        if (_accountMigrationUsername.Trim().Length is < 3 or > 64)
+        {
+            return false;
+        }
+
+        if (_accountMigrationUsername.Any(char.IsWhiteSpace) || _accountMigrationPassword.Length < 12)
+        {
+            return false;
+        }
+
+        return string.Equals(_accountMigrationPassword, _accountMigrationPasswordConfirm, StringComparison.Ordinal);
+    }
+
+    private void BeginAccountMigration()
+    {
+        _accountMigrationInProgress = true;
+        _accountMigrationSuccess = false;
+        _accountMigrationMessage = null;
+
+        var username = _accountMigrationUsername;
+        var password = _accountMigrationPassword;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.AttachPasswordToCurrentAccount(username, password, CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _accountMigrationMessage = result.ErrorMessage.IsNullOrEmpty()
+                        ? "Password account setup failed. Please try again later."
+                        : result.ErrorMessage;
+                    return;
+                }
+
+                _accountMigrationPassword = string.Empty;
+                _accountMigrationPasswordConfirm = string.Empty;
+                _accountMigrationSuccess = true;
+                _accountMigrationMessage = string.Format(CultureInfo.InvariantCulture,
+                    "Password account ready. Linked {0} local key(s) and stored {1} account key(s), including {2} new key(s).",
+                    result.LinkedLocalSecretKeyCount,
+                    result.SecretKeyCount,
+                    result.NewSecretKeyCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Password account setup failed");
+                _accountMigrationSuccess = false;
+                _accountMigrationMessage = "Password account setup failed. Please try again later.";
+            }
+            finally
+            {
+                _accountMigrationInProgress = false;
+            }
+        }, CancellationToken.None);
     }
 
     private void DrawChatSoundSetting(string label, string id, ChatWindow.ChatSoundOption currentOption, Action<ChatWindow.ChatSoundOption> updateOption, string helpText)

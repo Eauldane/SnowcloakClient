@@ -40,9 +40,9 @@
       },
       "Glamourer.Api": {
         "type": "Direct",
-        "requested": "[2.8.1, )",
-        "resolved": "2.8.1",
-        "contentHash": "RCaAAd1hmRLiLAeAVFPi8GZKRIVYrh2m0vmGA+3yKZj3xemWr8/KU2vHlt1mUdMnyPlCX2zPK6zM4nFsMB+GYg=="
+        "requested": "[2.8.2, )",
+        "resolved": "2.8.2",
+        "contentHash": "+mEzejUhvJLcpTjv4Hk6ap22WiEPyEa9wg1EECFwDJim1B+fKy3l4iWlvjaoEFlfp+nB67BZp8KBiHclsEBQQw=="
       },
       "K4os.Compression.LZ4.Legacy": {
         "type": "Direct",
@@ -104,9 +104,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.92, )",
-        "resolved": "3.0.92",
-        "contentHash": "Gt9mFVUTeAbjT8B8rZcsdR5KzzOIL2NjL2hssiWddFs8JOr73SZJ3u/WmtgakTfc/KV65o+pzySItMcdf9zt5Q=="
+        "requested": "[3.0.98, )",
+        "resolved": "3.0.98",
+        "contentHash": "rs1eAdHccwRCf0o4cYU7hA6d4CX4KTFkrmAuUvpjwO/QLVYptDibDkKWCzGf+BJXrws1xzYXPjrpblQAC+tAdQ=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
@@ -191,9 +191,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[2.6.6.1, )",
-        "resolved": "2.6.6.1",
-        "contentHash": "dPLQzSme70HBALA9+/igVWd3oIGpCL5ytqwNU+C4Fxogiz34N+cHgsvWzDJ1cK3B0QGvENOz2/wUR4BbFPv1zw==",
+        "requested": "[2.6.9, )",
+        "resolved": "2.6.9",
+        "contentHash": "Q3+7i/+vSjXzYbQamJZ+ooUeaJBDFhEU2552lsR09bc1d6rB8Xi1WC4Ru5R6OdvMqgZqPwyA86ZPHTZzMTSzmg==",
         "dependencies": {
           "Blake3": "2.2.1",
           "MessagePack.Annotations": "3.1.6"
@@ -212,9 +212,9 @@
       },
       "SonarAnalyzer.CSharp": {
         "type": "Direct",
-        "requested": "[10.26.0.140279, )",
-        "resolved": "10.26.0.140279",
-        "contentHash": "n6+KDAbvKCJs0oYIQlxFdsmvcj1YSJ7TiqEd5jYq58T1s1Q4bwymFMeVFGDUyDKqSH9YO/7Fobvm0u9WJ7MaRQ=="
+        "requested": "[10.27.0.140913, )",
+        "resolved": "10.27.0.140913",
+        "contentHash": "cxk12QjN9io1SjN36B1QO+9dRf+ek2CGfQGsOWtHBojE35cKchKJod48raxZwe47jHhzmAUO4AJSh7+hF0GS4g=="
       },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "Direct",
