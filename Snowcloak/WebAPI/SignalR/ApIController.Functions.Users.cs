@@ -1,4 +1,5 @@
 ﻿using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
@@ -70,14 +71,52 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<List<UserPairDto>>(nameof(UserGetPairedClients)).ConfigureAwait(false);
     }
 
-    public async Task<UserProfileDto> UserGetProfile(UserProfileRequestDto dto)
+    public async Task<CharacterProfileDto> CharacterProfileGet(CharacterProfileRequestDto dto)
     {
         if (!IsConnected)
         {
-            var fallbackUser = dto.User ?? new UserData(dto.Ident ?? string.Empty);
-            return new UserProfileDto(fallbackUser, false, null, null, null, dto.Visibility);
+            return new CharacterProfileDto
+            {
+                Ident = dto.Ident,
+                Visibility = dto.Visibility ?? ProfileVisibility.Public,
+                DisabledReason = "Not connected.",
+            };
         }
-        return await _snowHub!.InvokeAsync<UserProfileDto>(nameof(UserGetProfile), dto).ConfigureAwait(false);
+
+        return await _snowHub!.InvokeAsync<CharacterProfileDto>(nameof(CharacterProfileGet), dto).ConfigureAwait(false);
+    }
+
+    public async Task<CharacterProfileDto> CharacterProfileGetOwn(ProfileVisibility visibility)
+    {
+        if (!IsConnected)
+        {
+            return new CharacterProfileDto
+            {
+                Visibility = visibility,
+                IsOwnProfile = true,
+                DisabledReason = "Not connected.",
+            };
+        }
+
+        return await _snowHub!.InvokeAsync<CharacterProfileDto>(nameof(CharacterProfileGetOwn), visibility).ConfigureAwait(false);
+    }
+
+    public async Task<CharacterProfileDto> CharacterProfileSet(CharacterProfileUpdateDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<CharacterProfileDto>(nameof(CharacterProfileSet), dto).ConfigureAwait(false);
+    }
+
+    public async Task CharacterProfileDelete(ProfileVisibility visibility)
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(CharacterProfileDelete), visibility).ConfigureAwait(false);
+    }
+
+    public async Task CharacterProfileReport(CharacterProfileReportDto dto)
+    {
+        if (!IsConnected) return;
+        await _snowHub!.InvokeAsync(nameof(CharacterProfileReport), dto).ConfigureAwait(false);
     }
     
     
@@ -99,23 +138,11 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(UserRemovePair), userDto).ConfigureAwait(false);
     }
 
-    public async Task UserReportProfile(UserProfileReportDto userDto)
-    {
-        if (!IsConnected) return;
-        await _snowHub!.SendAsync(nameof(UserReportProfile), userDto).ConfigureAwait(false);
-    }
-
     public async Task UserSetPairPermissions(UserPermissionsDto userPermissions)
     {
         await _snowHub!.SendAsync(nameof(UserSetPairPermissions), userPermissions).ConfigureAwait(false);
     }
 
-    public async Task UserSetProfile(UserProfileDto userDescription)
-    {
-        if (!IsConnected) return;
-        await _snowHub!.InvokeAsync(nameof(UserSetProfile), userDescription).ConfigureAwait(false);
-    }
-    
     public async Task<bool> UserSetVanityId(UserVanityIdDto vanityId)
     {
         if (!IsConnected) return false;

@@ -557,12 +557,6 @@ public class DrawGroupPair : DrawPairBase
                 _displayHandler.OpenProfile(_pair);
                 ImGui.CloseCurrentPopup();
             }
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report User"))
-            {
-                _mediator.Publish(new OpenReportPopupMessage(_pair));
-                ImGui.CloseCurrentPopup();
-            }
-            ElezenImgui.AttachTooltip("Report this user's profile.");
             if (_configService.Current.EnableDebugFeatures
                 && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
             {

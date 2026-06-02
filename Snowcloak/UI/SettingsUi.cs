@@ -23,6 +23,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
@@ -36,6 +37,12 @@ namespace Snowcloak.UI;
 
 public class SettingsUi : WindowMediatorSubscriberBase
 {
+    private enum AccountAuthMode
+    {
+        SignIn,
+        CreateAccount
+    }
+
     private readonly ApiController _apiController;
     private readonly IpcManager _ipcManager;
     private readonly IpcProvider _ipcProvider;
@@ -82,9 +89,11 @@ public class SettingsUi : WindowMediatorSubscriberBase
     private string _accountMigrationUsername = string.Empty;
     private string _accountMigrationPassword = string.Empty;
     private string _accountMigrationPasswordConfirm = string.Empty;
+    private AccountAuthMode _accountMigrationMode;
     private bool _accountMigrationInProgress = false;
     private bool _accountMigrationSuccess = false;
     private string? _accountMigrationMessage;
+    private bool _showAccountMigrationPassword;
     private bool _accountUidGenerationInProgress = false;
     private bool _accountUidGenerationSuccess = false;
     private string? _accountUidGenerationMessage;
@@ -754,8 +763,6 @@ public class SettingsUi : WindowMediatorSubscriberBase
             _notesSuccessfullyApplied = null;
         }
 
-        _lastTab = "General";
-
         _uiShared.BigText("Notes");
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Export all your user notes to clipboard"))
         {
@@ -807,13 +814,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         ElezenImgui.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
         
-        var disableServerNewsInChat = _configService.Current.DisableServerNewsInChat;
-        if (ImGui.Checkbox("Disable server news posts in chat", ref disableServerNewsInChat))
-        {
-            _configService.Current.DisableServerNewsInChat = disableServerNewsInChat;
-            _configService.Save();
-        }
         ElezenImgui.DrawHelpText("Stops Snowcloak server news announcements from being posted to in-game chat.");
+        ImGui.Separator();
+        _lastTab = "General";
+
+        DrawModNullificationSettings();
+
         ImGui.Separator();
         _uiShared.BigText("UI");
         var showCharacterNames = _configService.Current.ShowCharacterNames;
@@ -839,6 +845,12 @@ public class SettingsUi : WindowMediatorSubscriberBase
         if (ImGui.Checkbox("Enable Game Right Click Menu Entries", ref enableRightClickMenu))
         {
             _configService.Current.EnableRightClickMenus = enableRightClickMenu;
+            _configService.Save();
+        }
+        var disableServerNewsInChat = _configService.Current.DisableServerNewsInChat;
+        if (ImGui.Checkbox("Disable server news posts in chat", ref disableServerNewsInChat))
+        {
+            _configService.Current.DisableServerNewsInChat = disableServerNewsInChat;
             _configService.Save();
         }
         ElezenImgui.DrawHelpText("This will add Snowcloak related right click menu entries in the game UI on paired players.");
@@ -1105,6 +1117,93 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
     }
 
+    private void DrawModNullificationSettings()
+    {
+        _uiShared.BigText("Mod Nullification [EXPERIMENTAL]");
+        ElezenImgui.WrappedText("These options allow you to selectively nullify certain annoying aspects without outright pausing a user.");
+
+        var settingsChanged = false;
+        var config = _playerPerformanceConfigService.Current;
+
+        var nullifyVfx = config.NullifyVfx;
+        if (ImGui.Checkbox("Nullify custom VFX replacements", ref nullifyVfx))
+        {
+            config.NullifyVfx = nullifyVfx;
+            settingsChanged = true;
+        }
+
+        var nullifySfx = config.NullifySfx;
+        if (ImGui.Checkbox("Nullify custom SFX replacements", ref nullifySfx))
+        {
+            config.NullifySfx = nullifySfx;
+            settingsChanged = true;
+        }
+
+        var nullifyAllHeightMods = config.NullifyAllHeightMods;
+        if (ImGui.Checkbox("Nullify all height mods", ref nullifyAllHeightMods))
+        {
+            config.NullifyAllHeightMods = nullifyAllHeightMods;
+            settingsChanged = true;
+        }
+        ElezenImgui.DrawHelpText("Disables ALL height mods. Options below are disabled when this is enabled.");
+
+        using (ImRaii.Disabled(nullifyAllHeightMods))
+        {
+            var nullifyHeightAboveNormalMaxPercent = config.NullifyHeightAboveNormalMaxPercent;
+            if (ImGui.Checkbox("Nullify height above a percentage of the vanilla maximum", ref nullifyHeightAboveNormalMaxPercent))
+            {
+                config.NullifyHeightAboveNormalMaxPercent = nullifyHeightAboveNormalMaxPercent;
+                settingsChanged = true;
+            }
+            using (ImRaii.Disabled(!nullifyHeightAboveNormalMaxPercent))
+            {
+                using var indent = ImRaii.PushIndent();
+                var normalMaxPercent = config.HeightNormalMaxPercent;
+                ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("Vanilla maximum threshold", ref normalMaxPercent, 100f, 500f, "%.0f%%"))
+                {
+                    config.HeightNormalMaxPercent = normalMaxPercent;
+                    settingsChanged = true;
+                }
+            }
+
+            var nullifyHeightAboveEstimatedCentimeters = config.NullifyHeightAboveEstimatedCentimeters;
+            if (ImGui.Checkbox("Nullify height above an estimated physical height", ref nullifyHeightAboveEstimatedCentimeters))
+            {
+                config.NullifyHeightAboveEstimatedCentimeters = nullifyHeightAboveEstimatedCentimeters;
+                settingsChanged = true;
+            }
+            using (ImRaii.Disabled(!nullifyHeightAboveEstimatedCentimeters))
+            {
+                using var indent = ImRaii.PushIndent();
+                var estimatedCentimeters = config.HeightEstimatedCentimeters;
+                ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
+                if (ImGui.InputFloat("Estimated physical height threshold", ref estimatedCentimeters, 1f, 10f, "%.0f"))
+                {
+                    config.HeightEstimatedCentimeters = Math.Max(0f, estimatedCentimeters);
+                    settingsChanged = true;
+                }
+                ImGui.SameLine();
+                ImGui.Text("(cm)");
+                ElezenImgui.DrawHelpText("Estimated from standard racial proportions."
+                    + Environment.NewLine + "This does not measure Customize+ scaling, heels, or replacement model dimensions.");
+            }
+        }
+
+        var showModNullificationMoodles = config.ShowModNullificationMoodles;
+        if (ImGui.Checkbox("Show local Moodle markers for applied nullifications", ref showModNullificationMoodles))
+        {
+            config.ShowModNullificationMoodles = showModNullificationMoodles;
+            settingsChanged = true;
+        }
+
+        if (settingsChanged)
+        {
+            _playerPerformanceConfigService.Save();
+            Mediator.Publish(new RecalculatePerformanceMessage(null));
+        }
+    }
+
     private bool _perfUnapplied = false;
 
     private void DrawPerformance()
@@ -1332,7 +1431,7 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
         ElezenImgui.DrawHelpText("Individual pairs will never be affected by auto blocks.");
         ImGui.Dummy(new Vector2(5));
-        ElezenImgui.WrappedText("The entries in the list below will be not have auto block thresholds enforced.");
+        ElezenImgui.WrappedText("The entries in the list below will not have auto block thresholds or mod nullification enforced.");
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
         var whitelistPos = ImGui.GetCursorPos();
         ImGui.SetCursorPosX(240 * ImGuiHelpers.GlobalScale);
@@ -1682,8 +1781,8 @@ public class SettingsUi : WindowMediatorSubscriberBase
                     var xivAuthPrompt = selectedServer.AccountLinked
                         ? "Your current character is not linked to a working account key. Create and assign a new account UID to receive a server-generated key."
                         : invalidSecretKey
-                            ? "Your current character's secret key appears to be invalid. Log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
-                            : "Your current character is not linked to a secret key. Log in with XIVAuth to add and assign one automatically, or create a standalone key.";
+                            ? "Your current character's secret key appears to be invalid. Sign in with a Snowcloak account below to restore account keys, log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
+                            : "Your current character is not linked to a secret key. Sign in with a Snowcloak account below to restore account keys, log in with XIVAuth to add and assign one automatically, or create a standalone key.";
                     ElezenImgui.ColouredWrappedText(
                         xivAuthPrompt,
                         ImGuiColors.DalamudYellow);
@@ -1746,12 +1845,13 @@ public class SettingsUi : WindowMediatorSubscriberBase
 
                     ImGui.Separator();
                 }
-                else if (selectedServer == _serverConfigurationManager.CurrentServer)
+                if (selectedServer == _serverConfigurationManager.CurrentServer)
                 {
-                    if (selectedServer.AccountLinked)
+                    if (selectedServer.AccountLinked && hasSecretKey && !invalidSecretKey)
                         DrawAccountManagementSection();
-                    else
-                        DrawAccountMigrationSection();
+                    DrawAccountMigrationSection(
+                        canCreateAccount: !selectedServer.AccountLinked && hasSecretKey && !invalidSecretKey,
+                        accountLinked: selectedServer.AccountLinked);
                     ImGui.Separator();
                 }
 
@@ -2083,40 +2183,80 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }, CancellationToken.None);
     }
 
-    private void DrawAccountMigrationSection()
+    private void DrawAccountMigrationSection(bool canCreateAccount, bool accountLinked)
     {
-        ImGui.TextUnformatted("Snowcloak account");
-        ElezenImgui.DrawHelpText("Add username/password sign-in to this character while keeping the existing secret-key login active. Local secret keys on this service will be linked to the account so they can be restored after a password login.");
-
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountMigrationUsername", "Username", ref _accountMigrationUsername, 64);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountMigrationPassword", "Password", ref _accountMigrationPassword, 128, ImGuiInputTextFlags.Password);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountMigrationPasswordConfirm", "Confirm password", ref _accountMigrationPasswordConfirm, 128, ImGuiInputTextFlags.Password);
-
-        var canMigrate = IsAccountMigrationInputValid();
-        using (ImRaii.Disabled(_accountMigrationInProgress || !canMigrate))
+        if ((accountLinked || !canCreateAccount) && _accountMigrationMode == AccountAuthMode.CreateAccount)
         {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Add password account"))
+            _accountMigrationMode = AccountAuthMode.SignIn;
+            _accountMigrationPasswordConfirm = string.Empty;
+        }
+
+        AccountCredentialUi.DrawHeader(
+            accountLinked ? "Sync Snowcloak account keys" : "Snowcloak account sign-in",
+            accountLinked
+                ? "Sign in again to upload local keys and restore the account keys held by this service."
+                : "Sign in to upload local keys and restore the account keys held by this service. You can also create an account from an existing working character key.");
+
+        if (!accountLinked)
+        {
+            var modeButtonWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2;
+            if (AccountCredentialUi.DrawModeButton("Sign in", _accountMigrationMode == AccountAuthMode.SignIn, modeButtonWidth))
+                SetAccountMigrationMode(AccountAuthMode.SignIn);
+            ImGui.SameLine();
+            using (ImRaii.Disabled(!canCreateAccount))
             {
-                BeginAccountMigration();
+                if (AccountCredentialUi.DrawModeButton("Create account", _accountMigrationMode == AccountAuthMode.CreateAccount, modeButtonWidth))
+                    SetAccountMigrationMode(AccountAuthMode.CreateAccount);
+            }
+
+            if (!canCreateAccount)
+                ElezenImgui.DrawHelpText("Creating an account here requires a working secret key for the current character. Existing accounts can still sign in and restore keys.");
+        }
+
+        AccountCredentialUi.DrawTextInput("accountMigrationUsername", "Username", "Enter your username",
+            ref _accountMigrationUsername, 64);
+        AccountCredentialUi.DrawPasswordInput("accountMigrationPassword", "Password", "Enter your password",
+            ref _accountMigrationPassword, 128, _showAccountMigrationPassword);
+        if (_accountMigrationMode == AccountAuthMode.CreateAccount)
+        {
+            AccountCredentialUi.DrawPasswordInput("accountMigrationPasswordConfirm", "Confirm password", "Re-enter your password",
+                ref _accountMigrationPasswordConfirm, 128, _showAccountMigrationPassword);
+        }
+        AccountCredentialUi.DrawPasswordVisibilityToggle("accountMigrationPasswordVisibility", ref _showAccountMigrationPassword);
+        AccountCredentialUi.DrawRequirements(includePassword: _accountMigrationMode == AccountAuthMode.CreateAccount);
+
+        var validationMessage = GetAccountMigrationValidationMessage(requireConfirmation: _accountMigrationMode == AccountAuthMode.CreateAccount);
+        using (ImRaii.Disabled(_accountMigrationInProgress))
+        {
+            var buttonLabel = _accountMigrationInProgress
+                ? _accountMigrationMode == AccountAuthMode.CreateAccount
+                    ? "Creating account..."
+                    : "Signing in..."
+                : _accountMigrationMode == AccountAuthMode.CreateAccount
+                    ? "Create account"
+                    : "Sign in";
+            if (AccountCredentialUi.DrawPrimaryButton("accountMigrationSubmit", buttonLabel))
+            {
+                if (validationMessage != null)
+                    SetAccountMigrationResult(validationMessage, success: false);
+                else if (_accountMigrationMode == AccountAuthMode.CreateAccount)
+                    BeginAccountMigration();
+                else
+                    BeginAccountLogin();
             }
         }
 
-        if (_accountMigrationPassword.Length is > 0 and < 12)
-        {
-            ElezenImgui.ColouredWrappedText("Password must be at least 12 characters long.", ImGuiColors.DalamudYellow);
-        }
-        else if (!_accountMigrationPasswordConfirm.IsNullOrEmpty()
-                 && !string.Equals(_accountMigrationPassword, _accountMigrationPasswordConfirm, StringComparison.Ordinal))
-        {
-            ElezenImgui.ColouredWrappedText("The password confirmation does not match.", ImGuiColors.DalamudYellow);
-        }
+        if (validationMessage != null)
+            ElezenImgui.ColouredWrappedText(validationMessage, ImGuiColors.DalamudYellow);
 
+        DrawAccountMigrationStatus();
+    }
+
+    private void DrawAccountMigrationStatus()
+    {
         if (_accountMigrationInProgress)
         {
-            ImGui.TextUnformatted("Updating account...");
+            ImGui.TextUnformatted(_accountMigrationMessage);
         }
         else if (!_accountMigrationMessage.IsNullOrEmpty())
         {
@@ -2127,26 +2267,53 @@ public class SettingsUi : WindowMediatorSubscriberBase
         }
     }
 
-    private bool IsAccountMigrationInputValid()
+    private void SetAccountMigrationMode(AccountAuthMode mode)
     {
+        if (_accountMigrationMode == mode) return;
+        _accountMigrationMode = mode;
+        _accountMigrationMessage = null;
+        _accountMigrationPasswordConfirm = string.Empty;
+    }
+
+    private string? GetAccountMigrationValidationMessage(bool requireConfirmation)
+    {
+        if (_accountMigrationUsername.Trim().Length == 0)
+            return "Enter a username.";
+
         if (_accountMigrationUsername.Trim().Length is < 3 or > 64)
-        {
-            return false;
-        }
+            return "Username must contain between 3 and 64 characters.";
 
-        if (_accountMigrationUsername.Any(char.IsWhiteSpace) || _accountMigrationPassword.Length < 12)
-        {
-            return false;
-        }
+        if (_accountMigrationUsername.Any(char.IsWhiteSpace))
+            return "Username cannot contain spaces.";
 
-        return string.Equals(_accountMigrationPassword, _accountMigrationPasswordConfirm, StringComparison.Ordinal);
+        if (string.IsNullOrEmpty(_accountMigrationPassword))
+            return "Enter a password.";
+
+        if (!requireConfirmation)
+            return null;
+
+        if (_accountMigrationPassword.Length < 12)
+            return "New account passwords must be at least 12 characters long.";
+
+        if (string.IsNullOrEmpty(_accountMigrationPasswordConfirm))
+            return "Re-enter your password to confirm it.";
+
+        return string.Equals(_accountMigrationPassword, _accountMigrationPasswordConfirm, StringComparison.Ordinal)
+            ? null
+            : "The password confirmation does not match.";
+    }
+
+    private void SetAccountMigrationResult(string message, bool success)
+    {
+        _accountMigrationSuccess = success;
+        _accountMigrationMessage = message;
     }
 
     private void BeginAccountMigration()
     {
         _accountMigrationInProgress = true;
         _accountMigrationSuccess = false;
-        _accountMigrationMessage = null;
+        _accountMigrationMessage = "Creating a password account and uploading local keys...";
 
         var username = _accountMigrationUsername;
         var password = _accountMigrationPassword;
@@ -2157,26 +2324,66 @@ public class SettingsUi : WindowMediatorSubscriberBase
                 var result = await _registerService.AttachPasswordToCurrentAccount(username, password, CancellationToken.None).ConfigureAwait(false);
                 if (!result.Success)
                 {
-                    _accountMigrationMessage = result.ErrorMessage.IsNullOrEmpty()
+                    SetAccountMigrationResult(result.ErrorMessage.IsNullOrEmpty()
                         ? "Password account setup failed. Please try again later."
-                        : result.ErrorMessage;
+                        : result.ErrorMessage, success: false);
                     return;
                 }
 
                 _accountMigrationPassword = string.Empty;
                 _accountMigrationPasswordConfirm = string.Empty;
-                _accountMigrationSuccess = true;
-                _accountMigrationMessage = string.Format(CultureInfo.InvariantCulture,
+                SetAccountMigrationResult(string.Format(CultureInfo.InvariantCulture,
                     "Password account ready. Linked {0} local key(s) and stored {1} account key(s), including {2} new key(s).",
                     result.LinkedLocalSecretKeyCount,
                     result.SecretKeyCount,
-                    result.NewSecretKeyCount);
+                    result.NewSecretKeyCount), success: true);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Password account setup failed");
-                _accountMigrationSuccess = false;
-                _accountMigrationMessage = "Password account setup failed. Please try again later.";
+                SetAccountMigrationResult("Password account setup failed. Please try again later.", success: false);
+            }
+            finally
+            {
+                _accountMigrationInProgress = false;
+            }
+        }, CancellationToken.None);
+    }
+
+    private void BeginAccountLogin()
+    {
+        _accountMigrationInProgress = true;
+        _accountMigrationSuccess = false;
+        _accountMigrationMessage = "Signing in, uploading local keys, and restoring account keys...";
+
+        var username = _accountMigrationUsername;
+        var password = _accountMigrationPassword;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _registerService.LoginWithPassword(username, password, CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    SetAccountMigrationResult(result.ErrorMessage.IsNullOrEmpty()
+                        ? "Account sign-in failed. Please try again later."
+                        : result.ErrorMessage, success: false);
+                    return;
+                }
+
+                _accountMigrationPassword = string.Empty;
+                _accountMigrationPasswordConfirm = string.Empty;
+                SetAccountMigrationResult(string.Format(CultureInfo.InvariantCulture,
+                    "Account sign-in succeeded. Linked {0} local key(s) and stored {1} account key(s), including {2} new key(s). Attempting to connect.",
+                    result.LinkedLocalSecretKeyCount,
+                    result.SecretKeyCount,
+                    result.NewSecretKeyCount), success: true);
+                _ = _uiShared.ApiController.CreateConnections();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Account sign-in failed");
+                SetAccountMigrationResult("Account sign-in failed. Please try again later.", success: false);
             }
             finally
             {

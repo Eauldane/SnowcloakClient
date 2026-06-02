@@ -249,10 +249,10 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     {
         try
         {
-            var profile = await _snowProfileManager.GetSnowProfileAsync(userData: null, ident: ident, visibilityOverride: ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
+            var profile = await _snowProfileManager.GetSnowProfileAsync(ident, ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
             var userData = profile.User ?? new UserData(ident);
             var pair = _pairManager.GetOrCreateTransientPair(userData);
-            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility));
+            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility, ident));
         }
         catch (Exception ex)
         {
@@ -315,7 +315,9 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public void UpdateAvailability(IEnumerable<PairingAvailabilityDto> available,
         IReadOnlyCollection<string>? authoritativeScope = null, bool publishImmediately = true)
     {
-        var incoming = available?.Select(dto => dto.Ident)
+        var entries = available?.ToList() ?? [];
+        _snowProfileManager.UpdateSummaries(entries);
+        var incoming = entries.Select(dto => dto.Ident)
             .Where(ident => !string.IsNullOrWhiteSpace(ident))
             .ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
         
@@ -377,6 +379,16 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             Mediator.Publish(new PairingAvailabilityChangedMessage());
     }
 
+    public void ApplyAvailabilityDelta(IEnumerable<PairingAvailabilityDto> availableProfiles,
+        IReadOnlyCollection<string>? unavailableIdents = null, bool publishImmediately = true)
+    {
+        var profiles = availableProfiles?.ToList() ?? [];
+        _snowProfileManager.UpdateSummaries(profiles);
+        ApplyAvailabilityDelta(profiles.Select(profile => profile.Ident), unavailableIdents, publishImmediately);
+        if (publishImmediately && profiles.Count > 0)
+            Mediator.Publish(new PairingAvailabilityChangedMessage());
+    }
+
     private bool AddAvailable(HashSet<string> additions)
     {
         var changed = false;
@@ -396,6 +408,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         {
             if (_availableIdents.Remove(ident))
                 changed = true;
+            _snowProfileManager.ClearSummary(ident);
         }
         
         return changed;

@@ -4,7 +4,7 @@ namespace Snowcloak.Configuration.Configurations;
 
 public class PlayerPerformanceConfig : ISnowcloakConfiguration
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 7;
     public bool AutoPausePlayersExceedingThresholds { get; set; } = true;
     public bool NotifyAutoPauseDirectPairs { get; set; } = true;
     public bool NotifyAutoPauseGroupPairs { get; set; } = true;
@@ -17,4 +17,12 @@ public class PlayerPerformanceConfig : ISnowcloakConfiguration
     public int CrowdPriorityTrianglesThresholdThousands { get; set; } = 20000;
     public TextureShrinkMode TextureShrinkMode { get; set; } = TextureShrinkMode.Default;
     public bool TextureShrinkDeleteOriginal { get; set; } = false;
+    public bool NullifyVfx { get; set; } = false;
+    public bool NullifySfx { get; set; } = false;
+    public bool NullifyAllHeightMods { get; set; } = false;
+    public bool NullifyHeightAboveNormalMaxPercent { get; set; } = false;
+    public float HeightNormalMaxPercent { get; set; } = 150f;
+    public bool NullifyHeightAboveEstimatedCentimeters { get; set; } = false;
+    public float HeightEstimatedCentimeters { get; set; } = 300f;
+    public bool ShowModNullificationMoodles { get; set; } = true;
 }

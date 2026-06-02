@@ -30,6 +30,7 @@ using Snowcloak.WebAPI.SignalR;
 using IntroUi = Snowcloak.UI.IntroUi;
 using UiSharedService = Snowcloak.UI.UiSharedService;
 using Snowcloak.UI.Components.BbCode;
+using Snowcloak.Services.ModNullification;
 
 namespace Snowcloak;
 
@@ -107,6 +108,7 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<FileTransferOrchestrator>();
             collection.AddSingleton<SnowPlugin>();
             collection.AddSingleton<SnowProfileManager>();
+            collection.AddSingleton<CharacterProfileBackupService>();
             collection.AddSingleton<GameObjectHandlerFactory>();
             collection.AddSingleton<FileDownloadManagerFactory>();
             collection.AddSingleton<PairHandlerFactory>();
@@ -122,6 +124,8 @@ public sealed class Plugin : IDalamudPlugin
             collection.AddSingleton<UidDisplayHandler>();
             collection.AddSingleton<PluginWatcherService>();
             collection.AddSingleton<PlayerPerformanceService>();
+            collection.AddSingleton<HumanCmpDefaultsProvider>();
+            collection.AddSingleton<ModNullificationService>();
             collection.AddSingleton<SyncTroubleshootingService>();
             collection.AddSingleton<GpuMemoryBudgetService>();
             collection.AddSingleton<SyncshellBudgetService>();

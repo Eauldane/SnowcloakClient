@@ -18,7 +18,7 @@ namespace Snowcloak.Services;
 
 public class PlayerPerformanceService : DisposableMediatorSubscriberBase
 {
-    public const int CurrentPerformanceConfigVersion = 5;
+    public const int CurrentPerformanceConfigVersion = 7;
     public const int RecommendedVisibleMembersThreshold = 100;
     public const int RecommendedTrianglesThresholdThousands = 20000;
     public const int FallbackRecommendedVramThresholdMiB = 8192;

@@ -19,7 +19,6 @@ public class UiFactory
     private readonly SnowcloakConfigService _configService;
     private readonly UiSharedService _uiSharedService;
     private readonly PairManager _pairManager;
-    private readonly ServerConfigurationManager _serverConfigManager;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly SyncTroubleshootingService _syncTroubleshootingService;
@@ -37,7 +36,6 @@ public class UiFactory
         _configService = configService;
         _uiSharedService = uiSharedService;
         _pairManager = pairManager;
-        _serverConfigManager = serverConfigManager;
         _snowProfileManager = snowProfileManager;
         _performanceCollectorService = performanceCollectorService;
         _syncTroubleshootingService = syncTroubleshootingService;
@@ -50,11 +48,12 @@ public class UiFactory
             _apiController, _configService, _uiSharedService, _pairManager, dto, _performanceCollectorService, _syncshellBudgetService);
     }
 
-    public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null)
+    public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null,
+        string? ident = null)
     {
         pair ??= _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _serverConfigManager, _snowProfileManager, _pairManager, pair, userData, requestedVisibility, _apiController, _performanceCollectorService);
+            _uiSharedService, _snowProfileManager, pair, userData, requestedVisibility, ident, _apiController, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

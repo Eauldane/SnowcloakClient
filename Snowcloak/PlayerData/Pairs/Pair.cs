@@ -14,6 +14,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.Utils;
+using Snowcloak.Services.ModNullification;
 using System.Collections.Concurrent;
 using System.Numerics;
 using System.Collections.Generic;
@@ -34,6 +35,7 @@ public class Pair : DisposableMediatorSubscriberBase
     private readonly ILogger<Pair> _logger;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ModNullificationService _modNullificationService;
     private const string AutoPauseVramReason = "AutoPause-VRAM";
     private const string AutoPauseTriangleReason = "AutoPause-Triangles";
     private const string AutoPauseCrowdPriorityReason = "AutoPause-CrowdPriority";
@@ -44,13 +46,15 @@ public class Pair : DisposableMediatorSubscriberBase
     public Vector4 PairColour;
 
     public Pair(ILogger<Pair> logger, UserData userData, PairHandlerFactory cachedPlayerFactory,
-        SnowMediator mediator, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager)
+        SnowMediator mediator, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager,
+        ModNullificationService modNullificationService)
         : base(logger, mediator)
     {
         _logger = logger;
         _cachedPlayerFactory = cachedPlayerFactory;
         _snowcloakConfig = snowcloakConfig;
         _serverConfigurationManager = serverConfigurationManager;
+        _modNullificationService = modNullificationService;
 
         UserData = userData;
         PairColour = ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour);
@@ -95,6 +99,7 @@ public class Pair : DisposableMediatorSubscriberBase
     public string? AutoPauseTooltip => _autoPauseReasons.Count == 0 ? null : string.Join(Environment.NewLine, _autoPauseReasons.Values);
     public string Ident => _onlineUserIdentDto?.Ident ?? string.Empty;
     public PairAnalyzer? PairAnalyzer => CachedPlayer?.PairAnalyzer;
+    public ModNullificationKind LastAppliedModNullifications { get; private set; }
 
     public UserData UserData { get; private set; }
 
@@ -490,6 +495,9 @@ public class Pair : DisposableMediatorSubscriberBase
                         .ToList();
             }
         }
+
+        LastAppliedModNullifications = _modNullificationService.Apply(data,
+            _serverConfigurationManager.IsUserWhitelisted(UserData));
 
         return data;
     }

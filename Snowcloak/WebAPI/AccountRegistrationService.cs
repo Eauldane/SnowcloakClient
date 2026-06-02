@@ -173,10 +173,17 @@ public sealed class AccountRegistrationService : IDisposable
             .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
             .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase)));
 
-        var result = await _httpClient.PostAsync(postUri, new FormUrlEncodedContent([
+        using var result = await _httpClient.PostAsync(postUri, new FormUrlEncodedContent([
             new("hashedSecretKey", hashedSecretKey)
         ]), token).ConfigureAwait(false);
-        result.EnsureSuccessStatusCode();
+        if (!result.IsSuccessStatusCode)
+        {
+            return new RegisterReplyDto
+            {
+                Success = false,
+                ErrorMessage = await ReadErrorAsync(result, token).ConfigureAwait(false)
+            };
+        }
 
         var response = await result.Content.ReadFromJsonAsync<RegisterReplyV2Dto>(token).ConfigureAwait(false) ?? new();
 
@@ -189,31 +196,34 @@ public sealed class AccountRegistrationService : IDisposable
         };
     }
 
-    public async Task<AccountOperationResult> CreateAccountWithXivAuth(string username, string password, CancellationToken token)
+    public async Task<AccountOperationResult> CreateAccountWithPassword(string username, string password, CancellationToken token,
+        Action<string>? reportProgress = null)
     {
-        var register = await XIVAuth(token).ConfigureAwait(false);
+        reportProgress?.Invoke("Registering a character key with the selected service...");
+        var register = await RegisterAccount(token).ConfigureAwait(false);
         if (!register.Success)
         {
             return new AccountOperationResult
             {
                 Success = false,
                 ErrorMessage = string.IsNullOrWhiteSpace(register.ErrorMessage)
-                    ? "XIVAuth registration failed."
+                    ? "Secret-key registration failed."
                     : register.ErrorMessage
             };
         }
 
+        reportProgress?.Invoke("Character key registered. Creating the password account on the selected service...");
         await StoreRegisteredSecretKeyAsync(register, assignCurrentCharacter: true).ConfigureAwait(false);
         var result = await AttachPasswordToCurrentAccount(username, password, token).ConfigureAwait(false);
         if (!result.Success)
         {
-            result.ErrorMessage = "XIVAuth succeeded, but password account setup failed: " + result.ErrorMessage;
+            result.ErrorMessage = "Secret-key registration succeeded, but password account setup failed: " + result.ErrorMessage;
         }
 
         return result;
     }
 
-    public async Task<AccountOperationResult> LoginWithPassword(string username, string password, string? uid, CancellationToken token)
+    public async Task<AccountOperationResult> LoginWithPassword(string username, string password, CancellationToken token)
     {
         var localKeysToLink = GetLocalSecretKeys(_serverManager.CurrentServer);
         var charaIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
@@ -230,8 +240,7 @@ public sealed class AccountRegistrationService : IDisposable
         {
             Username = username.Trim(),
             Password = password,
-            CharaIdent = charaIdent,
-            Uid = string.IsNullOrWhiteSpace(uid) ? null : uid.Trim().ToUpperInvariant()
+            CharaIdent = charaIdent
         };
 
         using var response = await _httpClient.PostAsJsonAsync(new Uri(GetApiBaseUri(), PasswordLoginRoute), payload, token).ConfigureAwait(false);
@@ -907,7 +916,6 @@ public sealed class AccountRegistrationService : IDisposable
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
         public string CharaIdent { get; set; } = string.Empty;
-        public string? Uid { get; set; }
     }
 
     private sealed class AttachPasswordRequest

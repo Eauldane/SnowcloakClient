@@ -75,4 +75,19 @@ public static class MoodlesDataParser
             return false;
         }
     }
+
+    public static bool TrySerialize(IEnumerable<MoodlesStatusData> statuses, out string base64)
+    {
+        base64 = string.Empty;
+        try
+        {
+            var data = MemoryPackSerializer.Serialize(statuses.ToList(), SerializerOptions);
+            base64 = Convert.ToBase64String(data);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

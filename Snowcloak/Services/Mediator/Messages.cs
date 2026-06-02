@@ -78,15 +78,16 @@ public record DownloadFinishedMessage(GameObjectHandler DownloadId, string? UID 
 public record UiToggleMessage(Type UiType) : MessageBase;
 public record PlayerUploadingMessage(GameObjectHandler Handler, bool IsUploading) : MessageBase;
 public record ClearProfileDataMessage(UserData? UserData = null, ProfileVisibility? Visibility = null) : MessageBase;
+public record ClearCharacterProfileDataMessage(string? Ident = null, ProfileVisibility? Visibility = null) : MessageBase;
 public record CyclePauseMessage(UserData UserData) : MessageBase;
 public record PauseMessage(UserData UserData) : MessageBase;
 public record ProfilePopoutToggle(Pair? Pair) : MessageBase;
 public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
-public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null) : MessageBase;
+public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null, string? Ident = null) : MessageBase;
 public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
 public record PlayerVisibilityMessage(string Ident, bool IsVisible, bool Invalidate = false) : KeyedMessage(Ident, SameThread: true);
 public record PairHandlerVisibleMessage(PairHandler Player) : MessageBase;
-public record OpenReportPopupMessage(Pair PairToReport) : MessageBase;
+public record OpenReportPopupMessage(Pair PairToReport, string Ident, ProfileVisibility Visibility, long Revision) : MessageBase;
 public record OpenBanUserPopupMessage(Pair PairToBan, GroupFullInfoDto GroupFullInfoDto) : MessageBase;
 public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : MessageBase;
 public record OpenVenueSyncshellPopupMessage(VenueSyncshellPrompt Prompt) : MessageBase;

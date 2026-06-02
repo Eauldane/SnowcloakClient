@@ -278,12 +278,6 @@ public class DrawUserPair : DrawPairBase
             }
             ElezenImgui.AttachTooltip("Opens the profile for this user in a new window");
         }
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report User"))
-        {
-            _mediator.Publish(new OpenReportPopupMessage(entry));
-            ImGui.CloseCurrentPopup();
-        }
-        ElezenImgui.AttachTooltip("Report this user's profile.");
         if (_configService.Current.EnableDebugFeatures
             && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
         {

@@ -1,14 +1,12 @@
 using Dalamud.Bindings.ImGui;
-using Dalamud.Game.Player;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using ElezenTools.Data;
-using ElezenTools.Data.Classes;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Microsoft.Extensions.Logging;
+using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Events;
@@ -23,18 +21,20 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 {
     private readonly PairRequestService _pairRequestService;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly SnowProfileManager _profileManager;
     private bool _locked;
     private List<AvailabilityEntry> _lockedEntries = new();
     private readonly TitleBarButton _lockButton;
     private string _lockTooltip;
     
     public PairingAvailabilityWindow(ILogger<PairingAvailabilityWindow> logger, SnowMediator mediator,
-        PairRequestService pairRequestService, DalamudUtilService dalamudUtilService,
+        PairRequestService pairRequestService, DalamudUtilService dalamudUtilService, SnowProfileManager profileManager,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "SnowcloakPairingAvailability", performanceCollectorService)
     {
         _pairRequestService = pairRequestService;
         _dalamudUtilService = dalamudUtilService;
+        _profileManager = profileManager;
 
         _lockTooltip = "Lock list to pause updates";
         
@@ -60,7 +60,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
         };
 
         TitleBarButtons.Add(_lockButton);
-        WindowName = "Nearby players open to pairing";
+        WindowName = "Frostbrand: nearby players open to pairing";
     }
 
     protected override void DrawInternal()
@@ -73,7 +73,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
         if (available.Count == 0)
         {
-            ImGui.TextColored(ImGuiColors.DalamudGrey, "No nearby users are currently open to pairing.");
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "No nearby Frostbrand users are currently open to pairing.");
             if (filteredCount > 0)
                 ImGui.TextColored(ImGuiColors.DalamudGrey,
                     string.Format("({0} nearby players filtered by auto-reject settings)", filteredCount));
@@ -82,12 +82,12 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
 
         using var table = ImRaii.Table("pairing-availability-table", 6, ImGuiTableFlags.ScrollY | ImGuiTableFlags.Borders | ImGuiTableFlags.Hideable | ImGuiTableFlags.Reorderable | ImGuiTableFlags.Resizable);
         if (table) {
-            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0.28f);
-            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.18f);
-            ImGui.TableSetupColumn("Class", ImGuiTableColumnFlags.WidthStretch, 0.16f);
-            ImGui.TableSetupColumn("Level", ImGuiTableColumnFlags.WidthFixed, 60f);
-            ImGui.TableSetupColumn("Gender", ImGuiTableColumnFlags.WidthFixed, 70f);
-            ImGui.TableSetupColumn("Clan", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+            ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthStretch, 0.22f);
+            ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 0.14f);
+            ImGui.TableSetupColumn("Tagline", ImGuiTableColumnFlags.WidthStretch, 0.3f);
+            ImGui.TableSetupColumn("Pronouns", ImGuiTableColumnFlags.WidthStretch, 0.12f);
+            ImGui.TableSetupColumn("Approach", ImGuiTableColumnFlags.WidthStretch, 0.14f);
+            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.16f);
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableHeadersRow();
             ImGuiClip.ClippedDraw(available, this.DrawPlayer, ImGui.GetTextLineHeightWithSpacing());
@@ -98,39 +98,23 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
     {
                 ImGui.TableNextColumn();
                 
-                ImGui.TextUnformatted(entry.DisplayName);
+                ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.CharacterName) ? entry.DisplayName : entry.Profile.CharacterName);
                 this.DrawContextMenu(entry);
                 ImGui.TableNextColumn();
-                
+                var status = string.IsNullOrWhiteSpace(entry.Profile?.RpStatus) ? "Open to pairing" : entry.Profile.RpStatus;
+                ImGui.TextColored(ImGuiColors.HealerGreen, status);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Tagline) ? "-" : entry.Profile.Tagline);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Pronouns) ? "-" : entry.Profile.Pronouns);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Approachability) ? "-" : entry.Profile.Approachability);
+                ImGui.TableNextColumn();
                 var worldName = entry.HomeWorldId.HasValue
                                 && _dalamudUtilService.WorldData.Value.TryGetValue(entry.HomeWorldId.Value, out var world)
                     ? world
                     : string.Empty;
                 ImGui.TextUnformatted(worldName);
-                ImGui.TableNextColumn();
-                JobData? classJob = ElezenData.Jobs.GetById(entry.ClassJobId);
-                var className = classJob?.Abbreviation ?? "UNK";
-                var classColour = classJob?.ClassColour ?? ImGuiColors.DalamudGrey;
-                ImGui.TextColored(classColour, string.IsNullOrEmpty(className) ? "-" : className);
-
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(entry.Level > 0 ? entry.Level.ToString() : "-");
-                
-                ImGui.TableNextColumn();
-                var gender = entry.Sex switch
-                {
-                    Sex.Male => "Male",
-                    Sex.Female => "Female",
-                    _ => "-"
-                };
-                ImGui.TextUnformatted(gender);
-
-                ImGui.TableNextColumn();
-                var clan = entry.TribeId != 0
-                           && _dalamudUtilService.TribeNames.Value.TryGetValue((byte)entry.TribeId, out var tribe)
-                    ? tribe
-                    : string.Empty;
-                ImGui.TextUnformatted(string.IsNullOrEmpty(clan) ? "-" : clan);
     }
 
     private void DrawContextMenu(AvailabilityEntry entry)
@@ -212,10 +196,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 tuple.ident,
                 string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name,
                 tuple.pc.HomeWorldId != 0 ? (ushort?)tuple.pc.HomeWorldId : null,
-                tuple.pc.ClassJobId,
-                tuple.pc.Level,
-                tuple.pc.Sex,
-                tuple.pc.TribeId))
+                _profileManager.GetSummary(tuple.ident)))
             .OrderBy(entry => entry.DisplayName, StringComparer.Ordinal)
             .ToList();
     }
@@ -228,6 +209,6 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
             _lockedEntries = BuildAvailabilityEntries();
     }
 
-    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, uint ClassJobId, short Level, Sex Sex, uint TribeId);
+    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, CharacterProfileSummaryDto? Profile);
     
 }

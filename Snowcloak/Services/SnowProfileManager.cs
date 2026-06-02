@@ -1,143 +1,211 @@
-﻿using Snowcloak.API.Data;
-using Snowcloak.API.Data.Comparer;
+using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration;
+using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
-using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
-using System.Collections.Concurrent;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Snowcloak.Services;
 
-public class SnowProfileManager : MediatorSubscriberBase
+public sealed class SnowProfileManager : MediatorSubscriberBase
 {
-    private readonly string _noDescription;
-    private readonly string _nsfw;
     private readonly Lazy<ApiController> _apiController;
-    private readonly SnowcloakConfigService _snowcloakConfigService;
-    private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _snowProfiles = new(new ProfileRequestKeyComparer());
-    private readonly SnowProfileData _defaultProfileData;
-    private readonly SnowProfileData _loadingProfileData;
-    private readonly SnowProfileData _nsfwProfileData;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly SnowcloakConfigService _configService;
+    private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _profiles = new();
+    private readonly ConcurrentDictionary<string, CharacterProfileSummaryDto> _summaries = new(StringComparer.Ordinal);
+    private string _currentIdent = string.Empty;
 
-    public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService snowcloakConfigService,
-        SnowMediator mediator, IServiceProvider serviceProvider, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
+    public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService configService,
+        DalamudUtilService dalamudUtilService, SnowMediator mediator, IServiceProvider serviceProvider)
+        : base(logger, mediator)
     {
-        _snowcloakConfigService = snowcloakConfigService;
-        _noDescription = "-- User has no description set --";
-        _nsfw = "Profile not displayed - The profile is NSFW, but you have this disabled in settings.";
-        _defaultProfileData = new(null, false, false, string.Empty, _noDescription, ProfileVisibility.Private, []);
-        _loadingProfileData = new(null, false, false, string.Empty, "Loading Data from server...", ProfileVisibility.Private, []);
-        _nsfwProfileData = new(null, false, false, string.Empty, _nsfw, ProfileVisibility.Private, []);
-
+        _configService = configService;
+        _dalamudUtilService = dalamudUtilService;
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
-        _ = serverConfigurationManager;
-        
-        Mediator.Subscribe<ClearProfileDataMessage>(this, (msg) =>
+
+        Mediator.Subscribe<ClearCharacterProfileDataMessage>(this, message =>
         {
-            if (msg.UserData == null)
+            if (string.IsNullOrEmpty(message.Ident))
             {
-                _snowProfiles.Clear();
+                _profiles.Clear();
                 return;
             }
 
-            foreach (var key in _snowProfiles.Keys.Where(k => k.User != null && UserDataComparer.Instance.Equals(k.User, msg.UserData)
-                                                                             && (msg.Visibility == null || msg.Visibility == k.RequestedVisibility)).ToList())
+            foreach (var key in _profiles.Keys
+                         .Where(k => string.Equals(k.Ident, message.Ident, StringComparison.Ordinal)
+                                     && (message.Visibility == null || message.Visibility == k.Visibility))
+                         .ToList())
             {
-                _snowProfiles.TryRemove(key, out _);
+                _profiles.TryRemove(key, out _);
             }
+
+            if (message.Visibility == null || message.Visibility == ProfileVisibility.Public)
+                _summaries.TryRemove(message.Ident, out _);
         });
-        Mediator.Subscribe<DisconnectedMessage>(this, (_) => _snowProfiles.Clear());
-    }
-    
-    public SnowProfileData GetSnowProfile(UserData data, ProfileVisibility? visibilityOverride = null)
-    {
-        return GetSnowProfileInternal(new ProfileRequestKey(data, null, visibilityOverride));
-    }
-
-    public SnowProfileData GetSnowProfile(string ident, ProfileVisibility? visibilityOverride = null)
-    {
-        return GetSnowProfileInternal(new ProfileRequestKey(null, ident, visibilityOverride));
-    }
-
-    public Task<SnowProfileData> GetSnowProfileAsync(UserData? userData = null, string? ident = null, ProfileVisibility? visibilityOverride = null, bool forceRefresh = false)
-    {
-        var key = new ProfileRequestKey(userData, ident, visibilityOverride);
-        if (!forceRefresh && _snowProfiles.TryGetValue(key, out var cached) && !ReferenceEquals(cached, _loadingProfileData))
-            return Task.FromResult(cached);
-
-        return GetSnowProfileFromService(key);
-    }
-
-    private SnowProfileData GetSnowProfileInternal(ProfileRequestKey key)
-    {
-        if (!_snowProfiles.TryGetValue(key, out var profile))
+        Mediator.Subscribe<DisconnectedMessage>(this, _ =>
         {
-            var placeholder = _loadingProfileData with { Visibility = key.RequestedVisibility ?? ProfileVisibility.Private, User = key.User ?? new UserData(key.Ident ?? string.Empty) };
-            _snowProfiles[key] = placeholder;
-            _ = Task.Run(() => GetSnowProfileFromService(key));
-            return placeholder;
-        }
+            _profiles.Clear();
+            _summaries.Clear();
+            _currentIdent = string.Empty;
+        });
+    }
 
+    public SnowProfileData GetSnowProfile(Pair pair, ProfileVisibility? visibility = null)
+        => GetSnowProfile(pair.Ident, visibility);
+
+    public SnowProfileData GetSnowProfile(string ident, ProfileVisibility? visibility = null)
+    {
+        if (string.IsNullOrWhiteSpace(ident))
+            return Placeholder(string.Empty, visibility ?? ProfileVisibility.Public, "No active character profile is available.");
+
+        var key = new ProfileRequestKey(ident, visibility);
+        if (_profiles.TryGetValue(key, out var profile)) return profile;
+
+        profile = Placeholder(ident, visibility ?? ProfileVisibility.Public, "Loading RP profile...");
+        _profiles[key] = profile;
+        _ = Task.Run(() => RefreshAsync(key));
         return profile;
     }
 
-    private async Task<SnowProfileData> GetSnowProfileFromService(ProfileRequestKey requestKey)
+    public async Task<SnowProfileData> GetSnowProfileAsync(string ident, ProfileVisibility? visibility = null, bool forceRefresh = false)
+    {
+        var key = new ProfileRequestKey(ident, visibility);
+        if (!forceRefresh && _profiles.TryGetValue(key, out var cached)) return cached;
+        return await RefreshAsync(key).ConfigureAwait(false);
+    }
+
+    public SnowProfileData GetOwnProfile(ProfileVisibility visibility)
+    {
+        if (!string.IsNullOrEmpty(_currentIdent))
+            return GetSnowProfile(_currentIdent, visibility);
+
+        _ = Task.Run(async () =>
+        {
+            _currentIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+            await RefreshOwnAsync(visibility).ConfigureAwait(false);
+        });
+        return Placeholder(string.Empty, visibility, "Loading your current character...");
+    }
+
+    public async Task<SnowProfileData> GetOwnProfileAsync(ProfileVisibility visibility, bool forceRefresh = false)
+    {
+        _currentIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+        var key = new ProfileRequestKey(_currentIdent, visibility);
+        if (!forceRefresh && _profiles.TryGetValue(key, out var cached)) return cached;
+        return await RefreshOwnAsync(visibility).ConfigureAwait(false);
+    }
+
+    public CharacterProfileSummaryDto? GetSummary(string ident)
+        => _summaries.TryGetValue(ident, out var summary) ? summary : null;
+
+    public void UpdateSummaries(IEnumerable<PairingAvailabilityDto> availability)
+    {
+        foreach (var entry in availability)
+        {
+            if (entry.Profile != null)
+                UpdateSummary(entry.Profile);
+            else
+                ClearSummary(entry.Ident);
+        }
+    }
+
+    public void UpdateSummary(CharacterProfileSummaryDto summary)
+    {
+        if (!string.IsNullOrWhiteSpace(summary.Ident))
+            _summaries[summary.Ident] = MaskAdultSummary(summary);
+    }
+
+    public void ClearSummary(string ident) => _summaries.TryRemove(ident, out _);
+
+    private async Task<SnowProfileData> RefreshOwnAsync(ProfileVisibility visibility)
     {
         try
         {
-            _snowProfiles[requestKey] = _loadingProfileData;
-            var profile = await _apiController.Value.UserGetProfile(new UserProfileRequestDto(requestKey.User, requestKey.Ident, requestKey.RequestedVisibility)).ConfigureAwait(false);
-            
-            var profileUser = profile.User ?? requestKey.User ?? new UserData(requestKey.Ident ?? string.Empty);
-            var visibility = profile.Visibility ?? requestKey.RequestedVisibility ?? ProfileVisibility.Private;
-            var normalizedTags = ProfileTagUtilities.NormalizeForStorage(profile.Tags);
-            var profileData = new SnowProfileData(profileUser, profile.Disabled, profile.IsNSFW ?? false,
-                string.IsNullOrEmpty(profile.ProfilePictureBase64) ? string.Empty : profile.ProfilePictureBase64,
-                string.IsNullOrEmpty(profile.Description) ? _noDescription : profile.Description, visibility, normalizedTags);
-
-            if (profileData.IsNSFW && !_snowcloakConfigService.Current.ProfilesAllowNsfw && !string.Equals(_apiController.Value.UID, profileUser?.UID, StringComparison.Ordinal))
-            {
-                var nsfwData = _nsfwProfileData with { User = profileUser, Visibility = visibility, Tags = profileData.Tags };
-                _snowProfiles[requestKey] = nsfwData;
-                return nsfwData;
-            }
-            _snowProfiles[requestKey] = profileData;
-            return profileData;
+            var dto = await _apiController.Value.CharacterProfileGetOwn(visibility).ConfigureAwait(false);
+            return Store(new ProfileRequestKey(dto.Ident, visibility), dto);
         }
         catch (Exception ex)
         {
-            // if fails save DefaultProfileData to dict
-            var fallbackUser = requestKey.User ?? new UserData(requestKey.Ident ?? string.Empty);
-            Logger.LogWarning(ex, "Failed to get Profile from service for user {user}", fallbackUser);
-            var fallbackData = _defaultProfileData with { User = fallbackUser, Visibility = requestKey.RequestedVisibility ?? ProfileVisibility.Private };
-            _snowProfiles[requestKey] = fallbackData;
-            return fallbackData;
+            Logger.LogWarning(ex, "Failed to get own RP profile for {ident}", _currentIdent);
+            return Store(new ProfileRequestKey(_currentIdent, visibility),
+                Placeholder(_currentIdent, visibility, "Could not load your RP profile."));
         }
     }
 
-    private readonly record struct ProfileRequestKey(UserData? User, string? Ident, ProfileVisibility? RequestedVisibility);
-
-    private sealed class ProfileRequestKeyComparer : IEqualityComparer<ProfileRequestKey>
+    private async Task<SnowProfileData> RefreshAsync(ProfileRequestKey key)
     {
-        public bool Equals(ProfileRequestKey x, ProfileRequestKey y)
+        try
         {
-            var usersEqual = x.User != null && y.User != null && UserDataComparer.Instance.Equals(x.User, y.User) || x.User == null && y.User == null;
-            return usersEqual
-                   && string.Equals(x.Ident, y.Ident, StringComparison.Ordinal)
-                   && x.RequestedVisibility == y.RequestedVisibility;
+            var dto = await _apiController.Value.CharacterProfileGet(new CharacterProfileRequestDto(key.Ident, key.Visibility)).ConfigureAwait(false);
+            return Store(key, dto);
         }
-
-        public int GetHashCode(ProfileRequestKey obj)
+        catch (Exception ex)
         {
-            var hash = new HashCode();
-            if (obj.User != null) hash.Add(obj.User, UserDataComparer.Instance);
-            if (obj.Ident != null) hash.Add(obj.Ident, StringComparer.Ordinal);
-            hash.Add(obj.RequestedVisibility);
-            return hash.ToHashCode();
+            Logger.LogWarning(ex, "Failed to get RP profile for {ident}", key.Ident);
+            return Store(key, Placeholder(key.Ident, key.Visibility ?? ProfileVisibility.Public, "Could not load this RP profile."));
         }
     }
+
+    private SnowProfileData Store(ProfileRequestKey key, CharacterProfileDto dto)
+    {
+        var document = dto.Document ?? new();
+        if (document.ContentRating == ProfileContentRating.Adult
+            && !_configService.Current.ProfilesAllowNsfw
+            && !dto.IsOwnProfile)
+        {
+            document = new CharacterProfileDocumentDto
+            {
+                CharacterName = "Adult RP profile",
+                Tagline = "Adult RP profile hidden by your profile-content settings.",
+                ContentRating = document.ContentRating,
+            };
+        }
+
+        var profile = new SnowProfileData(
+            dto.Ident,
+            dto.User,
+            dto.Visibility,
+            dto.Revision,
+            dto.Disabled,
+            dto.DisabledReason,
+            dto.IsOwnProfile,
+            document);
+        _profiles[key] = profile;
+        return profile;
+    }
+
+    private SnowProfileData Store(ProfileRequestKey key, SnowProfileData profile)
+    {
+        _profiles[key] = profile;
+        return profile;
+    }
+
+    private CharacterProfileSummaryDto MaskAdultSummary(CharacterProfileSummaryDto summary)
+    {
+        if (summary.ContentRating != ProfileContentRating.Adult || _configService.Current.ProfilesAllowNsfw)
+            return summary;
+
+        return summary with
+        {
+            CharacterName = "Adult RP profile",
+            Title = string.Empty,
+            Pronouns = string.Empty,
+            Tagline = "Adult RP profile hidden by your profile-content settings.",
+            RpStatus = string.Empty,
+            Approachability = string.Empty,
+            Tags = [],
+        };
+    }
+
+    private static SnowProfileData Placeholder(string ident, ProfileVisibility visibility, string reason)
+        => new(ident, null, visibility, 0, false, reason, false, new CharacterProfileDocumentDto
+        {
+            Tagline = reason,
+        });
+
+    private readonly record struct ProfileRequestKey(string Ident, ProfileVisibility? Visibility);
 }

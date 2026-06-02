@@ -2,6 +2,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Utility;
@@ -14,6 +15,7 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Numerics;
@@ -23,6 +25,12 @@ namespace Snowcloak.UI;
 
 public partial class IntroUi : WindowMediatorSubscriberBase
 {
+    private enum AccountAuthMode
+    {
+        SignIn,
+        CreateAccount
+    }
+
     private readonly SnowcloakConfigService _configService;
     private readonly CacheMonitor _cacheMonitor;
     private readonly ServerConfigurationManager _serverConfigurationManager;
@@ -45,10 +53,11 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     private string _accountUsername = string.Empty;
     private string _accountPassword = string.Empty;
     private string _accountPasswordConfirm = string.Empty;
-    private string _accountUid = string.Empty;
+    private AccountAuthMode _accountAuthMode;
     private bool _accountInProgress = false;
     private bool _accountSuccess = false;
     private string? _accountMessage;
+    private bool _showAccountPassword;
     
     public IntroUi(ILogger<IntroUi> logger, UiSharedService uiShared, SnowcloakConfigService configService,
         CacheMonitor fileCacheManager, ServerConfigurationManager serverConfigurationManager, SnowMediator snowMediator,
@@ -252,8 +261,11 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
             ImGui.Separator();
 
-            ImGui.BeginDisabled(_registrationInProgress || _uiShared.ApiController.ServerState == ServerState.Connecting || _uiShared.ApiController.ServerState == ServerState.Reconnecting);
-            _ = _uiShared.DrawServiceSelection(selectOnChange: true, intro: true);
+            ImGui.BeginDisabled(_registrationInProgress);
+            using (ImRaii.Disabled(_accountInProgress))
+            {
+                _ = _uiShared.DrawServiceSelection(selectOnChange: true, intro: true);
+            }
 
             if (true) // Enable registration button for all servers
             {
@@ -273,8 +285,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 DrawAccountAuthSetup();
 
                 ImGui.Separator();
-                ImGui.BeginDisabled(_registrationInProgress || _registrationSuccess || _secretKey.Length > 0);
-                ImGui.TextUnformatted("Legacy key-only setup remains available below.");
+                ImGui.BeginDisabled(_registrationInProgress || _accountInProgress || _registrationSuccess || _secretKey.Length > 0);
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
                 {
                     _registrationInProgress = true;
@@ -463,85 +474,160 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
     private void DrawAccountAuthSetup()
     {
-        if (ImGui.CollapsingHeader("Snowcloak account sign-in options"))
+        if (ImGui.CollapsingHeader("Which option should I use?"))
         {
-            ElezenImgui.WrappedText("Snowcloak accounts are the preferred sign-in method. You choose a username and password, and Snowcloak keeps account-managed secret keys available for this character.");
-            ElezenImgui.WrappedText("Secret keys still authenticate characters. Account sign-in restores those keys so the normal connection flow continues to work.");
-            ElezenImgui.WrappedText("XIVAuth is used to prove ownership of the character when creating a new account. Existing secret-key setup remains supported.");
+            ElezenImgui.WrappedText("The preferred option is you manage your keys yourself. This option gives you full and complete control.");
+            ElezenImgui.WrappedText("Failing that, Snowcloak accounts will generate fresh keys for your linked characters if you need it. You choose a username and password, and Snowcloak handles the rest. Passwords are hashed using state-of-the-art Argon2id algorithms. If in doubt, use a password manager to generate a random username and password.");
+            ElezenImgui.WrappedText("XIVAuth also remains available, but is considered decrepated at this time.");
         }
 
-        ImGui.TextUnformatted("Snowcloak account");
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountUsername", "Username", ref _accountUsername, 64);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountPassword", "Password", ref _accountPassword, 128, ImGuiInputTextFlags.Password);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountPasswordConfirm", "Confirm password for new account", ref _accountPasswordConfirm, 128, ImGuiInputTextFlags.Password);
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth());
-        ImGui.InputTextWithHint("##accountUid", "Optional UID for accounts with multiple characters", ref _accountUid, 10);
+        AccountCredentialUi.DrawHeader("Snowcloak account",
+            "Use one account across characters and computers. Snowcloak restores the secret keys needed for the selected character after sign-in.");
 
-        var canCreate = IsAccountCredentialInputValid(requireConfirmation: true);
-        var canLogin = IsAccountCredentialInputValid(requireConfirmation: false);
-
-        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress || !canCreate))
-        {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Create account with XIVAuth"))
-            {
-                BeginAccountCreationWithXivAuth();
-            }
-        }
-
+        var modeButtonWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2;
+        if (AccountCredentialUi.DrawModeButton("Sign in", _accountAuthMode == AccountAuthMode.SignIn, modeButtonWidth))
+            SetAccountAuthMode(AccountAuthMode.SignIn);
         ImGui.SameLine();
-        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress || !canLogin))
+        if (AccountCredentialUi.DrawModeButton("Create account", _accountAuthMode == AccountAuthMode.CreateAccount, modeButtonWidth))
+            SetAccountAuthMode(AccountAuthMode.CreateAccount);
+
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
+        if (_accountAuthMode == AccountAuthMode.SignIn)
         {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.SignInAlt, "Sign in with account"))
+            ImGui.TextWrapped("Sign in to restore this account's character keys for the current character.");
+        }
+        else
+        {
+            ImGui.TextWrapped("Create an account on the selected service for this character.");
+        }
+
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+        AccountCredentialUi.DrawTextInput("accountUsername", "Username", "Enter your username", ref _accountUsername, 64);
+        AccountCredentialUi.DrawPasswordInput("accountPassword", "Password", "Enter your password", ref _accountPassword, 128, _showAccountPassword);
+        if (_accountAuthMode == AccountAuthMode.CreateAccount)
+        {
+            AccountCredentialUi.DrawPasswordInput("accountPasswordConfirm", "Confirm password", "Re-enter your password",
+                ref _accountPasswordConfirm, 128, _showAccountPassword);
+        }
+        AccountCredentialUi.DrawPasswordVisibilityToggle("accountPasswordVisibility", ref _showAccountPassword);
+        AccountCredentialUi.DrawRequirements(includePassword: _accountAuthMode == AccountAuthMode.CreateAccount);
+
+        var validationMessage = GetAccountCredentialValidationMessage(requireConfirmation: _accountAuthMode == AccountAuthMode.CreateAccount);
+        var canSubmit = validationMessage == null;
+        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress))
+        {
+            var buttonLabel = _accountInProgress
+                ? _accountAuthMode == AccountAuthMode.CreateAccount
+                    ? "Creating account..."
+                    : "Signing in..."
+                : _accountAuthMode == AccountAuthMode.CreateAccount
+                    ? "Create account"
+                    : "Sign in";
+            if (AccountCredentialUi.DrawPrimaryButton("accountAuthSubmit", buttonLabel))
             {
-                BeginAccountPasswordLogin();
+                if (!canSubmit)
+                    SetAccountAttemptResult("Account request not sent", validationMessage ?? "Check the account fields and try again.", NotificationType.Warning);
+                else if (_accountAuthMode == AccountAuthMode.CreateAccount)
+                    BeginAccountCreation();
+                else
+                    BeginAccountPasswordLogin();
             }
         }
 
-        if (_accountPassword.Length is > 0 and < 12)
+        if (validationMessage != null)
         {
-            ElezenImgui.ColouredWrappedText("New account passwords must be at least 12 characters long.", ImGuiColors.DalamudYellow);
-        }
-        else if (!_accountPasswordConfirm.IsNullOrEmpty() && !string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal))
-        {
-            ElezenImgui.ColouredWrappedText("The password confirmation does not match.", ImGuiColors.DalamudYellow);
+            ElezenImgui.ColouredWrappedText(validationMessage, ImGuiColors.DalamudYellow);
         }
 
-        if (_accountInProgress)
-        {
-            ImGui.TextUnformatted("Waiting for the server...");
-        }
-        else if (!_accountMessage.IsNullOrEmpty())
-        {
-            if (!_accountSuccess)
-                ImGui.TextColored(ImGuiColors.DalamudYellow, _accountMessage);
-            else
-                ImGui.TextWrapped(_accountMessage);
-        }
+        DrawAccountAttemptStatus();
     }
 
-    private bool IsAccountCredentialInputValid(bool requireConfirmation)
+    private void SetAccountAuthMode(AccountAuthMode mode)
     {
+        if (_accountAuthMode == mode) return;
+        _accountAuthMode = mode;
+        _accountMessage = null;
+        _accountPasswordConfirm = string.Empty;
+    }
+
+    private string? GetAccountCredentialValidationMessage(bool requireConfirmation)
+    {
+        if (_accountUsername.Trim().Length == 0)
+        {
+            return "Enter a username.";
+        }
+
         if (_accountUsername.Trim().Length is < 3 or > 64)
         {
-            return false;
+            return "Username must contain between 3 and 64 characters.";
         }
 
-        if (_accountUsername.Any(char.IsWhiteSpace) || string.IsNullOrEmpty(_accountPassword))
+        if (_accountUsername.Any(char.IsWhiteSpace))
         {
-            return false;
+            return "Username cannot contain spaces.";
         }
 
-        return !requireConfirmation || (_accountPassword.Length >= 12 && string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal));
+        if (string.IsNullOrEmpty(_accountPassword))
+        {
+            return "Enter a password.";
+        }
+
+        if (!requireConfirmation)
+        {
+            return null;
+        }
+
+        if (_accountPassword.Length < 12)
+        {
+            return "New account passwords must be at least 12 characters long.";
+        }
+
+        if (string.IsNullOrEmpty(_accountPasswordConfirm))
+        {
+            return "Re-enter your password to confirm it.";
+        }
+
+        return string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal)
+            ? null
+            : "The password confirmation does not match.";
     }
 
-    private void BeginAccountCreationWithXivAuth()
+    private void DrawAccountAttemptStatus()
+    {
+        if (_accountMessage.IsNullOrEmpty())
+        {
+            return;
+        }
+
+        ImGui.Separator();
+        var title = _accountInProgress
+            ? "Account request in progress"
+            : _accountSuccess
+                ? "Account request succeeded"
+                : "Account request failed";
+        var color = _accountInProgress
+            ? ImGuiColors.DalamudYellow
+            : _accountSuccess
+                ? ImGuiColors.HealerGreen
+                : ImGuiColors.DalamudRed;
+        ImGui.TextColored(color, title);
+        ImGui.TextWrapped(_accountMessage);
+    }
+
+    private void SetAccountAttemptResult(string title, string message, NotificationType type)
+    {
+        _accountSuccess = type == NotificationType.Info;
+        _accountMessage = message;
+        Mediator.Publish(new NotificationMessage(title, message, type, TimeSpan.FromSeconds(5)));
+    }
+
+    private void BeginAccountCreation()
     {
         _accountInProgress = true;
         _accountSuccess = false;
-        _accountMessage = null;
+        _accountMessage = "Registering a character key with the selected service...";
+        Mediator.Publish(new NotificationMessage("Account creation started", _accountMessage, NotificationType.Info, TimeSpan.FromSeconds(5)));
+        _logger.LogInformation("Starting password account creation on {server}", _serverConfigurationManager.CurrentApiUrl);
 
         var username = _accountUsername;
         var password = _accountPassword;
@@ -549,27 +635,31 @@ public partial class IntroUi : WindowMediatorSubscriberBase
         {
             try
             {
-                var result = await _registerService.CreateAccountWithXivAuth(username, password, CancellationToken.None).ConfigureAwait(false);
+                var result = await _registerService.CreateAccountWithPassword(
+                    username,
+                    password,
+                    CancellationToken.None,
+                    message => _accountMessage = message).ConfigureAwait(false);
                 if (!result.Success)
                 {
-                    _accountMessage = result.ErrorMessage.IsNullOrEmpty() ? "Account setup failed. Please try again later." : result.ErrorMessage;
+                    SetAccountAttemptResult("Account creation failed",
+                        result.ErrorMessage.IsNullOrEmpty() ? "Account setup failed. Please try again later." : result.ErrorMessage,
+                        NotificationType.Error);
                     return;
                 }
 
                 _accountPassword = string.Empty;
                 _accountPasswordConfirm = string.Empty;
-                _accountSuccess = true;
-                _accountMessage = string.Format(CultureInfo.InvariantCulture,
+                SetAccountAttemptResult("Account created", string.Format(CultureInfo.InvariantCulture,
                     "Account created. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
                     result.SecretKeyCount,
-                    result.NewSecretKeyCount);
+                    result.NewSecretKeyCount), NotificationType.Info);
                 _ = _uiShared.ApiController.CreateConnections();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Account setup failed");
-                _accountSuccess = false;
-                _accountMessage = "Account setup failed. Please try again later.";
+                SetAccountAttemptResult("Account creation failed", "Account setup failed. Please try again later.", NotificationType.Error);
             }
             finally
             {
@@ -582,19 +672,22 @@ public partial class IntroUi : WindowMediatorSubscriberBase
     {
         _accountInProgress = true;
         _accountSuccess = false;
-        _accountMessage = null;
+        _accountMessage = "Signing in to the selected service...";
+        Mediator.Publish(new NotificationMessage("Account sign-in started", _accountMessage, NotificationType.Info, TimeSpan.FromSeconds(5)));
+        _logger.LogInformation("Starting password account sign-in on {server}", _serverConfigurationManager.CurrentApiUrl);
 
         var username = _accountUsername;
         var password = _accountPassword;
-        var uid = _accountUid;
         _ = Task.Run(async () =>
         {
             try
             {
-                var result = await _registerService.LoginWithPassword(username, password, uid, CancellationToken.None).ConfigureAwait(false);
+                var result = await _registerService.LoginWithPassword(username, password, CancellationToken.None).ConfigureAwait(false);
                 if (!result.Success)
                 {
-                    _accountMessage = result.ErrorMessage.IsNullOrEmpty() ? "Account login failed. Please try again later." : result.ErrorMessage;
+                    SetAccountAttemptResult("Account sign-in failed",
+                        result.ErrorMessage.IsNullOrEmpty() ? "Account login failed. Please try again later." : result.ErrorMessage,
+                        NotificationType.Error);
                     return;
                 }
 
@@ -603,18 +696,16 @@ public partial class IntroUi : WindowMediatorSubscriberBase
                 _secretKey = string.Empty;
                 _registrationReply = null;
                 _registrationSuccess = false;
-                _accountSuccess = true;
-                _accountMessage = string.Format(CultureInfo.InvariantCulture,
+                SetAccountAttemptResult("Account sign-in succeeded", string.Format(CultureInfo.InvariantCulture,
                     "Account login succeeded. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
                     result.SecretKeyCount,
-                    result.NewSecretKeyCount);
+                    result.NewSecretKeyCount), NotificationType.Info);
                 _ = _uiShared.ApiController.CreateConnections();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Account login failed");
-                _accountSuccess = false;
-                _accountMessage = "Account login failed. Please try again later.";
+                SetAccountAttemptResult("Account sign-in failed", "Account login failed. Please try again later.", NotificationType.Error);
             }
             finally
             {

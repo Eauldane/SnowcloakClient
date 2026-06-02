@@ -245,10 +245,10 @@ public partial class ApiController
     public Task Client_UserPairingAvailabilityDelta(PairingAvailabilityDeltaDto delta)
     {
         Logger.LogTrace("Client_UserPairingAvailabilityDelta: +{added}/-{removed}",
-            delta.AddedIdents?.Count ?? 0,
+            delta.AddedProfiles?.Count ?? 0,
             delta.RemovedIdents?.Count ?? 0);
         ExecuteSafely(() => _pairRequestService.ApplyAvailabilityDelta(
-            delta.AddedIdents ?? Array.Empty<string>(),
+            delta.AddedProfiles ?? Array.Empty<PairingAvailabilityDto>(),
             delta.RemovedIdents ?? Array.Empty<string>()));
         return Task.CompletedTask;
     }
@@ -334,6 +334,13 @@ public partial class ApiController
             }
             Mediator.Publish(new ClearProfileDataMessage(dto.User));
         });
+        return Task.CompletedTask;
+    }
+
+    public Task Client_CharacterProfileChanged(CharacterProfileChangedDto dto)
+    {
+        Logger.LogDebug("Client_CharacterProfileChanged: {dto}", dto);
+        ExecuteSafely(() => Mediator.Publish(new ClearCharacterProfileDataMessage(dto.Ident, dto.Visibility)));
         return Task.CompletedTask;
     }
 
@@ -562,6 +569,12 @@ public partial class ApiController
     {
         if (_initialized) return;
         _snowHub!.On(nameof(Client_UserUpdateProfile), act);
+    }
+
+    public void OnCharacterProfileChanged(Action<CharacterProfileChangedDto> act)
+    {
+        if (_initialized) return;
+        _snowHub!.On(nameof(Client_CharacterProfileChanged), act);
     }
 
     public void OnUserUpdateSelfPairPermissions(Action<UserPermissionsDto> act)
