@@ -1,9 +1,11 @@
 using Dalamud.Bindings.ImGui;
+using Dalamud.Game.Player;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using ElezenTools.Data;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.User;
@@ -80,14 +82,17 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
             return;
         }
 
-        using var table = ImRaii.Table("pairing-availability-table", 6, ImGuiTableFlags.ScrollY | ImGuiTableFlags.Borders | ImGuiTableFlags.Hideable | ImGuiTableFlags.Reorderable | ImGuiTableFlags.Resizable);
+        using var table = ImRaii.Table("pairing-availability-table", 9, ImGuiTableFlags.ScrollY | ImGuiTableFlags.Borders | ImGuiTableFlags.Hideable | ImGuiTableFlags.Reorderable | ImGuiTableFlags.Resizable);
         if (table) {
-            ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthStretch, 0.22f);
-            ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 0.14f);
-            ImGui.TableSetupColumn("Tagline", ImGuiTableColumnFlags.WidthStretch, 0.3f);
-            ImGui.TableSetupColumn("Pronouns", ImGuiTableColumnFlags.WidthStretch, 0.12f);
-            ImGui.TableSetupColumn("Approach", ImGuiTableColumnFlags.WidthStretch, 0.14f);
-            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.16f);
+            ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthStretch, 0.18f);
+            ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 0.12f);
+            ImGui.TableSetupColumn("Tagline", ImGuiTableColumnFlags.WidthStretch, 0.24f);
+            ImGui.TableSetupColumn("Pronouns", ImGuiTableColumnFlags.WidthStretch, 0.1f);
+            ImGui.TableSetupColumn("Game Gender", ImGuiTableColumnFlags.WidthFixed, 85f);
+            ImGui.TableSetupColumn("Class", ImGuiTableColumnFlags.WidthFixed, 65f);
+            ImGui.TableSetupColumn("Level", ImGuiTableColumnFlags.WidthFixed, 60f);
+            ImGui.TableSetupColumn("Approach", ImGuiTableColumnFlags.WidthStretch, 0.12f);
+            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.12f);
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableHeadersRow();
             ImGuiClip.ClippedDraw(available, this.DrawPlayer, ImGui.GetTextLineHeightWithSpacing());
@@ -107,6 +112,21 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
                 ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Tagline) ? "-" : entry.Profile.Tagline);
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Pronouns) ? "-" : entry.Profile.Pronouns);
+                ImGui.TableNextColumn();
+                var gameGender = entry.Sex switch
+                {
+                    Sex.Male => "Male",
+                    Sex.Female => "Female",
+                    _ => "-"
+                };
+                ImGui.TextUnformatted(gameGender);
+                ImGui.TableNextColumn();
+                var classJob = ElezenData.Jobs.GetById(entry.ClassJobId);
+                var className = classJob?.Abbreviation ?? "UNK";
+                var classColour = classJob?.ClassColour ?? ImGuiColors.DalamudGrey;
+                ImGui.TextColored(classColour, string.IsNullOrEmpty(className) ? "-" : className);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.Level > 0 ? entry.Level.ToString() : "-");
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(string.IsNullOrWhiteSpace(entry.Profile?.Approachability) ? "-" : entry.Profile.Approachability);
                 ImGui.TableNextColumn();
@@ -194,8 +214,11 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
             .Where(tuple => tuple.pc.EntityId != 0 && tuple.pc.Address != IntPtr.Zero)
             .Select(tuple => new AvailabilityEntry(
                 tuple.ident,
-                string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name,
+                string.IsNullOrWhiteSpace(tuple.pc.Name) ? "Unnamed character" : tuple.pc.Name,
                 tuple.pc.HomeWorldId != 0 ? (ushort?)tuple.pc.HomeWorldId : null,
+                tuple.pc.ClassJobId,
+                tuple.pc.Level,
+                tuple.pc.Sex,
                 _profileManager.GetSummary(tuple.ident)))
             .OrderBy(entry => entry.DisplayName, StringComparer.Ordinal)
             .ToList();
@@ -209,6 +232,6 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase
             _lockedEntries = BuildAvailabilityEntries();
     }
 
-    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, CharacterProfileSummaryDto? Profile);
+    private readonly record struct AvailabilityEntry(string Ident, string DisplayName, ushort? HomeWorldId, uint ClassJobId, short Level, Sex Sex, CharacterProfileSummaryDto? Profile);
     
 }

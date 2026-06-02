@@ -231,7 +231,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         var resolved = availability.Accepted
             .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
             .Where(tuple => tuple.pc.EntityId != 0 && tuple.pc.Address != IntPtr.Zero)
-            .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? tuple.ident : tuple.pc.Name)
+            .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? "Unnamed character" : tuple.pc.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 

@@ -20,6 +20,7 @@ namespace Snowcloak.UI;
 public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 {
     private readonly ApiController _apiController;
+    private readonly string _fallbackName;
     private readonly string _ident;
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly SnowProfileManager _snowProfileManager;
@@ -29,15 +30,16 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         SnowProfileManager snowProfileManager, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
-        string? ident, ApiController apiController, PerformanceCollectorService performanceCollectorService)
+        string? ident, string? fallbackName, ApiController apiController, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator,
-            string.Format(CultureInfo.InvariantCulture, "RP Profile: {0}", userData.AliasOrUID)
+            string.Format(CultureInfo.InvariantCulture, "RP Profile: {0}", ResolveFallbackName(userData, fallbackName))
             + "##SnowcloakSyncStandaloneProfileUI" + (ident ?? pair?.Ident ?? userData.UID) + requestedVisibility,
             performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _snowProfileManager = snowProfileManager;
         _apiController = apiController;
+        _fallbackName = ResolveFallbackName(userData, fallbackName);
         Pair = pair;
         UserData = userData;
         _requestedVisibility = requestedVisibility;
@@ -73,13 +75,21 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     private void DrawProfile(SnowProfileData profile)
     {
-        CharacterProfileUiShared.DrawHeader(profile.Document, UserData.AliasOrUID);
+        CharacterProfileUiShared.DrawHeader(profile.Document, _fallbackName);
         ImGui.Spacing();
 
         DrawReportButton(profile);
         ImGui.SameLine();
         ImGui.TextColored(ImGuiColors.DalamudGrey,
             $"{profile.Visibility} profile  |  revision {profile.Revision}  |  {profile.Document.ContentRating}");
+
+        if (profile.Revision <= 0)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudGrey, string.IsNullOrWhiteSpace(profile.DisabledReason)
+                ? "This character has not published a profile yet."
+                : profile.DisabledReason);
+            return;
+        }
 
         if (profile.Disabled)
         {
@@ -209,5 +219,12 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     {
         _textureWrap?.Dispose();
         base.Dispose(disposing);
+    }
+
+    private static string ResolveFallbackName(UserData userData, string? fallbackName)
+    {
+        if (!string.IsNullOrWhiteSpace(fallbackName))
+            return fallbackName;
+        return string.IsNullOrWhiteSpace(userData.AliasOrUID) ? "Unnamed character" : userData.AliasOrUID;
     }
 }

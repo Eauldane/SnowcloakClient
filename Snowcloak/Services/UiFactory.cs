@@ -49,11 +49,12 @@ public class UiFactory
     }
 
     public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null,
-        string? ident = null)
+        string? ident = null, string? fallbackName = null)
     {
-        pair ??= _pairManager.GetPairByUID(userData.UID);
+        if (pair == null && !string.IsNullOrWhiteSpace(userData.UID))
+            pair = _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _snowProfileManager, pair, userData, requestedVisibility, ident, _apiController, _performanceCollectorService);
+            _uiSharedService, _snowProfileManager, pair, userData, requestedVisibility, ident, fallbackName, _apiController, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

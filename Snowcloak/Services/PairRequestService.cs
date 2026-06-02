@@ -250,9 +250,11 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         try
         {
             var profile = await _snowProfileManager.GetSnowProfileAsync(ident, ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
-            var userData = profile.User ?? new UserData(ident);
-            var pair = _pairManager.GetOrCreateTransientPair(userData);
-            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility, ident));
+            var nearbyPlayer = _dalamudUtilService.FindPlayerByNameHash(ident);
+            var fallbackName = string.IsNullOrWhiteSpace(nearbyPlayer.Name) ? null : nearbyPlayer.Name;
+            var userData = profile.User ?? new UserData(string.Empty);
+            var pair = profile.User == null ? null : _pairManager.GetOrCreateTransientPair(userData);
+            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility, ident, fallbackName));
         }
         catch (Exception ex)
         {

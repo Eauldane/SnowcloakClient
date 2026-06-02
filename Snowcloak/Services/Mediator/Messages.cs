@@ -83,7 +83,8 @@ public record CyclePauseMessage(UserData UserData) : MessageBase;
 public record PauseMessage(UserData UserData) : MessageBase;
 public record ProfilePopoutToggle(Pair? Pair) : MessageBase;
 public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
-public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null, string? Ident = null) : MessageBase;
+public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null,
+    string? Ident = null, string? FallbackName = null) : MessageBase;
 public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
 public record PlayerVisibilityMessage(string Ident, bool IsVisible, bool Invalidate = false) : KeyedMessage(Ident, SameThread: true);
 public record PairHandlerVisibleMessage(PairHandler Player) : MessageBase;
