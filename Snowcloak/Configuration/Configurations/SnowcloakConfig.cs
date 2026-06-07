@@ -46,6 +46,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public DownloadSpeeds DownloadSpeedType { get; set; } = DownloadSpeeds.MBps;
     public float ProfileDelay { get; set; } = 1.5f;
     public bool ProfilePopoutRight { get; set; } = false;
+    public bool ProfileEditorTutorialSeen { get; set; } = false;
     public bool ProfilesAllowNsfw { get; set; } = false;
     public bool ProfilesShow { get; set; } = false;
     public bool ShowSyncshellUsersInVisible { get; set; } = true;
@@ -94,6 +95,10 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = false;
     public bool FrostbrandWelcomeSeen { get; set; } = false;
+    public bool FrostbrandUseProfileCards { get; set; } = false;
+    public bool FrostbrandOnlyWithProfiles { get; set; } = false;
+    public string FrostbrandProfileSearch { get; set; } = string.Empty;
+    public string FrostbrandRequiredTag { get; set; } = string.Empty;
     public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;
     public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];

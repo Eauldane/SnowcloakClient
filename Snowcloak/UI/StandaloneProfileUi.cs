@@ -7,6 +7,8 @@ using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.User;
+using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -19,31 +21,44 @@ namespace Snowcloak.UI;
 
 public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 {
+    private static readonly TimeSpan LocalMoodlesRefreshInterval = TimeSpan.FromSeconds(2);
     private readonly ApiController _apiController;
+    private readonly DalamudUtilService _dalamudUtilService;
     private readonly string _fallbackName;
     private readonly string _ident;
+    private readonly IpcManager _ipcManager;
+    private readonly Lock _moodlesLock = new();
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly UiSharedService _uiSharedService;
+    private readonly string _windowIdSuffix;
+    private DateTime _lastLocalMoodlesRefreshUtc = DateTime.MinValue;
+    private byte[] _lastHeaderImage = [];
     private byte[] _lastProfilePicture = [];
+    private string _localMoodlesData = string.Empty;
+    private Task? _localMoodlesRefreshTask;
+    private IDalamudTextureWrap? _headerTextureWrap;
     private IDalamudTextureWrap? _textureWrap;
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
         SnowProfileManager snowProfileManager, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
-        string? ident, string? fallbackName, ApiController apiController, PerformanceCollectorService performanceCollectorService)
+        string? ident, string? fallbackName, ApiController apiController, DalamudUtilService dalamudUtilService,
+        IpcManager ipcManager, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator,
-            string.Format(CultureInfo.InvariantCulture, "RP Profile: {0}", ResolveFallbackName(userData, fallbackName))
-            + "##SnowcloakSyncStandaloneProfileUI" + (ident ?? pair?.Ident ?? userData.UID) + requestedVisibility,
+            BuildWindowName(ResolveFallbackName(userData, fallbackName, pair), ident ?? pair?.Ident ?? userData.UID, requestedVisibility),
             performanceCollectorService)
     {
         _uiSharedService = uiSharedService;
         _snowProfileManager = snowProfileManager;
         _apiController = apiController;
-        _fallbackName = ResolveFallbackName(userData, fallbackName);
+        _dalamudUtilService = dalamudUtilService;
+        _ipcManager = ipcManager;
+        _fallbackName = ResolveFallbackName(userData, fallbackName, pair);
         Pair = pair;
         UserData = userData;
         _requestedVisibility = requestedVisibility;
         _ident = ident ?? pair?.Ident ?? string.Empty;
+        _windowIdSuffix = BuildWindowIdSuffix(ident ?? pair?.Ident ?? userData.UID, requestedVisibility);
         Size = new Vector2(680f, 820f);
         SizeCondition = ImGuiCond.Appearing;
         SizeConstraints = new()
@@ -52,6 +67,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
             MaximumSize = new Vector2(900f, 2000f),
         };
         IsOpen = true;
+        Mediator.Subscribe<MoodlesMessage>(this, OnMoodlesChanged);
     }
 
     public string Ident => _ident;
@@ -64,6 +80,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         try
         {
             var profile = _snowProfileManager.GetSnowProfile(_ident, _requestedVisibility);
+            RefreshHeaderTexture(DecodeImage(profile.Document.HeaderImageBase64));
             RefreshTexture(profile.ImageData.Value);
             DrawProfile(profile);
         }
@@ -75,13 +92,18 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     private void DrawProfile(SnowProfileData profile)
     {
-        CharacterProfileUiShared.DrawHeader(profile.Document, _fallbackName);
+        UpdateWindowTitle(profile);
+        CharacterProfileUiShared.DrawHeader(profile.Document, _fallbackName, headerImageTexture: _headerTextureWrap);
         ImGui.Spacing();
+        CharacterProfileUiShared.DrawProfileBadges(profile.Document, "standalone-profile-badges");
 
         DrawReportButton(profile);
         ImGui.SameLine();
+        var updated = profile.UpdatedAtUtc.HasValue ? $"  |  updated {profile.UpdatedAtUtc.Value:u}" : string.Empty;
         ImGui.TextColored(ImGuiColors.DalamudGrey,
-            $"{profile.Visibility} profile  |  revision {profile.Revision}  |  {profile.Document.ContentRating}");
+            $"{profile.Visibility} profile  |  revision {profile.Revision}  |  {profile.Document.ContentRating}{updated}");
+
+        CharacterProfileUiShared.DrawMoodles(GetMoodlesData(profile), "standalone-profile", _uiSharedService);
 
         if (profile.Revision <= 0)
         {
@@ -110,7 +132,6 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
                 CharacterProfileUiShared.DrawLabelValue("Pronouns:", profile.Document.Pronouns);
                 CharacterProfileUiShared.DrawLabelValue("RP status:", profile.Document.RpStatus);
                 CharacterProfileUiShared.DrawLabelValue("Approach:", profile.Document.Approachability);
-                CharacterProfileUiShared.DrawLabelValue("Availability:", profile.Document.Availability);
                 DrawAtAGlance(profile.Document.AtAGlance);
             }
         }
@@ -120,7 +141,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         DrawBbCodeSection("OOC Notes", profile.Document.OocNotes);
         if (profile.Document.ContentRating == ProfileContentRating.Adult)
             DrawBbCodeSection("Adult Preferences", profile.Document.AdultPreferences);
-        DrawTags(profile.Tags);
+        DrawTags(GetVisibleTagsForViewer(profile));
         DrawPairingDetails();
     }
 
@@ -163,32 +184,126 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         _uiSharedService.RenderBbCode(text, ImGui.GetContentRegionAvail().X);
     }
 
-    private void DrawHooks(IReadOnlyList<Snowcloak.API.Dto.User.CharacterProfileHookDto> hooks)
+    private void DrawHooks(IReadOnlyList<CharacterProfileHookDto> hooks)
     {
         if (hooks.Count == 0) return;
         CharacterProfileUiShared.DrawSectionTitle("RP Hooks");
-        foreach (var hook in hooks)
+        for (var i = 0; i < hooks.Count; i++)
         {
+            var hook = hooks[i];
+            using var id = ImRaii.PushId($"standalone-profile-hook-{i}");
+            using var card = ImRaii.Child("hook-card", new Vector2(0f, 112f), true);
+            if (!card)
+                continue;
+
             ImGui.TextColored(ImGuiColors.HealerGreen, hook.Title);
             if (!string.IsNullOrWhiteSpace(hook.Description))
             {
                 using var _ = _uiSharedService.GameFont.Push();
                 _uiSharedService.RenderBbCode(hook.Description, ImGui.GetContentRegionAvail().X);
             }
-            ImGui.Spacing();
         }
     }
 
-    private static void DrawTags(IReadOnlyList<Snowcloak.API.Dto.User.UserProfileTagDto> tags)
+    private static void DrawTags(IReadOnlyList<UserProfileTagDto> tags)
     {
         if (tags.Count == 0) return;
         CharacterProfileUiShared.DrawSectionTitle("Tags");
         _ = ProfileTagChipRenderer.DrawTagChips(ProfileTagUtilities.NormalizeForStorage(tags), "standalone-profile-tags");
     }
 
+    private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)
+    {
+        if (profile.IsOwnProfile)
+            return ProfileTagUtilities.NormalizeForStorage(profile.Tags);
+
+        var ownProfile = _snowProfileManager.GetOwnProfile(ProfileVisibility.Private);
+        var viewerTags = ownProfile.Revision > 0 ? ownProfile.Tags : [];
+        return ProfileTagUtilities.GetVisibleTagsForViewer(profile.Tags, viewerTags);
+    }
+
+    private string GetMoodlesData(SnowProfileData profile)
+    {
+        if (!CanShowMoodles())
+            return string.Empty;
+
+        var pairMoodles = Pair?.LastReceivedCharacterData?.MoodlesData;
+        if (!string.IsNullOrWhiteSpace(pairMoodles))
+            return pairMoodles;
+
+        QueueLocalMoodlesRefresh(profile.Ident, force: false);
+
+        lock (_moodlesLock)
+        {
+            return _localMoodlesData;
+        }
+    }
+
+    private void OnMoodlesChanged(MoodlesMessage message)
+    {
+        if (!CanShowMoodles() || message.Address == IntPtr.Zero)
+            return;
+
+        var player = _dalamudUtilService.FindPlayerByNameHash(_ident);
+        if (player.Address == message.Address)
+            QueueLocalMoodlesRefresh(_ident, force: true);
+    }
+
+    private bool CanShowMoodles()
+        => Pair?.HasAnyConnection() == true;
+
+    private void QueueLocalMoodlesRefresh(string ident, bool force)
+    {
+        if (string.IsNullOrWhiteSpace(ident) || !_ipcManager.Moodles.APIAvailable || !CanShowMoodles())
+        {
+            SetLocalMoodlesData(string.Empty);
+            return;
+        }
+
+        lock (_moodlesLock)
+        {
+            if (_localMoodlesRefreshTask is { IsCompleted: false })
+                return;
+
+            if (!force && DateTime.UtcNow - _lastLocalMoodlesRefreshUtc < LocalMoodlesRefreshInterval)
+                return;
+
+            _lastLocalMoodlesRefreshUtc = DateTime.UtcNow;
+            _localMoodlesRefreshTask = Task.Run(() => RefreshLocalMoodlesAsync(ident));
+        }
+    }
+
+    private async Task RefreshLocalMoodlesAsync(string ident)
+    {
+        try
+        {
+            var player = _dalamudUtilService.FindPlayerByNameHash(ident);
+            if (player.EntityId == 0 || player.Address == IntPtr.Zero)
+            {
+                SetLocalMoodlesData(string.Empty);
+                return;
+            }
+
+            SetLocalMoodlesData(await _ipcManager.Moodles.GetStatusAsync(player.Address).ConfigureAwait(false) ?? string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Could not refresh local Moodles for profile {ident}", ident);
+            SetLocalMoodlesData(string.Empty);
+        }
+    }
+
+    private void SetLocalMoodlesData(string moodlesData)
+    {
+        lock (_moodlesLock)
+        {
+            _localMoodlesData = moodlesData;
+        }
+    }
+
     private void DrawPairingDetails()
     {
-        if (Pair == null || !ImGui.CollapsingHeader("Pairing details")) return;
+        if (Pair == null || !Pair.HasAnyConnection() || !ImGui.CollapsingHeader("Pairing details")) return;
         var status = Pair.IsVisible ? "Visible" : Pair.IsOnline ? "Online" : "Offline";
         ImGui.TextColored(Pair.IsVisible || Pair.IsOnline ? ImGuiColors.HealerGreen : ImGuiColors.DalamudGrey, status);
         if (Pair.IsVisible)
@@ -210,6 +325,14 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         _textureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
     }
 
+    private void RefreshHeaderTexture(byte[] bytes)
+    {
+        if (_headerTextureWrap != null && bytes.SequenceEqual(_lastHeaderImage)) return;
+        _headerTextureWrap?.Dispose();
+        _lastHeaderImage = bytes;
+        _headerTextureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+    }
+
     public override void OnClose()
     {
         Mediator.Publish(new RemoveWindowMessage(this));
@@ -217,14 +340,59 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     protected override void Dispose(bool disposing)
     {
+        _headerTextureWrap?.Dispose();
         _textureWrap?.Dispose();
         base.Dispose(disposing);
     }
 
-    private static string ResolveFallbackName(UserData userData, string? fallbackName)
+    private static byte[] DecodeImage(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return [];
+        try
+        {
+            return Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return [];
+        }
+    }
+
+    private static string ResolveFallbackName(UserData userData, string? fallbackName, Pair? pair)
     {
         if (!string.IsNullOrWhiteSpace(fallbackName))
             return fallbackName;
+        if (pair != null && pair.UserPair == null)
+            return pair.IsVisible && !string.IsNullOrWhiteSpace(pair.PlayerName) ? pair.PlayerName : "Unknown character";
+        if (pair?.HasAnyConnection() != true)
+            return "Unknown character";
+        if (!string.IsNullOrWhiteSpace(pair.PlayerName))
+            return pair.PlayerName;
         return string.IsNullOrWhiteSpace(userData.AliasOrUID) ? "Unnamed character" : userData.AliasOrUID;
     }
+
+    private void UpdateWindowTitle(SnowProfileData profile)
+    {
+        var displayName = profile.Revision > 0 && !string.IsNullOrWhiteSpace(profile.Document.CharacterName)
+            ? profile.Document.CharacterName
+            : _fallbackName;
+        WindowName = BuildWindowName(displayName, _windowIdSuffix);
+    }
+
+    private static string BuildWindowName(string displayName, string idSuffix)
+        => IsPlaceholderTitle(displayName)
+            ? "RP Profile" + idSuffix
+            : string.Format(CultureInfo.InvariantCulture, "RP Profile: {0}", displayName) + idSuffix;
+
+    private static string BuildWindowName(string displayName, string ident, ProfileVisibility? requestedVisibility)
+        => BuildWindowName(displayName, BuildWindowIdSuffix(ident, requestedVisibility));
+
+    private static string BuildWindowIdSuffix(string ident, ProfileVisibility? requestedVisibility)
+        => "##SnowcloakSyncStandaloneProfileUI" + ident + requestedVisibility;
+
+    private static bool IsPlaceholderTitle(string? value)
+        => string.IsNullOrWhiteSpace(value)
+           || string.Equals(value, "Loading RP profile...", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(value, "Loading RP Profile", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(value, "Unnamed character", StringComparison.OrdinalIgnoreCase);
 }

@@ -43,7 +43,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
                 _profiles.TryRemove(key, out _);
             }
 
-            if (message.Visibility == null || message.Visibility == ProfileVisibility.Public)
+            if (!message.PreserveSummary && (message.Visibility == null || message.Visibility == ProfileVisibility.Public))
                 _summaries.TryRemove(message.Ident, out _);
         });
         Mediator.Subscribe<DisconnectedMessage>(this, _ =>
@@ -101,6 +101,33 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
 
     public CharacterProfileSummaryDto? GetSummary(string ident)
         => _summaries.TryGetValue(ident, out var summary) ? summary : null;
+
+    public async Task<CharacterProfileSummaryDto?> RefreshSummaryAsync(string ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident))
+            return null;
+
+        try
+        {
+            var dto = await _apiController.Value.CharacterProfileGet(new CharacterProfileRequestDto(ident, ProfileVisibility.Public)).ConfigureAwait(false);
+            var profile = Store(new ProfileRequestKey(dto.Ident, ProfileVisibility.Public), dto);
+            if (profile.Revision <= 0 || profile.Disabled)
+            {
+                ClearSummary(ident);
+                return null;
+            }
+
+            var summary = ToSummary(profile);
+            UpdateSummary(summary);
+            return GetSummary(summary.Ident);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to refresh RP profile summary for {ident}", ident);
+            ClearSummary(ident);
+            return null;
+        }
+    }
 
     public void UpdateSummaries(IEnumerable<PairingAvailabilityDto> availability)
     {
@@ -173,6 +200,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
             dto.Disabled,
             dto.DisabledReason,
             dto.IsOwnProfile,
+            dto.UpdatedAtUtc,
             document);
         _profiles[key] = profile;
         return profile;
@@ -197,15 +225,28 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
             Tagline = "Adult RP profile hidden by your profile-content settings.",
             RpStatus = string.Empty,
             Approachability = string.Empty,
+            Hooks = [],
             Tags = [],
         };
     }
 
-    private static SnowProfileData Placeholder(string ident, ProfileVisibility visibility, string reason)
-        => new(ident, null, visibility, 0, false, reason, false, new CharacterProfileDocumentDto
+    private static CharacterProfileSummaryDto ToSummary(SnowProfileData profile)
+        => new()
         {
-            Tagline = reason,
-        });
+            Ident = profile.Ident,
+            CharacterName = profile.Document.CharacterName,
+            Title = profile.Document.Title,
+            Pronouns = profile.Document.Pronouns,
+            Tagline = profile.Document.Tagline,
+            RpStatus = profile.Document.RpStatus,
+            Approachability = profile.Document.Approachability,
+            Hooks = profile.Document.Hooks,
+            ContentRating = profile.Document.ContentRating,
+            Tags = profile.Document.Tags,
+        };
+
+    private static SnowProfileData Placeholder(string ident, ProfileVisibility visibility, string reason)
+        => new(ident, null, visibility, 0, false, reason, false, null, new CharacterProfileDocumentDto());
 
     private readonly record struct ProfileRequestKey(string Ident, ProfileVisibility? Visibility);
 }

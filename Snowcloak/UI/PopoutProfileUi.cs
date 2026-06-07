@@ -4,6 +4,8 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
@@ -19,8 +21,10 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
     private readonly UiSharedService _uiSharedService;
     private Vector2 _lastMainPos;
     private Vector2 _lastMainSize;
+    private byte[] _lastHeaderImage = [];
     private byte[] _lastProfilePicture = [];
     private Pair? _pair;
+    private IDalamudTextureWrap? _headerTextureWrap;
     private IDalamudTextureWrap? _textureWrap;
 
     public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
@@ -61,8 +65,21 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         try
         {
             var profile = _snowProfileManager.GetSnowProfile(_pair);
+            RefreshHeaderTexture(DecodeImage(profile.Document.HeaderImageBase64));
             RefreshTexture(profile.ImageData.Value);
-            CharacterProfileUiShared.DrawHeader(profile.Document, _pair.UserData.AliasOrUID, compact: true);
+            CharacterProfileUiShared.DrawHeader(profile.Document, ResolveFallbackName(_pair), compact: true, headerImageTexture: _headerTextureWrap);
+            CharacterProfileUiShared.DrawProfileBadges(profile.Document, "popout-profile-badges");
+
+            if (_pair.HasAnyConnection())
+                CharacterProfileUiShared.DrawMoodles(_pair.LastReceivedCharacterData?.MoodlesData, "popout-profile", _uiSharedService, maxVisible: 6);
+
+            if (profile.Revision <= 0)
+            {
+                ImGui.TextColored(ImGuiColors.DalamudGrey, string.IsNullOrWhiteSpace(profile.DisabledReason)
+                    ? "This character has not published a profile yet."
+                    : profile.DisabledReason);
+                return;
+            }
 
             if (profile.Disabled)
             {
@@ -78,10 +95,11 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
             foreach (var glance in profile.Document.AtAGlance.Take(3))
                 ImGui.BulletText(glance);
 
-            if (profile.Tags.Count > 0)
+            var visibleTags = GetVisibleTagsForViewer(profile);
+            if (visibleTags.Count > 0)
             {
                 CharacterProfileUiShared.DrawSectionTitle("Tags");
-                _ = ProfileTagChipRenderer.DrawTagChips(ProfileTagUtilities.NormalizeForStorage(profile.Tags), "popout-rp-tags");
+                _ = ProfileTagChipRenderer.DrawTagChips(visibleTags, "popout-rp-tags");
             }
 
             CharacterProfileUiShared.DrawSectionTitle("Overview");
@@ -110,9 +128,48 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         _textureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
     }
 
+    private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)
+    {
+        if (profile.IsOwnProfile)
+            return ProfileTagUtilities.NormalizeForStorage(profile.Tags);
+
+        var ownProfile = _snowProfileManager.GetOwnProfile(ProfileVisibility.Private);
+        var viewerTags = ownProfile.Revision > 0 ? ownProfile.Tags : [];
+        return ProfileTagUtilities.GetVisibleTagsForViewer(profile.Tags, viewerTags);
+    }
+
+    private void RefreshHeaderTexture(byte[] bytes)
+    {
+        if (_headerTextureWrap != null && bytes.SequenceEqual(_lastHeaderImage)) return;
+        _headerTextureWrap?.Dispose();
+        _lastHeaderImage = bytes;
+        _headerTextureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+    }
+
     protected override void Dispose(bool disposing)
     {
+        _headerTextureWrap?.Dispose();
         _textureWrap?.Dispose();
         base.Dispose(disposing);
+    }
+
+    private static byte[] DecodeImage(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return [];
+        try
+        {
+            return Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return [];
+        }
+    }
+
+    private static string ResolveFallbackName(Pair pair)
+    {
+        if (pair.UserPair == null)
+            return pair.IsVisible && !string.IsNullOrWhiteSpace(pair.PlayerName) ? pair.PlayerName : "Unknown character";
+        return !string.IsNullOrWhiteSpace(pair.PlayerName) ? pair.PlayerName : pair.UserData.AliasOrUID;
     }
 }

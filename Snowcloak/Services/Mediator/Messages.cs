@@ -78,7 +78,7 @@ public record DownloadFinishedMessage(GameObjectHandler DownloadId, string? UID 
 public record UiToggleMessage(Type UiType) : MessageBase;
 public record PlayerUploadingMessage(GameObjectHandler Handler, bool IsUploading) : MessageBase;
 public record ClearProfileDataMessage(UserData? UserData = null, ProfileVisibility? Visibility = null) : MessageBase;
-public record ClearCharacterProfileDataMessage(string? Ident = null, ProfileVisibility? Visibility = null) : MessageBase;
+public record ClearCharacterProfileDataMessage(string? Ident = null, ProfileVisibility? Visibility = null, bool PreserveSummary = false) : MessageBase;
 public record CyclePauseMessage(UserData UserData) : MessageBase;
 public record PauseMessage(UserData UserData) : MessageBase;
 public record ProfilePopoutToggle(Pair? Pair) : MessageBase;

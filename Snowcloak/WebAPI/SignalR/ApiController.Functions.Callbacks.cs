@@ -340,7 +340,11 @@ public partial class ApiController
     public Task Client_CharacterProfileChanged(CharacterProfileChangedDto dto)
     {
         Logger.LogDebug("Client_CharacterProfileChanged: {dto}", dto);
-        ExecuteSafely(() => Mediator.Publish(new ClearCharacterProfileDataMessage(dto.Ident, dto.Visibility)));
+        ExecuteSafely(() =>
+        {
+            Mediator.Publish(new ClearCharacterProfileDataMessage(dto.Ident, PreserveSummary: true));
+            _pairRequestService.RefreshAvailableProfileSummary(dto.Ident);
+        });
         return Task.CompletedTask;
     }
 

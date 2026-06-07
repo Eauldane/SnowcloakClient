@@ -215,6 +215,20 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         }
     }
 
+    public void RefreshAvailableProfileSummary(string ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident))
+            return;
+
+        lock (_availabilityUpdateLock)
+        {
+            if (!_availableIdents.Contains(ident))
+                return;
+        }
+
+        _ = Task.Run(() => RefreshAvailableProfileSummaryAsync(ident));
+    }
+
     public IReadOnlyCollection<PairingRequestDto> PendingRequests
         => _pendingRequests.Values.Select(p => p.Request).ToList();
     
@@ -229,6 +243,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase
         if (!_availableIdents.Contains(ident)) return;
         if (_configService.Current.PairRequestFriendsOnly && !_dalamudUtilService.IsFriendByIdent(ident))
             return;
+
+        var connectedPair = GetConnectedPairForIdent(ident);
         
         void Add(string name, Action<IMenuItemClickedArgs>? action)
         {
@@ -241,14 +257,39 @@ public class PairRequestService : DisposableMediatorSubscriberBase
             });
         }
 
+        if (connectedPair is { IsVisible: true, IsPaused: false } && connectedPair.HasAnyConnection())
+        {
+            if (connectedPair.UserPair == null)
+                Add("Send Snowcloak Pair Request", async _ => await SendPairRequestAsync(ident).ConfigureAwait(false));
+            return;
+        }
+
         Add("Send Snowcloak Pair Request", async _ => await SendPairRequestAsync(ident).ConfigureAwait(false));
         Add("View Snowcloak Profile", async _ => await RequestProfileAsync(ident).ConfigureAwait(false));
+    }
+
+    private Pair? GetConnectedPairForIdent(string ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident))
+            return null;
+
+        return _pairManager.GetOnlineUserPairs()
+            .FirstOrDefault(pair => pair.HasAnyConnection()
+                && (string.Equals(pair.Ident, ident, StringComparison.Ordinal)
+                    || string.Equals(pair.GetPlayerNameHash(), ident, StringComparison.Ordinal)));
     }
 
     public async Task RequestProfileAsync(string ident)
     {
         try
         {
+            var connectedPair = GetConnectedPairForIdent(ident);
+            if (connectedPair != null)
+            {
+                Mediator.Publish(new ProfileOpenStandaloneMessage(connectedPair.UserData, connectedPair, FallbackName: connectedPair.PlayerName));
+                return;
+            }
+
             var profile = await _snowProfileManager.GetSnowProfileAsync(ident, ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
             var nearbyPlayer = _dalamudUtilService.FindPlayerByNameHash(ident);
             var fallbackName = string.IsNullOrWhiteSpace(nearbyPlayer.Name) ? null : nearbyPlayer.Name;
@@ -412,8 +453,15 @@ public class PairRequestService : DisposableMediatorSubscriberBase
                 changed = true;
             _snowProfileManager.ClearSummary(ident);
         }
-        
+
         return changed;
+    }
+
+    private async Task RefreshAvailableProfileSummaryAsync(string ident)
+    {
+        await _snowProfileManager.RefreshSummaryAsync(ident).ConfigureAwait(false);
+        _ = RebuildAvailabilityFiltersAsync();
+        Mediator.Publish(new PairingAvailabilityChangedMessage());
     }
 
     private void ClearAvailability()
@@ -858,7 +906,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase
     public RequesterDisplay GetRequesterDisplay(PairingRequestDto dto, bool setNoteFromNearby = false)
     {
         var resolved = TryResolveRequester(dto, setNoteFromNearby);
-        return new RequesterDisplay(resolved.Name ?? dto.Requester.UID, resolved.WorldId);
+        return new RequesterDisplay(resolved.Name ?? "Unknown character", resolved.WorldId);
     }
     
     public string GetRequesterDisplayName(PairingRequestDto dto, bool setNoteFromNearby = false)

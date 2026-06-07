@@ -31,7 +31,50 @@ public sealed class CharacterProfileBackupService
         }
     }
 
-    public void Save(string ident, string characterLabel, ProfileVisibility visibility, CharacterProfileDocumentDto document)
+    public CharacterProfileDraft? GetDraft(string ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident)) return null;
+
+        lock (_syncRoot)
+        {
+            var draft = _file.Drafts.FirstOrDefault(d => d.Ident.Equals(ident, StringComparison.Ordinal));
+            return draft == null ? null : Clone(draft);
+        }
+    }
+
+    public void SaveDraft(string ident, string characterLabel, CharacterProfileDocumentDto document)
+    {
+        if (string.IsNullOrWhiteSpace(ident)) return;
+
+        lock (_syncRoot)
+        {
+            var draft = _file.Drafts.FirstOrDefault(d => d.Ident.Equals(ident, StringComparison.Ordinal));
+            if (draft == null)
+            {
+                draft = new CharacterProfileDraft { Ident = ident };
+                _file.Drafts.Add(draft);
+            }
+
+            if (!string.IsNullOrWhiteSpace(characterLabel))
+                draft.CharacterLabel = characterLabel.Trim();
+            draft.Document = document;
+            draft.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            Persist();
+        }
+    }
+
+    public void ClearDraft(string ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident)) return;
+
+        lock (_syncRoot)
+        {
+            if (_file.Drafts.RemoveAll(d => d.Ident.Equals(ident, StringComparison.Ordinal)) > 0)
+                Persist();
+        }
+    }
+
+    public void Save(string ident, string characterLabel, CharacterProfileDocumentDto document)
     {
         if (string.IsNullOrWhiteSpace(ident)) return;
 
@@ -49,21 +92,18 @@ public sealed class CharacterProfileBackupService
             if (!string.IsNullOrWhiteSpace(characterLabel))
                 backup.CharacterLabel = characterLabel.Trim();
 
-            if (visibility == ProfileVisibility.Public)
-                backup.PublicProfile = document;
-            else
-                backup.PrivateProfile = document;
+            backup.Profile = document;
             backup.UpdatedAtUtc = DateTimeOffset.UtcNow;
             Persist();
         }
     }
 
-    public CharacterProfileDocumentDto? GetDocument(Guid backupId, ProfileVisibility visibility)
+    public CharacterProfileDocumentDto? GetDocument(Guid backupId)
     {
         lock (_syncRoot)
         {
             var backup = _file.Profiles.SingleOrDefault(p => p.Id == backupId);
-            return visibility == ProfileVisibility.Public ? backup?.PublicProfile : backup?.PrivateProfile;
+            return backup?.Profile ?? backup?.PrivateProfile ?? backup?.PublicProfile;
         }
     }
 
@@ -104,16 +144,29 @@ public sealed class CharacterProfileBackupService
             Id = profile.Id,
             CharacterLabel = profile.CharacterLabel,
             KnownIdents = [.. profile.KnownIdents],
+            Profile = profile.Profile,
             PublicProfile = profile.PublicProfile,
             PrivateProfile = profile.PrivateProfile,
             UpdatedAtUtc = profile.UpdatedAtUtc,
         };
     }
 
+    private static CharacterProfileDraft Clone(CharacterProfileDraft draft)
+    {
+        return new CharacterProfileDraft
+        {
+            Ident = draft.Ident,
+            CharacterLabel = draft.CharacterLabel,
+            Document = draft.Document,
+            UpdatedAtUtc = draft.UpdatedAtUtc,
+        };
+    }
+
     private sealed class CharacterProfileBackupFile
     {
-        public int Version { get; set; } = 1;
+        public int Version { get; set; } = 2;
         public List<CharacterProfileBackup> Profiles { get; set; } = [];
+        public List<CharacterProfileDraft> Drafts { get; set; } = [];
     }
 }
 
@@ -122,7 +175,16 @@ public sealed class CharacterProfileBackup
     public Guid Id { get; set; } = Guid.NewGuid();
     public string CharacterLabel { get; set; } = string.Empty;
     public List<string> KnownIdents { get; set; } = [];
+    public CharacterProfileDocumentDto? Profile { get; set; }
     public CharacterProfileDocumentDto? PublicProfile { get; set; }
     public CharacterProfileDocumentDto? PrivateProfile { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class CharacterProfileDraft
+{
+    public string Ident { get; set; } = string.Empty;
+    public string CharacterLabel { get; set; } = string.Empty;
+    public CharacterProfileDocumentDto Document { get; set; } = new();
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -3,6 +3,7 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Group;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
+using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
@@ -17,6 +18,8 @@ public class UiFactory
     private readonly SnowMediator _snowMediator;
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly IpcManager _ipcManager;
     private readonly UiSharedService _uiSharedService;
     private readonly PairManager _pairManager;
     private readonly SnowProfileManager _snowProfileManager;
@@ -27,6 +30,7 @@ public class UiFactory
     public UiFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, ApiController apiController,
         SnowcloakConfigService configService,
         UiSharedService uiSharedService, PairManager pairManager, ServerConfigurationManager serverConfigManager,
+        DalamudUtilService dalamudUtilService, IpcManager ipcManager,
         SnowProfileManager snowProfileManager, PerformanceCollectorService performanceCollectorService,
         SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService)
     {
@@ -34,6 +38,8 @@ public class UiFactory
         _snowMediator = snowMediator;
         _apiController = apiController;
         _configService = configService;
+        _dalamudUtilService = dalamudUtilService;
+        _ipcManager = ipcManager;
         _uiSharedService = uiSharedService;
         _pairManager = pairManager;
         _snowProfileManager = snowProfileManager;
@@ -54,7 +60,8 @@ public class UiFactory
         if (pair == null && !string.IsNullOrWhiteSpace(userData.UID))
             pair = _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _uiSharedService, _snowProfileManager, pair, userData, requestedVisibility, ident, fallbackName, _apiController, _performanceCollectorService);
+            _uiSharedService, _snowProfileManager, pair, userData, requestedVisibility, ident, fallbackName, _apiController,
+            _dalamudUtilService, _ipcManager, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

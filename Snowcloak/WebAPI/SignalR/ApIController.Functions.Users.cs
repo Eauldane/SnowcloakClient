@@ -107,10 +107,10 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<CharacterProfileDto>(nameof(CharacterProfileSet), dto).ConfigureAwait(false);
     }
 
-    public async Task CharacterProfileDelete(ProfileVisibility visibility)
+    public async Task CharacterProfileDelete()
     {
         if (!IsConnected) return;
-        await _snowHub!.InvokeAsync(nameof(CharacterProfileDelete), visibility).ConfigureAwait(false);
+        await _snowHub!.InvokeAsync(nameof(CharacterProfileDelete)).ConfigureAwait(false);
     }
 
     public async Task CharacterProfileReport(CharacterProfileReportDto dto)

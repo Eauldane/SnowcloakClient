@@ -12,6 +12,7 @@ public record SnowProfileData(
     bool Disabled,
     string DisabledReason,
     bool IsOwnProfile,
+    DateTimeOffset? UpdatedAtUtc,
     CharacterProfileDocumentDto Document)
 {
     public bool IsFlagged => Disabled;

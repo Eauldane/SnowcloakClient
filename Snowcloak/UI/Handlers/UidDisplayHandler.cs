@@ -124,7 +124,7 @@ public class UidDisplayHandler
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Middle))
             {
-                _mediator.Publish(new ProfileOpenStandaloneMessage(pair.UserData, pair));
+                _mediator.Publish(new ProfileOpenStandaloneMessage(pair.UserData, pair, FallbackName: pair.PlayerName));
             }
         }
         else
@@ -196,7 +196,7 @@ public class UidDisplayHandler
 
     internal void OpenProfile(Pair entry)
     {
-        _mediator.Publish(new ProfileOpenStandaloneMessage(entry.UserData, entry));
+        _mediator.Publish(new ProfileOpenStandaloneMessage(entry.UserData, entry, FallbackName: entry.PlayerName));
     }
 
     internal void OpenAnalysis(Pair entry)

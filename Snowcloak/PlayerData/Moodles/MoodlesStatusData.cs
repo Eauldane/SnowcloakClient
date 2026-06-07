@@ -19,6 +19,13 @@ public partial class MoodlesStatusData
     public MoodlesChainTrigger ChainTrigger;
     public string Applier = string.Empty;
     public string Dispeller = string.Empty;
+    public bool Persistent;
+    public int Days;
+    public int Hours;
+    public int Minutes;
+    public int Seconds;
+    public bool NoExpire;
+    public bool AsPermanent;
 }
 
 public enum MoodlesStatusType
@@ -58,6 +65,16 @@ public static class MoodlesDataParser
     public static bool TryParse(string? base64, out IReadOnlyList<MoodlesStatusData> statuses)
     {
         statuses = Array.Empty<MoodlesStatusData>();
+        if (!TryParsePayload(base64, out var payload))
+            return false;
+
+        statuses = payload.Statuses;
+        return true;
+    }
+
+    public static bool TryParsePayload(string? base64, out MoodlesStatusPayload payload)
+    {
+        payload = new MoodlesStatusPayload([], null);
         if (string.IsNullOrWhiteSpace(base64))
         {
             return true;
@@ -66,8 +83,73 @@ public static class MoodlesDataParser
         try
         {
             var data = Convert.FromBase64String(base64);
-            var parsed = MemoryPackSerializer.Deserialize<List<MoodlesStatusData>>(data, SerializerOptions);
-            statuses = parsed != null ? parsed : Array.Empty<MoodlesStatusData>();
+            var parsedStatuses = TryDeserializeStatuses(data, out var parsed);
+            var parsedManager = TryDeserializeManager(data, out var manager);
+
+            if (parsedStatuses && HasRenderableStatuses(parsed))
+            {
+                payload = new MoodlesStatusPayload(parsed, null);
+                return true;
+            }
+
+            if (parsedManager && HasRenderableStatuses(manager.Statuses))
+            {
+                payload = new MoodlesStatusPayload(manager.Statuses, manager);
+                return true;
+            }
+
+            if (parsedStatuses)
+            {
+                payload = new MoodlesStatusPayload(parsed, null);
+                return true;
+            }
+
+            if (parsedManager)
+            {
+                payload = new MoodlesStatusPayload(manager.Statuses, manager);
+                return true;
+            }
+        }
+        catch
+        {
+            // handled by returning false below
+        }
+
+        return false;
+    }
+
+    public static bool TrySerializePayload(MoodlesStatusPayload payload, out string base64)
+    {
+        base64 = string.Empty;
+        try
+        {
+            if (payload.Manager != null)
+            {
+                payload.Manager.Statuses = payload.Statuses;
+                var managerData = MemoryPackSerializer.Serialize(payload.Manager, SerializerOptions);
+                base64 = Convert.ToBase64String(managerData);
+                return true;
+            }
+
+            return TrySerialize(payload.Statuses, out base64);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryDeserializeManager(byte[] data, out MoodlesStatusManagerData manager)
+    {
+        manager = new MoodlesStatusManagerData();
+        try
+        {
+            var parsed = MemoryPackSerializer.Deserialize<MoodlesStatusManagerData>(data, SerializerOptions);
+            if (parsed == null)
+                return false;
+
+            manager = parsed;
+            manager.Statuses ??= [];
             return true;
         }
         catch
@@ -75,6 +157,25 @@ public static class MoodlesDataParser
             return false;
         }
     }
+
+    private static bool TryDeserializeStatuses(byte[] data, out List<MoodlesStatusData> statuses)
+    {
+        statuses = [];
+        try
+        {
+            statuses = MemoryPackSerializer.Deserialize<List<MoodlesStatusData>>(data, SerializerOptions) ?? [];
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasRenderableStatuses(IEnumerable<MoodlesStatusData>? statuses)
+        => statuses?.Any(status => status.IconID > 0
+            || !string.IsNullOrWhiteSpace(status.Title)
+            || !string.IsNullOrWhiteSpace(status.Description)) == true;
 
     public static bool TrySerialize(IEnumerable<MoodlesStatusData> statuses, out string base64)
     {
@@ -90,4 +191,26 @@ public static class MoodlesDataParser
             return false;
         }
     }
+}
+
+public sealed class MoodlesStatusPayload
+{
+    internal MoodlesStatusPayload(List<MoodlesStatusData> statuses, MoodlesStatusManagerData? manager)
+    {
+        Statuses = statuses;
+        Manager = manager;
+    }
+
+    public List<MoodlesStatusData> Statuses { get; }
+    internal MoodlesStatusManagerData? Manager { get; }
+}
+
+[MemoryPackable]
+public partial class MoodlesStatusManagerData
+{
+    public List<Guid> AddTextShown = [];
+    public List<Guid> RemTextShown = [];
+    public List<MoodlesStatusData> Statuses = [];
+    public bool Ephemeral;
+    public bool WasTouchedByIPC;
 }

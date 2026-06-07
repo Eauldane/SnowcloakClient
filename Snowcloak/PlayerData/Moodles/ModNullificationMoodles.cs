@@ -16,12 +16,12 @@ public static class ModNullificationMoodles
             return true;
         }
 
-        if (!MoodlesDataParser.TryParse(moodlesData, out var parsedStatuses))
+        if (!MoodlesDataParser.TryParsePayload(moodlesData, out var payload))
         {
             return false;
         }
 
-        var statuses = parsedStatuses
+        var statuses = payload.Statuses
             .Where(status => status.GUID != HeightGuid && status.GUID != VfxGuid && status.GUID != SfxGuid)
             .ToList();
 
@@ -43,7 +43,9 @@ public static class ModNullificationMoodles
                 "Snowcloak is nullifying this player's active SFX mod in line with your settings."));
         }
 
-        return MoodlesDataParser.TrySerialize(statuses, out composedMoodlesData);
+        payload.Statuses.Clear();
+        payload.Statuses.AddRange(statuses);
+        return MoodlesDataParser.TrySerializePayload(payload, out composedMoodlesData);
     }
 
     private static MoodlesStatusData CreateStatus(Guid guid, int icon, string title, string description)
