@@ -1,11 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class PlayerPerformanceConfigService : ConfigurationServiceBase<PlayerPerformanceConfig>
+public class PlayerPerformanceConfigService : ConfigDocument<PlayerPerformanceConfig>
 {
     public const string ConfigName = "playerperformance.json";
-    public PlayerPerformanceConfigService(string configDir) : base(configDir) { }
 
-    public override string ConfigurationName => ConfigName;
+    public PlayerPerformanceConfigService(ConfigStore store) : base(store)
+    {
+    }
+
+    public override string FileName => ConfigName;
 }

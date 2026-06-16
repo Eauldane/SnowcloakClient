@@ -4,7 +4,9 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.Configuration;
+using Snowcloak.Core.Display;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI.Components;
@@ -17,109 +19,109 @@ public class UidDisplayHandler
 {
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly SnowMediator _mediator;
-    private readonly PairManager _pairManager;
-    private readonly ServerConfigurationManager _serverManager;
-    private readonly Dictionary<string, bool> _showUidForEntry = new(StringComparer.Ordinal);
-    private string _editNickEntry = string.Empty;
-    private string _editUserComment = string.Empty;
-    private string _lastMouseOverUid = string.Empty;
-    private bool _popupShown = false;
-    private DateTime? _popupTime;
+    private readonly NotesStore _notesStore;
 
-    public UidDisplayHandler(SnowMediator mediator, PairManager pairManager,
-        ServerConfigurationManager serverManager, SnowcloakConfigService snowcloakConfigService)
+    public UidDisplayHandler(SnowMediator mediator,
+        NotesStore notesStore, SnowcloakConfigService snowcloakConfigService)
     {
         _mediator = mediator;
-        _pairManager = pairManager;
-        _serverManager = serverManager;
+        _notesStore = notesStore;
         _snowcloakConfigService = snowcloakConfigService;
     }
 
-    public void RenderPairList(IEnumerable<DrawPairBase> pairs)
+    public static void RenderPairList(IEnumerable<DrawPairBase> pairs)
     {
-        var textHeight = ImGui.GetFontSize();
-        var style = ImGui.GetStyle();
-        var framePadding = style.FramePadding;
-        var spacing = style.ItemSpacing;
-        var lineHeight = textHeight + framePadding.Y * 2 + spacing.Y;
-        var startY = ImGui.GetCursorStartPos().Y;
-        var cursorY = ImGui.GetCursorPosY();
-        var contentHeight = UiSharedService.GetWindowContentRegionHeight();
+        ArgumentNullException.ThrowIfNull(pairs);
 
-        foreach (var entry in pairs)
+        // Index into the list directly so the clipper can skip off-screen rows entirely.
+        // Materialise lazy sequences (e.g. LINQ filters) since the clipper needs random access.
+        var list = pairs as IReadOnlyList<DrawPairBase> ?? pairs.ToList();
+        if (list.Count == 0)
         {
-            if ((startY + cursorY) < -lineHeight || (startY + cursorY) > contentHeight)
-            {
-                cursorY += lineHeight;
-                ImGui.SetCursorPosY(cursorY);
-                continue;
-            }
-
-            using (ImRaii.PushId(entry.ImGuiID)) entry.DrawPairedClient();
-            cursorY += lineHeight;
+            return;
         }
+
+        // Pair rows are uniform height, so an ImGuiListClipper can render only the visible
+        // range instead of walking every member each frame (matters for 200+ member shells).
+        var clipper = new ImGuiListClipper();
+        clipper.Begin(list.Count);
+        while (clipper.Step())
+        {
+            for (var i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                var entry = list[i];
+                using (ImRaii.PushId(entry.ImGuiID)) entry.DrawPairedClient();
+            }
+        }
+        clipper.End();
     }
 
-    public float DrawPairText(string id, Pair pair, float textPosX, float originalY, Func<float> editBoxWidth)
+    internal float DrawPairText(string id, Pair pair, float textPosX, float textPosY, Func<float> editBoxWidth, DrawPairBase.PairRowTextState state)
     {
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(editBoxWidth);
+        ArgumentNullException.ThrowIfNull(state);
+
         ImGui.SameLine(textPosX);
-        (bool textIsUid, string playerText) = GetPlayerText(pair);
-        if (!string.Equals(_editNickEntry, pair.UserData.UID, StringComparison.Ordinal))
+        (bool textIsUid, string playerText) = GetPlayerText(pair, state.ShowUidInsteadOfName);
+        if (!state.EditingNote)
         {
-            ImGui.SetCursorPosY(originalY);
-            var pairColour = TryGetVanityColor(pair.UserData.DisplayColour);
-            var pairGlowColour = TryGetVanityColor(pair.UserData.DisplayGlowColour);
+            ImGui.SetCursorPosY(textPosY);
+            var options = PairDisplayDecorationMapper.CreateOptions(
+                _snowcloakConfigService.Current,
+                inRestrictedContent: false,
+                // Nameplate colours only apply in-game; the pair list keeps the default
+                // text colour and only deviates for an explicit vanity colour.
+                usePairColours: false,
+                usePairingHighlights: false);
+            var decoration = PairDisplayDecorationPolicy.Resolve(
+                options,
+                PairDisplayDecorationMapper.CreatePairSubject(pair, allowPairVanity: true));
+            var (pairColour, pairGlowColour) = PairDisplayDecorationMapper.ToVectorColours(decoration);
             using (ImRaii.PushFont(UiBuilder.MonoFont, textIsUid))
             {
-                DrawTextWithOptionalColor(playerText, pairColour, pairGlowColour);
+                ElezenImgui.ColouredText(playerText, pairColour, pairGlowColour);
             }
             if (ImGui.IsItemHovered())
             {
-                if (!string.Equals(_lastMouseOverUid, id))
+                if (!string.Equals(state.LastMouseOverUid, id, StringComparison.Ordinal))
                 {
-                    _popupTime = DateTime.UtcNow.AddSeconds(_snowcloakConfigService.Current.ProfileDelay);
+                    state.PopupTime = DateTime.UtcNow.AddSeconds(_snowcloakConfigService.Current.ProfileDelay);
                 }
 
-                _lastMouseOverUid = id;
+                state.LastMouseOverUid = id;
 
-                if (_popupTime > DateTime.UtcNow || !_snowcloakConfigService.Current.ProfilesShow)
+                if (state.PopupTime > DateTime.UtcNow || !_snowcloakConfigService.Current.ProfilesShow)
                 {
                     ImGui.SetTooltip("Left click to switch between UID display and note" + Environment.NewLine
                         + "Right click to change note for " + pair.UserData.AliasOrUID + Environment.NewLine
                         + "Middle Mouse Button to open their profile in a separate window");
                 }
-                else if (_popupTime < DateTime.UtcNow && !_popupShown)
+                else if (state.PopupTime < DateTime.UtcNow && !state.PopupShown)
                 {
-                    _popupShown = true;
+                    state.PopupShown = true;
                     _mediator.Publish(new ProfilePopoutToggle(pair));
                 }
             }
             else
             {
-                if (string.Equals(_lastMouseOverUid, id))
+                if (string.Equals(state.LastMouseOverUid, id, StringComparison.Ordinal))
                 {
                     _mediator.Publish(new ProfilePopoutToggle(null));
-                    _lastMouseOverUid = string.Empty;
-                    _popupShown = false;
+                    state.LastMouseOverUid = string.Empty;
+                    state.PopupShown = false;
                 }
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
-                var prevState = textIsUid;
-                if (_showUidForEntry.ContainsKey(pair.UserData.UID))
-                {
-                    prevState = _showUidForEntry[pair.UserData.UID];
-                }
-                _showUidForEntry[pair.UserData.UID] = !prevState;
+                state.ShowUidInsteadOfName = !state.ShowUidInsteadOfName;
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
             {
-                var nickEntryPair = _pairManager.DirectPairs.Find(p => string.Equals(p.UserData.UID, _editNickEntry, StringComparison.Ordinal));
-                nickEntryPair?.SetNote(_editUserComment);
-                _editUserComment = pair.GetNote() ?? string.Empty;
-                _editNickEntry = pair.UserData.UID;
+                state.EditUserComment = pair.GetNote() ?? string.Empty;
+                state.EditingNote = true;
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Middle))
@@ -129,19 +131,25 @@ public class UidDisplayHandler
         }
         else
         {
-            ImGui.SetCursorPosY(originalY);
+            ImGui.SetCursorPosY(textPosY);
 
             ImGui.SetNextItemWidth(editBoxWidth.Invoke());
-            if (ImGui.InputTextWithHint("##" + pair.UserData.UID, "Nick/Notes", ref _editUserComment, 255, ImGuiInputTextFlags.EnterReturnsTrue))
+            var editUserComment = state.EditUserComment;
+            if (ImGui.InputTextWithHint("##" + pair.UserData.UID, "Nick/Notes", ref editUserComment, 255, ImGuiInputTextFlags.EnterReturnsTrue))
             {
-                _serverManager.SetNoteForUid(pair.UserData.UID, _editUserComment);
-                _serverManager.SaveNotes();
-                _editNickEntry = string.Empty;
+                state.EditUserComment = editUserComment;
+                _notesStore.SetNoteForUid(pair.UserData.UID, state.EditUserComment);
+                _notesStore.Save();
+                state.EditingNote = false;
+            }
+            else
+            {
+                state.EditUserComment = editUserComment;
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
             {
-                _editNickEntry = string.Empty;
+                state.EditingNote = false;
             }
             ElezenImgui.AttachTooltip("Hit ENTER to save\nRight click to cancel");
         }
@@ -150,10 +158,14 @@ public class UidDisplayHandler
     }
 
     public (bool isUid, string text) GetPlayerText(Pair pair)
+        => GetPlayerText(pair, showUidInsteadOfName: false);
+
+    private (bool isUid, string text) GetPlayerText(Pair pair, bool showUidInsteadOfName)
     {
+        ArgumentNullException.ThrowIfNull(pair);
+
         var textIsUid = true;
-        bool showUidInsteadOfName = ShowUidInsteadOfName(pair);
-        string? playerText = _serverManager.GetNoteForUid(pair.UserData.UID);
+        string? playerText = _notesStore.GetNoteForUid(pair.UserData.UID);
         if (!showUidInsteadOfName && playerText != null)
         {
             if (string.IsNullOrEmpty(playerText))
@@ -188,12 +200,6 @@ public class UidDisplayHandler
         return (textIsUid, playerText!);
     }
 
-    internal void Clear()
-    {
-        _editNickEntry = string.Empty;
-        _editUserComment = string.Empty;
-    }
-
     internal void OpenProfile(Pair entry)
     {
         _mediator.Publish(new ProfileOpenStandaloneMessage(entry.UserData, entry, FallbackName: entry.PlayerName));
@@ -202,53 +208,5 @@ public class UidDisplayHandler
     internal void OpenAnalysis(Pair entry)
     {
         _mediator.Publish(new OpenPairAnalysisWindow(entry));
-    }
-
-    private bool ShowUidInsteadOfName(Pair pair)
-    {
-        _showUidForEntry.TryGetValue(pair.UserData.UID, out var showUidInsteadOfName);
-
-        return showUidInsteadOfName;
-    }
-    private static Vector4? TryGetVanityColor(string? hexColor)
-    {
-        if (string.IsNullOrWhiteSpace(hexColor)
-            || hexColor.Length != 6
-            || !int.TryParse(hexColor, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out _))
-        {
-            return null;
-        }
-
-        return ElezenTools.UI.Colour.HexToVector4(hexColor);
-    }
-
-    private static void DrawTextWithOptionalColor(string text, Vector4? color, Vector4? glowColor = null)
-    {
-        if (!color.HasValue && !glowColor.HasValue)
-        {
-            ImGui.TextUnformatted(text);
-            return;
-        }
-
-        var foreground = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
-        if (glowColor.HasValue)
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            // Reserve the item using normal text layout so we get the exact baseline-aligned text position.
-            ImGui.TextColored(Vector4.Zero, text);
-            var textPos = ImGui.GetItemRectMin();
-            var glow = glowColor.Value;
-            var glowAlpha = Math.Clamp(glow.W <= 0f ? 0.45f : glow.W, 0.05f, 1f);
-            var glowU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(glow.X, glow.Y, glow.Z, glowAlpha));
-            var spread = 1.0f * ImGuiHelpers.GlobalScale;
-            drawList.AddText(new Vector2(textPos.X - spread, textPos.Y), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X + spread, textPos.Y), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X, textPos.Y - spread), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X, textPos.Y + spread), glowU32, text);
-            drawList.AddText(textPos, ImGui.ColorConvertFloat4ToU32(foreground), text);
-            return;
-        }
-
-        ImGui.TextColored(foreground, text);
     }
 }

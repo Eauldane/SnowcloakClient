@@ -1,16 +1,22 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
-using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using System.Text;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerHonorific : IIpcCaller
+public sealed class IpcCallerHonorific : IHonorificIpc
 {
+    private const string IpcName = "Honorific";
+    private const string RequiredVersion = "IPC 3.0";
+    private const IpcCapability SupportedCapabilities = IpcCapability.Titles;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ICallGateSubscriber<(uint major, uint minor)> _honorificApiVersion;
     private readonly ICallGateSubscriber<int, object> _honorificClearCharacterTitle;
     private readonly ICallGateSubscriber<object> _honorificDisposing;
@@ -25,6 +31,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
     public IpcCallerHonorific(ILogger<IpcCallerHonorific> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil,
         SnowMediator snowMediator)
     {
+        _pi = pi;
         _logger = logger;
         _snowMediator = snowMediator;
         _dalamudUtil = dalamudUtil;
@@ -43,17 +50,28 @@ public sealed class IpcCallerHonorific : IIpcCaller
         CheckAPI();
     }
 
-    public bool APIAvailable { get; private set; } = false;
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public void CheckAPI()
     {
         try
         {
-            APIAvailable = _honorificApiVersion.InvokeFunc() is { Item1: 3, Item2: >= 0 };
+            var version = _honorificApiVersion.InvokeFunc();
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version.major}.{version.minor}");
+            Status = version is { major: 3, minor: >= 0 }
+                ? IpcStatus.Available(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, IpcName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Optional, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 
@@ -67,7 +85,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
     public async Task ClearTitleAsync(nint character)
     {
         if (!APIAvailable) return;
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is IPlayerCharacter c)
@@ -81,7 +99,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
     public async Task<string> GetTitle()
     {
         if (!APIAvailable) return string.Empty;
-        return await Service.UseFramework(() =>
+        return await Service.RunOnFrameworkAsync(() =>
         {
             string title = _honorificGetLocalCharacterTitle.InvokeFunc();
             return string.IsNullOrEmpty(title) ? string.Empty : Convert.ToBase64String(Encoding.UTF8.GetBytes(title));
@@ -94,7 +112,7 @@ public sealed class IpcCallerHonorific : IIpcCaller
         _logger.LogTrace("Applying Honorific data to {chara}", character.ToString("X"));
         try
         {
-            await Service.UseFramework(() =>
+            await Service.RunOnFrameworkAsync(() =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(character);
                 if (gameObj is IPlayerCharacter pc)

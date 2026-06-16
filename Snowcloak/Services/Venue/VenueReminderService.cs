@@ -5,12 +5,13 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
+using Snowcloak.Core.Venue;
 using Snowcloak.WebAPI;
 using System.Globalization;
 
 namespace Snowcloak.Services.Venue;
 
-public sealed class VenueReminderService : IHostedService
+public sealed class VenueReminderService : IHostedService, IDisposable
 {
     private static readonly TimeSpan ReminderWindow = TimeSpan.FromHours(1);
     private static readonly TimeSpan DefaultRunningWindow = TimeSpan.FromHours(3);
@@ -19,7 +20,7 @@ public sealed class VenueReminderService : IHostedService
 
     private readonly ILogger<VenueReminderService> _logger;
     private readonly ApiController _apiController;
-    private readonly SnowcloakConfigService _configService;
+    private readonly VenueStateConfigService _venueStateConfig;
     private readonly IChatGui _chatGui;
     private readonly Lock _syncRoot = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
@@ -27,11 +28,11 @@ public sealed class VenueReminderService : IHostedService
     private Task? _runTask;
 
     public VenueReminderService(ILogger<VenueReminderService> logger, ApiController apiController,
-        SnowcloakConfigService configService, IChatGui chatGui)
+        VenueStateConfigService venueStateConfig, IChatGui chatGui)
     {
         _logger = logger;
         _apiController = apiController;
-        _configService = configService;
+        _venueStateConfig = venueStateConfig;
         _chatGui = chatGui;
     }
 
@@ -43,22 +44,25 @@ public sealed class VenueReminderService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _cancellationTokenSource.Cancel();
+        await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
         if (_runTask == null)
+        {
             return;
+        }
 
         try
         {
-            await _runTask.ConfigureAwait(false);
+            await _runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested || cancellationToken.IsCancellationRequested)
         {
             // ignored
         }
-        finally
-        {
-            _cancellationTokenSource.Dispose();
-        }
+    }
+
+    public void Dispose()
+    {
+        _cancellationTokenSource.Dispose();
     }
 
     public IReadOnlyList<VenueReminderBookmark> GetBookmarks()
@@ -299,9 +303,7 @@ public sealed class VenueReminderService : IHostedService
                     continue;
 
                 var startsUtc = DateTime.SpecifyKind(ad.StartsAt.Value, DateTimeKind.Utc);
-                var reminderStartsAtUtc = startsUtc.Add(-ReminderWindow);
-                var reminderEndsAtUtc = ResolveReminderEndUtc(ad, startsUtc);
-                if (nowUtc < reminderStartsAtUtc || nowUtc > reminderEndsAtUtc)
+                if (!VenueReminderSchedule.IsWithinReminderWindow(nowUtc, startsUtc, ad.EndsAt, ReminderWindow, DefaultRunningWindow))
                     continue;
 
                 if (!TryTrackReminder(ad.Id, startsUtc))
@@ -351,7 +353,7 @@ public sealed class VenueReminderService : IHostedService
                 ? "venue bookmark"
                 : "bookmark";
         var summary = BuildEventSummary(ad);
-        var isRunning = nowUtc >= startsUtc;
+        var isRunning = VenueReminderSchedule.IsRunning(nowUtc, startsUtc);
         var timingText = isRunning
             ? $"{venueName} is currently running (started at {startsLocal})."
             : $"{venueName} starts at {startsLocal}.";
@@ -367,23 +369,15 @@ public sealed class VenueReminderService : IHostedService
         });
     }
 
-    private static DateTime ResolveReminderEndUtc(VenueAdvertisementDto ad, DateTime startsUtc)
-    {
-        if (ad.EndsAt.HasValue)
-            return DateTime.SpecifyKind(ad.EndsAt.Value, DateTimeKind.Utc);
-
-        return startsUtc.Add(DefaultRunningWindow);
-    }
-
     private List<VenueReminderBookmark> GetBookmarkListUnsafe()
     {
-        _configService.Current.VenueReminderBookmarks ??= [];
-        return _configService.Current.VenueReminderBookmarks;
+        _venueStateConfig.Current.VenueReminderBookmarks ??= [];
+        return _venueStateConfig.Current.VenueReminderBookmarks;
     }
 
     private void SaveBookmarksUnsafe()
     {
-        _configService.Save();
+        _venueStateConfig.Update(_ => { });
     }
 
     private static string NormalizeVenueName(string? venueName)

@@ -1,15 +1,14 @@
-﻿using Snowcloak.Configuration;
 using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class SnowcloakConfigService : ConfigurationServiceBase<SnowcloakConfig>
+public class SnowcloakConfigService : ConfigDocument<SnowcloakConfig>
 {
     public const string ConfigName = "config.json";
 
-    public SnowcloakConfigService(string configDir) : base(configDir)
+    public SnowcloakConfigService(ConfigStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

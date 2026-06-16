@@ -1,14 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class ServerTagConfigService : ConfigurationServiceBase<ServerTagConfig>
+public class ServerTagConfigService : StateDocument<ServerTagConfig>
 {
     public const string ConfigName = "servertags.json";
 
-    public ServerTagConfigService(string configDir) : base(configDir)
+    public ServerTagConfigService(StateDocumentStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

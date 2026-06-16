@@ -1,47 +1,89 @@
-﻿using Snowcloak.API.Data.Enum;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Snowcloak.API.Data;
+using Snowcloak.API.Data.Comparer;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Objects;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Handlers;
+using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Utils;
+using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
+using ApiCharacterData = Snowcloak.API.Data.CharacterData;
+using OwnCharacterData = Snowcloak.PlayerData.Data.CharacterData;
 
 namespace Snowcloak.PlayerData.Services;
 
-public sealed class CacheCreationService : DisposableMediatorSubscriberBase
+public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAsyncDisposable
 {
+    private static readonly TimeSpan BuildDebounceDelay = TimeSpan.FromSeconds(1);
+    private readonly ApiController _apiController;
+    private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly SemaphoreSlim _cacheCreateLock = new(1);
     private readonly HashSet<ObjectKind> _cachesToCreate = [];
-    private readonly PlayerDataFactory _characterDataFactory;
-    private readonly HashSet<ObjectKind> _currentlyCreating = [];
+    private readonly SingleFlightCts _creationFlight = new();
+    private readonly DalamudUtilService _dalamudUtil;
     private readonly HashSet<ObjectKind> _debouncedObjectCache = [];
-    private readonly CharacterData _playerData = new();
-    private readonly Dictionary<ObjectKind, GameObjectHandler> _playerRelatedObjects = [];
+    private readonly SingleFlightCts _debounceFlight = new();
+    private readonly FileUploadManager _fileTransferManager;
+    private readonly HashSet<PairHandler> _newVisiblePlayers = [];
+    private readonly PairManager _pairManager;
+    private readonly ConcurrentDictionary<ObjectKind, GameObjectHandler> _playerRelatedObjects = [];
+    private readonly OwnCharacterData _playerData = new();
+    private readonly HashSet<UserData> _pendingVisibleUsers = new(UserDataComparer.Instance);
     private readonly CancellationTokenSource _runtimeCts = new();
-    private CancellationTokenSource _creationCts = new();
-    private CancellationTokenSource _debounceCts = new();
+    private readonly SnapshotBuilder _snapshotBuilder;
+    private readonly Lock _visibilityLock = new();
     private bool _haltCharaDataCreation;
-    private bool _isZoning = false;
+    private bool _isZoning;
+    private ApiCharacterData? _lastSentData;
+    private readonly IFrameTickHandle _onlineTick;
+    private readonly IFrameTickHandle _cacheTick;
+    private int _disposed;
 
-    public CacheCreationService(ILogger<CacheCreationService> logger, SnowMediator mediator, GameObjectHandlerFactory gameObjectHandlerFactory,
-        PlayerDataFactory characterDataFactory, DalamudUtilService dalamudUtil) : base(logger, mediator)
+    public CacheCreationService(
+        ILogger<CacheCreationService> logger,
+        SnowMediator mediator,
+        GameObjectHandlerFactory gameObjectHandlerFactory,
+        SnapshotBuilder snapshotBuilder,
+        DalamudUtilService dalamudUtil,
+        IFrameScheduler frameScheduler,
+        ApiController apiController,
+        PairManager pairManager,
+        FileUploadManager fileTransferManager)
+        : base(logger, mediator)
     {
-        _characterDataFactory = characterDataFactory;
+        _snapshotBuilder = snapshotBuilder;
+        _dalamudUtil = dalamudUtil;
+        _apiController = apiController;
+        _pairManager = pairManager;
+        _fileTransferManager = fileTransferManager;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
 
-        Mediator.Subscribe<ZoneSwitchStartMessage>(this, (msg) => _isZoning = true);
-        Mediator.Subscribe<ZoneSwitchEndMessage>(this, (msg) => _isZoning = false);
-
-        Mediator.Subscribe<HaltCharaDataCreation>(this, (msg) =>
-        {
-            _haltCharaDataCreation = !msg.Resume;
-        });
-
-        Mediator.Subscribe<CreateCacheForObjectMessage>(this, (msg) =>
-        {
-            Logger.LogDebug("Received CreateCacheForObject for {handler}, updating", msg.ObjectToCreateFor);
-            AddCacheToCreate(msg.ObjectToCreateFor.ObjectKind);
-        });
+        Mediator.Subscribe<ZoneSwitchStartMessage>(this, _ => _isZoning = true);
+        Mediator.Subscribe<ZoneSwitchEndMessage>(this, _ => _isZoning = false);
+        Mediator.Subscribe<HaltCharaDataCreation>(this, msg => _haltCharaDataCreation = !msg.Resume);
+        Mediator.Subscribe<CreateCacheForObjectMessage>(this, msg => QueueObjectBuild(msg.ObjectToCreateFor.ObjectKind, $"handler {msg.ObjectToCreateFor}"));
+        Mediator.Subscribe<ClearCacheForObjectMessage>(this, OnClearCacheForObject);
+        Mediator.Subscribe<ClassJobChangedMessage>(this, OnClassJobChanged);
+        Mediator.Subscribe<CustomizePlusMessage>(this, OnCustomizePlusChanged);
+        Mediator.Subscribe<HeelsOffsetMessage>(this, _ => OnHeelsOffsetChanged());
+        Mediator.Subscribe<GlamourerChangedMessage>(this, OnGlamourerChanged);
+        Mediator.Subscribe<HonorificMessage>(this, OnHonorificChanged);
+        Mediator.Subscribe<MoodlesMessage>(this, OnMoodlesChanged);
+        Mediator.Subscribe<PetNamesMessage>(this, OnPetNamesChanged);
+        Mediator.Subscribe<OptionalIpcAvailabilityChangedMessage>(this, OnOptionalIpcAvailabilityChanged);
+        Mediator.Subscribe<PenumbraModSettingChangedMessage>(this, _ => QueueAllBuilds("Penumbra Mod settings change"));
+        Mediator.Subscribe<PlayerChangedMessage>(this, _ => PushCharacterData(_pairManager.GetVisibleUsers()));
+        Mediator.Subscribe<PairHandlerVisibleMessage>(this, msg => OnPairHandlerVisible(msg.Player));
+        Mediator.Subscribe<ConnectedMessage>(this, _ => OnConnected());
 
         _playerRelatedObjects[ObjectKind.Player] = gameObjectHandlerFactory.Create(ObjectKind.Player, dalamudUtil.GetPlayerPointer, isWatched: true)
             .GetAwaiter().GetResult();
@@ -52,214 +94,547 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase
         _playerRelatedObjects[ObjectKind.Companion] = gameObjectHandlerFactory.Create(ObjectKind.Companion, () => dalamudUtil.GetCompanion(), isWatched: true)
             .GetAwaiter().GetResult();
 
-        Mediator.Subscribe<ClassJobChangedMessage>(this, (msg) =>
-        {
-            if (msg.GameObjectHandler == _playerRelatedObjects[ObjectKind.Player])
-            {
-                AddCacheToCreate(ObjectKind.Player);
-                AddCacheToCreate(ObjectKind.Pet);
-            }
-        });
-
-        Mediator.Subscribe<ClearCacheForObjectMessage>(this, (msg) =>
-        {
-            if (msg.ObjectToCreateFor.ObjectKind == ObjectKind.Pet)
-            {
-                Logger.LogTrace("Received clear cache for {obj}, ignoring", msg.ObjectToCreateFor);
-                return;
-            }
-            Logger.LogDebug("Clearing cache for {obj}", msg.ObjectToCreateFor);
-            AddCacheToCreate(msg.ObjectToCreateFor.ObjectKind);
-        });
-
-        Mediator.Subscribe<CustomizePlusMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            foreach (var item in _playerRelatedObjects
-                .Where(item => msg.Address == null
-                || item.Value.Address == msg.Address).Select(k => k.Key))
-            {
-                Logger.LogDebug("Received CustomizePlus change, updating {obj}", item);
-                AddCacheToCreate(item);
-            }
-        });
-
-        Mediator.Subscribe<HeelsOffsetMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            Logger.LogDebug("Received Heels Offset change, updating player");
-            AddCacheToCreate();
-        });
-
-        Mediator.Subscribe<GlamourerChangedMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            var changedType = _playerRelatedObjects.FirstOrDefault(f => f.Value.Address == msg.Address);
-            if (!default(KeyValuePair<ObjectKind, GameObjectHandler>).Equals(changedType))
-            {
-                Logger.LogDebug("Received GlamourerChangedMessage for {kind}", changedType);
-                AddCacheToCreate(changedType.Key);
-            }
-        });
-
-        Mediator.Subscribe<HonorificMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            if (!string.Equals(msg.NewHonorificTitle, _playerData.HonorificData, StringComparison.Ordinal))
-            {
-                Logger.LogDebug("Received Honorific change, updating player");
-                AddCacheToCreate(ObjectKind.Player);
-            }
-        });
-
-        Mediator.Subscribe<MoodlesMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            var changedType = _playerRelatedObjects.FirstOrDefault(f => f.Value.Address == msg.Address);
-            if (!default(KeyValuePair<ObjectKind, GameObjectHandler>).Equals(changedType) && changedType.Key == ObjectKind.Player)
-            {
-                Logger.LogDebug("Received Moodles change, updating player");
-                AddCacheToCreate(ObjectKind.Player);
-            }
-        });
-
-        Mediator.Subscribe<PetNamesMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-            if (!string.Equals(msg.PetNicknamesData, _playerData.PetNamesData, StringComparison.Ordinal))
-            {
-                Logger.LogDebug("Received Pet Nicknames change, updating player");
-                AddCacheToCreate(ObjectKind.Player);
-            }
-        });
-
-        Mediator.Subscribe<OptionalIpcAvailabilityChangedMessage>(this, (msg) =>
-        {
-            if (_isZoning) return;
-
-            Logger.LogDebug("Optional IPC {ipc} availability changed to {available}, rebuilding local character data", msg.IpcName, msg.IsAvailable);
-
-            if (string.Equals(msg.IpcName, IpcManager.CustomizePlusIpcName, StringComparison.Ordinal))
-            {
-                foreach (var objectKind in _playerRelatedObjects.Keys)
-                {
-                    AddCacheToCreate(objectKind);
-                }
-            }
-            else
-            {
-                AddCacheToCreate(ObjectKind.Player);
-            }
-        });
-
-        Mediator.Subscribe<PenumbraModSettingChangedMessage>(this, (msg) =>
-        {
-            Logger.LogDebug("Received Penumbra Mod settings change, updating everything");
-            AddCacheToCreate(ObjectKind.Player);
-            AddCacheToCreate(ObjectKind.Pet);
-            AddCacheToCreate(ObjectKind.MinionOrMount);
-            AddCacheToCreate(ObjectKind.Companion);
-        });
-
-        Mediator.Subscribe<FrameworkUpdateMessage>(this, (msg) => ProcessCacheCreation());
+        _cacheTick = frameScheduler.Register("CacheCreation", TickInterval.EveryFrame, TickPriority.Normal, ProcessCacheCreation,
+            FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
+        _onlineTick = frameScheduler.Register("OnlinePlayers", TickInterval.EveryMilliseconds(200), TickPriority.Normal, ProcessVisiblePlayers,
+            FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
     }
 
     protected override void Dispose(bool disposing)
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _cacheTick.Dispose();
+        _onlineTick.Dispose();
         base.Dispose(disposing);
 
-        _playerRelatedObjects.Values.ToList().ForEach(p => p.Dispose());
-        _runtimeCts.Cancel();
-        _runtimeCts.Dispose();
-        _creationCts.Cancel();
-        _creationCts.Dispose();
+        CancelBackgroundWork();
+        _backgroundTasks.StopSynchronously(Logger, TimeSpan.FromSeconds(2), nameof(CacheCreationService));
+        DisposeOwnedResources();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _cacheTick.Dispose();
+        _onlineTick.Dispose();
+        base.Dispose(disposing: true);
+        CancelBackgroundWork();
+        await _backgroundTasks.StopAsync().ConfigureAwait(false);
+        DisposeOwnedResources();
+        GC.SuppressFinalize(this);
+    }
+
+    private void QueueObjectBuild(ObjectKind kind, string reason)
+    {
+        Logger.LogDebug("Queueing {kind} cache build from {reason}", kind, reason);
+        AddCacheToCreate(kind);
+    }
+
+    private void QueueAllBuilds(string reason)
+    {
+        Logger.LogDebug("Queueing all cache builds from {reason}", reason);
+        AddCacheToCreate(ObjectKind.Player);
+        AddCacheToCreate(ObjectKind.Pet);
+        AddCacheToCreate(ObjectKind.MinionOrMount);
+        AddCacheToCreate(ObjectKind.Companion);
+    }
+
+    private void OnClearCacheForObject(ClearCacheForObjectMessage msg)
+    {
+        if (msg.ObjectToCreateFor.ObjectKind == ObjectKind.Pet)
+        {
+            Logger.LogTrace("Received clear cache for {obj}, ignoring", msg.ObjectToCreateFor);
+            return;
+        }
+
+        Logger.LogDebug("Clearing cache for {obj}", msg.ObjectToCreateFor);
+        AddCacheToCreate(msg.ObjectToCreateFor.ObjectKind);
+    }
+
+    private void OnClassJobChanged(ClassJobChangedMessage msg)
+    {
+        if (!_playerRelatedObjects.TryGetValue(ObjectKind.Player, out var playerHandler))
+        {
+            if (msg.GameObjectHandler.ObjectKind != ObjectKind.Player)
+            {
+                return;
+            }
+        }
+        else if (msg.GameObjectHandler != playerHandler)
+        {
+            return;
+        }
+
+        AddCacheToCreate(ObjectKind.Player);
+        AddCacheToCreate(ObjectKind.Pet);
+    }
+
+    private void OnCustomizePlusChanged(CustomizePlusMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        foreach (var item in _playerRelatedObjects.Where(item => msg.Address == null || item.Value.Address == msg.Address).Select(k => k.Key))
+        {
+            Logger.LogDebug("Received CustomizePlus change, updating {obj}", item);
+            AddCacheToCreate(item);
+        }
+    }
+
+    private void OnHeelsOffsetChanged()
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        Logger.LogDebug("Received Heels Offset change, updating player");
+        AddCacheToCreate(ObjectKind.Player);
+    }
+
+    private void OnGlamourerChanged(GlamourerChangedMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        if (TryFindObjectKind(msg.Address, out var changedType))
+        {
+            Logger.LogDebug("Received GlamourerChangedMessage for {kind}", changedType);
+            AddCacheToCreate(changedType);
+        }
+    }
+
+    private void OnHonorificChanged(HonorificMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        if (!string.Equals(msg.NewHonorificTitle, _playerData.HonorificData, StringComparison.Ordinal))
+        {
+            Logger.LogDebug("Received Honorific change, updating player");
+            AddCacheToCreate(ObjectKind.Player);
+        }
+    }
+
+    private void OnMoodlesChanged(MoodlesMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        if (TryFindObjectKind(msg.Address, out var changedType) && changedType == ObjectKind.Player)
+        {
+            Logger.LogDebug("Received Moodles change, updating player");
+            AddCacheToCreate(ObjectKind.Player);
+        }
+    }
+
+    private void OnPetNamesChanged(PetNamesMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        if (!string.Equals(msg.PetNicknamesData, _playerData.PetNamesData, StringComparison.Ordinal))
+        {
+            Logger.LogDebug("Received Pet Nicknames change, updating player");
+            AddCacheToCreate(ObjectKind.Player);
+        }
+    }
+
+    private void OnOptionalIpcAvailabilityChanged(OptionalIpcAvailabilityChangedMessage msg)
+    {
+        if (_isZoning)
+        {
+            return;
+        }
+
+        Logger.LogDebug("Optional IPC {ipc} availability changed to {available}, rebuilding local character data", msg.IpcName, msg.IsAvailable);
+
+        if (string.Equals(msg.IpcName, IpcManager.CustomizePlusIpcName, StringComparison.Ordinal))
+        {
+            foreach (var objectKind in _playerRelatedObjects.Keys)
+            {
+                AddCacheToCreate(objectKind);
+            }
+
+            return;
+        }
+
+        AddCacheToCreate(ObjectKind.Player);
     }
 
     private void AddCacheToCreate(ObjectKind kind = ObjectKind.Player)
     {
-        _debounceCts.Cancel();
-        _debounceCts.Dispose();
-        _debounceCts = new();
-        var token = _debounceCts.Token;
-        _cacheCreateLock.Wait();
-        _debouncedObjectCache.Add(kind);
-        _cacheCreateLock.Release();
-
-        _ = Task.Run(async () =>
+        if (Volatile.Read(ref _disposed) != 0)
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
-            Logger.LogTrace("Debounce complete, inserting objects to create for: {obj}", string.Join(", ", _debouncedObjectCache));
-            await _cacheCreateLock.WaitAsync(token).ConfigureAwait(false);
-            foreach (var item in _debouncedObjectCache)
-            {
-                _cachesToCreate.Add(item);
-            }
-            _debouncedObjectCache.Clear();
+            return;
+        }
+
+        var scope = _debounceFlight.Begin(_runtimeCts.Token);
+        var token = scope.Token;
+        try
+        {
+            _cacheCreateLock.Wait(token);
+        }
+        catch
+        {
+            scope.Dispose();
+            throw;
+        }
+
+        try
+        {
+            _debouncedObjectCache.Add(kind);
+        }
+        finally
+        {
             _cacheCreateLock.Release();
-        });
+        }
+
+        _ = _backgroundTasks.Run(async () =>
+        {
+            using (scope)
+            {
+                try
+                {
+                    await Task.Delay(BuildDebounceDelay, token).ConfigureAwait(false);
+                    await _cacheCreateLock.WaitAsync(token).ConfigureAwait(false);
+                    try
+                    {
+                        Logger.LogTrace("Debounce complete, inserting objects to create for: {obj}", string.Join(", ", _debouncedObjectCache));
+                        foreach (var item in _debouncedObjectCache)
+                        {
+                            _cachesToCreate.Add(item);
+                        }
+
+                        _debouncedObjectCache.Clear();
+                    }
+                    finally
+                    {
+                        _cacheCreateLock.Release();
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    Logger.LogTrace("Cache creation debounce cancelled");
+                }
+            }
+        }, nameof(AddCacheToCreate));
     }
 
     private void ProcessCacheCreation()
     {
-        if (_isZoning || _haltCharaDataCreation) return;
-
-        if (_cachesToCreate.Count == 0) return;
+        if (Volatile.Read(ref _disposed) != 0 || _isZoning || _haltCharaDataCreation)
+        {
+            return;
+        }
 
         if (_playerRelatedObjects.Any(p => p.Value.CurrentDrawCondition is
-            not (GameObjectHandler.DrawCondition.None or GameObjectHandler.DrawCondition.DrawObjectZero or GameObjectHandler.DrawCondition.ObjectZero)))
+            not (GameObjectDrawCondition.None or GameObjectDrawCondition.DrawObjectZero or GameObjectDrawCondition.ObjectZero)))
         {
             Logger.LogDebug("Waiting for draw to finish before executing cache creation");
             return;
         }
 
-        _creationCts.Cancel();
-        _creationCts.Dispose();
-        _creationCts = new();
-        _cacheCreateLock.Wait(_creationCts.Token);
-        var objectKindsToCreate = _cachesToCreate.ToList();
-        foreach (var creationObj in objectKindsToCreate)
+        _cacheCreateLock.Wait(_runtimeCts.Token);
+
+        List<ObjectKind> objectKindsToCreate;
+        try
         {
-            _currentlyCreating.Add(creationObj);
+            if (_cachesToCreate.Count == 0)
+            {
+                return;
+            }
+
+            objectKindsToCreate = _cachesToCreate.ToList();
+            _cachesToCreate.Clear();
         }
-        _cachesToCreate.Clear();
-        _cacheCreateLock.Release();
-
-        _ = Task.Run(async () =>
+        finally
         {
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_creationCts.Token, _runtimeCts.Token);
+            _cacheCreateLock.Release();
+        }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), linkedCts.Token).ConfigureAwait(false);
+        var scope = _creationFlight.Begin(_runtimeCts.Token);
+        var creationToken = scope.Token;
+        _ = _backgroundTasks.Run(async () =>
+        {
+            using (scope)
+            {
+                await CreateCharacterData(objectKindsToCreate, creationToken).ConfigureAwait(false);
+            }
+        }, nameof(ProcessCacheCreation));
+    }
 
+    private async Task CreateCharacterData(List<ObjectKind> objectKindsToCreate, CancellationToken creationToken)
+    {
+        try
+        {
             Logger.LogDebug("Creating Caches for {objectKinds}", string.Join(", ", objectKindsToCreate));
 
-            try
+            Dictionary<ObjectKind, CharacterDataFragment?> createdData = [];
+            foreach (var objectKind in objectKindsToCreate)
             {
-                Dictionary<ObjectKind, CharacterDataFragment?> createdData = [];
-                foreach (var objectKind in _currentlyCreating)
+                if (!_playerRelatedObjects.TryGetValue(objectKind, out var handler))
                 {
-                    createdData[objectKind] = await _characterDataFactory.BuildCharacterData(_playerRelatedObjects[objectKind], linkedCts.Token).ConfigureAwait(false);
+                    Logger.LogDebug("Skipping {objectKind} cache build because the owned handler is not ready", objectKind);
+                    continue;
                 }
 
-                foreach (var kvp in createdData)
-                {
-                    _playerData.SetFragment(kvp.Key, kvp.Value);
-                }
+                createdData[objectKind] = await _snapshotBuilder.BuildCharacterData(handler, creationToken).ConfigureAwait(false);
+            }
 
-                Mediator.Publish(new CharacterDataCreatedMessage(_playerData.ToAPI()));
-                _currentlyCreating.Clear();
-            }
-            catch (OperationCanceledException)
+            foreach (var kvp in createdData)
             {
-                Logger.LogDebug("Cache Creation cancelled");
+                _playerData.SetFragment(kvp.Key, kvp.Value);
             }
-            catch (Exception ex)
+
+            var apiData = _playerData.ToAPI();
+            OnCharacterDataBuilt(apiData);
+            Mediator.Publish(new CharacterDataCreatedMessage(apiData));
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogDebug("Cache Creation cancelled");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogCritical(ex, "Error during Cache Creation Processing");
+        }
+        finally
+        {
+            Logger.LogDebug("Cache Creation complete");
+        }
+    }
+
+    private void OnPairHandlerVisible(PairHandler player)
+    {
+        lock (_visibilityLock)
+        {
+            if (_lastSentData == null)
             {
-                Logger.LogCritical(ex, "Error during Cache Creation Processing");
+                _pendingVisibleUsers.Add(player.Pair.UserData);
             }
-            finally
+
+            _newVisiblePlayers.Add(player);
+        }
+    }
+
+    private void OnCharacterDataBuilt(ApiCharacterData newData)
+    {
+        List<UserData>? pendingVisibleUsers = null;
+        lock (_visibilityLock)
+        {
+            if (_lastSentData != null && string.Equals(newData.DataHash.Value, _lastSentData.DataHash.Value, StringComparison.Ordinal))
             {
-                Logger.LogDebug("Cache Creation complete");
+                Logger.LogDebug("Not sending data for {hash}", newData.DataHash.Value);
+                return;
             }
-        });
+
+            _lastSentData = newData;
+            if (_pendingVisibleUsers.Count > 0)
+            {
+                pendingVisibleUsers = _pendingVisibleUsers.ToList();
+                _pendingVisibleUsers.Clear();
+            }
+        }
+
+        var uploadableReplacementCount = newData.FileReplacements.Sum(kvp => kvp.Value.Count(v => string.IsNullOrEmpty(v.FileSwapPath)));
+        var fileSwapCount = newData.FileReplacements.Sum(kvp => kvp.Value.Count(v => !string.IsNullOrEmpty(v.FileSwapPath)));
+        Logger.LogInformation(
+            "Built local character data {hash}: objects={objectCount}, uploadableFiles={uploadableReplacementCount}, fileSwaps={fileSwapCount}, glamourerEntries={glamourerCount}",
+            newData.DataHash.Value,
+            newData.FileReplacements.Count,
+            uploadableReplacementCount,
+            fileSwapCount,
+            newData.GlamourerData.Count);
+        Logger.LogDebug("Pushing updated character data");
+
+        var visibleUsers = _pairManager.GetVisibleUsers();
+        if (pendingVisibleUsers != null)
+        {
+            visibleUsers = visibleUsers.Union(pendingVisibleUsers, UserDataComparer.Instance).ToList();
+        }
+
+        PushCharacterData(visibleUsers);
+    }
+
+    private void OnConnected()
+    {
+        ApiCharacterData? lastSentData;
+        int pendingVisibleUserCount;
+        lock (_visibilityLock)
+        {
+            lastSentData = _lastSentData;
+            pendingVisibleUserCount = _pendingVisibleUsers.Count;
+        }
+
+        var visibleUsers = _pairManager.GetVisibleUsers();
+        if (lastSentData == null)
+        {
+            Logger.LogInformation(
+                "Connected to server but no cached local character data is available yet; skipping initial push. Visible users={visibleUserCount}, pending visible users={pendingVisibleUserCount}",
+                visibleUsers.Count,
+                pendingVisibleUserCount);
+            return;
+        }
+
+        Logger.LogInformation("Connected to server, pushing cached local character data {hash} to {visibleUserCount} visible users",
+            lastSentData.DataHash.Value, visibleUsers.Count);
+        PushCharacterData(visibleUsers);
+    }
+
+    private void ProcessVisiblePlayers()
+    {
+        if (!_dalamudUtil.GetIsPlayerPresent() || !_apiController.IsConnected)
+        {
+            return;
+        }
+
+        List<PairHandler> newVisiblePlayers;
+        lock (_visibilityLock)
+        {
+            if (_newVisiblePlayers.Count == 0)
+            {
+                return;
+            }
+
+            newVisiblePlayers = _newVisiblePlayers.ToList();
+            _newVisiblePlayers.Clear();
+        }
+
+        Logger.LogTrace("Has new visible players, requesting cached character data and pushing local character data");
+
+        var visiblePlayerIdents = newVisiblePlayers
+            .Select(player => player.Pair.Ident)
+            .Where(ident => !string.IsNullOrWhiteSpace(ident))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var visibleUsers = newVisiblePlayers
+            .Select(player => player.Pair.UserData)
+            .Distinct(UserDataComparer.Instance)
+            .ToList();
+
+        RequestCharacterData(visiblePlayerIdents);
+        PushCharacterData(visibleUsers);
+    }
+
+    private void PushCharacterData(List<UserData> visiblePlayers)
+    {
+        ApiCharacterData? data;
+        lock (_visibilityLock)
+        {
+            data = _lastSentData;
+        }
+
+        if (data == null)
+        {
+            return;
+        }
+
+        _ = _backgroundTasks.Run(
+            ct => PushCharacterDataInternal(data.Clone(), visiblePlayers, ct),
+            nameof(PushCharacterData),
+            _runtimeCts.Token);
+    }
+
+    private async Task PushCharacterDataInternal(ApiCharacterData data, List<UserData> visiblePlayers, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var dataToSend = await _fileTransferManager.UploadFiles(data, visiblePlayers, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogDebug("Character data upload was cancelled");
+        }
+        catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
+        {
+            Logger.LogDebug("Skipping character data upload because file transfers are not initialized yet");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Unexpected exception while pushing character data");
+        }
+    }
+
+    private void RequestCharacterData(List<string> visiblePlayerIdents)
+    {
+        if (visiblePlayerIdents.Count == 0)
+        {
+            return;
+        }
+
+        _ = _backgroundTasks.Run(
+            ct => RequestCharacterDataInternal(visiblePlayerIdents, ct),
+            nameof(RequestCharacterData),
+            _runtimeCts.Token);
+    }
+
+    private async Task RequestCharacterDataInternal(List<string> visiblePlayerIdents, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await _apiController.UserGetPairsInRange(visiblePlayerIdents).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Logger.LogDebug("Cached character data request was cancelled");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Unexpected exception while requesting cached character data");
+        }
+    }
+
+    private bool TryFindObjectKind(nint address, out ObjectKind objectKind)
+    {
+        foreach (var (candidateKind, handler) in _playerRelatedObjects)
+        {
+            if (handler.Address == address)
+            {
+                objectKind = candidateKind;
+                return true;
+            }
+        }
+
+        objectKind = default;
+        return false;
+    }
+
+    private void CancelBackgroundWork()
+    {
+        _backgroundTasks.StopAccepting();
+        _runtimeCts.Cancel();
+        _creationFlight.Cancel();
+        _debounceFlight.Cancel();
+    }
+
+    private void DisposeOwnedResources()
+    {
+        _playerRelatedObjects.Values.ToList().ForEach(p => p.Dispose());
+        _runtimeCts.Dispose();
+        _creationFlight.Dispose();
+        _debounceFlight.Dispose();
+        _cacheCreateLock.Dispose();
     }
 }

@@ -15,17 +15,18 @@ using System.Numerics;
 
 namespace Snowcloak.UI;
 
-internal class EventViewerUI : WindowMediatorSubscriberBase
+public sealed class EventViewerUI : WindowMediatorSubscriberBase, IStaticWindow
 {
     private readonly EventAggregator _eventAggregator;
-    private readonly UiSharedService _uiSharedService;
     private readonly SnowcloakConfigService _configService;
-    private List<Event> _currentEvents = new();
-    private Lazy<List<Event>> _filteredEvents;
+    private List<EventViewRow> _currentEvents = [];
+    private Lazy<List<EventViewRow>> _filteredEvents;
     private string _filterFreeText = string.Empty;
-    private bool _isPaused = false;
+    private string _filterUid = string.Empty;
+    private EventSeverity? _filterSeverity;
+    private bool _isPaused;
 
-    private List<Event> CurrentEvents
+    private List<EventViewRow> CurrentEvents
     {
         get
         {
@@ -39,44 +40,88 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
     }
 
     public EventViewerUI(ILogger<EventViewerUI> logger, SnowMediator mediator,
-        EventAggregator eventAggregator, UiSharedService uiSharedService, SnowcloakConfigService configService,
+        EventAggregator eventAggregator, SnowcloakConfigService configService,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Event Viewer###SnowcloakEventViewerUI", performanceCollectorService)
     {
         _eventAggregator = eventAggregator;
-        _uiSharedService = uiSharedService;
         _configService = configService;
-        SizeConstraints = new()
-        {
-            MinimumSize = new(700, 400)
-        };
+        SetScaledSizeConstraints(new Vector2(700, 400));
         _filteredEvents = RecreateFilter();
         WindowName = "Event Viewer###SnowcloakEventViewerUI";
     }
 
-    private Lazy<List<Event>> RecreateFilter()
+    private Lazy<List<EventViewRow>> RecreateFilter()
     {
         return new(() =>
-            CurrentEvents.Where(f =>
-                string.IsNullOrEmpty(_filterFreeText)
-                || (f.EventSource.Contains(_filterFreeText, StringComparison.OrdinalIgnoreCase)
-                    || f.Character.Contains(_filterFreeText, StringComparison.OrdinalIgnoreCase)
-                    || f.UID.Contains(_filterFreeText, StringComparison.OrdinalIgnoreCase)
-                    || f.Message.Contains(_filterFreeText, StringComparison.OrdinalIgnoreCase)
-                )
-             ).ToList());
+            CurrentEvents.Where(MatchesFilters).ToList());
+    }
+
+    private bool MatchesFilters(EventViewRow row)
+    {
+        if (_filterSeverity.HasValue && row.Severity != _filterSeverity.Value)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_filterUid)
+            && !row.UID.Contains(_filterUid, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.IsNullOrEmpty(_filterFreeText)
+               || row.FilterText.Contains(_filterFreeText, StringComparison.OrdinalIgnoreCase);
     }
 
     private void ClearFilters()
     {
         _filterFreeText = string.Empty;
+        _filterUid = string.Empty;
+        _filterSeverity = null;
         _filteredEvents = RecreateFilter();
     }
 
     public override void OnOpen()
     {
-        CurrentEvents = _eventAggregator.EventList.Value.OrderByDescending(f => f.EventTime).ToList();
+        RefreshEvents();
         ClearFilters();
+    }
+
+    private void RefreshEvents()
+    {
+        CurrentEvents = _eventAggregator.EventList.Value.OrderByDescending(f => f.EventTime).Select(CreateViewRow).ToList();
+    }
+
+    private static EventViewRow CreateViewRow(Event ev)
+    {
+        var icon = ev.EventSeverity switch
+        {
+            EventSeverity.Informational => FontAwesomeIcon.InfoCircle,
+            EventSeverity.Warning => FontAwesomeIcon.ExclamationTriangle,
+            EventSeverity.Error => FontAwesomeIcon.Cross,
+            _ => FontAwesomeIcon.QuestionCircle
+        };
+
+        Vector4? iconColor = ev.EventSeverity switch
+        {
+            EventSeverity.Warning => ImGuiColors.DalamudYellow,
+            EventSeverity.Error => ImGuiColors.DalamudRed,
+            _ => null
+        };
+
+        var filterText = string.Join('\n', ev.EventSource, ev.Character, ev.UID, ev.Message);
+        return new EventViewRow(
+            ev.EventTime.ToString("T", CultureInfo.CurrentCulture),
+            ev.EventSource,
+            ev.UID,
+            ev.Character,
+            ev.Message,
+            ev.EventSeverity,
+            ev.EventSeverity.ToString(),
+            icon,
+            iconColor,
+            filterText);
     }
 
     protected override void DrawInternal()
@@ -85,6 +130,8 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
         var freezeLabel ="Freeze View";
         var newEventsTooltip = "New events are available. Click to resume updating.";
         var filterLabel = "Filter lines";
+        var uidFilterLabel = "UID";
+        var severityFilterLabel = "Severity";
         var openFolderLabel = "Open EventLog folder";
         var timeColumnLabel = "Time";
         var sourceColumnLabel = "Source";
@@ -112,22 +159,30 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
         }
 
         if (newEventsAvailable && !_isPaused)
-            CurrentEvents = _eventAggregator.EventList.Value.OrderByDescending(f => f.EventTime).ToList();
+            RefreshEvents();
 
         ImGui.SameLine(freezeSize + ImGui.GetStyle().ItemSpacing.X * 2);
 
         bool changedFilter = false;
         ImGui.SetNextItemWidth(200);
         changedFilter |= ImGui.InputText(filterLabel, ref _filterFreeText, 50);
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(110);
+        changedFilter |= ImGui.InputText(uidFilterLabel, ref _filterUid, 40);
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(140);
+        changedFilter |= DrawSeverityFilter(severityFilterLabel);
+
         if (changedFilter) _filteredEvents = RecreateFilter();
 
-        using (ImRaii.Disabled(_filterFreeText.IsNullOrEmpty()))
+        using (ImRaii.Disabled(!HasActiveFilters()))
         {
             ImGui.SameLine();
-            if (_uiSharedService.IconButton(FontAwesomeIcon.Ban))
+            if (ElezenImgui.IconButton(FontAwesomeIcon.Ban))
             {
-                _filterFreeText = string.Empty;
-                _filteredEvents = RecreateFilter();
+                ClearFilters();
             }
         }
 
@@ -136,6 +191,7 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
             var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.FolderOpen, openFolderLabel);
             var dist = ImGui.GetWindowContentRegionMax().X - buttonSize;
             ImGui.SameLine(dist);
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FolderOpen, openFolderLabel))
             {
                 ProcessStartInfo ps = new()
                 {
@@ -170,81 +226,124 @@ internal class EventViewerUI : WindowMediatorSubscriberBase
             ImGui.TableSetupColumn(characterColumnLabel, ImGuiTableColumnFlags.None, characterColWidth);
             ImGui.TableSetupColumn(eventColumnLabel, ImGuiTableColumnFlags.None);
             ImGui.TableHeadersRow();
-            int i = 0;
-            foreach (var ev in _filteredEvents.Value)
+            var events = _filteredEvents.Value;
+            var clipper = new ImGuiListClipper();
+            clipper.Begin(events.Count);
+            while (clipper.Step())
             {
-                ++i;
-
-                var icon = ev.EventSeverity switch
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
                 {
-                    EventSeverity.Informational => FontAwesomeIcon.InfoCircle,
-                    EventSeverity.Warning => FontAwesomeIcon.ExclamationTriangle,
-                    EventSeverity.Error => FontAwesomeIcon.Cross,
-                    _ => FontAwesomeIcon.QuestionCircle
-                };
+                    var ev = events[i];
 
-                var iconColor = ev.EventSeverity switch
-                {
-                    EventSeverity.Informational => new Vector4(),
-                    EventSeverity.Warning => ImGuiColors.DalamudYellow,
-                    EventSeverity.Error => ImGuiColors.DalamudRed,
-                    _ => new Vector4()
-                };
-
-                ImGui.TableNextColumn();
-                ElezenImgui.ShowIcon(icon, iconColor == new Vector4() ? null : iconColor);
-                ElezenImgui.AttachTooltip(ev.EventSeverity.ToString());
-                ImGui.TableNextColumn();
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted(ev.EventTime.ToString("T", CultureInfo.CurrentCulture));
-                ImGui.TableNextColumn();
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted(ev.EventSource);
-                ImGui.TableNextColumn();
-                ImGui.AlignTextToFramePadding();
-                if (!string.IsNullOrEmpty(ev.UID))
-                {
-                    if (ImGui.Selectable(ev.UID + $"##{i}"))
+                    ImGui.TableNextColumn();
+                    using (ImRaii.PushColor(ImGuiCol.Text, ev.IconColor.GetValueOrDefault(), ev.IconColor.HasValue))
                     {
-                        _filterFreeText = ev.UID;
-                        _filteredEvents = RecreateFilter();
+                        if (ElezenImgui.IconButton(ev.Icon))
+                        {
+                            _filterSeverity = ev.Severity;
+                            _filteredEvents = RecreateFilter();
+                        }
                     }
-                }
-                else
-                {
-                    ImGui.TextUnformatted(noValueLabel);
-                }
-                ImGui.TableNextColumn();
-                ImGui.AlignTextToFramePadding();
-                if (!string.IsNullOrEmpty(ev.Character))
-                {
-                    if (ImGui.Selectable(ev.Character + $"##{i}"))
+                    ElezenImgui.AttachTooltip(ev.SeverityText);
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextUnformatted(ev.TimeText);
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextUnformatted(ev.EventSource);
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    if (!string.IsNullOrEmpty(ev.UID))
                     {
-                        _filterFreeText = ev.Character;
-                        _filteredEvents = RecreateFilter();
+                        if (ImGui.Selectable(ev.UID + $"##{i}"))
+                        {
+                            _filterUid = ev.UID;
+                            _filteredEvents = RecreateFilter();
+                        }
                     }
-                }
-                else
-                {
-                    ImGui.TextUnformatted(noValueLabel);
-                }
-                ImGui.TableNextColumn();
-                ImGui.AlignTextToFramePadding();
-                var posX = ImGui.GetCursorPosX();
-                var maxTextLength = ImGui.GetWindowContentRegionMax().X - posX;
-                var textSize = ImGui.CalcTextSize(ev.Message).X;
-                var msg = ev.Message;
-                while (textSize > maxTextLength)
-                {
-                    msg = msg[..^5] + "...";
-                    textSize = ImGui.CalcTextSize(msg).X;
-                }
-                ImGui.TextUnformatted(msg);
-                if (!string.Equals(msg, ev.Message, StringComparison.Ordinal))
-                {
-                    ElezenImgui.AttachTooltip(ev.Message);
+                    else
+                    {
+                        ImGui.TextUnformatted(noValueLabel);
+                    }
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    if (!string.IsNullOrEmpty(ev.Character))
+                    {
+                        if (ImGui.Selectable(ev.Character + $"##{i}"))
+                        {
+                            _filterFreeText = ev.Character;
+                            _filteredEvents = RecreateFilter();
+                        }
+                    }
+                    else
+                    {
+                        ImGui.TextUnformatted(noValueLabel);
+                    }
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    var posX = ImGui.GetCursorPosX();
+                    var maxTextLength = ImGui.GetWindowContentRegionMax().X - posX;
+                    var textSize = ImGui.CalcTextSize(ev.Message).X;
+                    var msg = ev.Message;
+                    while (textSize > maxTextLength)
+                    {
+                        msg = msg[..^5] + "...";
+                        textSize = ImGui.CalcTextSize(msg).X;
+                    }
+                    ImGui.TextUnformatted(msg);
+                    if (!string.Equals(msg, ev.Message, StringComparison.Ordinal))
+                    {
+                        ElezenImgui.AttachTooltip(ev.Message);
+                    }
                 }
             }
+            clipper.End();
         }
     }
+
+    private bool DrawSeverityFilter(string label)
+    {
+        var changed = false;
+        var preview = _filterSeverity?.ToString() ?? "All severities";
+        if (ImGui.BeginCombo(label, preview))
+        {
+            if (ImGui.Selectable("All severities", !_filterSeverity.HasValue))
+            {
+                _filterSeverity = null;
+                changed = true;
+            }
+
+            foreach (var severity in Enum.GetValues<EventSeverity>())
+            {
+                if (ImGui.Selectable(severity.ToString(), _filterSeverity == severity))
+                {
+                    _filterSeverity = severity;
+                    changed = true;
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        return changed;
+    }
+
+    private bool HasActiveFilters()
+    {
+        return _filterSeverity.HasValue
+               || !string.IsNullOrWhiteSpace(_filterFreeText)
+               || !string.IsNullOrWhiteSpace(_filterUid);
+    }
+
+    private sealed record EventViewRow(
+        string TimeText,
+        string EventSource,
+        string UID,
+        string Character,
+        string Message,
+        EventSeverity Severity,
+        string SeverityText,
+        FontAwesomeIcon Icon,
+        Vector4? IconColor,
+        string FilterText);
 }

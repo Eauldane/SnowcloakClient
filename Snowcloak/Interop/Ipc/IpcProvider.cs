@@ -15,6 +15,7 @@ namespace Snowcloak.Interop.Ipc;
 public class IpcProvider : IHostedService, IMediatorSubscriber
 {
     private readonly ILogger<IpcProvider> _logger;
+    private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly IDalamudPluginInterface _pi;
     private readonly CharaDataManager _charaDataManager;
     private ICallGateProvider<string, IGameObject, bool>? _loadFileProvider;
@@ -28,6 +29,7 @@ public class IpcProvider : IHostedService, IMediatorSubscriber
         CharaDataManager charaDataManager, SnowMediator snowMediator)
     {
         _logger = logger;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
         _pi = pi;
         _charaDataManager = charaDataManager;
         Mediator = snowMediator;
@@ -64,7 +66,8 @@ public class IpcProvider : IHostedService, IMediatorSubscriber
         _loadFileAsyncProvider?.UnregisterFunc();
         _handledGameAddresses?.UnregisterFunc();
         Mediator.UnsubscribeAll(this);
-        return Task.CompletedTask;
+        _backgroundTasks.StopAccepting();
+        return _backgroundTasks.StopAsync(cancellationToken);
     }
 
     private async Task<bool> LoadMcdfAsync(string path, IGameObject target)
@@ -76,7 +79,7 @@ public class IpcProvider : IHostedService, IMediatorSubscriber
 
     private bool LoadMcdf(string path, IGameObject target)
     {
-        _ = Task.Run(async () => await ApplyFileAsync(path, target).ConfigureAwait(false)).ConfigureAwait(false);
+        _ = _backgroundTasks.Run(() => ApplyFileAsync(path, target), nameof(LoadMcdf));
 
         return true;
     }

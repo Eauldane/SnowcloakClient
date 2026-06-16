@@ -1,9 +1,6 @@
-using Dalamud.Interface.ManagedFontAtlas;
-
 namespace Snowcloak.UI.Components.BbCode;
 
 using System.Numerics;
-using System.Net.Http;
 using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
@@ -11,26 +8,28 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Plugin;
-using Dalamud.Plugin.Services;
 using Dalamud.Utility;
+using ElezenTools.UI;
+using Snowcloak.Core.BbCode;
 using System.Linq;
 
-public sealed partial class BbCodeRenderer : IDisposable
+public sealed partial class BbCodeRenderer
 {
     private readonly IDalamudPluginInterface _pluginInterface;
-    private readonly ITextureProvider _textureProvider;
-    private readonly HttpClient _httpClient = new();
-    private readonly Dictionary<string, IDalamudTextureWrap> _imageCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _failedImages = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TextureService _textureService;
     private readonly Dictionary<string, string> _emoteMappings;
     private readonly Dictionary<string, string> _emoteAliases;
+    private readonly Dictionary<string, IReadOnlyList<BbCodeElement>> _parseCache = new(StringComparer.Ordinal);
+    private readonly Queue<string> _parseCacheOrder = new();
 
     private static readonly string[] EmoteExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+    private static readonly string[] AllowedLinkSchemes = [Uri.UriSchemeHttp, Uri.UriSchemeHttps, Uri.UriSchemeMailto];
+    private const int MaxParseCacheEntries = 64;
 
-    public BbCodeRenderer(IDalamudPluginInterface pluginInterface, ITextureProvider textureProvider)
+    public BbCodeRenderer(IDalamudPluginInterface pluginInterface, TextureService textureService)
     {
         _pluginInterface = pluginInterface;
-        _textureProvider = textureProvider;
+        _textureService = textureService;
 
         _emoteMappings = new(StringComparer.OrdinalIgnoreCase);
         _emoteAliases = new(StringComparer.OrdinalIgnoreCase)
@@ -46,7 +45,21 @@ public sealed partial class BbCodeRenderer : IDisposable
 
     public IReadOnlyList<BbCodeElement> Parse(string text)
     {
-        return BbCodeParser.Parse(text, _emoteMappings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
+        if (_parseCache.TryGetValue(text, out var cached))
+        {
+            return cached;
+        }
+
+        var parsed = BbCodeParser.Parse(text, _emoteMappings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        _parseCache[text] = parsed;
+        _parseCacheOrder.Enqueue(text);
+        if (_parseCacheOrder.Count > MaxParseCacheEntries)
+        {
+            _parseCache.Remove(_parseCacheOrder.Dequeue());
+        }
+
+        return parsed;
     }
 
     public void Render(string text, float wrapWidth, BbCodeRenderOptions? options = null)
@@ -89,17 +102,6 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        foreach (var texture in _imageCache.Values)
-        {
-            texture.Dispose();
-        }
-
-        _imageCache.Clear();
-        _httpClient.Dispose();
-    }
-
     private IEnumerable<LayoutSegment> BuildSegments(IReadOnlyList<BbCodeElement> elements, BbCodeRenderOptions options)
     {
         foreach (var element in elements)
@@ -112,7 +114,7 @@ public sealed partial class BbCodeRenderer : IDisposable
                 case BbCodeTextElement textElement:
                     foreach (var part in SplitText(textElement.Text))
                     {
-                        if (part == "\n")
+                        if (string.Equals(part, "\n", StringComparison.Ordinal))
                         {
                             yield return LayoutSegment.NewLine;
                             continue;
@@ -135,7 +137,7 @@ public sealed partial class BbCodeRenderer : IDisposable
                     yield return LayoutSegment.FromText(emoteText, emoteTextSize, emoteElement.Style);
                     break;
                 case BbCodeImageElement imageElement when options.AllowImages:
-                    var texture = GetTexture(imageElement.Source);
+                    var texture = _textureService.GetImage(imageElement.Source);
                     var imageSize = GetScaledImageSize(texture, options.MaxImageWidth, options.MaxImageHeight);
                     yield return LayoutSegment.FromImage(imageSize, imageElement.Style with { Underline = false }, texture);
                     break;
@@ -223,7 +225,7 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
     
-    private Vector2 CalculateTextSize(string text, BbCodeStyle style, BbCodeRenderOptions options)
+    private static Vector2 CalculateTextSize(string text, BbCodeStyle style, BbCodeRenderOptions options)
     {
         using var context = PushStyleContext(style, options);
         return ImGui.CalcTextSize(text, hideTextAfterDoubleHash: false, 0f);
@@ -246,7 +248,7 @@ public sealed partial class BbCodeRenderer : IDisposable
         return new Vector2(width * scale, height * scale);
     }
 
-    private void RenderSegment(LayoutSegment segment, BbCodeRenderOptions options)
+    private static void RenderSegment(LayoutSegment segment, BbCodeRenderOptions options)
     {
         if (segment.IsImage)
         {
@@ -276,7 +278,6 @@ public sealed partial class BbCodeRenderer : IDisposable
         ImGui.TextUnformatted(text);
         
         var rectMin = ImGui.GetItemRectMin();
-        var rectMax = ImGui.GetItemRectMax();
 
         var drawList = ImGui.GetWindowDrawList();
 
@@ -300,12 +301,12 @@ public sealed partial class BbCodeRenderer : IDisposable
 
         if (options.AllowLinks && (segment.Style.Url != null || segment.Style.UseTextAsUrl) && ImGui.IsItemHovered())
         {
-            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
             var url = segment.Style.Url ?? segment.Text;
-            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+            var targetUrl = url ?? string.Empty;
+            if (IsAllowedLinkUrl(targetUrl))
             {
-                var targetUrl = url ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(targetUrl))
+                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                 {
                     if (options.OnLinkClicked != null)
                     {
@@ -320,55 +321,16 @@ public sealed partial class BbCodeRenderer : IDisposable
         }
     }
 
+    private static bool IsAllowedLinkUrl(string url)
+    {
+        return !string.IsNullOrWhiteSpace(url)
+               && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+               && AllowedLinkSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase);
+    }
+
     private IDalamudTextureWrap? GetTextureForEmote(string emoteName)
     {
-        if (!_emoteMappings.TryGetValue(emoteName, out var path)) return null;
-        if (!File.Exists(path)) return null;
-
-        return GetOrAddTexture(path, () => File.ReadAllBytes(path));
-    }
-
-    private IDalamudTextureWrap? GetTexture(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source)) return null;
-
-        if (Uri.IsWellFormedUriString(source, UriKind.Absolute))
-        {
-            return GetOrAddTexture(source, () => _httpClient.GetByteArrayAsync(source).GetAwaiter().GetResult());
-        }
-
-        if (File.Exists(source))
-        {
-            return GetOrAddTexture(source, () => File.ReadAllBytes(source));
-        }
-
-        var possiblePath = Path.Combine(_pluginInterface.ConfigDirectory.FullName, source);
-        if (File.Exists(possiblePath))
-        {
-            return GetOrAddTexture(possiblePath, () => File.ReadAllBytes(possiblePath));
-        }
-
-        return null;
-    }
-
-    private IDalamudTextureWrap? GetOrAddTexture(string key, Func<byte[]> loadAction)
-    {
-        if (_imageCache.TryGetValue(key, out var cachedTexture)) return cachedTexture;
-        if (_failedImages.Contains(key)) return null;
-
-        try
-        {
-            var data = loadAction.Invoke();
-            var texture = _textureProvider.CreateFromImageAsync(data).Result;
-            _imageCache[key] = texture;
-            return texture;
-        }
-        catch
-        {
-            _failedImages.Add(key);
-        }
-
-        return null;
+        return _emoteMappings.TryGetValue(emoteName, out var path) ? _textureService.GetFile(path) : null;
     }
 
     private readonly record struct LayoutSegment(bool IsNewLine, bool IsImage, Vector2 Size, BbCodeStyle Style, string? Text, IDalamudTextureWrap? Texture)
@@ -388,71 +350,33 @@ public sealed partial class BbCodeRenderer : IDisposable
 
     private sealed record LayoutLine(IReadOnlyList<LayoutSegment> Segments, float Width, float Height, BbCodeAlignment Alignment);
     
-    private StyleContext PushStyleContext(BbCodeStyle style, BbCodeRenderOptions options)
+    private static IDisposable? PushStyleContext(BbCodeStyle style, BbCodeRenderOptions options)
     {
-        var font = ImGui.GetFont();
-        float? previousScale = null;
-        var scale = GetFontScale(style, font);
-        if (scale.HasValue && Math.Abs(scale.Value - 1f) > 0.001f)
-        {
-            previousScale = font.Scale;
-            font.Scale = previousScale.Value * scale.Value;
-            // Ensure the scaled font is on the stack 
-            var _ = ImRaii.PushFont(font);
-            return new StyleContext(_, font, previousScale); // early return to keep disposable alive for caller scope
-        }
-
-        return new StyleContext(null, font, previousScale);
+        _ = options;
+        var targetPx = GetTargetPx(style, ImGui.GetFont().FontSize);
+        return targetPx is null ? null : ElezenFonts.Push(targetPx.Value);
     }
 
-    private static float? GetFontScale(BbCodeStyle style, ImFontPtr font)
+    private static float? GetTargetPx(BbCodeStyle style, float baseSize)
     {
+        if (baseSize <= 0f) return null;
+
         if (style.FontScale.HasValue)
         {
-            var scaledTarget = font.FontSize * style.FontScale.Value;
-            var pixelAlignedScale = Math.Clamp(MathF.Round(scaledTarget) / font.FontSize, 0.5f, 4f);
-            return pixelAlignedScale;
+            var scaled = MathF.Round(baseSize * style.FontScale.Value);
+            return Math.Clamp(scaled, baseSize * 0.5f, baseSize * 4f);
         }
 
         if (style.FontSize.HasValue)
         {
-            var baseSize = font.FontSize;
-            if (baseSize > 0f)
-            {
-                var targetSize = MathF.Max(1f, style.FontSize.Value);
-                var desiredScale = Math.Clamp(MathF.Round(targetSize) / baseSize, 0.5f, 4f);
-                return Math.Clamp(desiredScale, 0.5f, 4f);
-            }
+            var requestedPx = MathF.Max(1f, MathF.Round(style.FontSize.Value));
+            return Math.Clamp(requestedPx, baseSize * 0.5f, baseSize * 4f);
         }
 
         return null;
     }
 
-    private readonly struct StyleContext : IDisposable
-    {
-        private readonly IDisposable? _fontPush;
-        private readonly ImFontPtr _font;
-        private readonly float? _previousScale;
 
-        public StyleContext(IDisposable? fontPush, ImFontPtr font, float? previousScale)
-        {
-            _fontPush = fontPush;
-            _font = font;
-            _previousScale = previousScale;
-        }
-
-        public void Dispose()
-        {
-            if (_previousScale.HasValue)
-            {
-                _font.Scale = _previousScale.Value;
-            }
-
-            _fontPush?.Dispose();
-        }
-    }
-    
-    
     private static void RenderItalicText(ImDrawListPtr drawList, Vector2 position, uint color, string text)
     {
         var startVertIndex = drawList.VtxBuffer.Size;

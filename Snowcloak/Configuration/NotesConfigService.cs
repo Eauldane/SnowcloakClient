@@ -1,14 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class NotesConfigService : ConfigurationServiceBase<UidNotesConfig>
+public class NotesConfigService : StateDocument<UidNotesConfig>
 {
     public const string ConfigName = "notes.json";
 
-    public NotesConfigService(string configDir) : base(configDir)
+    public NotesConfigService(StateDocumentStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

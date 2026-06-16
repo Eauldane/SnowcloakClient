@@ -16,9 +16,11 @@ using Snowcloak.Services;
 using Snowcloak.Services.CharaData;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI;
 using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
 
@@ -27,31 +29,22 @@ namespace Snowcloak.UI.Components;
 internal sealed class GroupPanel
 {
     private readonly Dictionary<string, bool> _expandedGroupState = new(StringComparer.Ordinal);
-    private readonly CompactUi _mainUi;
+    private readonly ApiController _apiController;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly SnowMediator _mediator;
     private readonly PairManager _pairManager;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly NotesStore _notesStore;
+    private readonly ShellConfigStore _shellConfigStore;
     private readonly CharaDataManager _charaDataManager;
     private readonly Dictionary<string, bool> _showGidForEntry = new(StringComparer.Ordinal);
     private readonly UidDisplayHandler _uidDisplayHandler;
-    private readonly UiSharedService _uiShared;
-    private List<BannedGroupUserDto> _bannedUsers = new();
-    private int _bulkInviteCount = 10;
-    private List<string> _bulkOneTimeInvites = new();
     private string _editGroupComment = string.Empty;
     private string _editGroupEntry = string.Empty;
-    private bool _errorGroupCreate = false;
+    private bool _errorGroupCreate;
     private bool _errorGroupJoin;
-    private bool _isPasswordValid;
-    private GroupPasswordDto? _lastCreatedGroup = null;
-    private bool _modalBanListOpened;
-    private bool _modalBulkOneTimeInvitesOpened;
-    private bool _modalChangePwOpened;
-    private string _newSyncShellPassword = string.Empty;
-    private bool _showModalBanList = false;
-    private bool _showModalBulkOneTimeInvites = false;
-    private bool _showModalChangePassword;
+    private GroupPasswordDto? _lastCreatedGroup;
     private bool _showModalCreateGroup;
     private bool _showModalEnterPassword;
     private bool _showRegionJoinError;
@@ -60,41 +53,39 @@ internal sealed class GroupPanel
     private string _syncShellToJoin = string.Empty;
     private bool _showPublicSyncshellWarning;
     private string? _publicSyncshellAliasToJoin;
-    private GroupFullInfoDto? _memberLabelEditorGroup;
-    private GroupPairFullInfoDto? _memberLabelEditorUser;
-    private List<string> _memberLabelDraft = [];
-    private string _memberLabelError = string.Empty;
-    private bool _memberLabelEditorPopupPendingOpen;
-    private bool _showMemberLabelEditor;
+    private readonly ConcurrentDictionary<string, GroupCommunityDto> _communityCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _communityLoading = new(StringComparer.Ordinal);
 
-    public GroupPanel(CompactUi mainUi, UiSharedService uiShared, PairManager pairManager,
-        UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager,
+    public GroupPanel(SnowMediator mediator, ApiController apiController, DalamudUtilService dalamudUtilService, PairManager pairManager,
+        UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, NotesStore notesStore, ShellConfigStore shellConfigStore,
         CharaDataManager charaDataManager, SyncshellBudgetService syncshellBudgetService)
     {
-        _mainUi = mainUi;
-        _uiShared = uiShared;
+        _mediator = mediator;
+        _apiController = apiController;
+        _dalamudUtilService = dalamudUtilService;
         _pairManager = pairManager;
         _uidDisplayHandler = uidDisplayHandler;
         _snowcloakConfig = snowcloakConfig;
         _syncshellBudgetPanel = new(syncshellBudgetService);
-        _serverConfigurationManager = serverConfigurationManager;
+        _notesStore = notesStore;
+        _shellConfigStore = shellConfigStore;
         _charaDataManager = charaDataManager;
     }
 
-    private ApiController ApiController => _uiShared.ApiController;
+    private ApiController ApiController => _apiController;
 
-    public void DrawSyncshells()
+    public float DrawSyncshells(float contentWidth)
     {
         HandlePendingRegionalShell();
         using (ImRaii.PushId("addsyncshell")) DrawAddSyncshell();
+        using (ImRaii.PushId("communitybrowse")) DrawCommunityBrowseButton();
 
         var listHeight = Math.Max(1f, ImGui.GetContentRegionAvail().Y - GetRegionJoinButtonHeight());
 
-        using (ImRaii.PushId("syncshelllist")) DrawSyncshellList(listHeight);
+        using (ImRaii.PushId("syncshelllist")) DrawSyncshellList(contentWidth, listHeight);
         using (ImRaii.PushId("regionaljoin")) DrawRegionJoinButton();
-        DrawMemberLabelEditorModal();
 
-        _mainUi.TransferPartHeight = ImGui.GetCursorPosY();
+        return ImGui.GetCursorPosY();
     }
 
     private void DrawAddSyncshell()
@@ -104,20 +95,24 @@ internal sealed class GroupPanel
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, tallPadding);
         var buttonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus);
         var clearButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Times);
-        var searchIconWidth = ElezenImgui.GetIconData(FontAwesomeIcon.Search).X;
+        var entryIcon = FontAwesomeIcon.Users;
+        var entryIconWidth = ElezenImgui.GetIconData(entryIcon).X;
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         ImGui.AlignTextToFramePadding();
-        ElezenImgui.ShowIcon(FontAwesomeIcon.Search);
+        using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
+        {
+            ElezenImgui.ShowIcon(entryIcon);
+        }
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth()
+        ImGui.SetNextItemWidth(ElezenImgui.GetWindowContentRegionWidth()
             - ImGui.GetWindowContentRegionMin().X
-            - searchIconWidth
+            - entryIconWidth
             - clearButtonSize.X
             - buttonSize.X
             - spacing * 3);
         ImGui.InputTextWithHint("##syncshellid", "Syncshell GID/Alias (leave empty to create)", ref _syncShellToJoin, 20);
         ImGui.SameLine();
-        if (_uiShared.IconButton(FontAwesomeIcon.Times))
+        if (ElezenImgui.IconButton(FontAwesomeIcon.Times))
         {
             _syncShellToJoin = string.Empty;
         }
@@ -130,7 +125,7 @@ internal sealed class GroupPanel
             || string.Equals(p.Group.GID, _syncShellToJoin, StringComparison.Ordinal));
 
         if (alreadyInGroup) ImGui.BeginDisabled();
-        if (_uiShared.IconButton(FontAwesomeIcon.Plus))
+        if (ElezenImgui.IconButton(FontAwesomeIcon.Plus))
         {
             if (!string.IsNullOrEmpty(_syncShellToJoin))
             {
@@ -160,7 +155,7 @@ internal sealed class GroupPanel
         ImGui.PopStyleVar();
 
         var enterPasswordTitle = "Enter Syncshell Password";
-        if (ImGui.BeginPopupModal(enterPasswordTitle, ref _showModalEnterPassword, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal(enterPasswordTitle, ref _showModalEnterPassword, SnowcloakUi.PopupWindowFlags))
         {
             ElezenImgui.WrappedText("Joining a syncshell means you will be paired with all of its members.");
             ElezenImgui.WrappedText("You will be able to see all of their mods; and they will be able to see all of yours.");
@@ -187,12 +182,12 @@ internal sealed class GroupPanel
                 }
                 _syncShellPassword = string.Empty;
             }
-            UiSharedService.SetScaledWindowSize(290);
+            ElezenImgui.SetScaledWindowSize(290);
             ImGui.EndPopup();
         }
 
         var createSyncshellTitle = "Create Syncshell";
-        if (ImGui.BeginPopupModal(createSyncshellTitle, ref _showModalCreateGroup, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal(createSyncshellTitle, ref _showModalCreateGroup, SnowcloakUi.PopupWindowFlags))
         {
             ElezenImgui.WrappedText("Creating a syncshell means you are responsible for ensuring proper moderation.");
             ElezenImgui.WrappedText("Please only proceed if you are prepared to enforce community guidelines and keep your members safe.");
@@ -220,7 +215,7 @@ internal sealed class GroupPanel
                 ImGui.AlignTextToFramePadding();
                 ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Syncshell Password: {0}", _lastCreatedGroup.Password));
                 ImGui.SameLine();
-                if (_uiShared.IconButton(FontAwesomeIcon.Copy))
+                if (ElezenImgui.IconButton(FontAwesomeIcon.Copy))
                 {
                     ImGui.SetClipboardText(_lastCreatedGroup.Password);
                 }
@@ -233,10 +228,20 @@ internal sealed class GroupPanel
                     new Vector4(1, 0, 0, 1));
             }
 
-            UiSharedService.SetScaledWindowSize(350);
+            ElezenImgui.SetScaledWindowSize(350);
             ImGui.EndPopup();
         }
 
+        ImGuiHelpers.ScaledDummy(2);
+    }
+
+    private void DrawCommunityBrowseButton()
+    {
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Globe, "Browse Community Syncshells"))
+        {
+            _mediator.Publish(new UiToggleMessage(typeof(CommunitySyncshellWindow)));
+        }
+        ElezenImgui.AttachTooltip("Open the community syncshell directory to search and join public syncshells.");
         ImGuiHelpers.ScaledDummy(2);
     }
 
@@ -255,7 +260,7 @@ internal sealed class GroupPanel
 
     private void DrawRegionJoinButton()
     {
-        var regionName = _uiShared.DataCenterRegion;
+        var regionName = _dalamudUtilService.GetDataCenterRegion();
         var regionShell = string.IsNullOrEmpty(regionName) ? string.Empty : $"Snowcloak - {regionName} Public Syncshell";
         var regionShellJoinString = string.IsNullOrEmpty(regionName) ? string.Empty : $"{regionName} Public Syncshell";
 
@@ -301,7 +306,7 @@ internal sealed class GroupPanel
     private void DrawPublicSyncshellWarningModal()
     {
         var popupTitle = "Join Public Syncshell";
-        if (ImGui.BeginPopupModal(popupTitle, ref _showPublicSyncshellWarning, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal(popupTitle, ref _showPublicSyncshellWarning, SnowcloakUi.PopupWindowFlags))
         {
             ElezenImgui.WrappedText("Public Syncshells can contain lots of people, and these people may gather in one particular spot.");
             ElezenImgui.WrappedText("This can cause significant load on both the server, and your PC. If you have a lower-end computer, we STRONGLY recommend that you do not join public syncshells.");
@@ -330,7 +335,7 @@ internal sealed class GroupPanel
                 _publicSyncshellAliasToJoin = null;
             }
 
-            UiSharedService.SetScaledWindowSize(500);
+            ElezenImgui.SetScaledWindowSize(500);
             ImGui.EndPopup();
         }
     }
@@ -355,9 +360,18 @@ internal sealed class GroupPanel
             string.Equals(g.Key.GID, regionShell, StringComparison.Ordinal) ||
             string.Equals(g.Value.Group.Alias, regionShell, StringComparison.Ordinal));
 
-        var resolvedGid = matchingGroup.Equals(default(KeyValuePair<GroupData, GroupFullInfoDto>))
-            ? regionShell
-            : matchingGroup.Key.GID;
+        string resolvedGid;
+        bool resolved;
+        if (matchingGroup.Key is not null)
+        {
+            resolved = true;
+            resolvedGid = matchingGroup.Key.GID;
+        }
+        else
+        {
+            resolved = false;
+            resolvedGid = regionShell;
+        }
 
         DisableRegionalShellChat(resolvedGid);
 
@@ -366,7 +380,7 @@ internal sealed class GroupPanel
             DisableRegionalShellChat(regionShell);
         }
 
-        return !matchingGroup.Equals(default(KeyValuePair<GroupData, GroupFullInfoDto>));
+        return resolved;
     }
 
     private void JoinRegionalSyncshell(string regionShell)
@@ -395,11 +409,12 @@ internal sealed class GroupPanel
     
     private void DisableRegionalShellChat(string gid)
     {
-        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(gid);
+        var shellConfig = _shellConfigStore.GetShellConfigForGid(gid);
         if (shellConfig.Enabled)
         {
             shellConfig.Enabled = false;
-            _serverConfigurationManager.SaveShellConfigForGid(gid, shellConfig);        }
+            _shellConfigStore.SaveShellConfigForGid(gid, shellConfig);
+        }
     }
     
     private void DrawSyncshell(GroupFullInfoDto groupDto, List<Pair> pairsInGroup)
@@ -408,14 +423,14 @@ internal sealed class GroupPanel
             .Where(p => p.GroupPair.ContainsKey(groupDto))
             .ToList();
 
-        var name = groupDto.Group.Alias ?? groupDto.GID;
         if (!_expandedGroupState.TryGetValue(groupDto.GID, out bool isExpanded))
         {
             isExpanded = false;
             _expandedGroupState.Add(groupDto.GID, isExpanded);
         }
 
-        var icon = isExpanded ? FontAwesomeIcon.CaretSquareDown : FontAwesomeIcon.CaretSquareRight;
+        ImGui.AlignTextToFramePadding();
+        var icon = isExpanded ? FontAwesomeIcon.ChevronDown : FontAwesomeIcon.ChevronRight;
         ElezenImgui.ShowIcon(icon);
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
@@ -428,6 +443,7 @@ internal sealed class GroupPanel
 
         if (string.Equals(groupDto.OwnerUID, ApiController.UID, StringComparison.Ordinal))
         {
+            ImGui.AlignTextToFramePadding();
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.Crown.ToIconString());
             ImGui.PopFont();
@@ -436,6 +452,7 @@ internal sealed class GroupPanel
         }
         else if (groupDto.GroupUserInfo.IsModerator())
         {
+            ImGui.AlignTextToFramePadding();
             ImGui.PushFont(UiBuilder.IconFont);
             ImGui.TextUnformatted(FontAwesomeIcon.UserShield.ToIconString());
             ImGui.PopFont();
@@ -444,7 +461,7 @@ internal sealed class GroupPanel
         }
 
         _showGidForEntry.TryGetValue(groupDto.GID, out var showGidInsteadOfName);
-        var groupComment = _serverConfigurationManager.GetNoteForGid(groupDto.GID);
+        var groupComment = _notesStore.GetNoteForGid(groupDto.GID);
         if (!showGidInsteadOfName && !string.IsNullOrEmpty(groupComment))
         {
             groupName = groupComment;
@@ -453,9 +470,10 @@ internal sealed class GroupPanel
 
         if (!string.Equals(_editGroupEntry, groupDto.GID, StringComparison.Ordinal))
         {
-            var shellConfig = _serverConfigurationManager.GetShellConfigForGid(groupDto.GID);
+            var shellConfig = _shellConfigStore.GetShellConfigForGid(groupDto.GID);
             if (!_snowcloakConfig.Current.DisableChat && shellConfig.Enabled)
             {
+                ImGui.AlignTextToFramePadding();
                 ImGui.TextUnformatted($"[{shellConfig.ShellNumber}]");
                 ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellConfig.ShellNumber));
                 ImGui.SameLine();
@@ -467,29 +485,31 @@ internal sealed class GroupPanel
                 Environment.NewLine, groupName, validPairsInGroup.Count + 1, groupDto.OwnerAliasOrUID));
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
             {
-                var prevState = textIsGid;
-                if (_showGidForEntry.ContainsKey(groupDto.GID))
-                {
-                    prevState = _showGidForEntry[groupDto.GID];
-                }
+                var prevState = _showGidForEntry.TryGetValue(groupDto.GID, out var showGid)
+                    ? showGid
+                    : textIsGid;
 
                 _showGidForEntry[groupDto.GID] = !prevState;
             }
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
             {
-                _serverConfigurationManager.SetNoteForGid(_editGroupEntry, _editGroupComment);
-                _editGroupComment = _serverConfigurationManager.GetNoteForGid(groupDto.GID) ?? string.Empty;
+                _notesStore.SetNoteForGid(_editGroupEntry, _editGroupComment);
+                _editGroupComment = _notesStore.GetNoteForGid(groupDto.GID) ?? string.Empty;
                 _editGroupEntry = groupDto.GID;
             }
+
+            var community = GetCommunity(groupDto);
+            DrawEventIndicator(groupDto, community);
+            DrawSyncshellWorldTag(community);
         }
         else
         {
             var buttonSizes = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Bars).X + ElezenImgui.GetIconButtonSize(FontAwesomeIcon.LockOpen).X;
-            ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth() - ImGui.GetCursorPosX() - buttonSizes - ImGui.GetStyle().ItemSpacing.X * 2);
+            ImGui.SetNextItemWidth(ElezenImgui.GetWindowContentRegionWidth() - ImGui.GetCursorPosX() - buttonSizes - ImGui.GetStyle().ItemSpacing.X * 2);
             if (ImGui.InputTextWithHint("", "Comment/Notes", ref _editGroupComment, 255, ImGuiInputTextFlags.EnterReturnsTrue))
             {
-                _serverConfigurationManager.SetNoteForGid(groupDto.GID, _editGroupComment);
+                _notesStore.SetNoteForGid(groupDto.GID, _editGroupComment);
                 _editGroupEntry = string.Empty;
             }
 
@@ -502,133 +522,15 @@ internal sealed class GroupPanel
 
 
         using (ImRaii.PushId(groupDto.GID + "settings")) DrawSyncShellButtons(groupDto, validPairsInGroup);
-        
-        if (_showModalBanList && !_modalBanListOpened)
-        {
-            _modalBanListOpened = true;
-            ImGui.OpenPopup(string.Format(CultureInfo.CurrentCulture, "Manage Banlist for {0}", groupDto.GID));
-        }
-
-        if (!_showModalBanList) _modalBanListOpened = false;
-
-        var banListTitle = string.Format(CultureInfo.CurrentCulture, "Manage Banlist for {0}", groupDto.GID);
-        if (ImGui.BeginPopupModal(banListTitle, ref _showModalBanList, UiSharedService.PopupWindowFlags))
-        {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Retweet, "Refresh Banlist from Server"))
-            {
-                _bannedUsers = ApiController.GroupGetBannedUsers(groupDto).Result;
-            }
-
-            if (ImGui.BeginTable("bannedusertable" + groupDto.GID, 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY))
-            {
-                ImGui.TableSetupColumn("UID", ImGuiTableColumnFlags.None, 1);
-                ImGui.TableSetupColumn("Alias", ImGuiTableColumnFlags.None, 1);
-                ImGui.TableSetupColumn("By", ImGuiTableColumnFlags.None, 1);
-                ImGui.TableSetupColumn("Date", ImGuiTableColumnFlags.None, 2);
-                ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.None, 3);
-                ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.None, 1);
-
-                ImGui.TableHeadersRow();
-
-                foreach (var bannedUser in _bannedUsers.ToList())
-                {
-                    ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(bannedUser.UID);
-                    ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(bannedUser.UserAlias ?? string.Empty);
-                    ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(bannedUser.BannedBy);
-                    ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(bannedUser.BannedOn.ToLocalTime().ToString(CultureInfo.CurrentCulture));
-                    ImGui.TableNextColumn();
-                    ElezenImgui.WrappedText(bannedUser.Reason);
-                    ImGui.TableNextColumn();
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Check, string.Format(CultureInfo.CurrentCulture, "Unban#{0}", bannedUser.UID)))
-                    {
-                        _ = ApiController.GroupUnbanUser(bannedUser);
-                        _bannedUsers.RemoveAll(b => string.Equals(b.UID, bannedUser.UID, StringComparison.Ordinal));
-                    }
-                }
-
-                ImGui.EndTable();
-            }
-            UiSharedService.SetScaledWindowSize(700, 300);
-            ImGui.EndPopup();
-        }
-
-        if (_showModalChangePassword && !_modalChangePwOpened)
-        {
-            _modalChangePwOpened = true;
-            ImGui.OpenPopup("Change Syncshell Password");
-        }
-
-        if (!_showModalChangePassword) _modalChangePwOpened = false;
-
-        var changePasswordTitle = "Change Syncshell Password";
-        if (ImGui.BeginPopupModal(changePasswordTitle, ref _showModalChangePassword, UiSharedService.PopupWindowFlags))
-        {
-            ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "Enter the new Syncshell password for Syncshell {0} here.", name));
-            ElezenImgui.WrappedText("This action is irreversible");
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##changepw", string.Format(CultureInfo.CurrentCulture, "New password for {0}", name), ref _newSyncShellPassword, 255);
-            if (ImGui.Button("Change password"))
-            {
-                var pw = _newSyncShellPassword;
-                _isPasswordValid = ApiController.GroupChangePassword(new(groupDto.Group, pw)).Result;
-                _newSyncShellPassword = string.Empty;
-                if (_isPasswordValid) _showModalChangePassword = false;
-            }
-
-            if (!_isPasswordValid)
-            {
-                ElezenImgui.ColouredWrappedText("The selected password is too short. It must be at least 10 characters.", new Vector4(1, 0, 0, 1));
-            }
-
-            UiSharedService.SetScaledWindowSize(290);
-            ImGui.EndPopup();
-        }
-
-        if (_showModalBulkOneTimeInvites && !_modalBulkOneTimeInvitesOpened)
-        {
-            _modalBulkOneTimeInvitesOpened = true;
-            ImGui.OpenPopup("Create Bulk One-Time Invites");
-        }
-
-        if (!_showModalBulkOneTimeInvites) _modalBulkOneTimeInvitesOpened = false;
-
-        var bulkInviteTitle = "Create Bulk One-Time Invites";
-        if (ImGui.BeginPopupModal(bulkInviteTitle, ref _showModalBulkOneTimeInvites, UiSharedService.PopupWindowFlags))
-        {
-            ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "This allows you to create up to 100 one-time invites at once for the Syncshell {0}.{1}The invites are valid for 24h after creation and will automatically expire.",
-                name, Environment.NewLine));
-            ImGui.Separator();
-            if (_bulkOneTimeInvites.Count == 0)
-            {
-                ImGui.SetNextItemWidth(-1);
-                ImGui.SliderInt("Amount##bulkinvites", ref _bulkInviteCount, 1, 100);
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.MailBulk, "Create invites"))
-                {
-                    _bulkOneTimeInvites = ApiController.GroupCreateTempInvite(groupDto, _bulkInviteCount).Result;
-                }
-            }
-            else
-            {
-                ElezenImgui.WrappedText(string.Format(CultureInfo.CurrentCulture, "A total of {0} invites have been created.", _bulkOneTimeInvites.Count));
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy invites to clipboard"))
-                {
-                    ImGui.SetClipboardText(string.Join(Environment.NewLine, _bulkOneTimeInvites));
-                }
-            }
-
-            UiSharedService.SetScaledWindowSize(290);
-            ImGui.EndPopup();
-        }
 
         bool hideOfflineUsers = validPairsInGroup.Count > 1000;
         
         ImGui.Indent(20);
         if (_expandedGroupState[groupDto.GID])
         {
+            DrawGroupCommunity(groupDto);
+            ImGui.Separator();
+
             if (_snowcloakConfig.Current.ShowSyncshellBudgetDashboard)
             {
                 var budgetPairs = validPairsInGroup
@@ -672,13 +574,11 @@ internal sealed class GroupPanel
 
                 var drawPair = new DrawGroupPair(
                     groupDto.GID + pair.UserData.UID, pair,
-                    ApiController, _mainUi.Mediator, groupDto,
+                    ApiController, _mediator, groupDto,
                     groupPairInfo,
                     _uidDisplayHandler,
-                    _uiShared,
                     _charaDataManager,
-                    _snowcloakConfig,
-                    OpenMemberLabelEditor);
+                    _snowcloakConfig);
 
                 bool pausedByYou;
                 bool pausedByOther;
@@ -709,7 +609,7 @@ internal sealed class GroupPanel
             {
                 ImGui.TextUnformatted("Visible");
                 ImGui.Separator();
-                _uidDisplayHandler.RenderPairList(visibleUsers);
+                UidDisplayHandler.RenderPairList(visibleUsers);
 
                 
             }
@@ -718,14 +618,14 @@ internal sealed class GroupPanel
             {
                 ImGui.TextUnformatted("Online");
                 ImGui.Separator();
-                _uidDisplayHandler.RenderPairList(onlineUsers);
+                UidDisplayHandler.RenderPairList(onlineUsers);
             }
 
             if (pausedUsers.Count > 0)
             {
                 ImGui.TextUnformatted("Paused");
                 ImGui.Separator();
-                _uidDisplayHandler.RenderPairList(pausedUsers);
+                UidDisplayHandler.RenderPairList(pausedUsers);
             }
 
             if (offlineUsers.Count > 0)
@@ -738,7 +638,7 @@ internal sealed class GroupPanel
                 }
                 else
                 {
-                    _uidDisplayHandler.RenderPairList(offlineUsers);
+                    UidDisplayHandler.RenderPairList(offlineUsers);
                 }
             }
 
@@ -747,11 +647,152 @@ internal sealed class GroupPanel
         ImGui.Unindent(20);
     }
 
+    private void DrawGroupCommunity(GroupFullInfoDto groupDto)
+    {
+        var community = GetCommunity(groupDto);
+
+        // Events live in their own window now (opened from the calendar indicator or the
+        // syncshell menu); the expanded row keeps only the message of the day.
+        if (!string.IsNullOrWhiteSpace(community.Motd))
+        {
+            ElezenImgui.WrappedText(community.Motd);
+        }
+    }
+
+    private GroupCommunityDto GetCommunity(GroupFullInfoDto groupDto)
+    {
+        if (_communityCache.TryGetValue(groupDto.GID, out var community))
+        {
+            return community;
+        }
+
+        // Load community details off the draw thread; render an empty record until it
+        // arrives rather than blocking the frame on a SignalR round-trip (the old
+        // `.Result` call stalled or deadlocked the UI thread).
+        QueueCommunityLoad(groupDto);
+        return new GroupCommunityDto(groupDto.Group);
+    }
+
+    private void QueueCommunityLoad(GroupFullInfoDto groupDto)
+    {
+        // Single-flight per syncshell: at most one in-flight request per GID.
+        if (!_communityLoading.TryAdd(groupDto.GID, true))
+        {
+            return;
+        }
+
+        _ = LoadCommunityAsync(groupDto);
+    }
+
+    private async Task LoadCommunityAsync(GroupFullInfoDto groupDto)
+    {
+        GroupCommunityDto? community;
+        try
+        {
+            community = await _apiController.GroupGetCommunity(new GroupDto(groupDto.Group)).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Community MOTD/events are optional chrome. If the lookup fails (not connected,
+            // or the shell has no community record) cache an empty record so the row renders
+            // without it and we do not re-request it every frame.
+            community = null;
+        }
+
+        _communityCache[groupDto.GID] = community ?? new GroupCommunityDto(groupDto.Group);
+        _communityLoading.TryRemove(groupDto.GID, out _);
+    }
+
+    // An event counts as "active" for one hour after its start time.
+    private static readonly TimeSpan EventActiveWindow = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Draws a clickable calendar indicator beside the syncshell name when it has events
+    /// that are running or still to come. Clicking opens the dedicated events window.
+    /// </summary>
+    private void DrawEventIndicator(GroupFullInfoDto groupDto, GroupCommunityDto community)
+    {
+        var summary = GetEventSummary(community, DateTime.UtcNow);
+        if (!summary.HasAny)
+        {
+            return;
+        }
+
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        var colour = summary.AnyActive ? ImGuiColors.HealerGreen : SnowcloakColours.OnlineBlue;
+        ElezenImgui.ShowIcon(FontAwesomeIcon.CalendarDay, colour);
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+        {
+            _mediator.Publish(new OpenSyncshellEventsWindow(groupDto));
+        }
+        ElezenImgui.AttachTooltip(BuildIndicatorTooltip(summary));
+    }
+
+    /// <summary>Shows the admin-configured location (world, else region) next to the syncshell name.</summary>
+    private void DrawSyncshellWorldTag(GroupCommunityDto community)
+    {
+        var locationText = _dalamudUtilService.GetWorldName(community.MainWorldId) ?? community.MainRegion;
+        if (string.IsNullOrEmpty(locationText))
+        {
+            return;
+        }
+
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
+        {
+            ImGui.TextUnformatted("· " + locationText);
+        }
+        ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "This syncshell is based in {0}.", locationText));
+    }
+
+    private static (bool HasAny, bool AnyActive, int Count, GroupEventDto? Next) GetEventSummary(GroupCommunityDto community, DateTime nowUtc)
+    {
+        var anyActive = false;
+        var count = 0;
+        GroupEventDto? next = null;
+        foreach (var shellEvent in community.Events)
+        {
+            var start = DateTime.SpecifyKind(shellEvent.StartsAtUtc, DateTimeKind.Utc);
+            var active = start <= nowUtc && nowUtc < start + EventActiveWindow;
+            var upcoming = start > nowUtc;
+            if (!active && !upcoming)
+            {
+                continue;
+            }
+
+            count++;
+            anyActive |= active;
+            if (upcoming && (next == null || start < DateTime.SpecifyKind(next.StartsAtUtc, DateTimeKind.Utc)))
+            {
+                next = shellEvent;
+            }
+        }
+
+        return (count > 0, anyActive, count, next);
+    }
+
+    private static string BuildIndicatorTooltip((bool HasAny, bool AnyActive, int Count, GroupEventDto? Next) summary)
+    {
+        var header = summary.AnyActive
+            ? "An event is in progress now."
+            : string.Format(CultureInfo.CurrentCulture, "{0} upcoming event{1}.", summary.Count, summary.Count == 1 ? string.Empty : "s");
+
+        if (summary.Next != null)
+        {
+            var startLocal = DateTime.SpecifyKind(summary.Next.StartsAtUtc, DateTimeKind.Utc).ToLocalTime();
+            header += Environment.NewLine + string.Format(CultureInfo.CurrentCulture, "Next: {0:g}  {1}", startLocal, summary.Next.Title);
+        }
+
+        return header + Environment.NewLine + "Click to view events.";
+    }
+
     private void DrawSyncShellButtons(GroupFullInfoDto groupDto, List<Pair> groupPairs)
     {
         var infoIcon = FontAwesomeIcon.InfoCircle;
 
-        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(groupDto.GID);
+        var shellConfig = _shellConfigStore.GetShellConfigForGid(groupDto.GID);
         bool invitesEnabled = !groupDto.GroupPermissions.IsDisableInvites();
         var soundsDisabled = groupDto.GroupPermissions.IsDisableSounds();
         var animDisabled = groupDto.GroupPermissions.IsDisableAnimations();
@@ -771,20 +812,22 @@ internal sealed class GroupPanel
         var userSoundsIcon = userSoundsDisabled ? FontAwesomeIcon.VolumeOff : FontAwesomeIcon.VolumeUp;
         var userVFXIcon = userVFXDisabled ? FontAwesomeIcon.Circle : FontAwesomeIcon.Sun;
 
-        var iconSize = ElezenImgui.GetIconSize(infoIcon);
-        var barbuttonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Bars);
+        var actionButtonSize = DrawPairBase.RowActionButtonSize;
         var isOwner = string.Equals(groupDto.OwnerUID, ApiController.UID, StringComparison.Ordinal);
 
         var spacingX = ImGui.GetStyle().ItemSpacing.X;
-        var windowEndX = ImGui.GetWindowContentRegionMin().X + UiSharedService.GetWindowContentRegionWidth();
+        var windowEndX = ImGui.GetWindowContentRegionMin().X + ElezenImgui.GetWindowContentRegionWidth();
         var pauseIcon = groupDto.GroupUserPermissions.IsPaused() ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
-        var pauseIconSize = ElezenImgui.GetIconButtonSize(pauseIcon);
 
-        ImGui.SameLine(windowEndX - barbuttonSize.X - (showInfoIcon ? iconSize.X : 0) - (showInfoIcon ? spacingX : 0) - pauseIconSize.X - spacingX);
+        ImGui.SameLine(windowEndX
+            - actionButtonSize.X
+            - (showInfoIcon ? actionButtonSize.X + spacingX : 0)
+            - actionButtonSize.X
+            - spacingX);
 
         if (showInfoIcon)
         {
-            ElezenImgui.ShowIcon(infoIcon);
+            DrawPairBase.DrawRowActionButton(infoIcon, "syncshell-info");
             if (ImGui.IsItemHovered())
             {
                 ImGui.BeginTooltip();
@@ -864,7 +907,7 @@ internal sealed class GroupPanel
             ImGui.SameLine();
         }
 
-        if (_uiShared.IconButton(pauseIcon))
+        if (DrawPairBase.DrawRowActionButton(pauseIcon, "syncshell-pause"))
         {
             var userPerm = groupDto.GroupUserPermissions ^ GroupUserPermissions.Paused;
             _ = ApiController.GroupChangeIndividualPermissionState(new GroupPairUserPermissionDto(groupDto.Group, new UserData(ApiController.UID), userPerm));
@@ -872,14 +915,14 @@ internal sealed class GroupPanel
         ElezenImgui.AttachTooltip((groupDto.GroupUserPermissions.IsPaused() ? "Resume" : "Pause") + " pairing with all users in this Syncshell");
         ImGui.SameLine();
 
-        if (_uiShared.IconButton(FontAwesomeIcon.Bars))
+        if (DrawPairBase.DrawRowActionButton(FontAwesomeIcon.Bars, "syncshell-menu", SnowcloakColours.CompactTextMuted))
         {
             ImGui.OpenPopup("ShellPopup");
         }
 
         if (ImGui.BeginPopup("ShellPopup"))
         {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleLeft, "Leave Syncshell") && UiSharedService.CtrlPressed())
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowCircleLeft, "Leave Syncshell") && ElezenImgui.CtrlPressed())
             {
                 _ = ApiController.GroupLeave(groupDto);
             }
@@ -896,9 +939,16 @@ internal sealed class GroupPanel
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Copy Notes"))
             {
                 ImGui.CloseCurrentPopup();
-                ImGui.SetClipboardText(UiSharedService.GetNotes(groupPairs));
+                ImGui.SetClipboardText(NotesStore.ExportNotes(groupPairs));
             }
             ElezenImgui.AttachTooltip("Copies all your notes for all users in this Syncshell to the clipboard." + Environment.NewLine + "They can be imported via Settings -> General -> Notes -> Import notes from clipboard");
+
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.CalendarDay, "View Events"))
+            {
+                ImGui.CloseCurrentPopup();
+                _mediator.Publish(new OpenSyncshellEventsWindow(groupDto));
+            }
+            ElezenImgui.AttachTooltip("Open upcoming and active events for this Syncshell.");
 
             var chatText = shellConfig.Enabled ? "Leave chat" : "Join chat";
             using (ImRaii.Disabled(!ApiController.IsConnected))
@@ -907,7 +957,7 @@ internal sealed class GroupPanel
                 {
                     ImGui.CloseCurrentPopup();
                     shellConfig.Enabled = !shellConfig.Enabled;
-                    _serverConfigurationManager.SaveShellConfigForGid(groupDto.GID, shellConfig);
+                    _shellConfigStore.SaveShellConfigForGid(groupDto.GID, shellConfig);
 
                     if (shellConfig.Enabled)
                     {
@@ -968,7 +1018,7 @@ internal sealed class GroupPanel
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Cog, "Open Admin Panel"))
                 {
                     ImGui.CloseCurrentPopup();
-                    _mainUi.Mediator.Publish(new OpenSyncshellAdminPanel(groupDto));
+                    _mediator.Publish(new OpenSyncshellAdminPanel(groupDto));
                 }
             }
 
@@ -976,120 +1026,18 @@ internal sealed class GroupPanel
         }
     }
 
-    private void DrawSyncshellList(float ySize)
+    private void DrawSyncshellList(float contentWidth, float ySize)
     {
-        ImGui.BeginChild("list", new Vector2(_mainUi.WindowContentWidth, ySize), border: false);
-        foreach (var entry in _pairManager.GroupPairs.OrderBy(g => g.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase).ToList())
+        ImGui.BeginChild("list", new Vector2(contentWidth, ySize), border: false);
+        using (ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(ImGui.GetStyle().FramePadding.X, 7f * ImGuiHelpers.GlobalScale)))
+        using (ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 2f * ImGuiHelpers.GlobalScale)))
         {
-            using (ImRaii.PushId(entry.Key.Group.GID)) DrawSyncshell(entry.Key, entry.Value);
+            foreach (var entry in _pairManager.GroupPairs.OrderBy(g => g.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase).ToList())
+            {
+                using (ImRaii.PushId(entry.Key.Group.GID)) DrawSyncshell(entry.Key, entry.Value);
+            }
         }
         ImGui.EndChild();
     }
 
-    private void OpenMemberLabelEditor(GroupFullInfoDto group, GroupPairFullInfoDto user)
-    {
-        _memberLabelEditorGroup = group;
-        _memberLabelEditorUser = user;
-        _memberLabelDraft = SyncshellMemberLabelUi.NormalizeSingleSelection(user.MemberLabels);
-        _memberLabelError = string.Empty;
-        _showMemberLabelEditor = true;
-        _memberLabelEditorPopupPendingOpen = true;
-    }
-
-    private void DrawMemberLabelEditorModal()
-    {
-        var popupTitle = "Edit Syncshell Roles";
-        if (_memberLabelEditorPopupPendingOpen)
-        {
-            ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing, new Vector2(0.5f));
-            ImGui.OpenPopup(popupTitle);
-            _memberLabelEditorPopupPendingOpen = false;
-        }
-
-        if (ImGui.BeginPopupModal(popupTitle, ref _showMemberLabelEditor, UiSharedService.PopupWindowFlags))
-        {
-            if (_memberLabelEditorGroup == null || _memberLabelEditorUser == null)
-            {
-                _showMemberLabelEditor = false;
-                ImGui.EndPopup();
-                return;
-            }
-
-            ElezenImgui.WrappedText($"Select shared roles for {_memberLabelEditorUser.UserAliasOrUID} in {_memberLabelEditorGroup.GroupAliasOrGID}.");
-            ElezenImgui.ColouredWrappedText(
-                "Choose a role for this user in your syncshell. They'll be given a special icon to help people identify their job.",
-                ImGuiColors.DalamudGrey);
-            ImGui.Separator();
-
-            foreach (var role in GroupMemberLabelValidator.AvailableLabels)
-            {
-                using var roleId = ImRaii.PushId($"member-role-{role.Value}");
-                var isSelected = SyncshellMemberLabelUi.IsLabelSelected(_memberLabelDraft, role.Value);
-                if (ImGui.Checkbox("##selected", ref isSelected))
-                {
-                    if (SyncshellMemberLabelUi.TrySetExclusiveLabelSelected(role.Value, isSelected, out var updatedLabels, out var errorMessage))
-                    {
-                        _memberLabelDraft = updatedLabels;
-                        _memberLabelError = string.Empty;
-                    }
-                    else
-                    {
-                        _memberLabelError = errorMessage ?? "Unable to update the selected roles.";
-                    }
-                }
-                ImGui.SameLine();
-                if (SyncshellMemberLabelUi.TryGetLabelPresentation(role.Value, out var icon, out var color, out var displayName, out _))
-                {
-                    using var roleColor = ImRaii.PushColor(ImGuiCol.Text, color);
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.TextUnformatted(icon.ToIconString());
-                    ImGui.PopFont();
-                    ImGui.SameLine();
-                    ImGui.TextUnformatted(displayName);
-                }
-                else
-                {
-                    ImGui.TextUnformatted(role.DisplayName);
-                }
-            }
-
-            if (!string.IsNullOrEmpty(_memberLabelError))
-            {
-                ElezenImgui.ColouredWrappedText(_memberLabelError, ImGuiColors.DalamudRed);
-            }
-
-            ImGuiHelpers.ScaledDummy(2f);
-            if (_memberLabelDraft.Count == 0)
-            {
-                ElezenImgui.ColouredWrappedText("No role selected.", ImGuiColors.DalamudGrey);
-            }
-            else
-            {
-                ElezenImgui.WrappedText("Selected Role: " + SyncshellMemberLabelUi.FormatLabels(_memberLabelDraft));
-            }
-
-            ImGui.Separator();
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Role"))
-            {
-                var success = ApiController.GroupSetMemberLabels(new GroupMemberLabelsDto(_memberLabelEditorGroup.Group, _memberLabelEditorUser.User, _memberLabelDraft)).Result;
-                if (success)
-                {
-                    _showMemberLabelEditor = false;
-                }
-                else
-                {
-                    _memberLabelError = "Unable to save roles. The member may have left the syncshell, your permissions changed, or the selection failed validation.";
-                }
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Cancel"))
-            {
-                _showMemberLabelEditor = false;
-            }
-
-            UiSharedService.SetScaledWindowSize(430, centerWindow: false);
-            ImGui.EndPopup();
-        }
-    }
 }

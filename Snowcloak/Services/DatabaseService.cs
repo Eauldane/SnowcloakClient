@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Configuration;
+using Snowcloak.Infrastructure.Data;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,11 +11,8 @@ namespace Snowcloak.Services;
 
 public class DatabaseService : IAsyncDisposable
 {
-    private readonly SnowcloakConfigService _configService;
     private readonly ILogger<DatabaseService> _logger;
-    private readonly string _databasePath;
-    private readonly string _connectionString;
-    private float _clientDBVersion;
+    private readonly SqliteDatabase _db;
     private readonly Lock _cleanupLock = new();
     private DateTime _lastCleanupUtc = DateTime.MinValue;
     private readonly CancellationTokenSource _cleanupCts = new();
@@ -40,55 +37,15 @@ public class DatabaseService : IAsyncDisposable
     private readonly Task _queueWorker;
 
 
-    public DatabaseService(SnowcloakConfigService configService,
+    public DatabaseService(SqliteDatabase db,
         ILogger<DatabaseService> logger)
     {
         _logger = logger;
-        _configService = configService;
-        _databasePath = Path.Combine(configService.ConfigurationDirectory, "Snowcloak.sqlite");
-        var connStringBuilder = new SqliteConnectionStringBuilder
-        {
-            DataSource = _databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared,
-        };
-        _connectionString = connStringBuilder.ToString();
+        _db = db;
 
-        InitDB();
+        RunMaintenance();
         _cleanupTask = Task.Run(() => PeriodicCleanupAsync(_cleanupCts.Token));
         _queueWorker = Task.Run(() => ProcessFileSeenQueueAsync(_queueCts.Token));
-    }
-
-    private void InitDB()
-    {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-
-        ExecuteNonQuery(connection, "PRAGMA journal_mode=WAL;");
-        ExecuteNonQuery(connection, "PRAGMA synchronous=NORMAL;");
-        ExecuteNonQuery(connection, "PRAGMA foreign_keys=ON;");
-
-        ApplyMigrations(connection);
-        if (PerformRetentionCleanup(connection, null, DateTime.UtcNow, force: true))
-        {
-            ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
-            ExecuteNonQuery(connection, "VACUUM;");
-        }
-
-        _logger.LogInformation("Database initialized! Schema version: {version}", _clientDBVersion);
-    }
-
-    private static int GetUserVersion(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        return Convert.ToInt32(command.ExecuteScalar());
-    }
-
-    private static void SetUserVersion(SqliteConnection connection, SqliteTransaction transaction, int version)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "PRAGMA user_version = " + version + ";";
-        command.ExecuteNonQuery();
     }
 
     private static void ExecuteNonQuery(SqliteConnection connection, string commandText)
@@ -109,7 +66,11 @@ public class DatabaseService : IAsyncDisposable
     // Temporary Home
     public void RecordFileSeen(string uid, string fileHash, DateTime seenAtUtc)
     {
-        _ = EnqueueFileSeen(uid, fileHash, seenAtUtc);
+        var enqueueTask = EnqueueFileSeen(uid, fileHash, seenAtUtc);
+        if (!enqueueTask.IsCompletedSuccessfully)
+        {
+            _ = enqueueTask.AsTask();
+        }
     }
 
         public ValueTask EnqueueFileSeen(string uid, string fileHash, DateTime seenAtUtc)
@@ -126,8 +87,7 @@ public class DatabaseService : IAsyncDisposable
 
         try
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            using var connection = _db.Open();
 
             using var command = connection.CreateCommand();
             command.CommandText = @"SELECT file_hash, seen_count, last_seen_at
@@ -168,8 +128,8 @@ public class DatabaseService : IAsyncDisposable
 
         try
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            using var writeScope = _db.EnterWrite();
+            using var connection = _db.Open();
             using var transaction = connection.BeginTransaction();
 
             using (var deleteUsage = connection.CreateCommand())
@@ -212,6 +172,7 @@ public class DatabaseService : IAsyncDisposable
             {
                 var threshold = nowUtc - UsageRetentionPeriod;
                 var thresholdDate = threshold.Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
+                var thresholdTimestamp = threshold.ToString("O", CultureInfo.InvariantCulture);
                 
                 int deletedBuckets;
                 using (var deleteBuckets = connection.CreateCommand())
@@ -221,6 +182,16 @@ public class DatabaseService : IAsyncDisposable
                         @"DELETE FROM file_hash_seen_buckets WHERE bucket_date < $threshold;";
                     deleteBuckets.Parameters.AddWithValue("$threshold", thresholdDate);
                     deletedBuckets = deleteBuckets.ExecuteNonQuery();
+                }
+
+                int deletedSemiTransients;
+                using (var deleteSemiTransients = connection.CreateCommand())
+                {
+                    deleteSemiTransients.Transaction = workingTransaction;
+                    deleteSemiTransients.CommandText =
+                        @"DELETE FROM semi_transient_resources WHERE last_seen_at < $threshold;";
+                    deleteSemiTransients.Parameters.AddWithValue("$threshold", thresholdTimestamp);
+                    deletedSemiTransients = deleteSemiTransients.ExecuteNonQuery();
                 }
 
                 ExecuteNonQuery(connection, workingTransaction, "DELETE FROM file_hash_uid;");
@@ -242,7 +213,7 @@ GROUP BY file_hash;";
                 }
 
                 _lastCleanupUtc = nowUtc;
-                return deletedBuckets > 0;
+                return deletedBuckets > 0 || deletedSemiTransients > 0;
                 
             }
             catch
@@ -264,171 +235,6 @@ GROUP BY file_hash;";
         }
     }
 
-    public void ApplyMigrations(SqliteConnection connection)
-    {
-        int schemaVersion = GetUserVersion(connection);
-        var vacuumAfterMigration = false;
-        using var transaction = connection.BeginTransaction();
-        if (schemaVersion == 0)
-        {
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_uid (
-    file_hash TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    seen_count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (file_hash));");
-
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets (
-    file_hash TEXT NOT NULL,
-    bucket_date TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (file_hash, bucket_date));");
-
-
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_last_seen ON file_hash_uid(last_seen_at DESC);");
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
-
-            SetUserVersion(connection, transaction, 4);
-            schemaVersion = 4;
-        }
-
-        if (schemaVersion == 1)
-        {
-                           ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_hash ON file_hash_uid(file_hash);");
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_events_hash_uid ON file_hash_seen_events(file_hash, uid, seen_at DESC);");
-            var fileHashUidColumns = GetTableColumns(connection, transaction, "file_hash_uid");
-            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "first_seen_at", "TEXT");
-            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "last_seen_at", "TEXT");
-            EnsureColumnExists(connection, transaction, "file_hash_uid", fileHashUidColumns, "seen_count", "INTEGER");
-            ExecuteNonQuery(connection, transaction, @"UPDATE file_hash_uid SET seen_count = 1 WHERE seen_count IS NULL;");
-
-            SetUserVersion(connection, transaction, 2);
-            schemaVersion = 2;
-        }
-
-        if (schemaVersion <= 2)
-        {
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets (
-    file_hash TEXT NOT NULL,
-    uid TEXT,
-    bucket_date TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (file_hash, uid, bucket_date));");
-
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
-
-            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_seen_buckets (file_hash, uid, bucket_date, count)
-SELECT file_hash, uid, strftime('%Y-%m-%d', seen_at) AS bucket_date, COUNT(*)
-FROM file_hash_seen_events
-GROUP BY file_hash, uid, bucket_date
-ON CONFLICT(file_hash, uid, bucket_date) DO UPDATE SET count = file_hash_seen_buckets.count + excluded.count;");
-
-            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_seen_events;");
-
-            ExecuteNonQuery(connection, transaction, "DELETE FROM file_hash_uid;");
-            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_uid (uid, file_hash, first_seen_at, last_seen_at, seen_count)
-SELECT uid, file_hash, MIN(bucket_date || 'T00:00:00Z'), MAX(bucket_date || 'T00:00:00Z'), SUM(count)
-FROM file_hash_seen_buckets
-GROUP BY uid, file_hash;");
-
-            SetUserVersion(connection, transaction, 3);
-            schemaVersion = 3;
-        }
-        
-                if (schemaVersion <= 3)
-        {
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_seen_buckets_new (
-    file_hash TEXT NOT NULL,
-    bucket_date TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (file_hash, bucket_date));");
-
-            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_seen_buckets_new (file_hash, bucket_date, count)
-SELECT file_hash, bucket_date, SUM(count)
-FROM file_hash_seen_buckets
-GROUP BY file_hash, bucket_date
-ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = file_hash_seen_buckets_new.count + excluded.count;");
-
-            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_seen_buckets;");
-            ExecuteNonQuery(connection, transaction, @"ALTER TABLE file_hash_seen_buckets_new RENAME TO file_hash_seen_buckets;");
-
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_date ON file_hash_seen_buckets(bucket_date);");
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_seen_buckets_hash ON file_hash_seen_buckets(file_hash, bucket_date);");
-
-            ExecuteNonQuery(connection, transaction, @"CREATE TABLE IF NOT EXISTS file_hash_uid_new (
-    file_hash TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    seen_count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (file_hash));");
-
-            ExecuteNonQuery(connection, transaction, @"INSERT INTO file_hash_uid_new (file_hash, first_seen_at, last_seen_at, seen_count)
-SELECT file_hash, MIN(bucket_date || 'T00:00:00Z'), MAX(bucket_date || 'T00:00:00Z'), SUM(count)
-FROM file_hash_seen_buckets
-GROUP BY file_hash;");
-
-            ExecuteNonQuery(connection, transaction, @"DROP TABLE IF EXISTS file_hash_uid;");
-            ExecuteNonQuery(connection, transaction, @"ALTER TABLE file_hash_uid_new RENAME TO file_hash_uid;");
-
-            ExecuteNonQuery(connection, transaction,
-                @"CREATE INDEX IF NOT EXISTS idx_file_hash_uid_last_seen ON file_hash_uid(last_seen_at DESC);");
-
-            SetUserVersion(connection, transaction, 4);
-            schemaVersion = 4;
-            vacuumAfterMigration = true;
-        }
-
-
-        transaction.Commit();
-        _clientDBVersion = GetUserVersion(connection);
-
-        if (vacuumAfterMigration)
-        {
-            ExecuteNonQuery(connection, "PRAGMA wal_checkpoint(TRUNCATE);");
-            ExecuteNonQuery(connection, "VACUUM;");
-        }
-
-    }
-    
-    private static HashSet<string> GetTableColumns(SqliteConnection connection, SqliteTransaction transaction, string tableName)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = $"PRAGMA table_info({tableName});";
-        HashSet<string> columns = new(StringComparer.OrdinalIgnoreCase);
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            if (!reader.IsDBNull(1))
-            {
-                columns.Add(reader.GetString(1));
-            }
-        }
-
-        return columns;
-    }
-
-    private static void EnsureColumnExists(SqliteConnection connection, SqliteTransaction transaction, string tableName,
-        HashSet<string> existingColumns, string columnName, string columnDefinition)
-    {
-        if (existingColumns.Contains(columnName)) return;
-        ExecuteNonQuery(connection, transaction,
-            $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnDefinition};");
-        existingColumns.Add(columnName);
-    }
-    
-    
     private async Task PeriodicCleanupAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
@@ -457,7 +263,7 @@ GROUP BY file_hash;");
     {
         List<FileSeenEntry> buffer = new(FileSeenFlushThreshold);
         using PeriodicTimer timer = new(FileSeenFlushInterval);
-        Task<bool> timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+        Task<bool> timerTask = WaitForNextTick(timer, cancellationToken);
         
         try
         {
@@ -484,7 +290,7 @@ GROUP BY file_hash;");
 
                         if (timerTask.IsCompleted)
                         {
-                            timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                            timerTask = WaitForNextTick(timer, cancellationToken);
                         }
                     }
                     else
@@ -494,7 +300,7 @@ GROUP BY file_hash;");
                             await FlushFileSeenBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
                         }
 
-                        timerTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                        timerTask = WaitForNextTick(timer, cancellationToken);
                         
                     }
                 }
@@ -529,21 +335,27 @@ GROUP BY file_hash;");
         }
     }
 
+    private static Task<bool> WaitForNextTick(PeriodicTimer timer, CancellationToken cancellationToken)
+    {
+        var wait = timer.WaitForNextTickAsync(cancellationToken);
+        return wait.IsCompletedSuccessfully ? Task.FromResult(wait.Result) : wait.AsTask();
+    }
+
     private async Task FlushFileSeenBufferAsync(List<FileSeenEntry> buffer, CancellationToken cancellationToken)
     {
         if (buffer.Count == 0) return;
 
         try
         {
-            await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await using SqliteTransaction transaction = (SqliteTransaction)await connection
+            using var writeScope = await _db.EnterWriteAsync(cancellationToken).ConfigureAwait(false);
+            using var connection = await _db.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using SqliteTransaction transaction = (SqliteTransaction)await connection
                 .BeginTransactionAsync(cancellationToken)
                 .ConfigureAwait(false);
             var nowUtc = DateTime.UtcNow;
             bool shouldVacuum = PerformRetentionCleanup(connection, transaction, nowUtc, force: false);
 
-            await using var bucketCommand = connection.CreateCommand();
+            using var bucketCommand = connection.CreateCommand();
             bucketCommand.Transaction = transaction;
             bucketCommand.CommandText = @"INSERT INTO file_hash_seen_buckets (file_hash, bucket_date, count)
 VALUES ($hash, $bucket, 1)
@@ -555,7 +367,7 @@ ON CONFLICT(file_hash, bucket_date) DO UPDATE SET count = count + 1;";
             bucketDateParam.ParameterName = "$bucket";
             bucketCommand.Parameters.Add(bucketDateParam);
 
-            await using var aggregateCommand = connection.CreateCommand();
+            using var aggregateCommand = connection.CreateCommand();
             aggregateCommand.Transaction = transaction;
             aggregateCommand.CommandText = @"INSERT INTO file_hash_uid (file_hash, first_seen_at, last_seen_at, seen_count)
 VALUES ($hash, $seen, $seen, 1)
@@ -575,11 +387,11 @@ ON CONFLICT(file_hash) DO UPDATE SET
                 var timestamp = entry.SeenAtUtc.ToUniversalTime();
                 bucketHashParam.Value = entry.FileHash;
                 bucketDateParam.Value = timestamp.Date.ToString(BucketDateFormat, CultureInfo.InvariantCulture);
-                bucketCommand.ExecuteNonQuery();
+                await bucketCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
                 aggregateHashParam.Value = entry.FileHash;
                 aggregateSeenParam.Value = timestamp.ToString("o", CultureInfo.InvariantCulture);
-                aggregateCommand.ExecuteNonQuery();
+                await aggregateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -602,23 +414,25 @@ ON CONFLICT(file_hash) DO UPDATE SET
 
     public async ValueTask DisposeAsync()
     {
-        _queueCts.Cancel();
+        await _queueCts.CancelAsync().ConfigureAwait(false);
+        await _cleanupCts.CancelAsync().ConfigureAwait(false);
         _fileSeenChannel.Writer.TryComplete();
         try
         {
-            await _queueWorker.ConfigureAwait(false);
+            await Task.WhenAll(_queueWorker, _cleanupTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             // Ignore cancellation during disposal
         }
         _queueCts.Dispose();
+        _cleanupCts.Dispose();
     }
 
     private void RunMaintenance()
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
+        using var writeScope = _db.EnterWrite();
+        using var connection = _db.Open();
 
         if (PerformRetentionCleanup(connection, null, DateTime.UtcNow, force: true))
         {
@@ -627,23 +441,4 @@ ON CONFLICT(file_hash) DO UPDATE SET
         }
     }
 
-    public void Dispose()
-    {
-        _cleanupCts.Cancel();
-        try
-        {
-            _cleanupTask.Wait();
-        }
-        catch (AggregateException ex) when (ex.InnerException is TaskCanceledException)
-        {
-        }
-        catch (TaskCanceledException)
-        {
-        }
-
-        _cleanupCts.Dispose();
-    }
-    
-    
 }
-

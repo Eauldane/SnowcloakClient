@@ -1,179 +1,123 @@
 using Dalamud.Game.Gui.Dtr;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services.Pairing;
+using Snowcloak.UI.PairingAvailability;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using System;
 using ElezenTools.UI;
 
 namespace Snowcloak.UI;
 
-public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
+public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
 {
-    private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly SnowcloakConfigService _configService;
-    private readonly IDtrBar _dtrBar;
-    private readonly Lazy<IDtrBarEntry> _entry;
-    private readonly ILogger<PairingAvailabilityDtrEntry> _logger;
-    private readonly SnowMediator _snowMediator;
-    private readonly PairRequestService _pairRequestService;
-    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly AvailabilityDispatcher _dispatcher;
+    private readonly PairingAvailabilityStore _availabilityStore;
     private string? _text;
     private string? _valueText;
     private string? _tooltip;
     private ElezenStrings.Colour _colors;
-    private Task? _runTask;
 
     public PairingAvailabilityDtrEntry(ILogger<PairingAvailabilityDtrEntry> logger, IDtrBar dtrBar,
         SnowcloakConfigService configService, SnowMediator snowMediator, PairRequestService pairRequestService,
         DalamudUtilService dalamudUtilService)
+        : base(logger, dtrBar, "Snowcloak Pairing")
     {
-        _logger = logger;
-        _dtrBar = dtrBar;
-        _entry = new(CreateEntry);
+        ArgumentNullException.ThrowIfNull(pairRequestService);
+
         _configService = configService;
-        _snowMediator = snowMediator;
-        _pairRequestService = pairRequestService;
-        _dalamudUtilService = dalamudUtilService;
+        _availabilityStore = pairRequestService.AvailabilityStore;
+        _dispatcher = new AvailabilityDispatcher(logger, pairRequestService, dalamudUtilService, snowMediator);
     }
 
-    public void Dispose()
+    protected override void ConfigureEntry(IDtrBarEntry entry)
     {
-        if (_entry.IsValueCreated)
-        {
-            _logger.LogDebug("Disposing pairing availability DTR entry");
-            Clear();
-            _entry.Value.Remove();
-        }
-    }
-
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Starting pairing availability DTR entry");
-        _runTask = Task.Run(RunAsync, _cancellationTokenSource.Token);
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _cancellationTokenSource.Cancel();
-        try
-        {
-            await _runTask!.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // ignored
-        }
-        finally
-        {
-            _cancellationTokenSource.Dispose();
-        }
-    }
-
-    private IDtrBarEntry CreateEntry()
-    {
-        var entry = _dtrBar.Get("Snowcloak Pairing");
         entry.OnClick = _ =>
         {
-            if (_pairRequestService.PendingRequests.Count > 0)
-            {
-                _snowMediator.Publish(new OpenFrostbrandUiMessage());
-                return;
-            }
-
-            _snowMediator.Publish(new UiToggleMessage(typeof(PairingAvailabilityWindow)));
+            var state = _availabilityStore.State;
+            _dispatcher.Dispatch(state.PendingRequestCount > 0
+                ? new OpenFrostbrandPanelIntent()
+                : new ToggleAvailabilityWindowIntent());
         };
-        return entry;
     }
 
-    private void Clear()
+    protected override void ResetCachedState()
     {
-        if (!_entry.IsValueCreated) return;
-
         _text = null;
         _tooltip = null;
         _valueText = null;
         _colors = default;
-        _entry.Value.Shown = false;
     }
 
-    private async Task RunAsync()
+    protected override void UpdateEntry()
     {
-        while (!_cancellationTokenSource.IsCancellationRequested)
-        {
-            await Task.Delay(1000, _cancellationTokenSource.Token).ConfigureAwait(false);
-            Update();
-        }
-    }
-
-    private void Update()
-    {
-        var pendingCount = _pairRequestService.PendingRequests.Count;
+        var availability = _availabilityStore.State;
+        var pendingCount = availability.PendingRequestCount;
         var hasPending = pendingCount > 0;
 
         if (!_configService.Current.EnableDtrEntry || !_configService.Current.PairingSystemEnabled)
         {
-            if (_entry.IsValueCreated && _entry.Value.Shown)
-                Clear();
+            if (HasVisibleEntry)
+                HideEntry();
             return;
         }
 
-        var availabilityActive = _pairRequestService.IsAvailabilityChannelActive;
-        if (!availabilityActive && !hasPending)
+        var availabilityActive = availability.AvailabilityChannelActive;
+        if (!availabilityActive && !hasPending && availability.TotalCount == 0 && availability.AutoRejectedCount == 0)
         {
             ShowUnavailable();
             return;
         }
 
-        if (!_entry.Value.Shown)
-            _entry.Value.Shown = true;
+        ShowEntry();
 
-        var hoverPlayers = availabilityActive ? ResolveHoverPlayers() : new HoverPlayers([], 0, 0);
-        var availableCount = availabilityActive ? hoverPlayers.Total : 0;
-        var filteredCount = availabilityActive ? hoverPlayers.FilteredCount : 0;
+        var hoverPlayers = ResolveHoverPlayers(availability);
+        var availableCount = hoverPlayers.Total;
+        var filteredCount = hoverPlayers.FilteredCount;
 
         var iconText = "\uE044";
-        var valueText = availableCount.ToString();
+        var valueText = availableCount.ToString(CultureInfo.InvariantCulture);
         if (pendingCount > 0)
         {
-            valueText += " (" + pendingCount.ToString() + ")";
+            valueText += " (" + pendingCount.ToString(CultureInfo.InvariantCulture) + ")";
         }
             
         
         var tooltipLines = new List<string>();
         if (hasPending)
-            tooltipLines.Add(string.Format("{0} pending pair requests", pendingCount));
+            tooltipLines.Add(string.Format(CultureInfo.InvariantCulture, "{0} pending pair requests", pendingCount));
 
-        if (availabilityActive)
+        if (availabilityActive || availableCount > 0 || filteredCount > 0)
         {
             var hoverText = hoverPlayers.Count > 0
                 ? string.Join(Environment.NewLine, hoverPlayers.Names)
-                : "No nearby players open to pairing";
-            var remaining = Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0);
+                : availableCount > 0
+                    ? string.Format(CultureInfo.InvariantCulture, "{0} users nearby", availableCount)
+                    : "No nearby players open to pairing";
+            var remaining = hoverPlayers.Count > 0 ? Math.Max(hoverPlayers.Total - hoverPlayers.Count, 0) : 0;
 
             if (remaining > 0)
-                hoverText += $"{Environment.NewLine}" + string.Format("... and {0} more", remaining);
+                hoverText += $"{Environment.NewLine}" + string.Format(CultureInfo.InvariantCulture, "... and {0} more", remaining);
             if (filteredCount > 0)
-                hoverText += $"{Environment.NewLine}" + string.Format("({0} filtered players)", filteredCount);
+                hoverText += $"{Environment.NewLine}" + string.Format(CultureInfo.InvariantCulture, "({0} filtered players)", filteredCount);
 
             var nearbyTooltip = availableCount > 0
-                ? string.Format("Users nearby open to pairing:{0}{1}", Environment.NewLine, hoverText)
+                ? string.Format(CultureInfo.InvariantCulture,
+                    availabilityActive ? "Users nearby open to pairing:{0}{1}" : "Last known users nearby open to pairing:{0}{1}",
+                    Environment.NewLine, hoverText)
                 : hoverText;
             tooltipLines.Add(nearbyTooltip);
         }
-        else
+
+        if (!availabilityActive)
         {
-            tooltipLines.Add("Pairing availability unavailable");
+            tooltipLines.Add("Pairing availability reconnecting");
         }
 
         var tooltip = string.Join(Environment.NewLine + Environment.NewLine, tooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)));
@@ -186,7 +130,7 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 
-        if (!string.Equals(iconText, _text, StringComparison.Ordinal)
+        if (!string.Equals(fullText, _text, StringComparison.Ordinal)
             || !string.Equals(valueText, _valueText, StringComparison.Ordinal)
             || !string.Equals(tooltip, _tooltip, StringComparison.Ordinal)
             || colors != _colors)
@@ -195,15 +139,14 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             _valueText = valueText;
             _tooltip = tooltip;
             _colors = colors;
-            _entry.Value.Text = ElezenStrings.BuildColouredString(fullText, colors);
-            _entry.Value.Tooltip = tooltip;
+            Entry.Text = ElezenStrings.BuildColouredString(fullText, colors);
+            Entry.Tooltip = tooltip;
         }
     }
 
     private void ShowUnavailable()
     {
-        if (!_entry.Value.Shown)
-            _entry.Value.Shown = true;
+        ShowEntry();
 
         const string iconText = "\uE044";
         var tooltip = "Frostbrand is loading...";
@@ -220,23 +163,20 @@ public sealed class PairingAvailabilityDtrEntry : IDisposable, IHostedService
             _tooltip = tooltip;
             _colors = colors;
 
-            _entry.Value.Text = ElezenStrings.BuildColouredString(iconText, colors);
-            _entry.Value.Tooltip = tooltip;
+            Entry.Text = ElezenStrings.BuildColouredString(iconText, colors);
+            Entry.Tooltip = tooltip;
         }
     }
 
-    private HoverPlayers ResolveHoverPlayers()
+    private static HoverPlayers ResolveHoverPlayers(AvailabilityViewState availability)
     {
-        var availability = _pairRequestService.GetAvailabilityFilterSnapshot();
-        var resolved = availability.Accepted
-            .Select(ident => (ident, pc: _dalamudUtilService.FindPlayerByNameHash(ident)))
-            .Where(tuple => tuple.pc.EntityId != 0 && tuple.pc.Address != IntPtr.Zero)
-            .Select(tuple => string.IsNullOrWhiteSpace(tuple.pc.Name) ? "Unnamed character" : tuple.pc.Name)
+        var resolved = availability.VisibleRows
+            .Select(row => string.IsNullOrWhiteSpace(row.CharacterName) ? "Unnamed character" : row.CharacterName)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
         var visible = resolved.Take(20).ToList();
-        return new HoverPlayers(visible, resolved.Count, availability.FilteredCount);
+        return new HoverPlayers(visible, availability.TotalCount, availability.AutoRejectedCount);
     }
     
     private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total, int FilteredCount)

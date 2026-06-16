@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.Configuration;
+using Snowcloak.Core.ModNullification;
 using Snowcloak.PlayerData.Moodles;
 
 namespace Snowcloak.Services.ModNullification;
@@ -121,10 +122,10 @@ public sealed class ModNullificationService
 
         var clan = appearance.Clan.Value;
         var female = appearance.Gender.Value != 0;
-        var minimumAttribute = female ? RspAttribute.FemaleMinSize : RspAttribute.MaleMinSize;
-        var maximumAttribute = female ? RspAttribute.FemaleMaxSize : RspAttribute.MaleMaxSize;
-        var minimumIdentifier = new RspIdentifier(clan, minimumAttribute);
-        var maximumIdentifier = new RspIdentifier(clan, maximumAttribute);
+        var minimumModifier = female ? RspModifier.FemaleMinSize : RspModifier.MaleMinSize;
+        var maximumModifier = female ? RspModifier.FemaleMaxSize : RspModifier.MaleMaxSize;
+        var minimumIdentifier = new RspIdentifier(clan, minimumModifier);
+        var maximumIdentifier = new RspIdentifier(clan, maximumModifier);
 
         var hasMinimumOverride = rspEntries.TryGetValue(minimumIdentifier, out var minimum);
         var hasMaximumOverride = rspEntries.TryGetValue(maximumIdentifier, out var maximum);

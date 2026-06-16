@@ -11,12 +11,10 @@ namespace Snowcloak.UI.Components.Popup;
 
 internal class BbCodeLinkPopupHandler : IPopupHandler
 {
-    private readonly UiSharedService _uiSharedService;
     private string _url = string.Empty;
 
-    public BbCodeLinkPopupHandler(UiSharedService uiSharedService)
+    public BbCodeLinkPopupHandler()
     {
-        _uiSharedService = uiSharedService;
     }
 
     public Vector2 PopupSize => new(520, 220);

@@ -54,7 +54,7 @@ internal sealed class SyncshellBudgetPanel
         DrawMetricCell("Offline", snapshot.OfflineCount.ToString(), "Offline or paused", ImGuiColors.DalamudGrey);
 
         DrawMetricCell("Auto-Blocked", snapshot.AutoBlockedCount.ToString(), "Local threshold holds", ImGuiColors.DalamudRed);
-        DrawMetricCell("Visible VRAM", UiSharedService.ByteToString(snapshot.VisibleVramBytes, true), "Currently applied visible load", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Vram));
+        DrawMetricCell("Visible VRAM", ElezenImgui.ByteToString(snapshot.VisibleVramBytes, true), "Currently applied visible load", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Vram));
         DrawMetricCell("Visible Tris", SyncshellBudgetService.FormatTriangles(snapshot.VisibleTriangleCount), "Currently applied visible geometry", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Triangles));
 
         ImGui.EndTable();
@@ -187,8 +187,8 @@ internal sealed class SyncshellBudgetPanel
         return metric switch
         {
             SyncshellBudgetMetric.Vram when member.DisplayVramBytes > 0 => member.UsesReportedVram
-                ? $"{UiSharedService.ByteToString(member.DisplayVramBytes, true)} reported"
-                : UiSharedService.ByteToString(member.DisplayVramBytes, true),
+                ? $"{ElezenImgui.ByteToString(member.DisplayVramBytes, true)} reported"
+                : ElezenImgui.ByteToString(member.DisplayVramBytes, true),
             SyncshellBudgetMetric.Triangles when member.DisplayTriangleCount > 0 => member.UsesReportedTriangles
                 ? $"{SyncshellBudgetService.FormatTriangles(member.DisplayTriangleCount)} reported"
                 : SyncshellBudgetService.FormatTriangles(member.DisplayTriangleCount),
@@ -224,8 +224,8 @@ internal sealed class SyncshellBudgetPanel
         if (member.DisplayVramBytes > 0)
         {
             parts.Add(member.UsesReportedVram
-                ? $"reported VRAM {UiSharedService.ByteToString(member.DisplayVramBytes, true)}"
-                : $"VRAM {UiSharedService.ByteToString(member.DisplayVramBytes, true)}");
+                ? $"reported VRAM {ElezenImgui.ByteToString(member.DisplayVramBytes, true)}"
+                : $"VRAM {ElezenImgui.ByteToString(member.DisplayVramBytes, true)}");
         }
 
         if (member.DisplayTriangleCount > 0)
@@ -253,7 +253,7 @@ internal sealed class SyncshellBudgetPanel
 
         if (member.DisplayVramBytes > 0)
         {
-            lines.Add($"{(member.UsesReportedVram ? "Reported" : "Applied")} VRAM: {UiSharedService.ByteToString(member.DisplayVramBytes, true)}");
+            lines.Add($"{(member.UsesReportedVram ? "Reported" : "Applied")} VRAM: {ElezenImgui.ByteToString(member.DisplayVramBytes, true)}");
         }
 
         if (member.DisplayTriangleCount > 0)

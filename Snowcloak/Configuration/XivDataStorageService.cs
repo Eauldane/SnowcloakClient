@@ -1,12 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class XivDataStorageService : ConfigurationServiceBase<XivDataStorageConfig>
+public class XivDataStorageService : StateDocument<XivDataStorageConfig>
 {
     public const string ConfigName = "xivdatastorage.json";
 
-    public XivDataStorageService(string configDir) : base(configDir) { }
+    public XivDataStorageService(StateDocumentStore store) : base(store)
+    {
+    }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

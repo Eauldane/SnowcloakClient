@@ -89,8 +89,6 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool UseMultithreadedCompression { get; set; } = false;
     public CompressionType PreferredDownloadType { get; set; } = CompressionType.ZSTD;
     public bool AutoJoinVenueSyncshells { get; set; } = true;
-    public List<VenueAutoJoinedSyncshell> AutoJoinedVenueSyncshells { get; set; } = [];
-    public List<VenueReminderBookmark> VenueReminderBookmarks { get; set; } = [];
     public bool AllowBbCodeImages { get; set; } = true;
     public ElezenStrings.Colour PairRequestNameColors { get; set; } = new(Foreground: 0x87D745u, Glow: 0x7A6E0Eu);
     public bool PairingSystemEnabled { get; set; } = false;
@@ -99,8 +97,6 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool FrostbrandOnlyWithProfiles { get; set; } = false;
     public string FrostbrandProfileSearch { get; set; } = string.Empty;
     public string FrostbrandRequiredTag { get; set; } = string.Empty;
-    public HashSet<AutoRejectCombo> AutoRejectCombos { get; set; } = [];
     public int PairRequestMinimumLevel { get; set; } = 15;
-    public HashSet<ushort> PairRequestRejectedHomeworlds { get; set; } = [];
     public bool PairRequestFriendsOnly { get; set; } = false;
 }

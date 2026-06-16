@@ -8,8 +8,13 @@ using Snowcloak.Services.Mediator;
 
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerMoodles : IIpcCaller
+public sealed class IpcCallerMoodles : IMoodlesIpc
 {
+    private const string IpcName = "Moodles";
+    private const string RequiredVersion = "IPC 4";
+    private const IpcCapability SupportedCapabilities = IpcCapability.Moodles;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ICallGateSubscriber<int> _moodlesApiVersion;
     private readonly ICallGateSubscriber<nint, object> _moodlesOnChange;
     private readonly ICallGateSubscriber<nint, string> _moodlesGetStatus;
@@ -21,6 +26,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
     public IpcCallerMoodles(ILogger<IpcCallerMoodles> logger, IDalamudPluginInterface pi,
         SnowMediator snowMediator)
     {
+        _pi = pi;
         _logger = logger;
         _snowMediator = snowMediator;
 
@@ -40,17 +46,28 @@ public sealed class IpcCallerMoodles : IIpcCaller
         _snowMediator.Publish(new MoodlesMessage(address));
     }
 
-    public bool APIAvailable { get; private set; } = false;
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public void CheckAPI()
     {
         try
         {
-            APIAvailable = _moodlesApiVersion.InvokeFunc() == 4;
+            var version = _moodlesApiVersion.InvokeFunc();
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version}");
+            Status = version == 4
+                ? IpcStatus.Available(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, IpcName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Optional, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 
@@ -65,7 +82,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
 
         try
         {
-            return await Service.UseFramework(() => _moodlesGetStatus.InvokeFunc(address)).ConfigureAwait(false);
+            return await Service.RunOnFrameworkAsync(() => _moodlesGetStatus.InvokeFunc(address)).ConfigureAwait(false);
 
         }
         catch (Exception e)
@@ -80,7 +97,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await Service.UseFramework(() => _moodlesSetStatus.InvokeAction(pointer, status)).ConfigureAwait(false);
+            await Service.RunOnFrameworkAsync(() => _moodlesSetStatus.InvokeAction(pointer, status)).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -93,7 +110,7 @@ public sealed class IpcCallerMoodles : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await Service.UseFramework(() => _moodlesRevertStatus.InvokeAction(pointer)).ConfigureAwait(false);
+            await Service.RunOnFrameworkAsync(() => _moodlesRevertStatus.InvokeAction(pointer)).ConfigureAwait(false);
         }
         catch (Exception e)
         {

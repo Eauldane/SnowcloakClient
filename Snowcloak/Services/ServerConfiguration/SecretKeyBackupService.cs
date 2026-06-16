@@ -7,16 +7,18 @@ namespace Snowcloak.Services.ServerConfiguration;
 public sealed class SecretKeyBackupService
 {
     private const int SecretKeyBackupVersion = 1;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly NotesStore _notesStore;
+    private readonly ServerRegistry _serverRegistry;
 
-    public SecretKeyBackupService(ServerConfigurationManager serverConfigurationManager)
+    public SecretKeyBackupService(ServerRegistry serverRegistry, NotesStore notesStore)
     {
-        _serverConfigurationManager = serverConfigurationManager;
+        _serverRegistry = serverRegistry;
+        _notesStore = notesStore;
     }
 
     public SecretKeyBackupExportResult Export(ServerStorage selectedServer, string path)
     {
-        var notes = _serverConfigurationManager.GetNotesForServer(selectedServer.ServerUri);
+        var notes = _notesStore.GetNotesForServer(selectedServer.ServerUri);
         var backup = new SecretKeyBackupFile()
         {
             Version = SecretKeyBackupVersion,
@@ -36,24 +38,24 @@ public sealed class SecretKeyBackupService
     {
         var imported = LoadBackup(path);
         ApplyBackupToServer(imported, selectedServer);
-        int serverIndex = Array.IndexOf(_serverConfigurationManager.GetServerApiUrls(), selectedServer.ServerUri);
+        int serverIndex = Array.IndexOf(_serverRegistry.GetServerApiUrls(), selectedServer.ServerUri);
         return CreateImportResult(selectedServer, serverIndex, imported,
-            currentCharacterAssigned: serverIndex >= 0 && _serverConfigurationManager.HasCurrentCharacterAssignment(serverIndex));
+            currentCharacterAssigned: serverIndex >= 0 && _serverRegistry.HasCurrentCharacterAssignment(serverIndex));
     }
 
     public SecretKeyBackupImportResult ImportForInitialSetup(string path)
     {
         var imported = LoadBackup(path);
         int targetServerIndex = ResolveServerIndex(imported);
-        var targetServer = _serverConfigurationManager.GetServerByIndex(targetServerIndex);
+        var targetServer = _serverRegistry.GetServerByIndex(targetServerIndex);
 
         ApplyBackupToServer(imported, targetServer);
 
         bool autoAssignedCurrentCharacter = false;
-        bool currentCharacterAssigned = _serverConfigurationManager.HasCurrentCharacterAssignment(targetServerIndex);
+        bool currentCharacterAssigned = _serverRegistry.HasCurrentCharacterAssignment(targetServerIndex);
         if (!currentCharacterAssigned && targetServer.SecretKeys.Count == 1)
         {
-            _serverConfigurationManager.AddCurrentCharacterToServer(targetServerIndex, targetServer.SecretKeys.Single().Key, save: true);
+            _serverRegistry.AddCurrentCharacterToServer(targetServerIndex, targetServer.SecretKeys.Single().Key, save: true);
             autoAssignedCurrentCharacter = true;
             currentCharacterAssigned = true;
         }
@@ -65,31 +67,31 @@ public sealed class SecretKeyBackupService
     {
         if (string.IsNullOrWhiteSpace(imported.ServiceUri))
         {
-            return _serverConfigurationManager.CurrentServerIndex;
+            return _serverRegistry.CurrentServerIndex;
         }
 
-        var serverApiUrls = _serverConfigurationManager.GetServerApiUrls();
+        var serverApiUrls = _serverRegistry.GetServerApiUrls();
         int existingIndex = Array.FindIndex(serverApiUrls,
             uri => string.Equals(uri, imported.ServiceUri, StringComparison.OrdinalIgnoreCase));
         if (existingIndex >= 0)
         {
-            _serverConfigurationManager.SelectServer(existingIndex);
+            _serverRegistry.SelectServer(existingIndex);
             return existingIndex;
         }
 
-        _serverConfigurationManager.AddServer(new ServerStorage()
+        _serverRegistry.AddServer(new ServerStorage()
         {
             ServerName = string.IsNullOrWhiteSpace(imported.ServiceName) ? imported.ServiceUri : imported.ServiceName,
             ServerUri = imported.ServiceUri,
         });
 
-        serverApiUrls = _serverConfigurationManager.GetServerApiUrls();
+        serverApiUrls = _serverRegistry.GetServerApiUrls();
         int createdIndex = Array.FindIndex(serverApiUrls,
             uri => string.Equals(uri, imported.ServiceUri, StringComparison.OrdinalIgnoreCase));
         if (createdIndex < 0)
             throw new InvalidOperationException($"Could not create service entry for {imported.ServiceUri}.");
 
-        _serverConfigurationManager.SelectServer(createdIndex);
+        _serverRegistry.SelectServer(createdIndex);
         return createdIndex;
     }
 
@@ -97,8 +99,8 @@ public sealed class SecretKeyBackupService
     {
         selectedServer.SecretKeys = CloneSecretKeys(imported.SecretKeys);
         selectedServer.Authentications = CloneAuthentications(imported.CharacterAssignments);
-        _serverConfigurationManager.ReplaceNotesForServer(selectedServer.ServerUri, CloneNotes(imported.Notes), save: true);
-        _serverConfigurationManager.Save();
+        _notesStore.ReplaceNotesForServer(selectedServer.ServerUri, CloneNotes(imported.Notes), save: true);
+        _serverRegistry.Save();
     }
 
     private static SecretKeyBackupImportResult CreateImportResult(ServerStorage selectedServer, int serverIndex, SecretKeyBackupFile imported,

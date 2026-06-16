@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 
 namespace Snowcloak.UI;
 
-public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
+public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase, IStaticWindow
 {
     private static readonly Regex ChannelNameRegex = new(@"^[A-Za-z0-9][A-Za-z0-9_-]*$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
@@ -30,11 +30,7 @@ public sealed class StandardChannelCreateWindow : WindowMediatorSubscriberBase
     {
         _apiController = apiController;
 
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(420, 240),
-            MaximumSize = new Vector2(700, 600)
-        };
+        SetScaledSizeConstraints(new Vector2(420, 240), new Vector2(700, 600));
     }
 
     protected override void DrawInternal()

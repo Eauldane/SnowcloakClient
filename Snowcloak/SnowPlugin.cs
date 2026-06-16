@@ -1,10 +1,8 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Snowcloak.FileCache;
 using Snowcloak.Configuration;
-using Snowcloak.PlayerData.Pairs;
-using Snowcloak.PlayerData.Services;
+using Snowcloak.Initialization;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
@@ -13,24 +11,30 @@ using ElezenTools;
 
 namespace Snowcloak;
 
-public class SnowPlugin : MediatorSubscriberBase, IHostedService
+public sealed class SnowPlugin : MediatorSubscriberBase, IHostedService, IDisposable, IAsyncDisposable
 {
     private readonly DalamudUtilService _dalamudUtil;
+    private readonly Lock _launchTaskLock = new();
+    private readonly SemaphoreSlim _runtimeScopeLock = new(1, 1);
     private readonly SnowcloakConfigService _snowcloakConfigService;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ServerRegistry _serverConfigurationManager;
     private readonly IServiceScopeFactory _serviceScopeFactory;
-    private IServiceScope? _runtimeServiceScope;
+    private readonly RuntimeServicePlan _runtimeServicePlan;
+    private readonly CancellationTokenSource _launchCts = new();
+    private AsyncServiceScope? _runtimeServiceScope;
     private Task? _launchTask = null;
+    private int _disposed;
 
     public SnowPlugin(ILogger<SnowPlugin> logger, SnowcloakConfigService snowcloakConfigService,
-        ServerConfigurationManager serverConfigurationManager,
+        ServerRegistry serverConfigurationManager,
         DalamudUtilService dalamudUtil,
-        IServiceScopeFactory serviceScopeFactory, SnowMediator mediator) : base(logger, mediator)
+        IServiceScopeFactory serviceScopeFactory, RuntimeServicePlan runtimeServicePlan, SnowMediator mediator) : base(logger, mediator)
     {
         _snowcloakConfigService = snowcloakConfigService;
         _serverConfigurationManager = serverConfigurationManager;
         _dalamudUtil = dalamudUtil;
         _serviceScopeFactory = serviceScopeFactory;
+        _runtimeServicePlan = runtimeServicePlan;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -40,7 +44,7 @@ public class SnowPlugin : MediatorSubscriberBase, IHostedService
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(SnowPlugin), Services.Events.EventSeverity.Informational,
             $"Starting Snowcloak Sync {version.Major}.{version.Minor}.{version.Build}.{version.Revision}")));
 
-        Mediator.Subscribe<SwitchToMainUiMessage>(this, (msg) => { if (_launchTask == null || _launchTask.IsCompleted) _launchTask = Task.Run(WaitForPlayerAndLaunchCharacterManager); });
+        Mediator.Subscribe<SwitchToMainUiMessage>(this, _ => StartLaunchTask());
         Mediator.Subscribe<DalamudLoginMessage>(this, (_) => DalamudUtilOnLogIn());
         Mediator.Subscribe<DalamudLogoutMessage>(this, (_) => DalamudUtilOnLogOut());
 
@@ -49,56 +53,101 @@ public class SnowPlugin : MediatorSubscriberBase, IHostedService
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         UnsubscribeAll();
+        await _launchCts.CancelAsync().ConfigureAwait(false);
 
-        DalamudUtilOnLogOut();
+        if (_launchTask != null)
+        {
+            try
+            {
+                await _launchTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_launchCts.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+            {
+                // expected during shutdown
+            }
+        }
+
+        await DisposeRuntimeScopeAsync().ConfigureAwait(false);
 
         Logger.LogDebug("Halting SnowSnowPlugin");
+    }
 
-        return Task.CompletedTask;
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        DisposeRuntimeScopeAsync().GetAwaiter().GetResult();
+        _launchCts.Dispose();
+        _runtimeScopeLock.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        await DisposeRuntimeScopeAsync().ConfigureAwait(false);
+        _launchCts.Dispose();
+        _runtimeScopeLock.Dispose();
     }
 
     private void DalamudUtilOnLogIn()
     {
         Logger?.LogDebug("Client login");
-        if (_launchTask == null || _launchTask.IsCompleted) _launchTask = Task.Run(WaitForPlayerAndLaunchCharacterManager);
+        StartLaunchTask();
     }
 
     private void DalamudUtilOnLogOut()
     {
         Logger?.LogDebug("Client logout");
 
-        _runtimeServiceScope?.Dispose();
+        DisposeRuntimeScopeInBackground();
     }
 
-    private async Task WaitForPlayerAndLaunchCharacterManager()
+    private void StartLaunchTask()
     {
-        while (!await _dalamudUtil.GetIsPlayerPresentAsync().ConfigureAwait(false))
+        if (_launchCts.IsCancellationRequested)
         {
-            await Task.Delay(100).ConfigureAwait(false);
+            return;
         }
 
+        lock (_launchTaskLock)
+        {
+            if (_launchTask == null || _launchTask.IsCompleted)
+            {
+                _launchTask = Task.Run(() => LaunchManagersAsync(_launchCts.Token), _launchCts.Token);
+            }
+        }
+    }
+
+    private async Task LaunchManagersAsync(CancellationToken cancellationToken)
+    {
         try
         {
-            Logger?.LogDebug("Launching Managers");
-
-            _runtimeServiceScope?.Dispose();
-            _runtimeServiceScope = _serviceScopeFactory.CreateScope();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<UiService>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<CommandManagerService>();
-            if (!_snowcloakConfigService.Current.HasValidSetup() || !_serverConfigurationManager.HasValidConfig())
+            // Launch is event-driven: it is triggered by DalamudLoginMessage (raised once the
+            // local player is present and valid) and by SwitchToMainUiMessage (raised from the
+            // configured intro flow, while in-world). This single guard covers the rare case
+            // where a trigger arrives before presence is observable; if so we bail and the next
+            // DalamudLoginMessage re-triggers the launch. No polling loop.
+            if (!await _dalamudUtil.GetIsPlayerPresentAsync().ConfigureAwait(false))
             {
-                Mediator.Publish(new SwitchToIntroUiMessage());
+                Logger?.LogDebug("Launch deferred: player not present yet");
                 return;
             }
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<NotificationService>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<CacheCreationService>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<TransientResourceManager>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<OnlinePlayerManager>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<ChatService>();
-            _runtimeServiceScope.ServiceProvider.GetRequiredService<GuiHookService>();
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Logger?.LogDebug("Launching Managers");
+
+            await CreateRuntimeScopeAsync(cancellationToken).ConfigureAwait(false);
 
 #if !DEBUG
             if (_snowcloakConfigService.Current.LogLevel != LogLevel.Information)
@@ -109,6 +158,10 @@ public class SnowPlugin : MediatorSubscriberBase, IHostedService
             }
 #endif
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Logger?.LogDebug("Launch of managers cancelled");
+        }
         catch (Exception ex)
         {
             Logger?.LogCritical(ex, "Error during launch of managers");
@@ -116,5 +169,104 @@ public class SnowPlugin : MediatorSubscriberBase, IHostedService
                 ex.ToString(),
                 Configuration.Models.NotificationType.Error));
         }
+    }
+
+    private async Task CreateRuntimeScopeAsync(CancellationToken cancellationToken)
+    {
+        await _runtimeScopeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await DisposeRuntimeScopeCoreAsync().ConfigureAwait(false);
+
+            var scope = _serviceScopeFactory.CreateAsyncScope();
+            var scopeCommitted = false;
+            try
+            {
+                var provider = scope.ServiceProvider;
+
+                // Base services must exist even on the intro screen.
+                ActivateRuntimeServices(provider, _runtimeServicePlan.BaseServices);
+
+                if (!_snowcloakConfigService.Current.HasValidSetup() || !_serverConfigurationManager.HasValidConfig())
+                {
+                    _runtimeServiceScope = scope;
+                    scopeCommitted = true;
+                    Mediator.Publish(new SwitchToIntroUiMessage());
+                    return;
+                }
+
+                // Full runtime pipeline, only once setup and server config are valid.
+                ActivateRuntimeServices(provider, _runtimeServicePlan.ConfiguredServices);
+
+                _runtimeServiceScope = scope;
+                scopeCommitted = true;
+            }
+            finally
+            {
+                if (!scopeCommitted)
+                {
+                    await scope.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            _runtimeScopeLock.Release();
+        }
+    }
+
+    private static void ActivateRuntimeServices(IServiceProvider provider, IReadOnlyList<Type> serviceTypes)
+    {
+        // Resolving each service is its activation: constructors set up mediator
+        // subscriptions, command handlers, and other side effects.
+        foreach (var serviceType in serviceTypes)
+        {
+            provider.GetRequiredService(serviceType);
+        }
+    }
+
+    private void DisposeRuntimeScopeInBackground()
+    {
+        var disposeTask = DisposeRuntimeScopeAsync();
+        if (!disposeTask.IsCompletedSuccessfully)
+        {
+            _ = ObserveRuntimeScopeDisposalAsync(disposeTask);
+        }
+    }
+
+    private async Task ObserveRuntimeScopeDisposalAsync(Task disposeTask)
+    {
+        try
+        {
+            await disposeTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error disposing runtime service scope");
+        }
+    }
+
+    private async Task DisposeRuntimeScopeAsync()
+    {
+        await _runtimeScopeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await DisposeRuntimeScopeCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _runtimeScopeLock.Release();
+        }
+    }
+
+    private async ValueTask DisposeRuntimeScopeCoreAsync()
+    {
+        if (_runtimeServiceScope is not { } scope)
+        {
+            return;
+        }
+
+        _runtimeServiceScope = null;
+        await scope.DisposeAsync().ConfigureAwait(false);
     }
 }

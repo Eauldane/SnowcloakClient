@@ -5,12 +5,12 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.API.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.Utils;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Reflection;
 using Snowcloak.WebAPI.SignalR;
@@ -18,8 +18,11 @@ using Snowcloak.WebAPI.SignalR;
 namespace Snowcloak.WebAPI;
 
 #pragma warning disable MA0040
-public sealed partial class ApiController : DisposableMediatorSubscriberBase, ISnowHubClient
+public sealed partial class ApiController : DisposableMediatorSubscriberBase, ISnowHubClient, ISnowHub, IAsyncDisposable
 {
+    private const string TransientAuthenticationMessage = "Previous session is still closing on the server. Snowcloak will reconnect automatically.";
+    private static readonly TimeSpan TransientAuthenticationRetryDelay = TimeSpan.FromSeconds(1);
+
     // Dev builds should most likely be run against a dev server, so we define that here. 
     // Most of the time this'll be local or at least on LAN (and if not, VPNed)
     // so SSL isn't strictly needed. 
@@ -40,44 +43,45 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         public const string SnowcloakServiceApiUri = "wss://hub.snowcloak-sync.com/";
         public const string SnowcloakServiceHubUri = "wss://hub.snowcloak-sync.com/snow";
     #endif
+    private readonly BackgroundTaskTracker _backgroundTasks;
+    private readonly ConnectionLifecycle _connectionLifecycle;
     private readonly DalamudUtilService _dalamudUtil;
-    private readonly HubFactory _hubFactory;
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
-    private readonly ServerConfigurationManager _serverManager;
-    private readonly SnowcloakConfigService _configService;
+    private readonly ServerRegistry _serverManager;
+    private readonly ShellConfigStore _shellConfigStore;
     private readonly TokenProvider _tokenProvider;
-    private CancellationTokenSource _connectionCancellationTokenSource;
-    private ConnectionDto? _connectionDto;
-    private bool _doNotNotifyOnNextInfo = false;
-    private CancellationTokenSource? _healthCheckTokenSource = new();
-    private CancellationTokenSource? _systemInfoPollTokenSource;
-    private bool _initialized;
-    private HubConnection? _snowHub;
-    private ServerState _serverState;
+    private readonly SingleFlightCts _systemInfoPollFlight = new();
+    private CancellationToken _systemInfoPollToken = CancellationToken.None;
+    private ConnectionContext _connectionContext = ConnectionContext.Empty;
+    private bool _doNotNotifyOnNextInfo;
     private CensusUpdateMessage? _lastCensus;
+    private int _disposed;
+    private HubConnection? _snowHub => _connectionLifecycle.Hub;
 
     public ApiController(ILogger<ApiController> logger, HubFactory hubFactory, DalamudUtilService dalamudUtil,
-        PairManager pairManager, PairRequestService pairRequestService, ServerConfigurationManager serverManager, SnowMediator mediator,
-        TokenProvider tokenProvider, SnowcloakConfigService configService) : base(logger, mediator)
+        PairManager pairManager, PairRequestService pairRequestService, ServerRegistry serverManager, ShellConfigStore shellConfigStore, SnowMediator mediator,
+        TokenProvider tokenProvider) : base(logger, mediator)
     {
-        _hubFactory = hubFactory;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
+        _connectionLifecycle = new ConnectionLifecycle(logger, hubFactory, _backgroundTasks, mediator);
         _dalamudUtil = dalamudUtil;
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
+        _shellConfigStore = shellConfigStore;
         _tokenProvider = tokenProvider;
-        _configService = configService;
-        _connectionCancellationTokenSource = new CancellationTokenSource();
 
         Mediator.Subscribe<DalamudLoginMessage>(this, (_) => DalamudUtilOnLogIn());
         Mediator.Subscribe<DalamudLogoutMessage>(this, (_) => DalamudUtilOnLogOut());
         Mediator.Subscribe<HubClosedMessage>(this, (msg) => SnowHubOnClosed(msg.Exception));
-        Mediator.Subscribe<HubReconnectedMessage>(this, (msg) => _ = SnowHubOnReconnected());
+        Mediator.Subscribe<HubReconnectedMessage>(this, (msg) => _ = _backgroundTasks.Run(SnowHubOnReconnected, nameof(SnowHubOnReconnected)));
         Mediator.Subscribe<HubReconnectingMessage>(this, (msg) => SnowHubOnReconnecting(msg.Exception));
         Mediator.Subscribe<CyclePauseMessage>(this, (msg) => _ = CyclePause(msg.UserData));
         Mediator.Subscribe<CensusUpdateMessage>(this, (msg) => _lastCensus = msg);
         Mediator.Subscribe<PauseMessage>(this, (msg) => _ = Pause(msg.UserData));
+        Mediator.Subscribe<RequestPairDataMessage>(this, (msg) => _ = _backgroundTasks.Run(() => UserRequestData(msg.UserData), nameof(UserRequestData)));
+        Mediator.Subscribe<PairApplicationCompletedMessage>(this, (msg) => _ = _backgroundTasks.Run(() => SendApplicationReceipt(msg), nameof(SendApplicationReceipt)));
 
         ServerState = ServerState.Offline;
 
@@ -89,39 +93,37 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public string AuthFailureMessage { get; private set; } = string.Empty;
 
-    public Version CurrentClientVersion => _connectionDto?.CurrentClientVersion ?? new Version(0, 0, 0);
+    public Version CurrentClientVersion => _connectionContext.CurrentClientVersion;
 
-    public string DisplayName => _connectionDto?.User.AliasOrUID ?? string.Empty;
-    public string DisplayColour => _connectionDto?.User.DisplayColour ?? string.Empty;
-    public string DisplayGlowColour => _connectionDto?.User.DisplayGlowColour ?? string.Empty;
-    public bool HasPersistentKey => _connectionDto?.HasPersistentKey ?? false;
-    public bool HexAllowed => _connectionDto?.HexAllowed ?? false;
-    public string? VanityId => _connectionDto?.User.Alias;
+    public string DisplayName => _connectionContext.DisplayName;
+    public string DisplayColour => _connectionContext.DisplayColour;
+    public string DisplayGlowColour => _connectionContext.DisplayGlowColour;
+    public bool HasPersistentKey => _connectionContext.HasPersistentKey;
+    public bool HexAllowed => _connectionContext.HexAllowed;
+    public string? VanityId => _connectionContext.VanityId;
     public bool IsConnected => ServerState == ServerState.Connected;
 
-    public bool IsCurrentVersion => (Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0)) >= (_connectionDto?.CurrentClientVersion ?? new Version(0, 0, 0, 0));
+    public bool IsCurrentVersion => _connectionContext.IsCurrentVersion;
 
     public int OnlineUsers => SystemInfoDto.OnlineUsers;
 
     public bool ServerAlive => ServerState is ServerState.Connected or ServerState.RateLimited or ServerState.Unauthorized or ServerState.Disconnected;
 
-    public ServerInfo ServerInfo => _connectionDto?.ServerInfo ?? new ServerInfo();
+    public ServerInfo ServerInfo => _connectionContext.ServerInfo;
 
     public ServerState ServerState
     {
-        get => _serverState;
-        private set
-        {
-            Logger.LogDebug("New ServerState: {value}, prev ServerState: {_serverState}", value, _serverState);
-            _serverState = value;
-        }
+        get => _connectionLifecycle.State;
+        private set => _connectionLifecycle.MoveTo(value);
     }
 
     public SystemInfoDto SystemInfoDto { get; private set; } = new();
 
-    public string UID => _connectionDto?.User.UID ?? string.Empty;
+    public string UID => _connectionContext.UID;
 
-    public async Task<bool> CheckClientHealth()
+    public Task<bool> CheckClientHealth() => CheckClientHealth(CancellationToken.None);
+
+    private async Task<bool> CheckClientHealth(CancellationToken cancellationToken)
     {
         var hub = _snowHub;
         if (hub == null || hub.State != HubConnectionState.Connected)
@@ -129,18 +131,24 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             return false;
         }
 
-        return await hub.InvokeAsync<bool>(nameof(CheckClientHealth)).ConfigureAwait(false);    }
+        return await hub.InvokeAsync<bool>(nameof(CheckClientHealth), cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task CreateConnections()
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
         Logger.LogDebug("CreateConnections called");
 
         if (_serverManager.CurrentServer?.FullPause ?? true)
         {
             Logger.LogInformation("Not recreating Connection, paused");
-            _connectionDto = null;
+            _connectionContext = ConnectionContext.Empty;
             await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
-            _connectionCancellationTokenSource?.Cancel();
+            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
@@ -148,20 +156,20 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         if (multi)
         {
             Logger.LogWarning("Multiple secret keys for current character");
-            _connectionDto = null;
+            _connectionContext = ConnectionContext.Empty;
             Mediator.Publish(new NotificationMessage("Multiple Identical Characters detected", "Your Service configuration has multiple characters with the same name and world set up. Delete the duplicates in the character management to be able to connect.",
                 NotificationType.Error));
             await StopConnection(ServerState.MultiChara).ConfigureAwait(false);
-            _connectionCancellationTokenSource?.Cancel();
+            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
         if (secretKey == null)
         {
             Logger.LogWarning("No secret key set for current character");
-            _connectionDto = null;
+            _connectionContext = ConnectionContext.Empty;
             await StopConnection(ServerState.NoSecretKey).ConfigureAwait(false);
-            _connectionCancellationTokenSource?.Cancel();
+            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
@@ -171,16 +179,14 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Informational,
             $"Starting Connection to {_serverManager.CurrentServer.ServerName}")));
 
-        _connectionCancellationTokenSource?.Cancel();
-        _connectionCancellationTokenSource?.Dispose();
-        _connectionCancellationTokenSource = new CancellationTokenSource();
-        var token = _connectionCancellationTokenSource.Token;
+        var token = _connectionLifecycle.RenewConnectionToken();
         while (ServerState is not ServerState.Connected && !token.IsCancellationRequested)
         {
             AuthFailureMessage = string.Empty;
 
             await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
             ServerState = ServerState.Connecting;
+            _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.Authenticating);
 
             try
             {
@@ -189,6 +195,13 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 try
                 {
                     await _tokenProvider.GetOrUpdateToken(token).ConfigureAwait(false);
+                }
+                catch (SnowAuthFailureException ex) when (ex.IsTransient)
+                {
+                    AuthFailureMessage = TransientAuthenticationMessage;
+                    ServerState = ServerState.Reconnecting;
+                    await DelayBeforeTransientAuthenticationRetry(token).ConfigureAwait(false);
+                    continue;
                 }
                 catch (SnowAuthFailureException ex)
                 {
@@ -204,13 +217,16 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 if (token.IsCancellationRequested) break;
 
-                _snowHub = await _hubFactory.GetOrCreate(token).ConfigureAwait(false);
+                _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.Connecting);
+                var hub = await _connectionLifecycle.GetOrCreateHub(token).ConfigureAwait(false);
                 InitializeApiHooks();
 
-                await _snowHub.StartAsync(token).ConfigureAwait(false);
+                await hub.StartAsync(token).ConfigureAwait(false);
 
-                _connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
-                _lastPublishedNews = string.IsNullOrWhiteSpace(_connectionDto.News) ? null : _connectionDto.News.Trim();
+                _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
+                var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+                _connectionContext = ConnectionContext.From(connectionDto);
+                _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
 
                 await CheckClientHealth().ConfigureAwait(false);
 
@@ -219,7 +235,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 var currentClientVer = Assembly.GetExecutingAssembly().GetName().Version!;
  
-                if (_connectionDto.ServerVersion != ISnowHub.ApiVersion)
+                if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
                 {
                     Mediator.Publish(new NotificationMessage("Client incompatible",
                         "This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
@@ -228,11 +244,11 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     return;
                 }
 
-                if (_connectionDto.CurrentClientVersion > currentClientVer)
+                if (connectionDto.CurrentClientVersion > currentClientVer)
                 {
                     Mediator.Publish(new NotificationMessage("Client outdated",
                         $"Your client is outdated ({currentClientVer.Major}.{currentClientVer.Minor}.{currentClientVer.Build}), current is: " +
-                        $"{_connectionDto.CurrentClientVersion.Major}.{_connectionDto.CurrentClientVersion.Minor}.{_connectionDto.CurrentClientVersion.Build}. " +
+                        $"{connectionDto.CurrentClientVersion.Major}.{connectionDto.CurrentClientVersion.Minor}.{connectionDto.CurrentClientVersion.Build}. " +
                         $"Please keep your Snowcloak client up-to-date.",
                         NotificationType.Warning, TimeSpan.FromSeconds(15)));
                 }
@@ -251,7 +267,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 await LoadIninitialPairs().ConfigureAwait(false);
                 await LoadOnlinePairs().ConfigureAwait(false);
-                Mediator.Publish(new ConnectedMessage(_connectionDto));
+                Mediator.Publish(new ConnectedMessage(connectionDto));
             }
             catch (OperationCanceledException ex)
             {
@@ -263,7 +279,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 Logger.LogWarning(ex, "Connection attempt timed out, retrying");
                 ServerState = ServerState.Reconnecting;
-                await Task.Delay(TimeSpan.FromSeconds(new Random().Next(5, 20)), token).ConfigureAwait(false);
+                await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
                 return;
             }
             catch (HttpRequestException ex)
@@ -276,9 +292,15 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     return;
                 }
 
+                if (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    await StopConnection(ServerState.RateLimited).ConfigureAwait(false);
+                    return;
+                }
+
                 ServerState = ServerState.Reconnecting;
                 Logger.LogInformation("Failed to establish connection, retrying");
-                await Task.Delay(TimeSpan.FromSeconds(new Random().Next(5, 20)), token).ConfigureAwait(false);
+                await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
             }
             catch (InvalidOperationException ex)
             {
@@ -291,30 +313,48 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 Logger.LogWarning(ex, "Exception on Connection");
 
                 Logger.LogInformation("Failed to establish connection, retrying");
-                await Task.Delay(TimeSpan.FromSeconds(new Random().Next(5, 20)), token).ConfigureAwait(false);
+                await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
             }
         }
     }
 
+    private static Task DelayBeforeConnectionRetry(CancellationToken token)
+    {
+        return Task.Delay(TimeSpan.FromSeconds(System.Security.Cryptography.RandomNumberGenerator.GetInt32(5, 20)), token);
+    }
+
+    private static Task DelayBeforeTransientAuthenticationRetry(CancellationToken token)
+    {
+        return Task.Delay(TransientAuthenticationRetryDelay, token);
+    }
+
     public Task CyclePause(UserData userData)
     {
-        CancellationTokenSource cts = new();
-        cts.CancelAfter(TimeSpan.FromSeconds(5));
-        _ = Task.Run(async () =>
+        _ = _backgroundTasks.Run(async () =>
         {
-            var pair = _pairManager.GetOnlineUserPairs().Single(p => p.UserPair != null && p.UserData == userData);
-            var perm = pair.UserPair!.OwnPermissions;
-            perm.SetPaused(paused: true);
-            await UserSetPairPermissions(new UserPermissionsDto(userData, perm)).ConfigureAwait(false);
-            // wait until it's changed
-            while (pair.UserPair!.OwnPermissions != perm)
+            try
             {
-                await Task.Delay(250, cts.Token).ConfigureAwait(false);
-                Logger.LogTrace("Waiting for permissions change for {data}", userData);
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _connectionLifecycle.ConnectionToken);
+                var token = linkedCts.Token;
+                var pair = _pairManager.GetOnlineUserPairs().Single(p => p.UserPair != null && p.UserData == userData);
+                var perm = pair.UserPair!.OwnPermissions;
+                perm.SetPaused(paused: true);
+                await UserSetPairPermissions(new UserPermissionsDto(userData, perm)).ConfigureAwait(false);
+                // wait until it's changed
+                while (pair.UserPair!.OwnPermissions != perm)
+                {
+                    await Task.Delay(250, token).ConfigureAwait(false);
+                    Logger.LogTrace("Waiting for permissions change for {data}", userData);
+                }
+                perm.SetPaused(paused: false);
+                await UserSetPairPermissions(new UserPermissionsDto(userData, perm)).ConfigureAwait(false);
             }
-            perm.SetPaused(paused: false);
-            await UserSetPairPermissions(new UserPermissionsDto(userData, perm)).ConfigureAwait(false);
-        }, cts.Token).ContinueWith((t) => cts.Dispose());
+            catch (OperationCanceledException)
+            {
+                Logger.LogTrace("Cycle pause timed out or was cancelled for {data}", userData);
+            }
+        }, nameof(CyclePause));
 
         return Task.CompletedTask;
     }
@@ -329,7 +369,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public Task<ConnectionDto> GetConnectionDto() => GetConnectionDto(true);
 
-    public async Task<ConnectionDto> GetConnectionDto(bool publishConnected = true)
+    public async Task<ConnectionDto> GetConnectionDto(bool publishConnected)
     {
         var dto = await _snowHub!.InvokeAsync<ConnectionDto>(nameof(GetConnectionDto)).ConfigureAwait(false);
         if (publishConnected) Mediator.Publish(new ConnectedMessage(dto));
@@ -338,12 +378,39 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     protected override void Dispose(bool disposing)
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         base.Dispose(disposing);
 
-        _healthCheckTokenSource?.Cancel();
-        StopSystemInfoPolling();
-        _ = Task.Run(async () => await StopConnection(ServerState.Disconnected).ConfigureAwait(false));
-        _connectionCancellationTokenSource?.Cancel();
+        CancelBackgroundWork();
+        try
+        {
+            StopConnection(ServerState.Disconnected).Wait(TimeSpan.FromSeconds(2));
+            _backgroundTasks.StopSynchronously(Logger, TimeSpan.FromSeconds(2), nameof(ApiController));
+        }
+        catch (AggregateException)
+        {
+            // ignored
+        }
+        DisposeOwnedResources();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        base.Dispose(disposing: true);
+        CancelBackgroundWork();
+        await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+        await _backgroundTasks.StopAsync().ConfigureAwait(false);
+        DisposeOwnedResources();
+        GC.SuppressFinalize(this);
     }
     
     private async Task ClientHealthCheck(CancellationToken ct)
@@ -369,7 +436,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     continue;
                 }
 
-                var healthy = await CheckClientHealth().ConfigureAwait(false);
+                var healthy = await CheckClientHealth(ct).ConfigureAwait(false);
                 if (!healthy || hub.State != HubConnectionState.Connected)
                 {
                     Logger.LogWarning("Health check failed, forcing reconnect. ClientHealth: {0} HubConnected: {1}", healthy, hub.State != HubConnectionState.Connected);
@@ -390,70 +457,30 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void DalamudUtilOnLogIn()
     {
-        _ = Task.Run(() => CreateConnections());
+        _ = _backgroundTasks.Run(CreateConnections, nameof(CreateConnections));
     }
 
     private void DalamudUtilOnLogOut()
     {
-        _ = Task.Run(async () => await StopConnection(ServerState.Disconnected).ConfigureAwait(false));
+        _ = _backgroundTasks.Run(() => StopConnection(ServerState.Disconnected), nameof(StopConnection));
         ServerState = ServerState.Offline;
     }
 
     private void InitializeApiHooks()
     {
-        if (_snowHub == null) return;
+        var hub = _snowHub;
+        if (hub == null) return;
 
-        Logger.LogDebug("Initializing data");
-        OnDownloadReady((guid) => _ = Client_DownloadReady(guid));
-        OnReceiveServerMessage((sev, msg) => _ = Client_ReceiveServerMessage(sev, msg));
-        OnReceiveNews((news) => _ = Client_ReceiveNews(news));
-        OnUpdateSystemInfo((dto) => _ = Client_UpdateSystemInfo(dto));
+        if (!_connectionLifecycle.HooksRegistered)
+        {
+            Logger.LogDebug("Initializing data");
+            CallbackRouter.Register(hub, this);
+            _connectionLifecycle.MarkCallbacksRegistered();
+        }
 
-        OnUserSendOffline((dto) => _ = Client_UserSendOffline(dto));
-        OnUserAddClientPair((dto) => _ = Client_UserAddClientPair(dto));
-        OnUserReceiveCharacterData((dto) => _ = Client_UserReceiveCharacterData(dto));
-        OnUserRemoveClientPair(dto => _ = Client_UserRemoveClientPair(dto));
-        OnUserSendOnline(dto => _ = Client_UserSendOnline(dto));
-        OnUserUpdateOtherPairPermissions(dto => _ = Client_UserUpdateOtherPairPermissions(dto));
-        OnUserUpdateSelfPairPermissions(dto => _ = Client_UserUpdateSelfPairPermissions(dto));
-        OnUserReceiveUploadStatus(dto => _ = Client_UserReceiveUploadStatus(dto));
-        OnUserUpdateProfile(dto => _ = Client_UserUpdateProfile(dto));
-        OnCharacterProfileChanged(dto => _ = Client_CharacterProfileChanged(dto));
-        OnUserPairingAvailability(dto => _ = Client_UserPairingAvailability(dto));
-        OnUserPairingRequest(dto => _ = Client_UserPairingRequest(dto));
-        OnRequestPairingAvailabilitySubscription(dto => _ = Client_RequestPairingAvailabilitySubscription(dto));
-        OnUserPairingAvailabilityDelta(dto => _ = Client_UserPairingAvailabilityDelta(dto));
-        OnGroupChangePermissions((dto) => _ = Client_GroupChangePermissions(dto));
-        OnGroupDelete((dto) => _ = Client_GroupDelete(dto));
-        OnGroupPairChangeLabels((dto) => _ = Client_GroupPairChangeLabels(dto));
-        OnGroupPairChangeUserInfo((dto) => _ = Client_GroupPairChangeUserInfo(dto));
-        OnGroupPairJoined((dto) => _ = Client_GroupPairJoined(dto));
-        OnGroupPairLeft((dto) => _ = Client_GroupPairLeft(dto));
-        OnGroupSendFullInfo((dto) => _ = Client_GroupSendFullInfo(dto));
-        OnGroupSendInfo((dto) => _ = Client_GroupSendInfo(dto));
-        OnGroupPairChangePermissions((dto) => _ = Client_GroupPairChangePermissions(dto));
-
-        OnUserChatMsg((dto) => _ = Client_UserChatMsg(dto));
-        OnGroupChatMsg((dto) => _ = Client_GroupChatMsg(dto));
-        OnGroupChatMemberState((dto) => _ = Client_GroupChatMemberState(dto));
-        OnChannelChatMsg((dto) => _ = Client_ChannelChatMsg(dto));
-        OnChannelMemberJoined((dto) => _ = Client_ChannelMemberJoined(dto));
-        OnChannelMemberLeft((dto) => _ = Client_ChannelMemberLeft(dto));
-
-        OnGposeLobbyJoin((dto) => _ = Client_GposeLobbyJoin(dto));
-        OnGposeLobbyLeave((dto) => _ = Client_GposeLobbyLeave(dto));
-        OnGposeLobbyPushCharacterData((dto) => _ = Client_GposeLobbyPushCharacterData(dto));
-        OnGposeLobbyPushPoseData((dto, data) => _ = Client_GposeLobbyPushPoseData(dto, data));
-        OnGposeLobbyPushWorldData((dto, data) => _ = Client_GposeLobbyPushWorldData(dto, data));
-
-        _healthCheckTokenSource?.Cancel();
-        _healthCheckTokenSource?.Dispose();
-        _healthCheckTokenSource = new CancellationTokenSource();
-        _ = ClientHealthCheck(_healthCheckTokenSource.Token);
+        _connectionLifecycle.StartHealthLoop(ClientHealthCheck);
 
         StartSystemInfoPolling();
-
-        _initialized = true;
     }
 
     private async Task LoadIninitialPairs()
@@ -490,7 +517,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void SnowHubOnClosed(Exception? arg)
     {
-        _healthCheckTokenSource?.Cancel();
+        _connectionLifecycle.StopHealthLoop();
         StopSystemInfoPolling();
         Mediator.Publish(new DisconnectedMessage());
         ServerState = ServerState.Offline;
@@ -510,9 +537,11 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         try
         {
             InitializeApiHooks();
-            _connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
-            _lastPublishedNews = string.IsNullOrWhiteSpace(_connectionDto.News) ? null : _connectionDto.News.Trim();
-            if (_connectionDto.ServerVersion != ISnowHub.ApiVersion)
+            _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
+            var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+            _connectionContext = ConnectionContext.From(connectionDto);
+            _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
+            if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
             {
                 await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
                 return;
@@ -521,7 +550,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             TriggerSystemInfoRefresh();
             await LoadIninitialPairs().ConfigureAwait(false);
             await LoadOnlinePairs().ConfigureAwait(false);
-            Mediator.Publish(new ConnectedMessage(_connectionDto));
+            Mediator.Publish(new ConnectedMessage(connectionDto));
         }
         catch (Exception ex)
         {
@@ -533,7 +562,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private void SnowHubOnReconnecting(Exception? arg)
     {
         _doNotNotifyOnNextInfo = true;
-        _healthCheckTokenSource?.Cancel();
+        _connectionLifecycle.StopHealthLoop();
         StopSystemInfoPolling();
         ServerState = ServerState.Reconnecting;
         Logger.LogWarning(arg, "Connection closed... Reconnecting");
@@ -545,40 +574,24 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private async Task StopConnection(ServerState state)
     {
-        ServerState = ServerState.Disconnecting;
-
-        Logger.LogInformation("Stopping existing connection");
-        await _hubFactory.DisposeHubAsync().ConfigureAwait(false);
-
-        if (_snowHub is not null)
+        var hadHub = _snowHub is not null;
+        await _connectionLifecycle.StopAsync(state, _serverManager.CurrentServer.ServerName, StopSystemInfoPolling).ConfigureAwait(false);
+        if (hadHub)
         {
-            Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Informational,
-                $"Stopping existing connection to {_serverManager.CurrentServer.ServerName}")));
-
-            _initialized = false;
-            _healthCheckTokenSource?.Cancel();
-            StopSystemInfoPolling();
-            Mediator.Publish(new DisconnectedMessage());
-            _snowHub = null;
-            _connectionDto = null;
+            _connectionContext = ConnectionContext.Empty;
         }
-
-        ServerState = state;
     }
-    //Because this plugin really likes to bug out with connections, lets "fix" it....
+
     public async Task ForceResetConnection()
     {
-        if (!_initialized) return;
+        if (!_connectionLifecycle.HooksRegistered) return;
         Logger.LogInformation("ForceReconnect called");
 
         try
         {
             await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
 
-            // Cancel any ongoing health checks to prevent conflicts
-            _healthCheckTokenSource?.Cancel();
-            _healthCheckTokenSource?.Dispose();
-            _healthCheckTokenSource = null;
+            _connectionLifecycle.StopHealthLoop();
 
             await CreateConnections().ConfigureAwait(false);
 
@@ -589,6 +602,20 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             Logger.LogError(ex, "Failure during ForceReconnect, disconnecting");
             await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
         }
+    }
+
+    private void CancelBackgroundWork()
+    {
+        _backgroundTasks.StopAccepting();
+        _connectionLifecycle.CancelConnectionToken();
+        _connectionLifecycle.StopHealthLoop();
+        _systemInfoPollFlight.Cancel();
+    }
+
+    private void DisposeOwnedResources()
+    {
+        _connectionLifecycle.Dispose();
+        _systemInfoPollFlight.Dispose();
     }
 }
 #pragma warning restore MA0040

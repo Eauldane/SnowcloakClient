@@ -1,4 +1,4 @@
-﻿using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Snowcloak.API.Dto.CharaData;
@@ -7,12 +7,18 @@ using Snowcloak.Services;
 using System.Numerics;
 using System.Text.Json.Nodes;
 ﻿using Brio.API;
+
 using ElezenTools.Services;
 
 namespace Snowcloak.Interop.Ipc;
 
 public sealed class IpcCallerBrio : IIpcCaller
 {
+    private const string IpcName = "Brio";
+    private const string RequiredVersion = "IPC 3.0";
+    private const IpcCapability SupportedCapabilities = IpcCapability.GposeActors | IpcCapability.Pose;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ILogger<IpcCallerBrio> _logger;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly ApiVersion _apiVersion;
@@ -26,11 +32,13 @@ public sealed class IpcCallerBrio : IIpcCaller
     private readonly FreezePhysics _freezePhysics;
 
 
-    public bool APIAvailable { get; private set; }
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Special, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public IpcCallerBrio(ILogger<IpcCallerBrio> logger, IDalamudPluginInterface dalamudPluginInterface,
         DalamudUtilService dalamudUtilService)
     {
+        _pi = dalamudPluginInterface;
         _logger = logger;
         _dalamudUtilService = dalamudUtilService;
         _apiVersion = new ApiVersion(dalamudPluginInterface);
@@ -51,11 +59,20 @@ public sealed class IpcCallerBrio : IIpcCaller
         try
         {
             var version = _apiVersion.Invoke();
-            APIAvailable = (version.Item1 == 3 && version.Item2 >= 0);
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version.Item1}.{version.Item2}");
+            Status = version is { Item1: 3, Item2: >= 0 }
+                ? IpcStatus.Available(IpcName, IpcRole.Special, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Special, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, IpcName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Special, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Special, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Special, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 
@@ -63,7 +80,7 @@ public sealed class IpcCallerBrio : IIpcCaller
     {
         if (!APIAvailable) return null;
         _logger.LogDebug("Spawning Brio Actor");
-        return await Service.UseFramework(() => _spawnActor.Invoke(Brio.API.Enums.SpawnFlags.Default, true)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() => _spawnActor.Invoke(Brio.API.Enums.SpawnFlags.Default, true)).ConfigureAwait(false);
     }
 
     public async Task<bool> DespawnActorAsync(nint address)
@@ -72,7 +89,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return false;
         _logger.LogDebug("Despawning Brio Actor {actor}", gameObject.Name.TextValue);
-        return await Service.UseFramework(() => _despawnActor.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() => _despawnActor.Invoke(gameObject)).ConfigureAwait(false);
     }
 
     public async Task<bool> ApplyTransformAsync(nint address, WorldData data)
@@ -82,7 +99,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (gameObject == null) return false;
         _logger.LogDebug("Applying Transform to Actor {actor}", gameObject.Name.TextValue);
 
-        return await Service.UseFramework(() => _setModelTransform.Invoke(gameObject,
+        return await Service.RunOnFrameworkAsync(() => _setModelTransform.Invoke(gameObject,
             new Vector3(data.PositionX, data.PositionY, data.PositionZ),
             new Quaternion(data.RotationX, data.RotationY, data.RotationZ, data.RotationW),
             new Vector3(data.ScaleX, data.ScaleY, data.ScaleZ), false)).ConfigureAwait(false);
@@ -93,7 +110,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return default;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return default;
-        var data = await Service.UseFramework(() => _getModelTransform.Invoke(gameObject)).ConfigureAwait(false);
+        var data = await Service.RunOnFrameworkAsync(() => _getModelTransform.Invoke(gameObject)).ConfigureAwait(false);
         if (data.Item1 == null || data.Item2 == null || data.Item3 == null) return default;
 
         return new WorldData()
@@ -118,7 +135,7 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (gameObject == null) return null;
         _logger.LogDebug("Getting Pose from Actor {actor}", gameObject.Name.TextValue);
 
-        return await Service.UseFramework(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
     }
 
     public async Task<bool> SetPoseAsync(nint address, string pose)
@@ -129,15 +146,27 @@ public sealed class IpcCallerBrio : IIpcCaller
         _logger.LogDebug("Setting Pose to Actor {actor}", gameObject.Name.TextValue);
 
         var applicablePose = JsonNode.Parse(pose)!;
-        var currentPose = await Service.UseFramework(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
-        applicablePose["ModelDifference"] = JsonNode.Parse(JsonNode.Parse(currentPose)!["ModelDifference"]!.ToJsonString());
+        var currentPose = await Service.RunOnFrameworkAsync(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(currentPose))
+        {
+            return false;
+        }
 
-        await Service.UseFramework(() =>
+        var currentPoseNode = JsonNode.Parse(currentPose);
+        var modelDifference = currentPoseNode?["ModelDifference"];
+        if (modelDifference == null)
+        {
+            return false;
+        }
+
+        applicablePose["ModelDifference"] = JsonNode.Parse(modelDifference.ToJsonString());
+
+        await Service.RunOnFrameworkAsync(() =>
         {
             _freezeActor.Invoke(gameObject);
             _freezePhysics.Invoke();
         }).ConfigureAwait(false);
-        return await Service.UseFramework(() => _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() => _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false)).ConfigureAwait(false);
     }
 
     public void Dispose()

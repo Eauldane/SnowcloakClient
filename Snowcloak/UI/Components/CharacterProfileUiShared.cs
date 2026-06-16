@@ -71,9 +71,10 @@ public static class CharacterProfileUiShared
         var textStart = panelStart + new Vector2(14f, verticalPadding);
         var currentY = textStart.Y;
         ImGui.SetCursorScreenPos(new Vector2(textStart.X, currentY));
-        ImGui.SetWindowFontScale(titleScale);
-        ImGui.TextColored(ImGuiColors.DalamudWhite, characterName);
-        ImGui.SetWindowFontScale(1.0f);
+        using (ElezenFonts.Push(baseFontSize * titleScale))
+        {
+            ImGui.TextColored(ImGuiColors.DalamudWhite, characterName);
+        }
         currentY += baseFontSize * titleScale + lineSpacing;
 
         if (!string.IsNullOrWhiteSpace(subtitle))
@@ -95,7 +96,12 @@ public static class CharacterProfileUiShared
     {
         ImGui.Spacing();
         ImGui.TextColored(SectionAccent, title);
-        ImGui.Separator();
+        var min = ImGui.GetCursorScreenPos();
+        var max = min with { X = min.X + MathF.Max(1f, ImGui.GetContentRegionAvail().X) };
+        ImGui.GetWindowDrawList().AddLine(min, max,
+            Colour.Vector4ToColour(new Vector4(SectionAccent.X, SectionAccent.Y, SectionAccent.Z, 0.28f)),
+            1f * ImGuiHelpers.GlobalScale);
+        ImGui.Dummy(new Vector2(0f, 4f * ImGuiHelpers.GlobalScale));
     }
 
     public static void DrawLabelValue(string label, string? value)
@@ -142,7 +148,7 @@ public static class CharacterProfileUiShared
         }
     }
 
-    public static void DrawMoodles(string? moodlesData, string idPrefix, UiSharedService uiSharedService, int maxVisible = 12)
+    public static void DrawMoodles(string? moodlesData, string idPrefix, TextureService textureService, int maxVisible = 12)
     {
         if (!MoodlesDataParser.TryParse(moodlesData, out var parsedStatuses))
             return;
@@ -155,7 +161,7 @@ public static class CharacterProfileUiShared
             return;
 
         DrawSectionTitle("Moodles");
-        DrawMoodleIcons(statuses, idPrefix, uiSharedService);
+        DrawMoodleIcons(statuses, idPrefix, textureService);
 
         var renderableCount = parsedStatuses.Count(IsRenderableMoodle);
         if (renderableCount > statuses.Count)
@@ -203,7 +209,7 @@ public static class CharacterProfileUiShared
            || string.Equals(value, "Loading RP profile...", StringComparison.OrdinalIgnoreCase)
            || string.Equals(value, "Loading RP Profile", StringComparison.OrdinalIgnoreCase);
 
-    private static void DrawMoodleIcons(IReadOnlyList<MoodlesStatusData> statuses, string idPrefix, UiSharedService uiSharedService)
+    private static void DrawMoodleIcons(IReadOnlyList<MoodlesStatusData> statuses, string idPrefix, TextureService textureService)
     {
         var iconSize = 48f * ImGuiHelpers.GlobalScale;
         var spacing = 2f * ImGuiHelpers.GlobalScale;
@@ -213,7 +219,7 @@ public static class CharacterProfileUiShared
 
         for (var i = 0; i < statuses.Count; i++)
         {
-            DrawMoodleIcon(statuses[i], iconSize, uiSharedService, $"{idPrefix}-moodle-{i}");
+            DrawMoodleIcon(statuses[i], iconSize, textureService, $"{idPrefix}-moodle-{i}");
             columnIndex++;
             if (i < statuses.Count - 1 && columnIndex < columns)
             {
@@ -254,7 +260,7 @@ public static class CharacterProfileUiShared
         }
     }
 
-    private static void DrawMoodleIcon(MoodlesStatusData moodle, float iconSize, UiSharedService uiSharedService, string id)
+    private static void DrawMoodleIcon(MoodlesStatusData moodle, float iconSize, TextureService textureService, string id)
     {
         var iconId = moodle.IconID;
         if (moodle.Stacks > 1)
@@ -266,7 +272,7 @@ public static class CharacterProfileUiShared
         var cursor = ImGui.GetCursorScreenPos();
         ImGui.Dummy(new Vector2(iconSize, iconSize));
 
-        if (iconId > 0 && uiSharedService.TryGetGameIcon((uint)iconId, out var icon))
+        if (iconId > 0 && textureService.TryGetGameIcon((uint)iconId, out var icon))
         {
             var wrap = icon!.GetWrapOrEmpty();
             var size = GetScaledIconSize(wrap, iconSize);

@@ -1,40 +1,40 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
+using Snowcloak.Core.Async;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.Files.Models;
 using Snowcloak.WebAPI.SignalR;
-using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
 
 namespace Snowcloak.WebAPI.Files;
 
-public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
+public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 {
-    private readonly ConcurrentDictionary<Guid, bool> _downloadReady = new();
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UntrackedRequestTimeout = TimeSpan.FromSeconds(100);
+
     private readonly HttpClient _httpClient;
     private readonly SnowcloakConfigService _snowcloakConfig;
-    private readonly Lock _semaphoreModificationLock = new();
     private readonly TokenProvider _tokenProvider;
-    private int _availableDownloadSlots;
-    private SemaphoreSlim _downloadSemaphore;
-    private int CurrentlyUsedDownloadSlots => _availableDownloadSlots - _downloadSemaphore.CurrentCount;
+    private readonly DownloadSlotGate _downloadSlots;
+    private readonly Lock _forbiddenLock = new();
+    private readonly List<ForbiddenTransfer> _forbiddenTransfers = [];
 
     public FileTransferOrchestrator(ILogger<FileTransferOrchestrator> logger, SnowcloakConfigService snowcloakConfig,
         SnowMediator mediator, TokenProvider tokenProvider) : base(logger, mediator)
     {
         _snowcloakConfig = snowcloakConfig;
         _tokenProvider = tokenProvider;
-        _httpClient = new()
+        _httpClient = new HttpClient(new SocketsHttpHandler { ConnectTimeout = ConnectTimeout })
         {
-            Timeout = TimeSpan.FromSeconds(3000)
+            Timeout = Timeout.InfiniteTimeSpan
         };
         var ver = Assembly.GetExecutingAssembly().GetName().Version;
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
 
-        _availableDownloadSlots = snowcloakConfig.Current.ParallelDownloads;
-        _downloadSemaphore = new(_availableDownloadSlots, _availableDownloadSlots);
+        _downloadSlots = new DownloadSlotGate(snowcloakConfig.Current.ParallelDownloads);
 
         Mediator.Subscribe<ConnectedMessage>(this, (msg) =>
         {
@@ -45,14 +45,9 @@ public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         {
             FilesCdnUri = null;
         });
-        Mediator.Subscribe<DownloadReadyMessage>(this, (msg) =>
-        {
-            _downloadReady[msg.RequestId] = true;
-        });
     }
 
     public Uri? FilesCdnUri { private set; get; }
-    public List<FileTransfer> ForbiddenTransfers { get; } = [];
     public bool IsInitialized => FilesCdnUri != null;
 
     public string PreferredDownloadTypeQueryValue()
@@ -60,32 +55,66 @@ public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         return _snowcloakConfig.Current.PreferredDownloadType.ToString();
     }
 
-    public void ClearDownloadRequest(Guid guid)
+    public void AddForbiddenTransfer(ForbiddenTransfer transfer)
     {
-        _downloadReady.Remove(guid, out _);
+        lock (_forbiddenLock)
+        {
+            if (!_forbiddenTransfers.Exists(f => string.Equals(f.Hash, transfer.Hash, StringComparison.Ordinal)))
+            {
+                _forbiddenTransfers.Add(transfer);
+            }
+        }
     }
 
-    public bool IsDownloadReady(Guid guid)
+    public bool IsForbidden(string hash)
     {
-        if (_downloadReady.TryGetValue(guid, out bool isReady) && isReady)
+        lock (_forbiddenLock)
         {
-            return true;
+            return _forbiddenTransfers.Exists(f => string.Equals(f.Hash, hash, StringComparison.Ordinal));
         }
+    }
 
-        return false;
+    public IReadOnlyList<ForbiddenTransfer> GetForbiddenTransfers()
+    {
+        lock (_forbiddenLock)
+        {
+            return [.. _forbiddenTransfers];
+        }
+    }
+
+    public async Task WaitForDownloadSlotAsync(CancellationToken token)
+    {
+        _downloadSlots.UpdateLimit(_snowcloakConfig.Current.ParallelDownloads);
+        await _downloadSlots.WaitAsync(token).ConfigureAwait(false);
+        Mediator.Publish(new DownloadLimitChangedMessage());
     }
 
     public void ReleaseDownloadSlot()
     {
-        try
+        _downloadSlots.Release();
+        Mediator.Publish(new DownloadLimitChangedMessage());
+    }
+
+    public long DownloadLimitPerSlot()
+    {
+        var limit = _snowcloakConfig.Current.DownloadSpeedLimitInBytes;
+        if (limit <= 0) return 0;
+        limit = _snowcloakConfig.Current.DownloadSpeedType switch
         {
-            _downloadSemaphore.Release();
-            Mediator.Publish(new DownloadLimitChangedMessage());
-        }
-        catch (SemaphoreFullException)
+            Configuration.Models.DownloadSpeeds.Bps => limit,
+            Configuration.Models.DownloadSpeeds.KBps => limit * 1024,
+            Configuration.Models.DownloadSpeeds.MBps => limit * 1024 * 1024,
+            _ => limit,
+        };
+        var activeSlots = Math.Max(1, _downloadSlots.InUse);
+        var dividedLimit = limit / activeSlots;
+        if (dividedLimit < 0)
         {
-            // ignore
+            Logger.LogWarning("Calculated Bandwidth Limit is negative, returning Infinity: {value}, active slots: {slots}, " +
+                "DownloadSpeedLimit is {limit}, configured slots: {configured}", dividedLimit, activeSlots, limit, _downloadSlots.Limit);
+            return long.MaxValue;
         }
+        return Math.Clamp(dividedLimit, 1, long.MaxValue);
     }
 
     public async Task<HttpResponseMessage> SendRequestAsync(HttpMethod method, Uri uri,
@@ -112,45 +141,6 @@ public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         return await SendRequestInternalAsync(requestMessage, ct).ConfigureAwait(false);
     }
 
-    public async Task WaitForDownloadSlotAsync(CancellationToken token)
-    {
-        lock (_semaphoreModificationLock)
-        {
-            if (_availableDownloadSlots != _snowcloakConfig.Current.ParallelDownloads && _availableDownloadSlots == _downloadSemaphore.CurrentCount)
-            {
-                _availableDownloadSlots = _snowcloakConfig.Current.ParallelDownloads;
-                _downloadSemaphore = new(_availableDownloadSlots, _availableDownloadSlots);
-            }
-        }
-
-        await _downloadSemaphore.WaitAsync(token).ConfigureAwait(false);
-        Mediator.Publish(new DownloadLimitChangedMessage());
-    }
-
-    public long DownloadLimitPerSlot()
-    {
-        var limit = _snowcloakConfig.Current.DownloadSpeedLimitInBytes;
-        if (limit <= 0) return 0;
-        limit = _snowcloakConfig.Current.DownloadSpeedType switch
-        {
-            Configuration.Models.DownloadSpeeds.Bps => limit,
-            Configuration.Models.DownloadSpeeds.KBps => limit * 1024,
-            Configuration.Models.DownloadSpeeds.MBps => limit * 1024 * 1024,
-            _ => limit,
-        };
-        var currentUsedDlSlots = CurrentlyUsedDownloadSlots;
-        var avaialble = _availableDownloadSlots;
-        var currentCount = _downloadSemaphore.CurrentCount;
-        var dividedLimit = limit / (currentUsedDlSlots == 0 ? 1 : currentUsedDlSlots);
-        if (dividedLimit < 0)
-        {
-            Logger.LogWarning("Calculated Bandwidth Limit is negative, returning Infinity: {value}, CurrentlyUsedDownloadSlots is {currentSlots}, " +
-                "DownloadSpeedLimit is {limit}, available slots: {avail}, current count: {count}", dividedLimit, currentUsedDlSlots, limit, avaialble, currentCount);
-            return long.MaxValue;
-        }
-        return Math.Clamp(dividedLimit, 1, long.MaxValue);
-    }
-
     private async Task<HttpResponseMessage> SendRequestInternalAsync(HttpRequestMessage requestMessage,
         CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead)
     {
@@ -167,16 +157,32 @@ public class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             Logger.LogDebug("Sending {method} to {uri}", requestMessage.Method, requestMessage.RequestUri);
         }
 
+        using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
+        var requestToken = ct ?? untrackedTimeout!.Token;
+
         try
         {
-            if (ct != null)
-                return await _httpClient.SendAsync(requestMessage, httpCompletionOption, ct.Value).ConfigureAwait(false);
-            return await _httpClient.SendAsync(requestMessage, httpCompletionOption).ConfigureAwait(false);
+            return await _httpClient.SendAsync(requestMessage, httpCompletionOption, requestToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException ex) when (ct is { IsCancellationRequested: true })
         {
-            Logger.LogWarning(ex, "Error during SendRequestInternal for {uri}", requestMessage.RequestUri);
+            LogRequestCancelled(Logger, ex, requestMessage.RequestUri);
             throw;
         }
+        catch (OperationCanceledException ex) when (untrackedTimeout?.IsCancellationRequested == true)
+        {
+            LogRequestTimedOut(Logger, ex, requestMessage.RequestUri, UntrackedRequestTimeout);
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new HttpRequestException($"Error during file transfer request for {requestMessage.RequestUri}", ex, ex.StatusCode);
+        }
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Request to {Uri} was cancelled")]
+    private static partial void LogRequestCancelled(ILogger logger, Exception ex, Uri? uri);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Request to {Uri} timed out after {Timeout}")]
+    private static partial void LogRequestTimedOut(ILogger logger, Exception ex, Uri? uri, TimeSpan timeout);
 }

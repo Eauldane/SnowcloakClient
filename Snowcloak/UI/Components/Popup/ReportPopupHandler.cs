@@ -15,17 +15,17 @@ namespace Snowcloak.UI.Components.Popup;
 internal class ReportPopupHandler : IPopupHandler
 {
     private readonly ApiController _apiController;
-    private readonly UiSharedService _uiSharedService;
+    private readonly UiFontService _fontService;
     private Pair? _reportedPair;
     private string _reportedIdent = string.Empty;
     private ProfileVisibility _reportedVisibility;
     private long _reportedRevision;
     private string _reportReason = string.Empty;
 
-    public ReportPopupHandler(ApiController apiController, UiSharedService uiSharedService)
+    public ReportPopupHandler(ApiController apiController, UiFontService fontService)
     {
         _apiController = apiController;
-        _uiSharedService = uiSharedService;
+        _fontService = fontService;
     }
 
     public Vector2 PopupSize => new(500, 500);
@@ -34,7 +34,7 @@ internal class ReportPopupHandler : IPopupHandler
 
     public void DrawContent()
     {
-        using (_uiSharedService.UidFont.Push())
+        using (_fontService.UidFont.Push())
             ElezenImgui.WrappedText(string.Format("Report {0} Profile", _reportedPair!.UserData.AliasOrUID));
         
         ImGui.InputTextMultiline("##reportReason", ref _reportReason, 500, new Vector2(500 - ImGui.GetStyle().ItemSpacing.X * 2, 200));

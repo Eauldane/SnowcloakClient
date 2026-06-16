@@ -2,7 +2,6 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Textures.TextureWraps;
-using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
@@ -14,6 +13,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
 using System.Globalization;
 using System.Numerics;
 
@@ -22,7 +22,6 @@ namespace Snowcloak.UI;
 public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 {
     private static readonly TimeSpan LocalMoodlesRefreshInterval = TimeSpan.FromSeconds(2);
-    private readonly ApiController _apiController;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly string _fallbackName;
     private readonly string _ident;
@@ -30,7 +29,9 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private readonly Lock _moodlesLock = new();
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly SnowProfileManager _snowProfileManager;
-    private readonly UiSharedService _uiSharedService;
+    private readonly TextureService _textureService;
+    private readonly ImageTransferService _imageTransferService;
+    private readonly ProfileViewComponent _profileView;
     private readonly string _windowIdSuffix;
     private DateTime _lastLocalMoodlesRefreshUtc = DateTime.MinValue;
     private byte[] _lastHeaderImage = [];
@@ -40,17 +41,19 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private IDalamudTextureWrap? _headerTextureWrap;
     private IDalamudTextureWrap? _textureWrap;
 
-    public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
-        SnowProfileManager snowProfileManager, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
-        string? ident, string? fallbackName, ApiController apiController, DalamudUtilService dalamudUtilService,
+    public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiFontService fontService,
+        BbCodeRenderService bbCodeRenderService, TextureService textureService,
+        SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
+        string? ident, string? fallbackName, DalamudUtilService dalamudUtilService,
         IpcManager ipcManager, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator,
             BuildWindowName(ResolveFallbackName(userData, fallbackName, pair), ident ?? pair?.Ident ?? userData.UID, requestedVisibility),
             performanceCollectorService)
     {
-        _uiSharedService = uiSharedService;
+        _textureService = textureService;
+        _imageTransferService = imageTransferService;
+        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService);
         _snowProfileManager = snowProfileManager;
-        _apiController = apiController;
         _dalamudUtilService = dalamudUtilService;
         _ipcManager = ipcManager;
         _fallbackName = ResolveFallbackName(userData, fallbackName, pair);
@@ -61,11 +64,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         _windowIdSuffix = BuildWindowIdSuffix(ident ?? pair?.Ident ?? userData.UID, requestedVisibility);
         Size = new Vector2(680f, 820f);
         SizeCondition = ImGuiCond.Appearing;
-        SizeConstraints = new()
-        {
-            MinimumSize = new Vector2(560f, 500f),
-            MaximumSize = new Vector2(900f, 2000f),
-        };
+        SetScaledSizeConstraints(new Vector2(560f, 500f), new Vector2(900f, 2000f));
         IsOpen = true;
         Mediator.Subscribe<MoodlesMessage>(this, OnMoodlesChanged);
     }
@@ -80,8 +79,8 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         try
         {
             var profile = _snowProfileManager.GetSnowProfile(_ident, _requestedVisibility);
-            RefreshHeaderTexture(DecodeImage(profile.Document.HeaderImageBase64));
-            RefreshTexture(profile.ImageData.Value);
+            RefreshHeaderTexture(ResolveImageBytes(profile.Document.HeaderImageHash));
+            RefreshTexture(ResolveImageBytes(profile.Document.ProfilePictureHash));
             DrawProfile(profile);
         }
         catch (Exception ex)
@@ -93,56 +92,16 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private void DrawProfile(SnowProfileData profile)
     {
         UpdateWindowTitle(profile);
-        CharacterProfileUiShared.DrawHeader(profile.Document, _fallbackName, headerImageTexture: _headerTextureWrap);
-        ImGui.Spacing();
-        CharacterProfileUiShared.DrawProfileBadges(profile.Document, "standalone-profile-badges");
-
-        DrawReportButton(profile);
-        ImGui.SameLine();
-        var updated = profile.UpdatedAtUtc.HasValue ? $"  |  updated {profile.UpdatedAtUtc.Value:u}" : string.Empty;
-        ImGui.TextColored(ImGuiColors.DalamudGrey,
-            $"{profile.Visibility} profile  |  revision {profile.Revision}  |  {profile.Document.ContentRating}{updated}");
-
-        CharacterProfileUiShared.DrawMoodles(GetMoodlesData(profile), "standalone-profile", _uiSharedService);
-
-        if (profile.Revision <= 0)
-        {
-            ImGui.TextColored(ImGuiColors.DalamudGrey, string.IsNullOrWhiteSpace(profile.DisabledReason)
-                ? "This character has not published a profile yet."
-                : profile.DisabledReason);
-            return;
-        }
-
-        if (profile.Disabled)
-        {
-            ImGui.TextColored(ImGuiColors.DalamudRed, profile.DisabledReason);
-            return;
-        }
-
-        using (var table = ImRaii.Table("rp-profile-main", 2, ImGuiTableFlags.SizingFixedFit))
-        {
-            if (table)
-            {
-                ImGui.TableSetupColumn("Portrait", ImGuiTableColumnFlags.WidthFixed, 190f);
-                ImGui.TableSetupColumn("Profile", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                DrawPortrait(176f);
-                ImGui.TableNextColumn();
-                CharacterProfileUiShared.DrawLabelValue("Pronouns:", profile.Document.Pronouns);
-                CharacterProfileUiShared.DrawLabelValue("RP status:", profile.Document.RpStatus);
-                CharacterProfileUiShared.DrawLabelValue("Approach:", profile.Document.Approachability);
-                DrawAtAGlance(profile.Document.AtAGlance);
-            }
-        }
-
-        DrawBbCodeSection("Overview", profile.Document.Overview);
-        DrawHooks(profile.Document.Hooks);
-        DrawBbCodeSection("OOC Notes", profile.Document.OocNotes);
-        if (profile.Document.ContentRating == ProfileContentRating.Adult)
-            DrawBbCodeSection("Adult Preferences", profile.Document.AdultPreferences);
-        DrawTags(GetVisibleTagsForViewer(profile));
-        DrawPairingDetails();
+        _profileView.DrawStandalone(new ProfileViewRequest(
+            profile,
+            _fallbackName,
+            _headerTextureWrap,
+            _textureWrap,
+            GetVisibleTagsForViewer(profile),
+            GetMoodlesData(profile),
+            "standalone-profile",
+            DrawReportButton: () => DrawReportButton(profile),
+            DrawPairingDetails: DrawPairingDetails));
     }
 
     private void DrawReportButton(SnowProfileData profile)
@@ -152,64 +111,6 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report displayed profile") && Pair != null)
             Mediator.Publish(new OpenReportPopupMessage(Pair, profile.Ident, profile.Visibility, profile.Revision));
         ImGui.EndDisabled();
-    }
-
-    private void DrawPortrait(float size)
-    {
-        if (_textureWrap == null)
-        {
-            ImGui.Dummy(new Vector2(size, size));
-            ImGui.TextColored(ImGuiColors.DalamudGrey, "No portrait");
-            return;
-        }
-
-        var scale = size / MathF.Max(_textureWrap.Width, _textureWrap.Height);
-        var imageSize = new Vector2(_textureWrap.Width * scale, _textureWrap.Height * scale);
-        ImGui.Image(_textureWrap.Handle, imageSize);
-    }
-
-    private static void DrawAtAGlance(IReadOnlyList<string> entries)
-    {
-        if (entries.Count == 0) return;
-        CharacterProfileUiShared.DrawSectionTitle("At A Glance");
-        foreach (var entry in entries)
-            ImGui.BulletText(entry);
-    }
-
-    private void DrawBbCodeSection(string title, string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return;
-        CharacterProfileUiShared.DrawSectionTitle(title);
-        using var _ = _uiSharedService.GameFont.Push();
-        _uiSharedService.RenderBbCode(text, ImGui.GetContentRegionAvail().X);
-    }
-
-    private void DrawHooks(IReadOnlyList<CharacterProfileHookDto> hooks)
-    {
-        if (hooks.Count == 0) return;
-        CharacterProfileUiShared.DrawSectionTitle("RP Hooks");
-        for (var i = 0; i < hooks.Count; i++)
-        {
-            var hook = hooks[i];
-            using var id = ImRaii.PushId($"standalone-profile-hook-{i}");
-            using var card = ImRaii.Child("hook-card", new Vector2(0f, 112f), true);
-            if (!card)
-                continue;
-
-            ImGui.TextColored(ImGuiColors.HealerGreen, hook.Title);
-            if (!string.IsNullOrWhiteSpace(hook.Description))
-            {
-                using var _ = _uiSharedService.GameFont.Push();
-                _uiSharedService.RenderBbCode(hook.Description, ImGui.GetContentRegionAvail().X);
-            }
-        }
-    }
-
-    private static void DrawTags(IReadOnlyList<UserProfileTagDto> tags)
-    {
-        if (tags.Count == 0) return;
-        CharacterProfileUiShared.DrawSectionTitle("Tags");
-        _ = ProfileTagChipRenderer.DrawTagChips(ProfileTagUtilities.NormalizeForStorage(tags), "standalone-profile-tags");
     }
 
     private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)
@@ -322,7 +223,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         if (_textureWrap != null && bytes.SequenceEqual(_lastProfilePicture)) return;
         _textureWrap?.Dispose();
         _lastProfilePicture = bytes;
-        _textureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+        _textureWrap = bytes.Length == 0 ? null : _textureService.LoadImage(bytes);
     }
 
     private void RefreshHeaderTexture(byte[] bytes)
@@ -330,7 +231,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         if (_headerTextureWrap != null && bytes.SequenceEqual(_lastHeaderImage)) return;
         _headerTextureWrap?.Dispose();
         _lastHeaderImage = bytes;
-        _headerTextureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+        _headerTextureWrap = bytes.Length == 0 ? null : _textureService.LoadImage(bytes);
     }
 
     public override void OnClose()
@@ -345,18 +246,8 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         base.Dispose(disposing);
     }
 
-    private static byte[] DecodeImage(string? base64)
-    {
-        if (string.IsNullOrWhiteSpace(base64)) return [];
-        try
-        {
-            return Convert.FromBase64String(base64);
-        }
-        catch (FormatException)
-        {
-            return [];
-        }
-    }
+    private byte[] ResolveImageBytes(string? hash)
+        => _imageTransferService.TryGetImage(hash, out var bytes) ? bytes : [];
 
     private static string ResolveFallbackName(UserData userData, string? fallbackName, Pair? pair)
     {

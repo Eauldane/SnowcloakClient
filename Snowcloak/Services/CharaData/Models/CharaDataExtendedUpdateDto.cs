@@ -1,362 +1,95 @@
-﻿using Snowcloak.API.Data;
+using Snowcloak.API.Data;
 using Snowcloak.API.Dto.CharaData;
+using Snowcloak.Core.CharaData;
 
 namespace Snowcloak.Services.CharaData.Models;
 
-public sealed record CharaDataExtendedUpdateDto : CharaDataUpdateDto
+public sealed class CharaDataExtendedUpdateDto
 {
-    private readonly CharaDataFullDto _charaDataFullDto;
+    private readonly CharaDataEditSession _session;
 
-    public CharaDataExtendedUpdateDto(CharaDataUpdateDto dto, CharaDataFullDto charaDataFullDto) : base(dto)
+    public CharaDataExtendedUpdateDto(CharaDataUpdateDto dto, CharaDataFullDto charaDataFullDto)
     {
-        _charaDataFullDto = charaDataFullDto;
-        _userList = charaDataFullDto.AllowedUsers.ToList();
-        _groupList = charaDataFullDto.AllowedGroups.ToList();
-        _poseList = charaDataFullDto.PoseData.Select(k => new PoseEntry(k.Id)
-        {
-            Description = k.Description,
-            PoseData = k.PoseData,
-            WorldData = k.WorldData
-        }).ToList();
+        ArgumentNullException.ThrowIfNull(dto);
+        _session = new CharaDataEditSession(charaDataFullDto);
     }
 
-    public CharaDataUpdateDto BaseDto => new(Id)
-    {
-        AllowedUsers = AllowedUsers,
-        AllowedGroups = AllowedGroups,
-        AccessType = base.AccessType,
-        CustomizeData = base.CustomizeData,
-        Description = base.Description,
-        ExpiryDate = base.ExpiryDate,
-        FileGamePaths = base.FileGamePaths,
-        FileSwaps = base.FileSwaps,
-        GlamourerData = base.GlamourerData,
-        ShareType = base.ShareType,
-        ManipulationData = base.ManipulationData,
-        Poses = Poses
-    };
+    public string Id => _session.Id;
+    public CharaDataChangeSet ChangeSet => _session.ChangeSet;
+    public CharaDataUpdateDto BaseDto => _session.ToUpdateDto();
+    public IEnumerable<UserData> UserList => _session.Users;
+    public IEnumerable<GroupData> GroupList => _session.Groups;
+    public IEnumerable<PoseEntry> PoseList => _session.Poses;
+    public bool HasChanges => _session.HasChanges;
+    public bool IsAppearanceEqual => _session.IsAppearanceEqual;
 
-    public new string ManipulationData
+    public string ManipulationData
     {
-        get
-        {
-            return base.ManipulationData ?? _charaDataFullDto.ManipulationData;
-        }
-        set
-        {
-            base.ManipulationData = value;
-            if (string.Equals(base.ManipulationData, _charaDataFullDto.ManipulationData, StringComparison.Ordinal))
-            {
-                base.ManipulationData = null;
-            }
-        }
+        get => _session.ManipulationData;
+        set => _session.ManipulationData = value ?? string.Empty;
     }
 
-    public new string Description
+    public string Description
     {
-        get
-        {
-            return base.Description ?? _charaDataFullDto.Description;
-        }
-        set
-        {
-            base.Description = value;
-            if (string.Equals(base.Description, _charaDataFullDto.Description, StringComparison.Ordinal))
-            {
-                base.Description = null;
-            }
-        }
+        get => _session.Description;
+        set => _session.Description = value ?? string.Empty;
     }
 
-    public new DateTime ExpiryDate
+    public DateTime ExpiryDate => _session.ExpiryDate;
+
+    public AccessTypeDto AccessType
     {
-        get
-        {
-            return base.ExpiryDate ?? _charaDataFullDto.ExpiryDate;
-        }
-        private set
-        {
-            base.ExpiryDate = value;
-            if (Equals(base.ExpiryDate, _charaDataFullDto.ExpiryDate))
-            {
-                base.ExpiryDate = null;
-            }
-        }
+        get => _session.AccessType;
+        set => _session.AccessType = value;
     }
 
-    public new AccessTypeDto AccessType
+    public ShareTypeDto ShareType
     {
-        get
-        {
-            return base.AccessType ?? _charaDataFullDto.AccessType;
-        }
-        set
-        {
-            base.AccessType = value;
-            if (AccessType == AccessTypeDto.Public && ShareType == ShareTypeDto.Shared)
-            {
-                ShareType = ShareTypeDto.Private;
-            }
-
-            if (Equals(base.AccessType, _charaDataFullDto.AccessType))
-            {
-                base.AccessType = null;
-            }
-        }
+        get => _session.ShareType;
+        set => _session.ShareType = value;
     }
 
-    public new ShareTypeDto ShareType
-    {
-        get
-        {
-            return base.ShareType ?? _charaDataFullDto.ShareType;
-        }
-        set
-        {
-            base.ShareType = value;
-            if (ShareType == ShareTypeDto.Shared && AccessType == AccessTypeDto.Public)
-            {
-                base.ShareType = ShareTypeDto.Private;
-            }
+    public IReadOnlyList<GamePathEntry> FileGamePaths => _session.FileGamePaths;
 
-            if (Equals(base.ShareType, _charaDataFullDto.ShareType))
-            {
-                base.ShareType = null;
-            }
-        }
+    public IReadOnlyList<GamePathEntry> FileSwaps => _session.FileSwaps;
+
+    public string? GlamourerData
+    {
+        get => _session.GlamourerData;
+        set => _session.GlamourerData = value ?? string.Empty;
     }
 
-    public new List<GamePathEntry>? FileGamePaths
+    public string? CustomizeData
     {
-        get
-        {
-            return base.FileGamePaths ?? _charaDataFullDto.FileGamePaths;
-        }
-        set
-        {
-            base.FileGamePaths = value;
-            if (!(base.FileGamePaths ?? []).Except(_charaDataFullDto.FileGamePaths).Any()
-                && !_charaDataFullDto.FileGamePaths.Except(base.FileGamePaths ?? []).Any())
-            {
-                base.FileGamePaths = null;
-            }
-        }
+        get => _session.CustomizeData;
+        set => _session.CustomizeData = value ?? string.Empty;
     }
 
-    public new List<GamePathEntry>? FileSwaps
-    {
-        get
-        {
-            return base.FileSwaps ?? _charaDataFullDto.FileSwaps;
-        }
-        set
-        {
-            base.FileSwaps = value;
-            if (!(base.FileSwaps ?? []).Except(_charaDataFullDto.FileSwaps).Any()
-                && !_charaDataFullDto.FileSwaps.Except(base.FileSwaps ?? []).Any())
-            {
-                base.FileSwaps = null;
-            }
-        }
-    }
+    public void AddUserToList(string user) => _session.AddUser(user);
 
-    public new string? GlamourerData
-    {
-        get
-        {
-            return base.GlamourerData ?? _charaDataFullDto.GlamourerData;
-        }
-        set
-        {
-            base.GlamourerData = value;
-            if (string.Equals(base.GlamourerData, _charaDataFullDto.GlamourerData, StringComparison.Ordinal))
-            {
-                base.GlamourerData = null;
-            }
-        }
-    }
+    public void AddGroupToList(string group) => _session.AddGroup(group);
 
-    public new string? CustomizeData
-    {
-        get
-        {
-            return base.CustomizeData ?? _charaDataFullDto.CustomizeData;
-        }
-        set
-        {
-            base.CustomizeData = value;
-            if (string.Equals(base.CustomizeData, _charaDataFullDto.CustomizeData, StringComparison.Ordinal))
-            {
-                base.CustomizeData = null;
-            }
-        }
-    }
+    public void RemoveUserFromList(string user) => _session.RemoveUser(user);
 
-    public IEnumerable<UserData> UserList => _userList;
-    private readonly List<UserData> _userList;
+    public void RemoveGroupFromList(string group) => _session.RemoveGroup(group);
 
-    public IEnumerable<GroupData> GroupList => _groupList;
-    private readonly List<GroupData> _groupList;
+    public void SetFileGamePaths(IEnumerable<GamePathEntry> entries) => _session.SetFileGamePaths(entries);
 
-    public IEnumerable<PoseEntry> PoseList => _poseList;
-    private readonly List<PoseEntry> _poseList;
+    public void SetFileSwaps(IEnumerable<GamePathEntry> entries) => _session.SetFileSwaps(entries);
 
-    public void AddUserToList(string user)
-    {
-        _userList.Add(new(user, null));
-        UpdateAllowedUsers();
-    }
+    public void AddPose() => _session.AddPose();
 
-    public void AddGroupToList(string group)
-    {
-        _groupList.Add(new(group, null));
-        UpdateAllowedGroups();
-    }
+    public void RemovePose(PoseEntry entry) => _session.RemovePose(entry);
 
-    private void UpdateAllowedUsers()
-    {
-        AllowedUsers = [.. _userList.Select(u => u.UID)];
-        if (!AllowedUsers.Except(_charaDataFullDto.AllowedUsers.Select(u => u.UID), StringComparer.Ordinal).Any()
-            && !_charaDataFullDto.AllowedUsers.Select(u => u.UID).Except(AllowedUsers, StringComparer.Ordinal).Any())
-        {
-            AllowedUsers = null;
-        }
-    }
+    public bool UpdatePoseList() => ChangeSet.Poses;
 
-    private void UpdateAllowedGroups()
-    {
-        AllowedGroups = [.. _groupList.Select(u => u.GID)];
-        if (!AllowedGroups.Except(_charaDataFullDto.AllowedGroups.Select(u => u.GID), StringComparer.Ordinal).Any()
-            && !_charaDataFullDto.AllowedGroups.Select(u => u.GID).Except(AllowedGroups, StringComparer.Ordinal).Any())
-        {
-            AllowedGroups = null;
-        }
-    }
+    public void SetExpiry(bool expiring) => _session.SetExpiry(expiring);
 
-    public void RemoveUserFromList(string user)
-    {
-        _userList.RemoveAll(u => string.Equals(u.UID, user, StringComparison.Ordinal));
-        UpdateAllowedUsers();
-    }
+    public void SetExpiry(int year, int month, int day) => _session.SetExpiry(year, month, day);
 
-    public void RemoveGroupFromList(string group)
-    {
-        _groupList.RemoveAll(u => string.Equals(u.GID, group, StringComparison.Ordinal));
-        UpdateAllowedGroups();
-    }
+    internal void UndoChanges() => _session.UndoChanges();
 
-    public void AddPose()
-    {
-        _poseList.Add(new PoseEntry(null));
-        UpdatePoseList();
-    }
+    internal void RevertDeletion(PoseEntry pose) => _session.RevertPose(pose);
 
-    public void RemovePose(PoseEntry entry)
-    {
-        if (entry.Id != null)
-        {
-            entry.Description = null;
-            entry.WorldData = null;
-            entry.PoseData = null;
-        }
-        else
-        {
-            _poseList.Remove(entry);
-        }
-
-        UpdatePoseList();
-    }
-
-    public void UpdatePoseList()
-    {
-        Poses = [.. _poseList];
-        if (!Poses.Except(_charaDataFullDto.PoseData).Any() && !_charaDataFullDto.PoseData.Except(Poses).Any())
-        {
-            Poses = null;
-        }
-    }
-
-    public void SetExpiry(bool expiring)
-    {
-        if (expiring)
-        {
-            var date = DateTime.UtcNow.AddDays(7);
-            SetExpiry(date.Year, date.Month, date.Day);
-        }
-        else
-        {
-            ExpiryDate = DateTime.MaxValue;
-        }
-    }
-
-    public void SetExpiry(int year, int month, int day)
-    {
-        int daysInMonth = DateTime.DaysInMonth(year, month);
-        if (day > daysInMonth) day = 1;
-        ExpiryDate = new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc);
-    }
-
-    internal void UndoChanges()
-    {
-        base.Description = null;
-        base.AccessType = null;
-        base.ShareType = null;
-        base.GlamourerData = null;
-        base.FileSwaps = null;
-        base.FileGamePaths = null;
-        base.CustomizeData = null;
-        base.ManipulationData = null;
-        AllowedUsers = null;
-        AllowedGroups = null;
-        Poses = null;
-        _poseList.Clear();
-        _poseList.AddRange(_charaDataFullDto.PoseData.Select(k => new PoseEntry(k.Id)
-        {
-            Description = k.Description,
-            PoseData = k.PoseData,
-            WorldData = k.WorldData
-        }));
-    }
-
-    internal void RevertDeletion(PoseEntry pose)
-    {
-        if (pose.Id == null) return;
-        var oldPose = _charaDataFullDto.PoseData.Find(p => p.Id == pose.Id);
-        if (oldPose == null) return;
-        pose.Description = oldPose.Description;
-        pose.PoseData = oldPose.PoseData;
-        pose.WorldData = oldPose.WorldData;
-        UpdatePoseList();
-    }
-
-    internal bool PoseHasChanges(PoseEntry pose)
-    {
-        if (pose.Id == null) return false;
-        var oldPose = _charaDataFullDto.PoseData.Find(p => p.Id == pose.Id);
-        if (oldPose == null) return false;
-        return !string.Equals(pose.Description, oldPose.Description, StringComparison.Ordinal)
-            || !string.Equals(pose.PoseData, oldPose.PoseData, StringComparison.Ordinal)
-            || pose.WorldData != oldPose.WorldData;
-    }
-
-    public bool HasChanges =>
-                base.Description != null
-                || base.ExpiryDate != null
-                || base.AccessType != null
-                || base.ShareType != null
-                || AllowedUsers != null
-                || AllowedGroups != null
-                || base.GlamourerData != null
-                || base.FileSwaps != null
-                || base.FileGamePaths != null
-                || base.CustomizeData != null
-                || base.ManipulationData != null
-                || Poses != null;
-
-    public bool IsAppearanceEqual =>
-        string.Equals(GlamourerData, _charaDataFullDto.GlamourerData, StringComparison.Ordinal)
-        && string.Equals(CustomizeData, _charaDataFullDto.CustomizeData, StringComparison.Ordinal)
-        && FileGamePaths == _charaDataFullDto.FileGamePaths
-        && FileSwaps == _charaDataFullDto.FileSwaps
-        && string.Equals(ManipulationData, _charaDataFullDto.ManipulationData, StringComparison.Ordinal);
+    internal bool PoseHasChanges(PoseEntry pose) => _session.PoseHasChanges(pose);
 }

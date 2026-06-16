@@ -11,18 +11,20 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Venue;
+using Snowcloak.UI.Components;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using System.Numerics;
 
 namespace Snowcloak.UI;
 
-public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
+public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase, IStaticWindow
 {
     private readonly ApiController _apiController;
-    private readonly UiSharedService _uiSharedService;
+    private readonly BbCodeRenderService _bbCodeRenderService;
+    private readonly UiFontService _fontService;
     private readonly PairManager _pairManager;
-    private ILogger<VenueRegistrationUi> _logger;
+    private readonly new ILogger<VenueRegistrationUi> _logger;
     private readonly List<GroupFullInfoDto> _adminGroups = new();
 
     private VenueRegistrationContext? _context;
@@ -39,20 +41,18 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
     private bool _isEditingExistingVenue;
     private CancellationTokenSource? _prefillCancellation;
 
-    public VenueRegistrationUi(ILogger<VenueRegistrationUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
+    public VenueRegistrationUi(ILogger<VenueRegistrationUi> logger, SnowMediator mediator, UiFontService fontService,
+        BbCodeRenderService bbCodeRenderService,
         ApiController apiController, PairManager pairManager, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Venue Registration###SnowcloakVenueRegistration", performanceCollectorService)
     {
-        _uiSharedService = uiSharedService;
+        _fontService = fontService;
+        _bbCodeRenderService = bbCodeRenderService;
         _apiController = apiController;
         _pairManager = pairManager;
         _logger = logger;
 
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new(500, 400),
-            MaximumSize = new(1000, 1200)
-        };
+        SetScaledSizeConstraints(new Vector2(500, 400), new Vector2(1000, 1200));
 
         Mediator.Subscribe<OpenVenueRegistrationWindowMessage>(this, OnOpenRegistrationWindow);
     }
@@ -102,7 +102,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
 
         RefreshAdminGroups();
 
-        _uiSharedService.BigText("Plot details");
+        _fontService.BigText("Plot details");
         ImGui.TextUnformatted(_context.Location.FriendlyName);
         ImGui.TextUnformatted(string.Format("Placard owner: {0}", _context.OwnerName ?? "Unknown"));
         ImGui.TextUnformatted(_context.AuthorisedByFreeCompany
@@ -116,7 +116,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         }
 
         ImGui.Separator();
-        _uiSharedService.BigText("Select syncshell");
+        _fontService.BigText("Select syncshell");
 
         if (_adminGroups.Count == 0)
         {
@@ -153,7 +153,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                 _syncshellAlias = GetSyncshellAliasOrDefault(_selectedGroupGid);
         }
         ImGui.Separator();
-        _uiSharedService.BigText("Venue details");
+        _fontService.BigText("Venue details");
         
         ImGui.InputText("Venue name", ref _venueName, 100);
         ElezenImgui.AttachTooltip("Required: this is the display name shown to visitors.");
@@ -182,7 +182,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
         ImGui.TextUnformatted("Preview (BBCode renderer)");
         if (ImGui.BeginChild("##VenueDescriptionPreview", ImGuiHelpers.ScaledVector2(-1, ImGuiHelpers.GlobalScale * 120), true))
         {
-            _uiSharedService.RenderBbCode(_venueDescription, ImGui.GetContentRegionAvail().X);
+            _bbCodeRenderService.Render(_venueDescription, ImGui.GetContentRegionAvail().X);
         }
         ImGui.EndChild();
 
@@ -311,30 +311,10 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                ?? string.Empty;
     }
 
-    private static Vector3 ParseHexColourOrDefault(string? hex, Vector3 fallback)
-    {
-        if (hex != null && hex.Length == 6)
-        {
-            var colour = ElezenTools.UI.Colour.HexToVector4(hex);
-            return new Vector3(colour.X, colour.Y, colour.Z);
-        }
-
-        return fallback;
-    }
-
     private string? GetVenueNameColourHex()
     {
-        var hex = ColourVectorToHex(_venueNameColour);
-        return hex == "FFFFFF" ? null : hex;
-    }
-
-    private static string ColourVectorToHex(Vector3 colour)
-    {
-        var r = (int)Math.Clamp(colour.X * 255f, 0f, 255f);
-        var g = (int)Math.Clamp(colour.Y * 255f, 0f, 255f);
-        var b = (int)Math.Clamp(colour.Z * 255f, 0f, 255f);
-
-        return $"{r:X2}{g:X2}{b:X2}";
+        var hex = Colour.Vector3ToHex(_venueNameColour);
+        return string.Equals(hex, "FFFFFF", StringComparison.Ordinal) ? null : hex;
     }
 
     private void BeginPrefillExistingVenue()
@@ -371,7 +351,7 @@ public sealed class VenueRegistrationUi : WindowMediatorSubscriberBase
                     _venueHost = response.Venue.VenueHost ?? string.Empty;
                     _syncshellAlias = response.Venue.JoinInfo.Group.AliasOrGID;
 
-                    _venueNameColour = ParseHexColourOrDefault(response.Venue.HexString, Vector3.One);
+                    _venueNameColour = Colour.HexToVector3OrDefault(response.Venue.HexString, Vector3.One);
                     _isEditingExistingVenue = true;
                     
                     var existingGid = response.Venue.JoinInfo.Group.GID;

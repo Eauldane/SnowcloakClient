@@ -10,18 +10,23 @@ public partial class ApiController
 
     private void StartSystemInfoPolling()
     {
-        _systemInfoPollTokenSource?.Cancel();
-        _systemInfoPollTokenSource?.Dispose();
-        _systemInfoPollTokenSource = new CancellationTokenSource();
+        var scope = _systemInfoPollFlight.Begin();
+        var token = scope.Token;
+        _systemInfoPollToken = token;
 
-        _ = Task.Run(() => SystemInfoPollingLoop(_systemInfoPollTokenSource.Token));
+        _ = _backgroundTasks.Run(async () =>
+        {
+            using (scope)
+            {
+                await SystemInfoPollingLoop(token).ConfigureAwait(false);
+            }
+        }, nameof(SystemInfoPollingLoop));
     }
 
     private void StopSystemInfoPolling()
     {
-        _systemInfoPollTokenSource?.Cancel();
-        _systemInfoPollTokenSource?.Dispose();
-        _systemInfoPollTokenSource = null;
+        _systemInfoPollFlight.Cancel();
+        _systemInfoPollToken = new CancellationToken(canceled: true);
     }
 
     private async Task SystemInfoPollingLoop(CancellationToken ct)
@@ -46,17 +51,17 @@ public partial class ApiController
 
     private void TriggerSystemInfoRefresh()
     {
-        _ = Task.Run(async () =>
+        _ = _backgroundTasks.Run(async () =>
         {
             try
             {
-                await PollSystemInfoOnce(CancellationToken.None).ConfigureAwait(false);
+                await PollSystemInfoOnce(_systemInfoPollToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 Logger.LogDebug(ex, "Initial system info refresh failed");
             }
-        });
+        }, nameof(TriggerSystemInfoRefresh));
     }
 
     private async Task PollSystemInfoOnce(CancellationToken ct)
@@ -66,14 +71,16 @@ public partial class ApiController
             return;
         }
 
-        var dto = await GetSystemInfo().ConfigureAwait(false);
+        var dto = await GetSystemInfo(ct).ConfigureAwait(false);
         if (dto != null)
         {
             await Client_UpdateSystemInfo(dto).ConfigureAwait(false);
         }
     }
 
-    public async Task<SystemInfoDto> GetSystemInfo()
+    public Task<SystemInfoDto> GetSystemInfo() => GetSystemInfo(CancellationToken.None);
+
+    private async Task<SystemInfoDto> GetSystemInfo(CancellationToken cancellationToken)
     {
         var hub = _snowHub;
         if (hub == null || !IsConnected)
@@ -81,6 +88,6 @@ public partial class ApiController
             return new SystemInfoDto();
         }
 
-        return await hub.InvokeAsync<SystemInfoDto>(nameof(GetSystemInfo)).ConfigureAwait(false);
+        return await hub.InvokeAsync<SystemInfoDto>(nameof(GetSystemInfo), cancellationToken).ConfigureAwait(false);
     }
 }

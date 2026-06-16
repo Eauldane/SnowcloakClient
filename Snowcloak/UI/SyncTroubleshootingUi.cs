@@ -26,11 +26,7 @@ public sealed class SyncTroubleshootingUi : WindowMediatorSubscriberBase
         Pair = pair;
         _syncTroubleshootingService = syncTroubleshootingService;
         IsOpen = true;
-        SizeConstraints = new()
-        {
-            MinimumSize = new Vector2(620, 440),
-            MaximumSize = new Vector2(1600, 1600)
-        };
+        SetScaledSizeConstraints(new Vector2(620, 440), new Vector2(1600, 1600));
     }
 
     public Pair Pair { get; }

@@ -1,7 +1,6 @@
 ﻿using Snowcloak.API.Dto;
 using Snowcloak.API.Routes;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Configuration.Models;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
@@ -19,23 +18,25 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     private readonly DalamudUtilService _dalamudUtil;
     private readonly HttpClient _httpClient;
     private readonly ILogger<TokenProvider> _logger;
-    private readonly ServerConfigurationManager _serverManager;
+    private readonly ServerRegistry _serverManager;
     private readonly ConcurrentDictionary<JwtIdentifier, string> _tokenCache = new();
     private readonly ConcurrentDictionary<string, string?> _wellKnownCache = new(StringComparer.Ordinal);
 
-    public TokenProvider(ILogger<TokenProvider> logger, ServerConfigurationManager serverManager,
+    public TokenProvider(ILogger<TokenProvider> logger, ServerRegistry serverManager,
         DalamudUtilService dalamudUtil, SnowMediator snowMediator)
     {
         _logger = logger;
         _serverManager = serverManager;
         _dalamudUtil = dalamudUtil;
-        _httpClient = new(
-            new HttpClientHandler
-            {
-                AllowAutoRedirect = true,
-                MaxAutomaticRedirections = 5
-            }
-        );
+#pragma warning disable CA2000
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            CheckCertificateRevocationList = true,
+            MaxAutomaticRedirections = 5
+        };
+        _httpClient = new(handler, disposeHandler: true);
+#pragma warning restore CA2000
         var ver = Assembly.GetExecutingAssembly().GetName().Version;
         Mediator = snowMediator;
         Mediator.Subscribe<DalamudLogoutMessage>(this, (_) =>
@@ -66,7 +67,6 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     public async Task<string> GetNewToken(JwtIdentifier identifier, CancellationToken token)
     {
         Uri tokenUri;
-        HttpResponseMessage result;
 
         try
         {
@@ -77,17 +77,24 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
                 .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase)));
             var secretKey = _serverManager.GetSecretKey(out _)!;
             var auth = secretKey.GetHash256();
-            result = await _httpClient.PostAsync(tokenUri, new FormUrlEncodedContent([
+            using var formContent = new FormUrlEncodedContent([
                 new("auth", auth),
                 new("charaIdent", await _dalamudUtil.GetPlayerNameHashedAsync().ConfigureAwait(false)),
-            ]), token).ConfigureAwait(false);
+            ]);
+            using var result = await _httpClient.PostAsync(tokenUri, formContent, token).ConfigureAwait(false);
 
             if (!result.IsSuccessStatusCode)
             {
                 var textResponse = await result.Content.ReadAsStringAsync(token).ConfigureAwait(false) ?? string.Empty;
-                Mediator.Publish(new NotificationMessage("Error refreshing token", "Your authentication token could not be renewed. Try reconnecting manually.", NotificationType.Error));
-                Mediator.Publish(new DisconnectedMessage());
-                throw new SnowAuthFailureException(textResponse);
+                _tokenCache.TryRemove(identifier, out _);
+                _wellKnownCache.TryRemove(_serverManager.CurrentApiUrl, out _);
+
+                if (result.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    throw new SnowAuthFailureException(textResponse);
+                }
+
+                throw new HttpRequestException(textResponse, null, result.StatusCode);
             }
 
             var response = await result.Content.ReadFromJsonAsync<AuthReplyDto>(token).ConfigureAwait(false) ?? new();
@@ -100,12 +107,8 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
             _tokenCache.TryRemove(identifier, out _);
             _wellKnownCache.TryRemove(_serverManager.CurrentApiUrl, out _);
 
-            _logger.LogError(ex, "GetNewToken: Failure to get token");
-
             if (ex.StatusCode == HttpStatusCode.Unauthorized)
             {
-                Mediator.Publish(new NotificationMessage("Error refreshing token", "Your authentication token could not be renewed. Try reconnecting manually.", NotificationType.Error));
-                Mediator.Publish(new DisconnectedMessage());
                 throw new SnowAuthFailureException(ex.Message);
             }
 

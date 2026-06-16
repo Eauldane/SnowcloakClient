@@ -8,6 +8,7 @@ using Snowcloak.Configuration;
 using Snowcloak.Configuration.Configurations;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
+using Snowcloak.Services.Performance;
 using System.Globalization;
 using System.Numerics;
 
@@ -85,7 +86,7 @@ internal sealed class PerformanceDashboardPanel
         DrawMetricCell("Visible", visiblePairs.ToString(CultureInfo.InvariantCulture), "Currently on screen", ElezenColours.SnowcloakBlue);
         DrawMetricCell("Auto-Blocked", autoBlockedPairs.ToString(CultureInfo.InvariantCulture), "Held by local performance rules", ImGuiColors.DalamudRed);
 
-        DrawMetricCell("Visible VRAM", UiSharedService.ByteToString(visibleVramBytes, true), "Applied or reported visible load", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Vram));
+        DrawMetricCell("Visible VRAM", ElezenImgui.ByteToString(visibleVramBytes, true), "Applied or reported visible load", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Vram));
         DrawMetricCell("Visible Tris", SyncshellBudgetService.FormatTriangles(visibleTriangleCount), "Applied or reported visible geometry", SyncshellBudgetService.GetMetricColor(SyncshellBudgetMetric.Triangles));
         DrawMetricCell("Priority Holds", string.Empty, "Syncshell crowd control appears below", ImGuiColors.DalamudGrey);
 
@@ -134,7 +135,7 @@ internal sealed class PerformanceDashboardPanel
         var usageRatio = totalBytes <= 0
             ? 0f
             : Math.Clamp((float)visibleVramBytes / totalBytes, 0f, 1f);
-        var label = $"Snowcloak visible VRAM {UiSharedService.ByteToString(visibleVramBytes, true)} / {UiSharedService.ByteToString(totalBytes, true)}";
+        var label = $"Snowcloak visible VRAM {ElezenImgui.ByteToString(visibleVramBytes, true)} / {ElezenImgui.ByteToString(totalBytes, true)}";
 
         using (ImRaii.PushColor(ImGuiCol.PlotHistogram, SyncshellBudgetService.GetUsageColor(usageRatio)))
         using (ImRaii.PushColor(ImGuiCol.FrameBg, new Vector4(0.11f, 0.11f, 0.13f, 1f)))
@@ -144,7 +145,7 @@ internal sealed class PerformanceDashboardPanel
 
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
         {
-            ImGui.TextWrapped($"Snowcloak visible load: {UiSharedService.ByteToString(visibleVramBytes, true)} | Local GPU VRAM: {UiSharedService.ByteToString(totalBytes, true)} | Adapter: {gpuBudget.AdapterName}");
+            ImGui.TextWrapped($"Snowcloak visible load: {ElezenImgui.ByteToString(visibleVramBytes, true)} | Local GPU VRAM: {ElezenImgui.ByteToString(totalBytes, true)} | Adapter: {gpuBudget.AdapterName}");
         }
     }
 
@@ -154,7 +155,7 @@ internal sealed class PerformanceDashboardPanel
         ImGui.Separator();
         ImGui.TextUnformatted(crowdPrioritySnapshot.Enabled ? "Enabled" : "Disabled");
         ImGui.TextUnformatted($"Visible syncshell members: {crowdPrioritySnapshot.VisibleMembers}/{config.CrowdPriorityVisibleMembersThreshold}");
-        ImGui.TextUnformatted($"Syncshell VRAM: {UiSharedService.ByteToString(crowdPrioritySnapshot.ActiveVramBytes, true)} / {UiSharedService.ByteToString(config.CrowdPriorityVRAMThresholdMiB * 1024L * 1024L, true)}");
+        ImGui.TextUnformatted($"Syncshell VRAM: {ElezenImgui.ByteToString(crowdPrioritySnapshot.ActiveVramBytes, true)} / {ElezenImgui.ByteToString(config.CrowdPriorityVRAMThresholdMiB * 1024L * 1024L, true)}");
         ImGui.TextUnformatted($"Syncshell triangles: {SyncshellBudgetService.FormatTriangles(crowdPrioritySnapshot.ActiveTriangleCount)} / {SyncshellBudgetService.FormatTriangles(config.CrowdPriorityTrianglesThresholdThousands * 1000L)}");
         if (crowdPrioritySnapshot.CrowdPausedMembers > 0)
         {
@@ -220,8 +221,8 @@ internal sealed class PerformanceDashboardPanel
         var metricValue = metric switch
         {
             SyncshellBudgetMetric.Vram when GetDisplayVramBytes(pair) > 0 => pair.LastAppliedApproximateVRAMBytes >= 0
-                ? UiSharedService.ByteToString(GetDisplayVramBytes(pair), true)
-                : $"{UiSharedService.ByteToString(GetDisplayVramBytes(pair), true)} reported",
+                ? ElezenImgui.ByteToString(GetDisplayVramBytes(pair), true)
+                : $"{ElezenImgui.ByteToString(GetDisplayVramBytes(pair), true)} reported",
             SyncshellBudgetMetric.Triangles when GetDisplayTriangleCount(pair) > 0 => pair.LastAppliedDataTris >= 0
                 ? SyncshellBudgetService.FormatTriangles(GetDisplayTriangleCount(pair))
                 : $"{SyncshellBudgetService.FormatTriangles(GetDisplayTriangleCount(pair))} reported",
@@ -322,7 +323,7 @@ internal sealed class PerformanceDashboardPanel
         var parts = new List<string>();
         if (GetDisplayVramBytes(pair) > 0)
         {
-            parts.Add($"VRAM {UiSharedService.ByteToString(GetDisplayVramBytes(pair), true)}");
+            parts.Add($"VRAM {ElezenImgui.ByteToString(GetDisplayVramBytes(pair), true)}");
         }
 
         if (GetDisplayTriangleCount(pair) > 0)
@@ -347,7 +348,7 @@ internal sealed class PerformanceDashboardPanel
 
         if (GetDisplayVramBytes(pair) > 0)
         {
-            lines.Add($"{(pair.LastAppliedApproximateVRAMBytes >= 0 ? "Applied" : "Reported")} VRAM: {UiSharedService.ByteToString(GetDisplayVramBytes(pair), true)}");
+            lines.Add($"{(pair.LastAppliedApproximateVRAMBytes >= 0 ? "Applied" : "Reported")} VRAM: {ElezenImgui.ByteToString(GetDisplayVramBytes(pair), true)}");
         }
 
         if (GetDisplayTriangleCount(pair) > 0)

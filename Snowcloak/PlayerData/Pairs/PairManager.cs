@@ -10,40 +10,56 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
+using Snowcloak.UI.Components;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace Snowcloak.PlayerData.Pairs;
 
-public sealed class PairManager : DisposableMediatorSubscriberBase
+public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<UserData, Pair> _allClientPairs = new(UserDataComparer.Instance);
+    private const string PanicHoldSource = "Panic";
+    private readonly ConcurrentDictionary<string, Pair> _allClientPairs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<GroupData, GroupFullInfoDto> _allGroups = new(GroupDataComparer.Instance);
     private readonly SnowcloakConfigService _configurationService;
     private readonly IContextMenu _dalamudContextMenu;
     private readonly PairFactory _pairFactory;
-    private Lazy<List<Pair>> _directPairsInternal;
-    private Lazy<Dictionary<GroupFullInfoDto, List<Pair>>> _groupPairsInternal;
+    private readonly PairContextMenuBuilder _contextMenuBuilder;
+    private readonly Lock _projectionLock = new();
+    private List<Pair> _directPairsCache = [];
+    private Dictionary<GroupFullInfoDto, List<Pair>> _groupPairsCache = new();
+    private volatile bool _projectionsDirty = true;
+    private volatile bool _panicModeEnabled;
+    private int _disposed;
 
     public PairManager(ILogger<PairManager> logger, PairFactory pairFactory,
                 SnowcloakConfigService configurationService, SnowMediator mediator,
-                IContextMenu dalamudContextMenu) : base(logger, mediator)
+                IContextMenu dalamudContextMenu, PairContextMenuBuilder contextMenuBuilder) : base(logger, mediator)
     {
         _pairFactory = pairFactory;
         _configurationService = configurationService;
         _dalamudContextMenu = dalamudContextMenu;
+        _contextMenuBuilder = contextMenuBuilder;
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => ClearPairs());
         Mediator.Subscribe<CutsceneEndMessage>(this, (_) => ReapplyPairData());
-        _directPairsInternal = DirectPairsLazy();
-        _groupPairsInternal = GroupPairsLazy();
+        Mediator.Subscribe<LocalCharacterDataPushedMessage>(this, MarkLocalCharacterDataPushed);
 
         _dalamudContextMenu.OnMenuOpened += DalamudContextMenuOnOnOpenGameObjectContextMenu;
     }
 
-    public List<Pair> DirectPairs => _directPairsInternal.Value;
+    public List<Pair> DirectPairs
+    {
+        get { RebuildProjectionsIfDirty(); return _directPairsCache; }
+    }
 
-    public Dictionary<GroupFullInfoDto, List<Pair>> GroupPairs => _groupPairsInternal.Value;
+    public Dictionary<GroupFullInfoDto, List<Pair>> GroupPairs
+    {
+        get { RebuildProjectionsIfDirty(); return _groupPairsCache; }
+    }
     public Dictionary<GroupData, GroupFullInfoDto> Groups => _allGroups.ToDictionary(k => k.Key, k => k.Value, GroupDataComparer.Instance);
     public Pair? LastAddedUser { get; internal set; }
+    public bool PanicModeEnabled => _panicModeEnabled;
     private readonly ConcurrentDictionary<string, byte> _suppressedNotePairs =
         new(StringComparer.Ordinal);
     
@@ -51,28 +67,28 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     public void AddGroup(GroupFullInfoDto dto)
     {
         _allGroups[dto.Group] = dto;
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void AddGroupPair(GroupPairFullInfoDto dto)
     {
-        if (!_allClientPairs.ContainsKey(dto.User))
-            _allClientPairs[dto.User] = _pairFactory.Create(dto.User);
+        if (!_allGroups.TryGetValue(dto.Group, out var group))
+        {
+            Logger.LogWarning("AddGroupPair: no group found for {dto}", dto);
+            return;
+        }
 
-        var group = _allGroups[dto.Group];
-        _allClientPairs[dto.User].GroupPair[group] = dto;
-        RecreateLazy();
+        if (!_allClientPairs.ContainsKey(dto.User.UID))
+            _allClientPairs[dto.User.UID] = _pairFactory.Create(dto.User);
+
+        _allClientPairs[dto.User.UID].GroupPair[group] = dto;
+        ApplyPanicHold(_allClientPairs[dto.User.UID]);
+        InvalidateProjections();
     }
 
     public Pair? GetPairByUID(string uid)
     {
-        var existingPair = _allClientPairs.FirstOrDefault(f => uid.Equals(f.Key.UID, StringComparison.Ordinal));
-        if (!Equals(existingPair, default(KeyValuePair<UserData, Pair>)))
-        {
-            return existingPair.Value;
-        }
-
-        return null;
+        return _allClientPairs.TryGetValue(uid, out var pair) ? pair : null;
     }
     
     public Pair GetOrCreateTransientPair(UserData userData)
@@ -90,51 +106,44 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
     public void AddUserPair(UserPairDto dto, bool addToLastAddedUser = true)
     {
-        if (!_allClientPairs.ContainsKey(dto.User))
+        if (!_allClientPairs.ContainsKey(dto.User.UID))
         {
-            _allClientPairs[dto.User] = _pairFactory.Create(dto.User);
+            _allClientPairs[dto.User.UID] = _pairFactory.Create(dto.User);
         }
         else
         {
             addToLastAddedUser = false;
         }
 
-        _allClientPairs[dto.User].UserPair = dto;
+        _allClientPairs[dto.User.UID].UserPair = dto;
         var suppressNotePopup = _suppressedNotePairs.TryRemove(dto.User.UID, out _);
+        ApplyPanicHold(_allClientPairs[dto.User.UID]);
 
         if (addToLastAddedUser && !suppressNotePopup)
-        if (addToLastAddedUser)
-            LastAddedUser = _allClientPairs[dto.User];
-        _allClientPairs[dto.User].ApplyLastReceivedData();
-        RecreateLazy();
+        {
+            LastAddedUser = _allClientPairs[dto.User.UID];
+        }
+        _allClientPairs[dto.User.UID].ApplyLastReceivedData();
+        InvalidateProjections();
     }
 
     public void UpdateUserProfile(UserDto dto)
     {
-        if (!_allClientPairs.TryGetValue(dto.User, out var pair))
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
             return;
         }
-
-        var existingKey = _allClientPairs.FirstOrDefault(kvp => ReferenceEquals(kvp.Value, pair)).Key;
-        if (!Equals(existingKey, default(UserData)))
-        {
-            var aliasChanged = !string.Equals(existingKey.Alias, dto.User.Alias, StringComparison.Ordinal);
-            var hexChanged = !string.Equals(existingKey.HexString, dto.User.HexString, StringComparison.Ordinal);
-            var glowHexChanged = !string.Equals(existingKey.GlowHexString, dto.User.GlowHexString, StringComparison.Ordinal);
-            if (aliasChanged || hexChanged || glowHexChanged)
-            {
-                _allClientPairs.TryRemove(existingKey, out _);
-                _allClientPairs[dto.User] = pair;
-                RecreateLazy();
-            }
-            if (hexChanged || glowHexChanged)
-            {
-                Mediator.Publish(new NameplateRedrawMessage());
-            }
-        }
+        
+        var previous = pair.UserData;
+        var hexChanged = !string.Equals(previous.HexString, dto.User.HexString, StringComparison.Ordinal);
+        var glowHexChanged = !string.Equals(previous.GlowHexString, dto.User.GlowHexString, StringComparison.Ordinal);
 
         pair.UpdateUserData(dto.User);
+
+        if (hexChanged || glowHexChanged)
+        {
+            Mediator.Publish(new NameplateRedrawMessage());
+        }
 
         if (pair.UserPair != null)
         {
@@ -153,16 +162,51 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         DisposePairs();
         _allClientPairs.Clear();
         _allGroups.Clear();
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public List<Pair> GetOnlineUserPairs() => _allClientPairs.Where(p => !string.IsNullOrEmpty(p.Value.GetPlayerNameHash())).Select(p => p.Value).ToList();
 
     public int GetVisibleUserCount() => _allClientPairs.Count(p => p.Value.IsVisible);
 
-    public List<UserData> GetVisibleUsers() => _allClientPairs.Where(p => p.Value.IsVisible).Select(p => p.Key).ToList();
+    public List<UserData> GetVisibleUsers() => _allClientPairs.Where(p => p.Value.IsVisible).Select(p => p.Value.UserData).ToList();
     
     public List<Pair> GetVisiblePairs() => _allClientPairs.Values.Where(p => p.IsVisible).ToList();
+
+    public PanicModeResult TogglePanicMode()
+    {
+        return SetPanicMode(!_panicModeEnabled);
+    }
+
+    public PanicModeResult SetPanicMode(bool enabled)
+    {
+        _panicModeEnabled = enabled;
+        var pairs = _allClientPairs.Values.ToList();
+
+        foreach (var pair in pairs)
+        {
+            if (enabled)
+            {
+                ApplyPanicHold(pair);
+            }
+            else
+            {
+                pair.UnholdApplication(PanicHoldSource);
+            }
+        }
+
+        return new PanicModeResult(enabled, pairs.Count);
+    }
+
+    private void ApplyPanicHold(Pair pair)
+    {
+        if (!_panicModeEnabled) return;
+
+        if (!pair.HoldApplication(PanicHoldSource, maxValue: 1))
+        {
+            pair.UndoApplication();
+        }
+    }
     
     public Pair? GetPairByObjectId(uint objectId)
     {
@@ -171,25 +215,28 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
     
     public void MarkPairOffline(UserData user)
     {
-        if (_allClientPairs.TryGetValue(user, out var pair))
+        if (_allClientPairs.TryGetValue(user.UID, out var pair))
         {
             Mediator.Publish(new ClearProfileDataMessage(pair.UserData));
             pair.MarkOffline();
         }
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void MarkPairOnline(OnlineUserIdentDto dto, bool sendNotif = true)
     {
-        if (!_allClientPairs.ContainsKey(dto.User)) throw new InvalidOperationException("No user found for " + dto);
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
+        {
+            Logger.LogWarning("MarkPairOnline: no user found for {dto}", dto);
+            return;
+        }
 
         Mediator.Publish(new ClearProfileDataMessage(dto.User));
 
-        var pair = _allClientPairs[dto.User];
         if (pair.HasCachedPlayer)
         {
-            RecreateLazy();
+            InvalidateProjections();
             return;
         }
 
@@ -208,15 +255,19 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
         pair.CreateCachedPlayer(dto);
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void ReceiveCharaData(OnlineUserCharaDataDto dto)
     {
-        if (!_allClientPairs.TryGetValue(dto.User, out var pair)) throw new InvalidOperationException("No user found for " + dto.User);
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
+        {
+            Logger.LogWarning("ReceiveCharaData: no user found for {dto}", dto.User);
+            return;
+        }
 
         Mediator.Publish(new EventMessage(new Event(pair.UserData, nameof(PairManager), EventSeverity.Informational, "Received Character Data")));
-        _allClientPairs[dto.User].ApplyData(dto);
+        pair.ApplyData(dto);
     }
 
     public void RemoveGroup(GroupData data)
@@ -227,49 +278,52 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         {
             foreach (var grpPair in item.Value.GroupPair.Select(k => k.Key).Where(grpPair => GroupDataComparer.Instance.Equals(grpPair.Group, data)).ToList())
             {
-                _allClientPairs[item.Key].GroupPair.Remove(grpPair);
+                item.Value.GroupPair.TryRemove(grpPair, out _);
             }
 
-            if (!_allClientPairs[item.Key].HasAnyConnection() && _allClientPairs.TryRemove(item.Key, out var pair))
+            if (!item.Value.HasAnyConnection() && _allClientPairs.TryRemove(item.Key, out var pair))
             {
-                pair.MarkOffline();
+                Mediator.Publish(new ClearProfileDataMessage(pair.UserData));
+                pair.Dispose();
             }
         }
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void RemoveGroupPair(GroupPairDto dto)
     {
-        if (_allClientPairs.TryGetValue(dto.User, out var pair))
+        if (_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
-            var group = _allGroups[dto.Group];
-            pair.GroupPair.Remove(group);
+            if (_allGroups.TryGetValue(dto.Group, out var group))
+                pair.GroupPair.TryRemove(group, out _);
+            else
+                Logger.LogWarning("RemoveGroupPair: no group found for {dto}", dto);
 
-            if (!pair.HasAnyConnection())
+            if (!pair.HasAnyConnection() && _allClientPairs.TryRemove(dto.User.UID, out var removedPair))
             {
-                pair.MarkOffline();
-                _allClientPairs.TryRemove(dto.User, out _);
+                Mediator.Publish(new ClearProfileDataMessage(removedPair.UserData));
+                removedPair.Dispose();
             }
         }
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void RemoveUserPair(UserDto dto)
     {
-        if (_allClientPairs.TryGetValue(dto.User, out var pair))
+        if (_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
             pair.UserPair = null;
 
-            if (!pair.HasAnyConnection())
+            if (!pair.HasAnyConnection() && _allClientPairs.TryRemove(dto.User.UID, out var removedPair))
             {
-                pair.MarkOffline();
-                _allClientPairs.TryRemove(dto.User, out _);
+                Mediator.Publish(new ClearProfileDataMessage(removedPair.UserData));
+                removedPair.Dispose();
             }
         }
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void SetGroupInfo(GroupInfoDto dto)
@@ -282,17 +336,22 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         group.GroupPermissions = dto.GroupPermissions;
         _allGroups[dto.Group] = group;
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void UpdatePairPermissions(UserPermissionsDto dto)
     {
-        if (!_allClientPairs.TryGetValue(dto.User, out var pair))
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
-            throw new InvalidOperationException("No such pair for " + dto);
+            Logger.LogWarning("UpdatePairPermissions: no such pair for {dto}", dto);
+            return;
         }
 
-        if (pair.UserPair == null) throw new InvalidOperationException("No direct pair for " + dto);
+        if (pair.UserPair == null)
+        {
+            Logger.LogWarning("UpdatePairPermissions: no direct pair for {dto}", dto);
+            return;
+        }
 
         if (pair.UserPair.OtherPermissions.IsPaused() != dto.Permissions.IsPaused()
             || pair.UserPair.OtherPermissions.IsPaired() != dto.Permissions.IsPaired())
@@ -311,17 +370,22 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         if (!pair.IsPaused)
             pair.ApplyLastReceivedData();
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     public void UpdateSelfPairPermissions(UserPermissionsDto dto)
     {
-        if (!_allClientPairs.TryGetValue(dto.User, out var pair))
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
-            throw new InvalidOperationException("No such pair for " + dto);
+            Logger.LogWarning("UpdateSelfPairPermissions: no such pair for {dto}", dto);
+            return;
         }
 
-        if (pair.UserPair == null) throw new InvalidOperationException("No direct pair for " + dto);
+        if (pair.UserPair == null)
+        {
+            Logger.LogWarning("UpdateSelfPairPermissions: no direct pair for {dto}", dto);
+            return;
+        }
 
         if (pair.UserPair.OwnPermissions.IsPaused() != dto.Permissions.IsPaused()
             || pair.UserPair.OwnPermissions.IsPaired() != dto.Permissions.IsPaired())
@@ -340,35 +404,77 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         if (!pair.IsPaused)
             pair.ApplyLastReceivedData();
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     internal void ReceiveUploadStatus(UserDto dto)
     {
-        if (_allClientPairs.TryGetValue(dto.User, out var existingPair) && existingPair.IsVisible)
+        if (_allClientPairs.TryGetValue(dto.User.UID, out var existingPair) && existingPair.IsVisible)
         {
             existingPair.SetIsUploading();
         }
     }
 
+    internal void ReceiveApplicationReceipt(PairApplicationReceiptDto dto)
+    {
+        if (_allClientPairs.TryGetValue(dto.Receiver.UID, out var existingPair))
+        {
+            existingPair.ApplyApplicationReceipt(dto);
+        }
+    }
+
+    private void MarkLocalCharacterDataPushed(LocalCharacterDataPushedMessage message)
+    {
+        foreach (var recipient in message.Recipients)
+        {
+            if (_allClientPairs.TryGetValue(recipient.UID, out var pair))
+            {
+                pair.MarkLocalDataPushed(message.DataHash);
+            }
+        }
+    }
+    
+    private bool TryGetGroupPairInfo(GroupData groupData, UserData user,
+        [NotNullWhen(true)] out Pair? pair, [NotNullWhen(true)] out GroupPairFullInfoDto? info,
+        [CallerMemberName] string? caller = null)
+    {
+        info = null;
+        if (!_allGroups.TryGetValue(groupData, out var group))
+        {
+            Logger.LogWarning("{caller}: no group found for {group}", caller, groupData);
+            pair = null;
+            return false;
+        }
+        if (!_allClientPairs.TryGetValue(user.UID, out pair))
+        {
+            Logger.LogWarning("{caller}: no user found for {user}", caller, user);
+            return false;
+        }
+        if (!pair.GroupPair.TryGetValue(group, out info))
+        {
+            Logger.LogWarning("{caller}: no group-pair membership for {user} in {group}", caller, user, groupData);
+            return false;
+        }
+        return true;
+    }
+
     internal void SetGroupPairStatusInfo(GroupPairUserInfoDto dto)
     {
-        var group = _allGroups[dto.Group];
-        _allClientPairs[dto.User].GroupPair[group].GroupPairStatusInfo = dto.GroupUserInfo;
-        RecreateLazy();
+        if (!TryGetGroupPairInfo(dto.Group, dto.User, out _, out var groupPairInfo)) return;
+        groupPairInfo.GroupPairStatusInfo = dto.GroupUserInfo;
+        InvalidateProjections();
     }
 
     internal void SetGroupPairMemberLabels(GroupMemberLabelsDto dto)
     {
-        var group = _allGroups[dto.Group];
-        _allClientPairs[dto.User].GroupPair[group].MemberLabels = dto.Labels;
-        RecreateLazy();
+        if (!TryGetGroupPairInfo(dto.Group, dto.User, out _, out var groupPairInfo)) return;
+        groupPairInfo.MemberLabels = dto.Labels;
+        InvalidateProjections();
     }
 
     internal void SetGroupPairUserPermissions(GroupPairUserPermissionDto dto)
     {
-        var group = _allGroups[dto.Group];
-        var groupPairInfo = _allClientPairs[dto.User].GroupPair[group];
+        if (!TryGetGroupPairInfo(dto.Group, dto.User, out var pair, out var groupPairInfo)) return;
         var prevOwnPermissions = groupPairInfo.OwnGroupUserPermissions;
         var prevOtherPermissions = groupPairInfo.OtherGroupUserPermissions;
         groupPairInfo.GroupUserPermissions = dto.GroupPairPermissions;
@@ -381,60 +487,101 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
             || prevOtherPermissions.IsDisableSounds() != dto.OtherGroupPairPermissions.IsDisableSounds()
             || prevOtherPermissions.IsDisableVFX() != dto.OtherGroupPairPermissions.IsDisableVFX())
         {
-            _allClientPairs[dto.User].ApplyLastReceivedData();
+            pair.ApplyLastReceivedData();
         }
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     internal void SetGroupPermissions(GroupPermissionDto dto)
     {
-        var prevPermissions = _allGroups[dto.Group].GroupPermissions;
-        _allGroups[dto.Group].GroupPermissions = dto.Permissions;
+        if (!_allGroups.TryGetValue(dto.Group, out var group))
+        {
+            Logger.LogWarning("SetGroupPermissions: no group found for {dto}", dto);
+            return;
+        }
+
+        var prevPermissions = group.GroupPermissions;
+        group.GroupPermissions = dto.Permissions;
         if (prevPermissions.IsDisableAnimations() != dto.Permissions.IsDisableAnimations()
             || prevPermissions.IsDisableSounds() != dto.Permissions.IsDisableSounds()
             || prevPermissions.IsDisableVFX() != dto.Permissions.IsDisableVFX())
         {
-            RecreateLazy();
-            var group = _allGroups[dto.Group];
+            InvalidateProjections();
             GroupPairs[group].ForEach(p => p.ApplyLastReceivedData());
         }
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     internal void SetGroupStatusInfo(GroupPairUserInfoDto dto)
     {
-        _allGroups[dto.Group].GroupUserInfo = dto.GroupUserInfo;
-        RecreateLazy();
+        if (!_allGroups.TryGetValue(dto.Group, out var group))
+        {
+            Logger.LogWarning("SetGroupStatusInfo: no group found for {dto}", dto);
+            return;
+        }
+        group.GroupUserInfo = dto.GroupUserInfo;
+        InvalidateProjections();
     }
 
     internal void SetGroupMemberLabels(GroupMemberLabelsDto dto)
     {
-        _allGroups[dto.Group].MemberLabels = dto.Labels;
-        RecreateLazy();
+        if (!_allGroups.TryGetValue(dto.Group, out var group))
+        {
+            Logger.LogWarning("SetGroupMemberLabels: no group found for {dto}", dto);
+            return;
+        }
+        group.MemberLabels = dto.Labels;
+        InvalidateProjections();
     }
 
     internal void SetGroupUserPermissions(GroupPairUserPermissionDto dto)
     {
-        var prevPermissions = _allGroups[dto.Group].GroupUserPermissions;
-        _allGroups[dto.Group].GroupUserPermissions = dto.GroupPairPermissions;
+        if (!_allGroups.TryGetValue(dto.Group, out var group))
+        {
+            Logger.LogWarning("SetGroupUserPermissions: no group found for {dto}", dto);
+            return;
+        }
+
+        var prevPermissions = group.GroupUserPermissions;
+        group.GroupUserPermissions = dto.GroupPairPermissions;
         if (prevPermissions.IsDisableAnimations() != dto.GroupPairPermissions.IsDisableAnimations()
             || prevPermissions.IsDisableSounds() != dto.GroupPairPermissions.IsDisableSounds()
             || prevPermissions.IsDisableVFX() != dto.GroupPairPermissions.IsDisableVFX())
         {
-            RecreateLazy();
-            var group = _allGroups[dto.Group];
+            InvalidateProjections();
             GroupPairs[group].ForEach(p => p.ApplyLastReceivedData());
         }
-        RecreateLazy();
+        InvalidateProjections();
     }
 
     protected override void Dispose(bool disposing)
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         base.Dispose(disposing);
 
         _dalamudContextMenu.OnMenuOpened -= DalamudContextMenuOnOnOpenGameObjectContextMenu;
 
         DisposePairs();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        base.Dispose(disposing: true);
+
+        _dalamudContextMenu.OnMenuOpened -= DalamudContextMenuOnOnOpenGameObjectContextMenu;
+
+        await DisposePairsAsync().ConfigureAwait(false);
+
+        GC.SuppressFinalize(this);
     }
 
     private void DalamudContextMenuOnOnOpenGameObjectContextMenu(Dalamud.Game.Gui.ContextMenu.IMenuOpenedArgs args)
@@ -444,35 +591,31 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
 
         foreach (var pair in _allClientPairs.Where((p => p.Value.IsVisible)))
         {
-            pair.Value.AddContextMenu(args);
+            _contextMenuBuilder.AddContextMenu(args, pair.Value);
         }
     }
-
-    private Lazy<List<Pair>> DirectPairsLazy() => new(() => _allClientPairs.Select(k => k.Value)
-        .Where(k => k.UserPair != null).ToList());
 
     private void DisposePairs()
     {
         Logger.LogDebug("Disposing all Pairs");
         Parallel.ForEach(_allClientPairs, item =>
         {
-            item.Value.MarkOffline(wait: false);
+            item.Value.Dispose();
         });
 
-        RecreateLazy();
+        InvalidateProjections();
     }
 
-    private Lazy<Dictionary<GroupFullInfoDto, List<Pair>>> GroupPairsLazy()
+    private async Task DisposePairsAsync()
     {
-        return new Lazy<Dictionary<GroupFullInfoDto, List<Pair>>>(() =>
+        Logger.LogDebug("Disposing all Pairs asynchronously");
+        var pairs = _allClientPairs.Values.ToArray();
+        foreach (var pair in pairs)
         {
-            Dictionary<GroupFullInfoDto, List<Pair>> outDict = new();
-            foreach (var group in _allGroups)
-            {
-                outDict[group.Value] = _allClientPairs.Select(p => p.Value).Where(p => p.GroupPair.Any(g => GroupDataComparer.Instance.Equals(group.Key, g.Key.Group))).ToList();
-            }
-            return outDict;
-        });
+            await pair.DisposeAsync().ConfigureAwait(false);
+        }
+
+        InvalidateProjections();
     }
 
     private void ReapplyPairData()
@@ -483,9 +626,28 @@ public sealed class PairManager : DisposableMediatorSubscriberBase
         }
     }
 
-    private void RecreateLazy()
+    private void InvalidateProjections() => _projectionsDirty = true;
+
+    private void RebuildProjectionsIfDirty()
     {
-        _directPairsInternal = DirectPairsLazy();
-        _groupPairsInternal = GroupPairsLazy();
+        if (!_projectionsDirty) return;
+        lock (_projectionLock)
+        {
+            if (!_projectionsDirty) return;
+
+            _directPairsCache = _allClientPairs.Select(k => k.Value).Where(k => k.UserPair != null).ToList();
+
+            var groupDict = new Dictionary<GroupFullInfoDto, List<Pair>>();
+            foreach (var group in _allGroups)
+            {
+                groupDict[group.Value] = _allClientPairs.Select(p => p.Value)
+                    .Where(p => p.GroupPair.Any(g => GroupDataComparer.Instance.Equals(group.Key, g.Key.Group))).ToList();
+            }
+            _groupPairsCache = groupDict;
+
+            _projectionsDirty = false;
+        }
     }
 }
+
+public readonly record struct PanicModeResult(bool Enabled, int AffectedPairs);

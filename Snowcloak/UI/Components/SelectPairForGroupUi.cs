@@ -38,7 +38,7 @@ public class SelectPairForGroupUi
         if (_show && !_opened)
         {
             ImGui.SetNextWindowSize(minSize);
-            UiSharedService.CenterNextWindow(minSize.X, minSize.Y, ImGuiCond.Always);
+            ElezenImgui.CenterNextWindow(minSize.X, minSize.Y, ImGuiCond.Always);
             ImGui.OpenPopup(popupName);
             _opened = true;
         }

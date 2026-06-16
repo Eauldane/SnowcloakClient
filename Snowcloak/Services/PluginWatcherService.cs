@@ -1,6 +1,8 @@
 using Dalamud.Plugin;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Services.Mediator;
 using CapturedPluginState = (string InternalName, System.Version Version, bool IsLoaded);
 
@@ -35,6 +37,8 @@ SOFTWARE.
 public class PluginWatcherService : MediatorSubscriberBase, IHostedService
 {
     private readonly IDalamudPluginInterface _pluginInterface;
+    private readonly IFrameTickHandle _tick;
+    private readonly IFrameTickHandle _cutsceneTick;
 
     private CapturedPluginState[] _prevInstalledPluginState = [];
 
@@ -57,36 +61,30 @@ public class PluginWatcherService : MediatorSubscriberBase, IHostedService
     }
 #pragma warning restore
 
-    public PluginWatcherService(ILogger<PluginWatcherService> logger, IDalamudPluginInterface pluginInterface, SnowMediator mediator) : base(logger, mediator)
+    public PluginWatcherService(ILogger<PluginWatcherService> logger, IDalamudPluginInterface pluginInterface, SnowMediator mediator,
+        IFrameScheduler frameScheduler) : base(logger, mediator)
     {
         _pluginInterface = pluginInterface;
 
-        Mediator.Subscribe<PriorityFrameworkUpdateMessage>(this, (_) =>
-        {
-            try
-            {
-                Update();
-            }
-            catch (Exception e)
-            {
-                Logger.LogError(e, "PluginWatcherService exception");
-            }
-        });
-
+        _tick = frameScheduler.Register("PluginWatcher", TickInterval.EveryFrame, TickPriority.Normal, SafeUpdate,
+            FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
         // Continue scanning plugins during gpose as well
-        Mediator.Subscribe<CutsceneFrameworkUpdateMessage>(this, (_) =>
-        {
-            try
-            {
-                Update();
-            }
-            catch (Exception e)
-            {
-                Logger.LogError(e, "PluginWatcherService exception");
-            }
-        });
+        _cutsceneTick = frameScheduler.RegisterGated("PluginWatcherCutscene", TickInterval.EveryFrame, TickPriority.Normal, SafeUpdate,
+            [FrameGates.Dead], [FrameGates.Cutscene]);
 
         Update(publish: false);
+    }
+
+    private void SafeUpdate()
+    {
+        try
+        {
+            Update();
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "PluginWatcherService exception");
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -96,6 +94,8 @@ public class PluginWatcherService : MediatorSubscriberBase, IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _tick.Dispose();
+        _cutsceneTick.Dispose();
         Mediator.UnsubscribeAll(this);
         return Task.CompletedTask;
     }

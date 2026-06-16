@@ -5,27 +5,39 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using System.Numerics;
 using System.Threading.Tasks;
+using Snowcloak.Services;
 using Snowcloak.Services.Venue;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Data.Extensions;
 using Dalamud.Utility;
 using ElezenTools.UI;
 using Snowcloak.Utils;
-using Snowcloak.Services.Housing;
+using ElezenTools.Housing;
+using System.Globalization;
 using System.Text;
 
 namespace Snowcloak.UI.Components.Popup;
 
-internal class VenueSyncshellPopupHandler : IPopupHandler
+internal sealed class VenueSyncshellPopupHandler : IPopupHandler
 {
-    private readonly UiSharedService _uiSharedService;
+    private readonly BbCodeRenderService _bbCodeRenderService;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly UiFontService _fontService;
     private readonly VenueSyncshellService _venueSyncshellService;
     private bool _closeOnSuccess;
+    private bool _disableAnimationsOnJoin;
+    private bool _disableSoundsOnJoin;
+    private bool _disableVfxOnJoin;
     private bool _isJoining;
     private bool _joinFailed;
     private VenueSyncshellPrompt? _prompt;
 
-    public VenueSyncshellPopupHandler(UiSharedService uiSharedService, VenueSyncshellService venueSyncshellService)
+    public VenueSyncshellPopupHandler(UiFontService fontService, BbCodeRenderService bbCodeRenderService,
+        DalamudUtilService dalamudUtilService, VenueSyncshellService venueSyncshellService)
     {
-        _uiSharedService = uiSharedService;
+        _fontService = fontService;
+        _bbCodeRenderService = bbCodeRenderService;
+        _dalamudUtilService = dalamudUtilService;
         _venueSyncshellService = venueSyncshellService;
     }
 
@@ -44,7 +56,7 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
 
         var venue = _prompt.Venue;
 
-        using (_uiSharedService.UidFont.Push())
+        using (_fontService.UidFont.Push())
             ElezenImgui.ColouredText(venue.VenueName, ElezenTools.UI.Colour.HexToVector4(venue.JoinInfo.Group.DisplayColour));
 
         ImGuiHelpers.ScaledDummy(5f);
@@ -67,13 +79,18 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 ImGuiWindowFlags.AlwaysVerticalScrollbar);
             if (child)
             {
-                _uiSharedService.RenderBbCode(venue.VenueDescription, ImGui.GetContentRegionAvail().X);
+                _bbCodeRenderService.Render(venue.VenueDescription, ImGui.GetContentRegionAvail().X);
                 
             }
         }
         ElezenImgui.WrappedText("This housing plot has a venue registered to it, and you have venue auto-joins enabled in settings.");
         ElezenImgui.WrappedText("Upon leaving, you will be removed from the syncshell within a few minutes. Snowcloak staff are not responsible for the content of this venue.");
 
+        ImGuiHelpers.ScaledDummy(8f);
+        ElezenImgui.WrappedText("Initial sync permissions");
+        ImGui.Checkbox("Mute sounds from this shell", ref _disableSoundsOnJoin);
+        ImGui.Checkbox("Disable animations from this shell", ref _disableAnimationsOnJoin);
+        ImGui.Checkbox("Disable VFX from this shell", ref _disableVfxOnJoin);
 
         if (_joinFailed)
         {
@@ -87,9 +104,10 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
                 _joinFailed = false;
                 _isJoining = true;
                 var promptId = _prompt.PromptId;
+                var permissions = BuildInitialPermissions();
                 _ = Task.Run(async () =>
                 {
-                    var success = await _venueSyncshellService.JoinVenueShellAsync(promptId).ConfigureAwait(false);
+                    var success = await _venueSyncshellService.JoinVenueShellAsync(promptId, permissions).ConfigureAwait(false);
                     _joinFailed = !success;
                     _closeOnSuccess = success;
                     _isJoining = false;
@@ -109,6 +127,18 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         _joinFailed = false;
         _isJoining = false;
         _closeOnSuccess = false;
+        _disableAnimationsOnJoin = false;
+        _disableSoundsOnJoin = false;
+        _disableVfxOnJoin = false;
+    }
+
+    private GroupUserPermissions BuildInitialPermissions()
+    {
+        var permissions = default(GroupUserPermissions);
+        permissions.SetDisableSounds(_disableSoundsOnJoin);
+        permissions.SetDisableAnimations(_disableAnimationsOnJoin);
+        permissions.SetDisableVFX(_disableVfxOnJoin);
+        return permissions;
     }
     
     
@@ -146,8 +176,10 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
     
     private string GetHousingPlotName(HousingPlotLocation location)
     {
-        var worldName = _uiSharedService.WorldData.GetValueOrDefault((ushort)location.WorldId, location.WorldId.ToString());
-        var territoryName = _uiSharedService.TerritoryData.GetValueOrDefault(location.TerritoryId, $"Territory {location.TerritoryId}");
+        var worldName = _dalamudUtilService.WorldData.GetValueOrDefault((ushort)location.WorldId, location.WorldId.ToString(CultureInfo.InvariantCulture));
+        var territoryName = _dalamudUtilService.TerritoryData.GetValueOrDefault(
+            location.TerritoryId,
+            string.Create(CultureInfo.InvariantCulture, $"Territory {location.TerritoryId}"));
 
         StringBuilder builder = new();
         builder.Append(worldName);
@@ -159,11 +191,15 @@ internal class VenueSyncshellPopupHandler : IPopupHandler
         {
             builder.Append(" Apartments");
             if (location.RoomId > 0)
-                builder.Append($" Room {location.RoomId}");
+            {
+                builder.Append(" Room ");
+                builder.Append(location.RoomId.ToString(CultureInfo.InvariantCulture));
+            }
         }
         else
         {
-            builder.Append($" Plot {location.PlotId}");
+            builder.Append(" Plot ");
+            builder.Append(location.PlotId.ToString(CultureInfo.InvariantCulture));
         }
 
         return builder.ToString();

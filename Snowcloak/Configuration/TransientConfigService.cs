@@ -1,14 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class TransientConfigService : ConfigurationServiceBase<TransientConfig>
+public class TransientConfigService : StateDocument<TransientConfig>
 {
     public const string ConfigName = "transient.json";
 
-    public TransientConfigService(string configDir) : base(configDir)
+    public TransientConfigService(StateDocumentStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

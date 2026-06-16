@@ -11,14 +11,17 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Components;
+using Snowcloak.WebAPI.Files;
 using System.Numerics;
 
 namespace Snowcloak.UI;
 
-public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
+public sealed class PopoutProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 {
     private readonly SnowProfileManager _snowProfileManager;
-    private readonly UiSharedService _uiSharedService;
+    private readonly TextureService _textureService;
+    private readonly ImageTransferService _imageTransferService;
+    private readonly ProfileViewComponent _profileView;
     private Vector2 _lastMainPos;
     private Vector2 _lastMainSize;
     private byte[] _lastHeaderImage = [];
@@ -27,12 +30,15 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
     private IDalamudTextureWrap? _headerTextureWrap;
     private IDalamudTextureWrap? _textureWrap;
 
-    public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
+    public PopoutProfileUi(ILogger<PopoutProfileUi> logger, SnowMediator mediator, UiFontService fontService,
+        BbCodeRenderService bbCodeRenderService, TextureService textureService,
         SnowcloakConfigService snowcloakConfigService, SnowProfileManager snowProfileManager,
-        PerformanceCollectorService performanceCollectorService)
+        ImageTransferService imageTransferService, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak: RP Card###SnowcloakSyncPopoutProfileUI", performanceCollectorService)
     {
-        _uiSharedService = uiSharedService;
+        _textureService = textureService;
+        _imageTransferService = imageTransferService;
+        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService);
         _snowProfileManager = snowProfileManager;
         Flags = ImGuiWindowFlags.NoDecoration;
         Mediator.Subscribe<ProfilePopoutToggle>(this, message =>
@@ -65,46 +71,17 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         try
         {
             var profile = _snowProfileManager.GetSnowProfile(_pair);
-            RefreshHeaderTexture(DecodeImage(profile.Document.HeaderImageBase64));
-            RefreshTexture(profile.ImageData.Value);
-            CharacterProfileUiShared.DrawHeader(profile.Document, ResolveFallbackName(_pair), compact: true, headerImageTexture: _headerTextureWrap);
-            CharacterProfileUiShared.DrawProfileBadges(profile.Document, "popout-profile-badges");
-
-            if (_pair.HasAnyConnection())
-                CharacterProfileUiShared.DrawMoodles(_pair.LastReceivedCharacterData?.MoodlesData, "popout-profile", _uiSharedService, maxVisible: 6);
-
-            if (profile.Revision <= 0)
-            {
-                ImGui.TextColored(ImGuiColors.DalamudGrey, string.IsNullOrWhiteSpace(profile.DisabledReason)
-                    ? "This character has not published a profile yet."
-                    : profile.DisabledReason);
-                return;
-            }
-
-            if (profile.Disabled)
-            {
-                ImGui.TextColored(ImGuiColors.DalamudRed, profile.DisabledReason);
-                return;
-            }
-
-            DrawPortrait();
-            if (!string.IsNullOrWhiteSpace(profile.Document.Tagline))
-                ImGui.TextWrapped(profile.Document.Tagline);
-            CharacterProfileUiShared.DrawLabelValue("Approach:", profile.Document.Approachability);
-
-            foreach (var glance in profile.Document.AtAGlance.Take(3))
-                ImGui.BulletText(glance);
-
-            var visibleTags = GetVisibleTagsForViewer(profile);
-            if (visibleTags.Count > 0)
-            {
-                CharacterProfileUiShared.DrawSectionTitle("Tags");
-                _ = ProfileTagChipRenderer.DrawTagChips(visibleTags, "popout-rp-tags");
-            }
-
-            CharacterProfileUiShared.DrawSectionTitle("Overview");
-            using var font = _uiSharedService.GameFont.Push();
-            _uiSharedService.RenderBbCode(profile.Description, ImGui.GetContentRegionAvail().X);
+            RefreshHeaderTexture(ResolveImageBytes(profile.Document.HeaderImageHash));
+            RefreshTexture(ResolveImageBytes(profile.Document.ProfilePictureHash));
+            var moodlesData = _pair.HasAnyConnection() ? _pair.LastReceivedCharacterData?.MoodlesData : null;
+            _profileView.DrawCompact(new ProfileViewRequest(
+                profile,
+                ResolveFallbackName(_pair),
+                _headerTextureWrap,
+                _textureWrap,
+                GetVisibleTagsForViewer(profile),
+                moodlesData,
+                "popout-profile"));
         }
         catch (Exception ex)
         {
@@ -112,20 +89,12 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         }
     }
 
-    private void DrawPortrait()
-    {
-        if (_textureWrap == null) return;
-        var max = 240f * ImGuiHelpers.GlobalScale;
-        var scale = max / MathF.Max(_textureWrap.Width, _textureWrap.Height);
-        ImGui.Image(_textureWrap.Handle, new Vector2(_textureWrap.Width * scale, _textureWrap.Height * scale));
-    }
-
     private void RefreshTexture(byte[] bytes)
     {
         if (_textureWrap != null && bytes.SequenceEqual(_lastProfilePicture)) return;
         _textureWrap?.Dispose();
         _lastProfilePicture = bytes;
-        _textureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+        _textureWrap = bytes.Length == 0 ? null : _textureService.LoadImage(bytes);
     }
 
     private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)
@@ -143,7 +112,7 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         if (_headerTextureWrap != null && bytes.SequenceEqual(_lastHeaderImage)) return;
         _headerTextureWrap?.Dispose();
         _lastHeaderImage = bytes;
-        _headerTextureWrap = bytes.Length == 0 ? null : _uiSharedService.LoadImage(bytes);
+        _headerTextureWrap = bytes.Length == 0 ? null : _textureService.LoadImage(bytes);
     }
 
     protected override void Dispose(bool disposing)
@@ -153,18 +122,8 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase
         base.Dispose(disposing);
     }
 
-    private static byte[] DecodeImage(string? base64)
-    {
-        if (string.IsNullOrWhiteSpace(base64)) return [];
-        try
-        {
-            return Convert.FromBase64String(base64);
-        }
-        catch (FormatException)
-        {
-            return [];
-        }
-    }
+    private byte[] ResolveImageBytes(string? hash)
+        => _imageTransferService.TryGetImage(hash, out var bytes) ? bytes : [];
 
     private static string ResolveFallbackName(Pair pair)
     {

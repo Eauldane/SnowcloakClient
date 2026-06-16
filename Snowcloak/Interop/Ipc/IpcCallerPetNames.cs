@@ -1,15 +1,22 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
-using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerPetNames : IIpcCaller
+public sealed class IpcCallerPetNames : IPetNamesIpc
 {
+    private const string IpcName = "PetNames";
+    private const string PluginInternalName = "PetRenamer";
+    private const string RequiredVersion = "IPC 4.0";
+    private const IpcCapability SupportedCapabilities = IpcCapability.PetNames;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ILogger<IpcCallerPetNames> _logger;
     private readonly DalamudUtilService _dalamudUtil;
     private readonly SnowMediator _snowMediator;
@@ -27,6 +34,7 @@ public sealed class IpcCallerPetNames : IIpcCaller
     public IpcCallerPetNames(ILogger<IpcCallerPetNames> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil,
         SnowMediator snowMediator)
     {
+        _pi = pi;
         _logger = logger;
         _dalamudUtil = dalamudUtil;
         _snowMediator = snowMediator;
@@ -48,21 +56,35 @@ public sealed class IpcCallerPetNames : IIpcCaller
         CheckAPI();
     }
 
-    public bool APIAvailable { get; private set; } = false;
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public void CheckAPI()
     {
         try
         {
-            APIAvailable = _enabled?.InvokeFunc() ?? false;
-            if (APIAvailable)
+            var enabled = _enabled?.InvokeFunc() ?? false;
+            if (!enabled)
             {
-                APIAvailable = _apiVersion?.InvokeFunc() is { Item1: 4, Item2: >= 0 };
+                Status = IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, detail: "plugin reports itself disabled");
+                return;
             }
+
+            var version = _apiVersion.InvokeFunc();
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version.Item1}.{version.Item2}");
+            Status = version is { Item1: 4, Item2: >= 0 }
+                ? IpcStatus.Available(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, PluginInternalName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Optional, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 
@@ -102,7 +124,7 @@ public sealed class IpcCallerPetNames : IIpcCaller
 
         try
         {
-            await Service.UseFramework(() =>
+            await Service.RunOnFrameworkAsync(() =>
             {
                 if (string.IsNullOrEmpty(playerData))
                 {
@@ -129,7 +151,7 @@ public sealed class IpcCallerPetNames : IIpcCaller
         if (!APIAvailable) return;
         try
         {
-            await Service.UseFramework(() =>
+            await Service.RunOnFrameworkAsync(() =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(characterPointer);
                 if (gameObj is IPlayerCharacter pc)

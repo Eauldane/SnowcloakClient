@@ -7,19 +7,20 @@ using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.UI.Components;
 using Snowcloak.UI.Components.BbCode;
 
 namespace Snowcloak.UI;
 
-public sealed class BbCodeTestUi : WindowMediatorSubscriberBase
+public sealed class BbCodeTestUi : WindowMediatorSubscriberBase, IStaticWindow
 {
-    private readonly UiSharedService _uiSharedService;
+    private readonly BbCodeRenderService _bbCodeRenderService;
     private string _previewText = "[color=#ff6699]Colour[/color] [b]bold[/b] [i]italic[/i] [u]underline[/u]\n[list][*]Generic list\n[/list]\n[ol][*]Ordered List\n[/ol]\n[ul][*]Unordered List\n[/ul]\n:at_left:Elezen:at_right:\n[size=125%]Scaled up text[/size] and [size=12]12px text[/size]\n[center]Centered line[/center]\n[align=right]Right aligned line[/align]\n[url=https://snowcloak-sync.com]Link with label[/url] and [url]https://snowcloak-sync.com[/url]\nImage:\n[img]https://raw.githubusercontent.com/Eauldane/SnowcloakClient/refs/heads/main/Snowcloak/images/logo.png[/img]\nEmote test:\n:smile: :sparkle:";
 
-    public BbCodeTestUi(ILogger<BbCodeTestUi> logger, SnowMediator mediator, UiSharedService uiSharedService,
+    public BbCodeTestUi(ILogger<BbCodeTestUi> logger, SnowMediator mediator, BbCodeRenderService bbCodeRenderService,
         PerformanceCollectorService performanceCollectorService) : base(logger, mediator, "Snowcloak BBCode Tester###SnowcloakBBCodeTestUi", performanceCollectorService)
     {
-        _uiSharedService = uiSharedService;
+        _bbCodeRenderService = bbCodeRenderService;
         WindowName = "Snowcloak BBCode Tester###SnowcloakBBCodeTestUi";
         IsOpen = false;
         SizeConstraints = new()
@@ -42,7 +43,7 @@ public sealed class BbCodeTestUi : WindowMediatorSubscriberBase
         ImGui.TextUnformatted("Preview");
         using (ImRaii.Child("##bbcode-test-preview", ImGuiHelpers.ScaledVector2(-1, 220), true))
         {
-            _uiSharedService.RenderBbCode(_previewText, ImGui.GetContentRegionAvail().X);
+            _bbCodeRenderService.Render(_previewText, ImGui.GetContentRegionAvail().X);
         }
     }
     

@@ -7,6 +7,7 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.Configuration;
+using Snowcloak.Core.PlayerData;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
@@ -23,33 +24,22 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly FileTransferOrchestrator _fileTransferOrchestrator;
     private readonly IpcManager _ipcManager;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
-    private readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, FileDownloadStatus>> _downloadsByUid =
-        new(StringComparer.Ordinal);
+    private readonly BlockListStore _blockListStore;
+    private readonly DownloadStatusStore _statusStore;
 
     public SyncTroubleshootingService(ILogger<SyncTroubleshootingService> logger, SnowMediator mediator,
         SnowcloakConfigService configService, DalamudUtilService dalamudUtilService,
-        FileTransferOrchestrator fileTransferOrchestrator, IpcManager ipcManager,
-        ServerConfigurationManager serverConfigurationManager)
+        FileTransferOrchestrator fileTransferOrchestrator, DownloadStatusStore statusStore, IpcManager ipcManager,
+        BlockListStore blockListStore)
         : base(logger, mediator)
     {
         _configService = configService;
         _dalamudUtilService = dalamudUtilService;
         _fileTransferOrchestrator = fileTransferOrchestrator;
+        _statusStore = statusStore;
         _ipcManager = ipcManager;
-        _serverConfigurationManager = serverConfigurationManager;
+        _blockListStore = blockListStore;
 
-        Mediator.Subscribe<DownloadStartedMessage>(this, msg =>
-        {
-            if (string.IsNullOrWhiteSpace(msg.UID)) return;
-            _downloadsByUid[msg.UID] = msg.DownloadStatus;
-        });
-
-        Mediator.Subscribe<DownloadFinishedMessage>(this, msg =>
-        {
-            if (string.IsNullOrWhiteSpace(msg.UID)) return;
-            _downloadsByUid.TryRemove(msg.UID, out _);
-        });
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -59,11 +49,14 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        UnsubscribeAll();
         return Task.CompletedTask;
     }
 
     public SyncTroubleshootingReport BuildReport(Pair pair)
     {
+        ArgumentNullException.ThrowIfNull(pair);
+
         List<SyncTroubleshootingFinding> findings = [];
         List<SyncTroubleshootingSection> sections = [];
         List<string> localState = [];
@@ -72,8 +65,8 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         List<string> dataState = [];
         List<string> pluginState = [];
 
-        bool isBlacklisted = _serverConfigurationManager.IsUserBlacklisted(pair.UserData);
-        bool isWhitelisted = _serverConfigurationManager.IsUserWhitelisted(pair.UserData);
+        bool isBlacklisted = _blockListStore.IsUserBlacklisted(pair.UserData);
+        bool isWhitelisted = _blockListStore.IsUserWhitelisted(pair.UserData);
         bool hasDirectPair = pair.UserPair != null;
         bool isMutualDirectPair = hasDirectPair
             && pair.UserPair!.OwnPermissions.IsPaired()
@@ -100,22 +93,22 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             && (directRouteHiddenByRemotePause || groupRoutesHiddenByRemotePause.Count > 0);
         var onlineForReport = pair.IsOnline && !showAsOfflineForRemotePause;
         var visibleForReport = pair.IsVisible && !showAsOfflineForRemotePause;
-        var currentDownloads = _downloadsByUid.TryGetValue(pair.UserData.UID, out var downloads)
-            ? downloads.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase).ToList()
-            : [];
+        var currentDownloads = _statusStore.SnapshotForUid(pair.UserData.UID)?.Groups
+            .OrderBy(group => group.Server, StringComparer.OrdinalIgnoreCase).ToList() ?? [];
 
         List<string> globalBlockers = [];
-        if (!_ipcManager.Penumbra.APIAvailable)
-            globalBlockers.Add("Penumbra is unavailable");
-        if (!_ipcManager.Glamourer.APIAvailable)
-            globalBlockers.Add("Glamourer is unavailable");
+        foreach (var status in _ipcManager.GetRequiredStatuses().Where(status => !status.IsAvailable))
+        {
+            globalBlockers.Add(string.Format(CultureInfo.InvariantCulture, "{0} {1}", status.Name, DescribeIpcIssue(status)));
+        }
         if (_dalamudUtilService.IsZoning)
             globalBlockers.Add("you are zoning");
         if (_dalamudUtilService.IsInCutscene)
             globalBlockers.Add("you are in a cutscene");
         if (_dalamudUtilService.IsInGpose)
             globalBlockers.Add("you are in GPose");
-        if (_configService.Current.HoldCombatApplication && _dalamudUtilService.IsInCombatOrPerforming)
+        if (ApplicationHoldPolicy.ShouldHoldForCombatOrPerformance(_configService.Current.HoldCombatApplication,
+            _dalamudUtilService.IsInCombatOrPerforming))
             globalBlockers.Add("Hold application during combat is active while you are in combat/performance");
 
         List<string> matchingForbiddenTransfers = GetForbiddenTransferMatches(pair);
@@ -184,12 +177,12 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         {
             transferState.Add(string.Format(CultureInfo.InvariantCulture,
                 "{0}: status={1}, files={2}/{3}, bytes={4}/{5}",
-                download.Key,
-                download.Value.DownloadStatus,
-                download.Value.TransferredFiles,
-                download.Value.TotalFiles,
-                UiSharedService.ByteToString(download.Value.TransferredBytes),
-                UiSharedService.ByteToString(download.Value.TotalBytes)));
+                download.Server,
+                download.Status,
+                download.TransferredFiles,
+                download.TotalFiles,
+                ElezenImgui.ByteToString(download.TransferredBytes),
+                ElezenImgui.ByteToString(download.TotalBytes)));
         }
         transferState.Add("Matching forbidden transfers: " + JoinOrNone(matchingForbiddenTransfers));
 
@@ -207,17 +200,9 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         dataState.Add("Last reported VRAM: " + FormatNullableByteMetric(pair.LastReportedApproximateVRAMBytes));
         dataState.Add("Last reported triangles: " + FormatNullableTriangleMetric(pair.LastReportedTriangles));
 
-        pluginState.Add(string.Format(CultureInfo.InvariantCulture,
-            "Required IPC: Penumbra={0}, Glamourer={1}",
-            YesNo(_ipcManager.Penumbra.APIAvailable),
-            YesNo(_ipcManager.Glamourer.APIAvailable)));
-        pluginState.Add(string.Format(CultureInfo.InvariantCulture,
-            "Optional IPC: Customize+={0}, Heels={1}, Honorific={2}, PetNames={3}, Moodles={4}",
-            YesNo(_ipcManager.CustomizePlus.APIAvailable),
-            YesNo(_ipcManager.Heels.APIAvailable),
-            YesNo(_ipcManager.Honorific.APIAvailable),
-            YesNo(_ipcManager.PetNames.APIAvailable),
-            YesNo(_ipcManager.Moodles.APIAvailable)));
+        pluginState.Add("Required IPC: " + DescribeIpcStatuses(_ipcManager.GetRequiredStatuses()));
+        pluginState.Add("Optional IPC: " + DescribeIpcStatuses(_ipcManager.GetOptionalStatuses()));
+        pluginState.Add("Special IPC: " + DescribeIpcStatuses(_ipcManager.GetStatuses().Where(status => status.Role == IpcRole.Special)));
         pluginState.Add(string.Format(CultureInfo.InvariantCulture,
             "Optional plugin warnings disabled={0}", YesNo(_configService.Current.DisableOptionalPluginWarnings)));
         pluginState.Add("Missing optional plugins for this target: " + JoinOrNone(optionalPluginBlocks));
@@ -315,7 +300,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
                 "Downloads are still in progress for this user.",
                 string.Join("; ", currentDownloads.Select(download => string.Format(CultureInfo.InvariantCulture,
-                    "{0} {1}/{2}", download.Key, download.Value.TransferredFiles, download.Value.TotalFiles)))));
+                    "{0} {1}/{2}", download.Server, download.TransferredFiles, download.TotalFiles)))));
         }
 
         if (pair.IsOnline && !pair.IsChatOnly && pair.LastReceivedCharacterData == null && !pair.IsApplicationBlocked && matchingForbiddenTransfers.Count == 0)
@@ -399,9 +384,8 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             .Where(hash => !string.IsNullOrWhiteSpace(hash))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return _fileTransferOrchestrator.ForbiddenTransfers
-            .OfType<DownloadFileTransfer>()
-            .Where(transfer => hashes.Contains(transfer.Hash))
+        return _fileTransferOrchestrator.GetForbiddenTransfers()
+            .Where(transfer => transfer.Kind == ForbiddenTransferKind.Download && hashes.Contains(transfer.Hash))
             .Select(transfer => transfer.Hash)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(hash => hash, StringComparer.OrdinalIgnoreCase)
@@ -417,18 +401,66 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         }
 
         List<string> missing = [];
-        if (charaData.CustomizePlusData.Values.Any(value => !string.IsNullOrWhiteSpace(value)) && !_ipcManager.CustomizePlus.APIAvailable)
-            missing.Add("Customize+");
-        if (!string.IsNullOrWhiteSpace(charaData.HeelsData) && !_ipcManager.Heels.APIAvailable)
-            missing.Add("SimpleHeels");
-        if (!string.IsNullOrWhiteSpace(charaData.HonorificData) && !_ipcManager.Honorific.APIAvailable)
-            missing.Add("Honorific");
-        if (!string.IsNullOrWhiteSpace(charaData.PetNamesData) && !_ipcManager.PetNames.APIAvailable)
-            missing.Add("PetNames");
-        if (!string.IsNullOrWhiteSpace(charaData.MoodlesData) && !_ipcManager.Moodles.APIAvailable)
-            missing.Add("Moodles");
+        AddOptionalPluginBlock(missing, charaData.CustomizePlusData.Values.Any(value => !string.IsNullOrWhiteSpace(value)),
+            "Customize+", _ipcManager.GetStatus(IpcManager.CustomizePlusIpcName));
+        AddOptionalPluginBlock(missing, !string.IsNullOrWhiteSpace(charaData.HeelsData),
+            "SimpleHeels", _ipcManager.GetStatus(IpcManager.HeelsIpcName));
+        AddOptionalPluginBlock(missing, !string.IsNullOrWhiteSpace(charaData.HonorificData),
+            "Honorific", _ipcManager.GetStatus(IpcManager.HonorificIpcName));
+        AddOptionalPluginBlock(missing, !string.IsNullOrWhiteSpace(charaData.PetNamesData),
+            "PetNames", _ipcManager.GetStatus(IpcManager.PetNamesIpcName));
+        AddOptionalPluginBlock(missing, !string.IsNullOrWhiteSpace(charaData.MoodlesData),
+            "Moodles", _ipcManager.GetStatus(IpcManager.MoodlesIpcName));
         return missing;
     }
+
+    private static void AddOptionalPluginBlock(List<string> missing, bool dataPresent, string displayName, IpcStatus status)
+    {
+        if (dataPresent && !status.IsAvailable)
+        {
+            missing.Add(string.Format(CultureInfo.InvariantCulture, "{0} ({1})", displayName, DescribeIpcReason(status)));
+        }
+    }
+
+    private static string DescribeIpcStatuses(IEnumerable<IpcStatus> statuses)
+    {
+        var descriptions = statuses.Select(DescribeIpcStatus).ToList();
+        return descriptions.Count == 0 ? "none" : string.Join(", ", descriptions);
+    }
+
+    private static string DescribeIpcStatus(IpcStatus status)
+    {
+        var reason = DescribeIpcReason(status);
+        if (status.IsAvailable && !string.IsNullOrWhiteSpace(status.Version))
+        {
+            return string.Format(CultureInfo.InvariantCulture, "{0}=available ({1})", status.Name, status.Version);
+        }
+
+        return string.Format(CultureInfo.InvariantCulture, "{0}={1}", status.Name, reason);
+    }
+
+    private static string DescribeIpcIssue(IpcStatus status)
+        => status.State switch
+        {
+            IpcState.Missing => "is missing",
+            IpcState.Disabled => string.IsNullOrWhiteSpace(status.Detail) ? "is disabled" : "is disabled: " + status.Detail,
+            IpcState.VersionMismatch => string.Format(CultureInfo.InvariantCulture, "has an unsupported version (found {0}, requires {1})",
+                string.IsNullOrWhiteSpace(status.Version) ? "unknown" : status.Version,
+                string.IsNullOrWhiteSpace(status.RequiredVersion) ? "current IPC" : status.RequiredVersion),
+            IpcState.Error => string.IsNullOrWhiteSpace(status.Detail) ? "reported an IPC error" : "reported an IPC error: " + status.Detail,
+            _ => "is unavailable",
+        };
+
+    private static string DescribeIpcReason(IpcStatus status)
+        => status.State switch
+        {
+            IpcState.Available => "available",
+            IpcState.Missing => "missing",
+            IpcState.Disabled => "disabled",
+            IpcState.VersionMismatch => "unsupported version",
+            IpcState.Error => "error",
+            _ => "unavailable",
+        };
 
     private static string DescribeUserPermissions(UserPermissions permissions)
     {
@@ -475,22 +507,22 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
 
     private static string FormatByteMetric(long bytes)
     {
-        return bytes >= 0 ? UiSharedService.ByteToString(bytes) : "none";
+        return bytes >= 0 ? ElezenImgui.ByteToString(bytes) : "none";
     }
 
     private static string FormatNullableByteMetric(long? bytes)
     {
-        return bytes is >= 0 ? UiSharedService.ByteToString(bytes.Value) : "none";
+        return bytes is >= 0 ? ElezenImgui.ByteToString(bytes.Value) : "none";
     }
 
     private static string FormatTriangleMetric(long triangles)
     {
-        return triangles >= 0 ? UiSharedService.TrisToString(triangles) : "none";
+        return triangles >= 0 ? ElezenImgui.TrisToString(triangles) : "none";
     }
 
     private static string FormatNullableTriangleMetric(long? triangles)
     {
-        return triangles is >= 0 ? UiSharedService.TrisToString(triangles.Value) : "none";
+        return triangles is >= 0 ? ElezenImgui.TrisToString(triangles.Value) : "none";
     }
 
     private static string JoinOrNone(IEnumerable<string> values)

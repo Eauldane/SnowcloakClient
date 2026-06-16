@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Services.Mediator;
 using System.Collections.Concurrent;
@@ -15,14 +17,22 @@ public class VisibilityService : DisposableMediatorSubscriberBase
     };
 
     private readonly DalamudUtilService _dalamudUtil;
+    private readonly IFrameTickHandle _tick;
     private readonly ConcurrentDictionary<string, TrackedPlayerStatus> _trackedPlayerVisibility = new(StringComparer.Ordinal);
     private readonly List<string> _makeVisibleNextFrame = new();
 
-    public VisibilityService(ILogger<VisibilityService> logger, SnowMediator mediator, DalamudUtilService dalamudUtil)
+    public VisibilityService(ILogger<VisibilityService> logger, SnowMediator mediator, DalamudUtilService dalamudUtil, IFrameScheduler frameScheduler)
         : base(logger, mediator)
     {
         _dalamudUtil = dalamudUtil;
-        Mediator.Subscribe<FrameworkUpdateMessage>(this, (_) => FrameworkUpdate());
+        _tick = frameScheduler.Register("Visibility", TickInterval.EveryFrame, TickPriority.Critical, FrameworkUpdate,
+            FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        _tick.Dispose();
+        base.Dispose(disposing);
     }
 
     public void StartTracking(string ident)

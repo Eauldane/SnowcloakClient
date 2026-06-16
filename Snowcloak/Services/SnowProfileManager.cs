@@ -6,17 +6,24 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 
 namespace Snowcloak.Services;
 
-public sealed class SnowProfileManager : MediatorSubscriberBase
+public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBase, IAsyncDisposable
 {
+    private static readonly TimeSpan ErrorProfileRetryAfter = TimeSpan.FromSeconds(30);
+
     private readonly Lazy<ApiController> _apiController;
-    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly BackgroundTaskTracker _backgroundTasks;
+    private readonly CancellationTokenSource _runtimeCts = new();
     private readonly SnowcloakConfigService _configService;
+    private readonly DalamudUtilService _dalamudUtilService;
     private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _profiles = new();
+    private readonly ConcurrentDictionary<ProfileRequestKey, DateTime> _profileErrorTimes = new();
     private readonly ConcurrentDictionary<string, CharacterProfileSummaryDto> _summaries = new(StringComparer.Ordinal);
+    private int _disposed;
     private string _currentIdent = string.Empty;
 
     public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService configService,
@@ -25,6 +32,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
     {
         _configService = configService;
         _dalamudUtilService = dalamudUtilService;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
 
         Mediator.Subscribe<ClearCharacterProfileDataMessage>(this, message =>
@@ -32,6 +40,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
             if (string.IsNullOrEmpty(message.Ident))
             {
                 _profiles.Clear();
+                _profileErrorTimes.Clear();
                 return;
             }
 
@@ -41,6 +50,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
                          .ToList())
             {
                 _profiles.TryRemove(key, out _);
+                _profileErrorTimes.TryRemove(key, out _);
             }
 
             if (!message.PreserveSummary && (message.Visibility == null || message.Visibility == ProfileVisibility.Public))
@@ -49,13 +59,17 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
         Mediator.Subscribe<DisconnectedMessage>(this, _ =>
         {
             _profiles.Clear();
+            _profileErrorTimes.Clear();
             _summaries.Clear();
             _currentIdent = string.Empty;
         });
     }
 
     public SnowProfileData GetSnowProfile(Pair pair, ProfileVisibility? visibility = null)
-        => GetSnowProfile(pair.Ident, visibility);
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        return GetSnowProfile(pair.Ident, visibility);
+    }
 
     public SnowProfileData GetSnowProfile(string ident, ProfileVisibility? visibility = null)
     {
@@ -63,19 +77,19 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
             return Placeholder(string.Empty, visibility ?? ProfileVisibility.Public, "No active character profile is available.");
 
         var key = new ProfileRequestKey(ident, visibility);
-        if (_profiles.TryGetValue(key, out var profile)) return profile;
+        if (TryGetCachedProfile(key, out var profile)) return profile;
 
         profile = Placeholder(ident, visibility ?? ProfileVisibility.Public, "Loading RP profile...");
         _profiles[key] = profile;
-        _ = Task.Run(() => RefreshAsync(key));
+        _ = _backgroundTasks.Run(ct => RefreshAsync(key, ct), nameof(RefreshAsync), _runtimeCts.Token);
         return profile;
     }
 
     public async Task<SnowProfileData> GetSnowProfileAsync(string ident, ProfileVisibility? visibility = null, bool forceRefresh = false)
     {
         var key = new ProfileRequestKey(ident, visibility);
-        if (!forceRefresh && _profiles.TryGetValue(key, out var cached)) return cached;
-        return await RefreshAsync(key).ConfigureAwait(false);
+        if (!forceRefresh && TryGetCachedProfile(key, out var cached)) return cached;
+        return await RefreshAsync(key, _runtimeCts.Token).ConfigureAwait(false);
     }
 
     public SnowProfileData GetOwnProfile(ProfileVisibility visibility)
@@ -83,11 +97,13 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
         if (!string.IsNullOrEmpty(_currentIdent))
             return GetSnowProfile(_currentIdent, visibility);
 
-        _ = Task.Run(async () =>
+        _ = _backgroundTasks.Run(async ct =>
         {
+            ct.ThrowIfCancellationRequested();
             _currentIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             await RefreshOwnAsync(visibility).ConfigureAwait(false);
-        });
+        }, nameof(GetOwnProfile), _runtimeCts.Token);
         return Placeholder(string.Empty, visibility, "Loading your current character...");
     }
 
@@ -95,7 +111,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
     {
         _currentIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
         var key = new ProfileRequestKey(_currentIdent, visibility);
-        if (!forceRefresh && _profiles.TryGetValue(key, out var cached)) return cached;
+        if (!forceRefresh && TryGetCachedProfile(key, out var cached)) return cached;
         return await RefreshOwnAsync(visibility).ConfigureAwait(false);
     }
 
@@ -123,7 +139,7 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to refresh RP profile summary for {ident}", ident);
+            LogProfileSummaryRefreshFailed(Logger, ex, ident);
             ClearSummary(ident);
             return null;
         }
@@ -131,6 +147,8 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
 
     public void UpdateSummaries(IEnumerable<PairingAvailabilityDto> availability)
     {
+        ArgumentNullException.ThrowIfNull(availability);
+
         foreach (var entry in availability)
         {
             if (entry.Profile != null)
@@ -142,6 +160,8 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
 
     public void UpdateSummary(CharacterProfileSummaryDto summary)
     {
+        ArgumentNullException.ThrowIfNull(summary);
+
         if (!string.IsNullOrWhiteSpace(summary.Ident))
             _summaries[summary.Ident] = MaskAdultSummary(summary);
     }
@@ -157,23 +177,28 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to get own RP profile for {ident}", _currentIdent);
+            LogOwnProfileRefreshFailed(Logger, ex, _currentIdent);
             return Store(new ProfileRequestKey(_currentIdent, visibility),
-                Placeholder(_currentIdent, visibility, "Could not load your RP profile."));
+                Placeholder(_currentIdent, visibility, "Could not load your RP profile."), cacheFailure: true);
         }
     }
 
-    private async Task<SnowProfileData> RefreshAsync(ProfileRequestKey key)
+    private async Task<SnowProfileData> RefreshAsync(ProfileRequestKey key, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var dto = await _apiController.Value.CharacterProfileGet(new CharacterProfileRequestDto(key.Ident, key.Visibility)).ConfigureAwait(false);
             return Store(key, dto);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Store(key, Placeholder(key.Ident, key.Visibility ?? ProfileVisibility.Public, "Profile request cancelled."));
+        }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to get RP profile for {ident}", key.Ident);
-            return Store(key, Placeholder(key.Ident, key.Visibility ?? ProfileVisibility.Public, "Could not load this RP profile."));
+            LogProfileRefreshFailed(Logger, ex, key.Ident);
+            return Store(key, Placeholder(key.Ident, key.Visibility ?? ProfileVisibility.Public, "Could not load this RP profile."), cacheFailure: true);
         }
     }
 
@@ -203,13 +228,39 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
             dto.UpdatedAtUtc,
             document);
         _profiles[key] = profile;
+        _profileErrorTimes.TryRemove(key, out _);
         return profile;
     }
 
-    private SnowProfileData Store(ProfileRequestKey key, SnowProfileData profile)
+    private SnowProfileData Store(ProfileRequestKey key, SnowProfileData profile, bool cacheFailure = false)
     {
         _profiles[key] = profile;
+        if (cacheFailure)
+            _profileErrorTimes[key] = DateTime.UtcNow;
+        else
+            _profileErrorTimes.TryRemove(key, out _);
         return profile;
+    }
+
+    private bool TryGetCachedProfile(ProfileRequestKey key, out SnowProfileData profile)
+    {
+        if (!_profiles.TryGetValue(key, out var cached))
+        {
+            profile = null!;
+            return false;
+        }
+
+        profile = cached;
+        if (!_profileErrorTimes.TryGetValue(key, out var failedAt))
+            return true;
+
+        if (failedAt.Add(ErrorProfileRetryAfter) > DateTime.UtcNow)
+            return true;
+
+        _profileErrorTimes.TryRemove(key, out _);
+        _profiles.TryRemove(key, out _);
+        profile = null!;
+        return false;
     }
 
     private CharacterProfileSummaryDto MaskAdultSummary(CharacterProfileSummaryDto summary)
@@ -249,4 +300,41 @@ public sealed class SnowProfileManager : MediatorSubscriberBase
         => new(ident, null, visibility, 0, false, reason, false, null, new CharacterProfileDocumentDto());
 
     private readonly record struct ProfileRequestKey(string Ident, ProfileVisibility? Visibility);
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Warning, Message = "Failed to get own RP profile for {Ident}")]
+    private static partial void LogOwnProfileRefreshFailed(ILogger logger, Exception exception, string ident);
+
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Failed to get RP profile for {Ident}")]
+    private static partial void LogProfileRefreshFailed(ILogger logger, Exception exception, string ident);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Failed to refresh RP profile summary for {Ident}")]
+    private static partial void LogProfileSummaryRefreshFailed(ILogger logger, Exception exception, string ident);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        base.Dispose(disposing);
+        _runtimeCts.Cancel();
+        _backgroundTasks.StopAccepting();
+        _backgroundTasks.StopSynchronously(Logger, TimeSpan.FromSeconds(2), nameof(SnowProfileManager));
+        _runtimeCts.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        base.Dispose(disposing: true);
+        await _runtimeCts.CancelAsync().ConfigureAwait(false);
+        await _backgroundTasks.StopAsync().ConfigureAwait(false);
+        _runtimeCts.Dispose();
+        GC.SuppressFinalize(this);
+    }
 }

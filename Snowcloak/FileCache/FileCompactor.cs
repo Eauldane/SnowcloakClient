@@ -32,7 +32,7 @@ public sealed class FileCompactor
         InitialiseDirectoryCompression();
     }
 
-    public bool MassCompactRunning { get; private set; } = false;
+    public bool MassCompactRunning { get; private set; }
 
     public string Progress { get; private set; } = string.Empty;
 
@@ -57,6 +57,8 @@ public sealed class FileCompactor
 
     public long GetFileSizeOnDisk(FileInfo fileInfo, bool? isNTFS = null)
     {
+        ArgumentNullException.ThrowIfNull(fileInfo);
+
         bool ntfs = isNTFS ?? string.Equals(new DriveInfo(fileInfo.Directory!.Root.FullName).DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
 
         if (_dalamudUtilService.IsWine || !ntfs) return fileInfo.Length;
@@ -85,17 +87,22 @@ public sealed class FileCompactor
         }
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern SafeFileHandle CreateFile(string lpFileName, uint dwDesiredAccess, FileShare dwShareMode, IntPtr lpSecurityAttributes,
         FileMode dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, ref ushort lpInBuffer, uint nInBufferSize,
         IntPtr lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, IntPtr lpOverlapped);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
     private static extern uint GetCompressedFileSizeW([In, MarshalAs(UnmanagedType.LPWStr)] string lpFileName,
                                               [Out, MarshalAs(UnmanagedType.U4)] out uint lpFileSizeHigh);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true, PreserveSig = true)]
     private static extern int GetDiskFreeSpaceW([In, MarshalAs(UnmanagedType.LPWStr)] string lpRootPathName,
            out uint lpSectorsPerCluster, out uint lpBytesPerSector, out uint lpNumberOfFreeClusters,
@@ -104,7 +111,7 @@ public sealed class FileCompactor
     private int GetClusterSize(FileInfo fi)
     {
         if (!fi.Exists) return -1;
-        var root = fi.Directory?.Root.FullName.ToLower() ?? string.Empty;
+        var root = fi.Directory?.Root.FullName.ToUpperInvariant() ?? string.Empty;
         if (string.IsNullOrEmpty(root)) return -1;
         if (_clusterSizes.TryGetValue(root, out int value)) return value;
         _logger.LogDebug("Getting Cluster Size for {path}, root {root}", fi.FullName, root);
@@ -197,6 +204,10 @@ public sealed class FileCompactor
 
 
         SetCompression(cacheFolder, compress, isDirectory: true);
+        foreach (var directory in Directory.EnumerateDirectories(cacheFolder, "*", SearchOption.AllDirectories))
+        {
+            SetCompression(directory, compress, isDirectory: true);
+        }
         _directoryCompressionEnsured = compress;
     }
 

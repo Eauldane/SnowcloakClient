@@ -1,5 +1,5 @@
 using Snowcloak.API.Dto.Venue;
-using Snowcloak.Services.Housing;
+using ElezenTools.Housing;
 
 namespace Snowcloak.Services.Venue;
 

@@ -57,19 +57,7 @@ public static class ProfileTagChipRenderer
         return clickedIndex;
     }
 
-    public static string GetTypeLabel(ProfileTagType type)
-    {
-        return type switch
-        {
-            ProfileTagType.ChatStyle => "Chat Style",
-            ProfileTagType.WritingStyle => "Writing Style",
-            ProfileTagType.LikedCharacter => "Liked Characters",
-            ProfileTagType.OwnCharacter => "Own Character",
-            ProfileTagType.Timezone => "Timezone",
-            ProfileTagType.Kink => "Kink",
-            _ => "Other",
-        };
-    }
+    public static string GetTypeLabel(ProfileTagType type) => ProfileTagUtilities.GetTypeLabel(type);
 
     private static bool DrawTagChip(UserProfileTagDto tag, string displayValue, string id)
     {

@@ -14,11 +14,11 @@ public class DownloadFileTransfer : FileTransfer
     {
         set
         {
-            // nothing to set
+            _ = value;
         }
         get => Dto.Size;
     }
 
-    public long TotalRaw => 0; // XXX
+    public long TotalRaw => Dto.Size;
     private DownloadFileDto Dto => (DownloadFileDto)TransferDto;
 }

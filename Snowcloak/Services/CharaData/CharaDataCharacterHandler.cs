@@ -1,11 +1,14 @@
-﻿using ElezenTools.Services;
-using Snowcloak.API.Data.Enum;
+﻿using Snowcloak.API.Data.Enum;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services.CharaData.Models;
 using Snowcloak.Services.Mediator;
+
+using ElezenTools.Services;
 
 namespace Snowcloak.Services.CharaData;
 
@@ -14,13 +17,14 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     private readonly GameObjectHandlerFactory _gameObjectHandlerFactory;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly IpcManager _ipcManager;
+    private readonly IFrameTickHandle _tick;
     private readonly HashSet<HandledCharaDataEntry> _handledCharaData = [];
 
     public IEnumerable<HandledCharaDataEntry> HandledCharaData => _handledCharaData;
 
     public CharaDataCharacterHandler(ILogger<CharaDataCharacterHandler> logger, SnowMediator mediator,
         GameObjectHandlerFactory gameObjectHandlerFactory, DalamudUtilService dalamudUtilService,
-        IpcManager ipcManager)
+        IpcManager ipcManager, IFrameScheduler frameScheduler)
         : base(logger, mediator)
     {
         _gameObjectHandlerFactory = gameObjectHandlerFactory;
@@ -34,7 +38,8 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
             }
         });
 
-        mediator.Subscribe<CutsceneFrameworkUpdateMessage>(this, (_) => HandleCutsceneFrameworkUpdate());
+        _tick = frameScheduler.RegisterGated("CharaDataCutscene", TickInterval.EveryFrame, TickPriority.Low, HandleCutsceneFrameworkUpdate,
+            [FrameGates.Dead], [FrameGates.Cutscene]);
     }
 
     private void HandleCutsceneFrameworkUpdate()
@@ -54,6 +59,7 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
 
     protected override void Dispose(bool disposing)
     {
+        _tick.Dispose();
         base.Dispose(disposing);
         foreach (var chara in _handledCharaData)
         {
@@ -81,7 +87,7 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
         var handled = _handledCharaData.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
         if (handled == null) return false;
         _handledCharaData.Remove(handled);
-        await Service.UseFramework(() => RevertChara(handled.Name, handled.CustomizePlus)).ConfigureAwait(false);
+        await Service.RunOnFrameworkAsync(() => RevertChara(handled.Name, handled.CustomizePlus)).ConfigureAwait(false);
         return true;
     }
 
@@ -89,7 +95,7 @@ public sealed class CharaDataCharacterHandler : DisposableMediatorSubscriberBase
     {
         if (handled == null) return Task.CompletedTask;
         _handledCharaData.Remove(handled);
-        return Service.UseFramework(() => RevertChara(handled.Name, handled.CustomizePlus));
+        return Service.RunOnFrameworkAsync(() => RevertChara(handled.Name, handled.CustomizePlus));
     }
 
     internal void AddHandledChara(HandledCharaDataEntry handledCharaDataEntry)

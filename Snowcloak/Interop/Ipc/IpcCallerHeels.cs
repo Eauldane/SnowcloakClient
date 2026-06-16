@@ -1,14 +1,21 @@
 ﻿using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
-using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerHeels : IIpcCaller
+public sealed class IpcCallerHeels : IHeelsIpc
 {
+    private const string IpcName = "Heels";
+    private const string PluginInternalName = "SimpleHeels";
+    private const string RequiredVersion = "SimpleHeels IPC 2.0";
+    private const IpcCapability SupportedCapabilities = IpcCapability.HeelOffset;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ILogger<IpcCallerHeels> _logger;
     private readonly SnowMediator _snowMediator;
     private readonly DalamudUtilService _dalamudUtil;
@@ -20,6 +27,7 @@ public sealed class IpcCallerHeels : IIpcCaller
 
     public IpcCallerHeels(ILogger<IpcCallerHeels> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil, SnowMediator snowMediator)
     {
+        _pi = pi;
         _logger = logger;
         _snowMediator = snowMediator;
         _dalamudUtil = dalamudUtil;
@@ -34,7 +42,8 @@ public sealed class IpcCallerHeels : IIpcCaller
         CheckAPI();
     }
 
-    public bool APIAvailable { get; private set; } = false;
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     private void HeelsOffsetChange(string offset)
     {
@@ -44,13 +53,13 @@ public sealed class IpcCallerHeels : IIpcCaller
     public async Task<string> GetOffsetAsync()
     {
         if (!APIAvailable) return string.Empty;
-        return await Service.UseFramework(_heelsGetOffset.InvokeFunc).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(_heelsGetOffset.InvokeFunc).ConfigureAwait(false);
     }
 
     public async Task RestoreOffsetForPlayerAsync(IntPtr character)
     {
         if (!APIAvailable) return;
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj != null)
@@ -64,7 +73,7 @@ public sealed class IpcCallerHeels : IIpcCaller
     public async Task SetOffsetForPlayerAsync(IntPtr character, string data)
     {
         if (!APIAvailable) return;
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj != null)
@@ -79,11 +88,21 @@ public sealed class IpcCallerHeels : IIpcCaller
     {
         try
         {
-            APIAvailable = _heelsGetApiVersion.InvokeFunc() is { Item1: 2, Item2: >= 0 };
+            var version = _heelsGetApiVersion.InvokeFunc();
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version.Item1}.{version.Item2}");
+            Status = version is { Item1: 2, Item2: >= 0 }
+                ? IpcStatus.Available(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, PluginInternalName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Optional, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 

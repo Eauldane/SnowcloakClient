@@ -5,14 +5,27 @@ using Dalamud.Plugin.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
+using Snowcloak.Configuration.Configurations;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
+using DalamudNotificationType = Dalamud.Interface.ImGuiNotification.NotificationType;
 using NotificationType = Snowcloak.Configuration.Models.NotificationType;
 
 namespace Snowcloak.Services;
 
-public class NotificationService : DisposableMediatorSubscriberBase, IHostedService
+public partial class NotificationService : DisposableMediatorSubscriberBase, IHostedService
 {
+    private static readonly Dictionary<NotificationType, NotificationRoute> NotificationRoutes =
+        new()
+        {
+            [NotificationType.Info] = new(static config => config.InfoNotification,
+                static (service, message) => service.PrintInfoChat(message), DalamudNotificationType.Info),
+            [NotificationType.Warning] = new(static config => config.WarningNotification,
+                static (service, message) => service.PrintWarnChat(message), DalamudNotificationType.Warning),
+            [NotificationType.Error] = new(static config => config.ErrorNotification,
+                static (service, message) => service.PrintErrorChat(message), DalamudNotificationType.Error),
+        };
+
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly INotificationManager _notificationManager;
     private readonly IChatGui _chatGui;
@@ -37,6 +50,7 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        UnsubscribeAll();
         return Task.CompletedTask;
     }
 
@@ -64,50 +78,26 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
 
     private void ShowChat(NotificationMessage msg)
     {
-        switch (msg.Type)
-        {
-            case NotificationType.Info:
-                PrintInfoChat(msg.Message);
-                break;
-
-            case NotificationType.Warning:
-                PrintWarnChat(msg.Message);
-                break;
-
-            case NotificationType.Error:
-                PrintErrorChat(msg.Message);
-                break;
-        }
+        if (NotificationRoutes.TryGetValue(msg.Type, out var route))
+            route.PrintChat(this, msg.Message);
     }
 
     private void ShowNotification(NotificationMessage msg)
     {
-        Logger.LogInformation("{msg}", msg.ToString());
+        LogNotification(Logger, msg);
 
         if (!_dalamudUtilService.IsLoggedIn) return;
 
-        switch (msg.Type)
-        {
-            case NotificationType.Info:
-                ShowNotificationLocationBased(msg, _configurationService.Current.InfoNotification);
-                break;
-
-            case NotificationType.Warning:
-                ShowNotificationLocationBased(msg, _configurationService.Current.WarningNotification);
-                break;
-
-            case NotificationType.Error:
-                ShowNotificationLocationBased(msg, _configurationService.Current.ErrorNotification);
-                break;
-        }
+        if (NotificationRoutes.TryGetValue(msg.Type, out var route))
+            ShowNotificationLocationBased(msg, route, route.ResolveLocation(_configurationService.Current));
     }
 
-    private void ShowNotificationLocationBased(NotificationMessage msg, NotificationLocation location)
+    private void ShowNotificationLocationBased(NotificationMessage msg, NotificationRoute route, NotificationLocation location)
     {
         switch (location)
         {
             case NotificationLocation.Toast:
-                ShowToast(msg);
+                ShowToast(msg, route);
                 break;
 
             case NotificationLocation.Chat:
@@ -115,7 +105,7 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
                 break;
 
             case NotificationLocation.Both:
-                ShowToast(msg);
+                ShowToast(msg, route);
                 ShowChat(msg);
                 break;
 
@@ -124,23 +114,23 @@ public class NotificationService : DisposableMediatorSubscriberBase, IHostedServ
         }
     }
 
-    private void ShowToast(NotificationMessage msg)
+    private void ShowToast(NotificationMessage msg, NotificationRoute route)
     {
-        Dalamud.Interface.ImGuiNotification.NotificationType dalamudType = msg.Type switch
-        {
-            NotificationType.Error => Dalamud.Interface.ImGuiNotification.NotificationType.Error,
-            NotificationType.Warning => Dalamud.Interface.ImGuiNotification.NotificationType.Warning,
-            NotificationType.Info => Dalamud.Interface.ImGuiNotification.NotificationType.Info,
-            _ => Dalamud.Interface.ImGuiNotification.NotificationType.Info
-        };
-
         _notificationManager.AddNotification(new Notification()
         {
             Content = msg.Message ?? string.Empty,
             Title = msg.Title,
-            Type = dalamudType,
+            Type = route.ToastType,
             Minimized = false,
             InitialDuration = msg.TimeShownOnScreen ?? TimeSpan.FromSeconds(3)
         });
     }
+
+    private sealed record NotificationRoute(
+        Func<SnowcloakConfig, NotificationLocation> ResolveLocation,
+        Action<NotificationService, string?> PrintChat,
+        DalamudNotificationType ToastType);
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Information, Message = "{Notification}")]
+    private static partial void LogNotification(ILogger logger, NotificationMessage notification);
 }

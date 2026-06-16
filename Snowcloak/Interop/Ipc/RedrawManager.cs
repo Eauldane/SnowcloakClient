@@ -8,22 +8,37 @@ using System.Collections.Concurrent;
 
 namespace Snowcloak.Interop.Ipc;
 
-public class RedrawManager
+public sealed class RedrawManager : IDisposable
 {
     private readonly SnowMediator _snowMediator;
-    private readonly DalamudUtilService _dalamudUtil;
     private readonly ConcurrentDictionary<nint, bool> _penumbraRedrawRequests = [];
     private CancellationTokenSource _disposalCts = new();
+    private readonly SemaphoreSlim _redrawSlots = new(2, 2);
+    private int _disposed;
 
-    public SemaphoreSlim RedrawSemaphore { get; init; } = new(2, 2);
-
-    public RedrawManager(SnowMediator snowMediator, DalamudUtilService dalamudUtil)
+    public RedrawManager(SnowMediator snowMediator)
     {
         _snowMediator = snowMediator;
-        _dalamudUtil = dalamudUtil;
     }
 
-    public async Task PenumbraRedrawInternalAsync(ILogger logger, GameObjectHandler handler, Guid applicationId, Action<ICharacter> action, CancellationToken token)
+    public async Task RunWithRedrawSlotAsync(ILogger logger, GameObjectHandler handler, Guid applicationId, Action<ICharacter> action, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(action);
+
+        await _redrawSlots.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await RunPenumbraRedrawAsync(logger, handler, applicationId, action, token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _redrawSlots.Release();
+        }
+    }
+
+    private async Task RunPenumbraRedrawAsync(ILogger logger, GameObjectHandler handler, Guid applicationId, Action<ICharacter> action, CancellationToken token)
     {
         _snowMediator.Publish(new PenumbraStartRedrawMessage(handler.Address));
 
@@ -31,14 +46,15 @@ public class RedrawManager
 
         try
         {
+            var disposalToken = _disposalCts.Token;
             using CancellationTokenSource cancelToken = new CancellationTokenSource();
-            using CancellationTokenSource combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken.Token, token, _disposalCts.Token);
+            using CancellationTokenSource combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken.Token, token, disposalToken);
             var combinedToken = combinedCts.Token;
             cancelToken.CancelAfter(TimeSpan.FromSeconds(15));
             await handler.ActOnFrameworkAfterEnsureNoDrawAsync(action, combinedToken).ConfigureAwait(false);
 
-            if (!_disposalCts.Token.IsCancellationRequested)
-                await _dalamudUtil.WaitWhileCharacterIsDrawing(logger, handler, applicationId, 30000, combinedToken).ConfigureAwait(false);
+            if (!disposalToken.IsCancellationRequested)
+                await ObjectTableCache.WaitWhileCharacterIsDrawing(logger, handler, applicationId, 30000, combinedToken).ConfigureAwait(false);
         }
         finally
         {
@@ -49,6 +65,18 @@ public class RedrawManager
 
     internal void Cancel()
     {
-        _disposalCts = _disposalCts.CancelRecreate();
+        var previous = Interlocked.Exchange(ref _disposalCts, new CancellationTokenSource());
+        previous.CancelDispose();
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _disposalCts.CancelDispose();
+        _redrawSlots.Dispose();
     }
 }

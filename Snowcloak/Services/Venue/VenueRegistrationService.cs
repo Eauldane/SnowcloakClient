@@ -1,90 +1,91 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using Dalamud.Game;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
-using Dalamud.Game.Text.SeStringHandling;
-using ElezenTools.Services;
-using FFXIVClientStructs.FFXIV.Component.GUI;
+using ElezenTools.Housing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Services.Housing;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Housing;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Services.Mediator;
-
 
 namespace Snowcloak.Services.Venue;
 
+/// <summary>
+/// Drives venue ownership verification as an explicit flow:
+/// Idle -> AwaitingPlacard -> Captured -> Submitting -> Idle.
+/// Framework polling rides the shared frame scheduler (no raw OnFrameworkUpdate hook) and the unsafe
+/// addon read is delegated to <see cref="HousingPlacardReader"/>, so this service stays a plain
+/// state machine over clean inputs.
+/// </summary>
 public sealed class VenueRegistrationService : IHostedService, IDisposable
 {
-    private const string PlacardAddonName = "HousingSignBoard";
+    private static readonly TimeSpan PlacardSettleDelay = TimeSpan.FromSeconds(2);
 
-    private readonly DalamudUtilService _dalamudUtilService;
-    private readonly IChatGui _chatGui;
-    private readonly IGameGui _gameGui;
-    private readonly IFramework _framework;
-    private readonly IObjectTable _objectTable;
-    private readonly IPlayerState _playerState;
-    private readonly IClientState _clientState;
     private readonly ILogger<VenueRegistrationService> _logger;
+    private readonly IChatGui _chatGui;
+    private readonly IObjectTable _objectTable;
+    private readonly IClientState _clientState;
     private readonly SnowMediator _mediator;
-    
-    private HousingPlotLocation? _pendingPlot;
-    private bool _wasPlacardOpen;
-    private bool _loggedMissingPlacard;
-    private string? _activePlacardAddonKey;
+    private readonly IFrameScheduler _frameScheduler;
+    private readonly PlotPresenceTracker _plotPresence;
+    private readonly HousingPlacardReader _placardReader;
 
-    public VenueRegistrationService(ILogger<VenueRegistrationService> logger, DalamudUtilService dalamudUtilService,
-        IChatGui chatGui, IGameGui gameGui, IFramework framework, IObjectTable objectTable, IPlayerState playerState,
-        IClientState clientState, SnowMediator mediator)
+    private RegistrationFlowState _state = RegistrationFlowState.Idle;
+    private HousingPlotLocation _pendingPlot;
+    private DateTime? _placardVisibleSinceUtc;
+    private IFrameTickHandle? _tickHandle;
+
+    public VenueRegistrationService(ILogger<VenueRegistrationService> logger, IChatGui chatGui,
+        IObjectTable objectTable, IClientState clientState, SnowMediator mediator, IFrameScheduler frameScheduler,
+        PlotPresenceTracker plotPresence, HousingPlacardReader placardReader)
     {
         _logger = logger;
-        _dalamudUtilService = dalamudUtilService;
         _chatGui = chatGui;
-        _gameGui = gameGui;
-        _framework = framework;
         _objectTable = objectTable;
-        _playerState = playerState;
         _clientState = clientState;
         _mediator = mediator;
+        _frameScheduler = frameScheduler;
+        _plotPresence = plotPresence;
+        _placardReader = placardReader;
     }
-    
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _framework.Update += OnFrameworkUpdate;
+        _tickHandle = _frameScheduler.Register("VenueRegistration", TickInterval.EveryMilliseconds(250),
+            TickPriority.Low, OnTick);
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _framework.Update -= OnFrameworkUpdate;
+        Dispose();
         return Task.CompletedTask;
     }
 
     public void Dispose()
     {
-        _framework.Update -= OnFrameworkUpdate;
+        _tickHandle?.Dispose();
+        _tickHandle = null;
     }
 
-    public bool IsRegistrationPending => _pendingPlot != null;
+    public bool IsRegistrationPending => _state != RegistrationFlowState.Idle;
 
     public void BeginRegistrationFromCommand()
     {
-        if (!_dalamudUtilService.TryGetLastHousingPlot(out var location))
+        if (!_plotPresence.TryGetCurrentPlot(out var location))
         {
             _chatGui.PrintError("[Snowcloak] You must stand on a housing plot to start registration.");
             return;
         }
 
         _pendingPlot = location;
-        _wasPlacardOpen = false;
-        _loggedMissingPlacard = false;
-        _activePlacardAddonKey = null;
+        _placardVisibleSinceUtc = null;
+        _state = RegistrationFlowState.AwaitingPlacard;
+
         _chatGui.Print(new XivChatEntry
         {
             Message = string.Format(CultureInfo.InvariantCulture,
@@ -95,76 +96,157 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _logger.LogInformation("Started venue registration flow for plot {Plot}", location.FullId);
     }
 
-    private unsafe void OnFrameworkUpdate(IFramework framework)
+    private void OnTick()
     {
-        if (_pendingPlot == null)
+        if (_state == RegistrationFlowState.Idle)
             return;
 
-        var hasCurrentPlot = _dalamudUtilService.TryGetLastHousingPlot(out var currentPlot);
-        var pendingPlot = _pendingPlot.Value;
-
-        var locationInfo = _dalamudUtilService.GetMapData();
-        var movedToDifferentTerritory = _clientState.TerritoryType != pendingPlot.TerritoryId;
-        var movedToDifferentSubdivision = locationInfo.DivisionId != pendingPlot.DivisionId
-                                          || locationInfo.WardId != pendingPlot.WardId;
-        var enteredDifferentPlot = hasCurrentPlot && !IsSameHousingStructure(currentPlot, pendingPlot);
-
-        if (movedToDifferentTerritory || movedToDifferentSubdivision || enteredDifferentPlot)
+        // Bail out the moment the player leaves the plot they started on.
+        if (!_plotPresence.TryGetCurrentPlot(out var currentPlot)
+            || !PlotPresenceTracker.IsSameHousingStructure(currentPlot, _pendingPlot))
         {
             CancelPendingRegistration(
                 "[Snowcloak] Registration cancelled: you changed areas. Please start registration again from the new plot.");
             return;
         }
 
-        var addon = TryGetPlacardAddon(out var addonIndex);
-        
-        if (addon == null)
+        if (!_placardReader.IsPlacardVisible())
         {
-            if (!_loggedMissingPlacard)
-            {
-                _logger.LogDebug("Housing placard addon not found at indices 0 or 1.");
-                _loggedMissingPlacard = true;
-            }
-
-            _wasPlacardOpen = false;
-            return;
-        }
-        var addonKey = addonIndex != null ? $"{PlacardAddonName}@{addonIndex}" : null;
-        if (addonKey != null && addonKey != _activePlacardAddonKey)
-        {
-            _logger.LogDebug("Using placard addon {AddonName} at index {Index} for validation.", PlacardAddonName, addonIndex);
-            _activePlacardAddonKey = addonKey;
-        }
-        _loggedMissingPlacard = false;
-        var placardOpen = addon->IsVisible;
-
-        if (!placardOpen)
-        {
-            _wasPlacardOpen = false;
+            _placardVisibleSinceUtc = null;
             return;
         }
 
-        if (_wasPlacardOpen)
+        // Rising edge: let the addon text settle before reading.
+        if (_placardVisibleSinceUtc == null)
+        {
+            _placardVisibleSinceUtc = DateTime.UtcNow;
+            return;
+        }
+
+        if (DateTime.UtcNow - _placardVisibleSinceUtc.Value < PlacardSettleDelay)
             return;
 
-        _wasPlacardOpen = true;
-        _ = HandlePlacardOpenedAsync();
+        CapturePlacard();
     }
 
-    private static bool IsSameHousingStructure(HousingPlotLocation left, HousingPlotLocation right)
+    private void CapturePlacard()
     {
-        return left.WorldId == right.WorldId
-               && left.WardId == right.WardId
-               && left.PlotId == right.PlotId
-               && left.IsApartment == right.IsApartment;
+        _state = RegistrationFlowState.Captured;
+
+        if (!_placardReader.TryReadPlacard(out var lines))
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Placard closed or unavailable before details loaded. Please open the placard again.",
+                Type = XivChatType.SystemMessage
+            });
+
+            // Re-arm and keep waiting on the same plot.
+            _placardVisibleSinceUtc = null;
+            _state = RegistrationFlowState.AwaitingPlacard;
+            return;
+        }
+
+        if (lines.Count == 0)
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Placard opened, but no text could be read. This could be a bug!",
+                Type = XivChatType.SystemMessage
+            });
+
+            _placardVisibleSinceUtc = null;
+            _state = RegistrationFlowState.AwaitingPlacard;
+            return;
+        }
+
+        _chatGui.Print(new XivChatEntry
+        {
+            Message = "[Snowcloak] Placard details detected; evaluating ownership.",
+            Type = XivChatType.SystemMessage
+        });
+
+        var keywords = GetPlacardKeywords();
+        var (ward, plot) = ExtractWardAndPlot(lines, keywords);
+        var plotMatches = plot == _pendingPlot.PlotId;
+
+        var playerName = _objectTable.LocalPlayer?.Name.TextValue;
+        var playerCompanyTag = _objectTable.LocalPlayer?.CompanyTag?.TextValue;
+
+        var evaluation = EvaluateOwnership(lines, keywords, playerName, playerCompanyTag);
+
+#if DEBUG
+        if (ward != null || plot != null)
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message =
+                    $"[Snowcloak] Placard Ward {ward?.ToString() ?? "?"} Plot {plot?.ToString() ?? "?"} vs tracked {_pendingPlot.DisplayName}: {(plotMatches ? "match" : "mismatch")}",
+                Type = XivChatType.SystemMessage
+            });
+        }
+#endif
+
+        SubmitOrReject(evaluation, plotMatches);
     }
-    
+
+    private void SubmitOrReject(OwnershipResult evaluation, bool plotMatches)
+    {
+        if (evaluation.MatchesOwner)
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Authority check succeeded - you own this house. Registration can proceed.",
+                Type = XivChatType.SystemMessage
+            });
+        }
+        else if (evaluation.MatchesFreeCompany)
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Authority check succeeded - your FC owns this house. Registration can proceed.",
+                Type = XivChatType.SystemMessage
+            });
+        }
+
+        if (evaluation.Authorised)
+        {
+            _state = RegistrationFlowState.Submitting;
+
+            var context = new VenueRegistrationContext(_pendingPlot, evaluation.OwnerValue, evaluation.FreeCompanyTag, evaluation.MatchesFreeCompany);
+            _mediator.Publish(new OpenVenueRegistrationWindowMessage(context));
+
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Opening venue registration window.",
+                Type = XivChatType.SystemMessage
+            });
+        }
+        else
+        {
+            _chatGui.Print(new XivChatEntry
+            {
+                Message = "[Snowcloak] Authority check failed - this plot doesn't seem to belong to you.",
+                Type = XivChatType.SystemMessage
+            });
+
+            if (!plotMatches)
+            {
+                _chatGui.Print(new XivChatEntry
+                {
+                    Message = "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location.",
+                    Type = XivChatType.SystemMessage
+                });
+            }
+        }
+
+        // A read attempt completes the flow either way; the user can re-run /venue register to retry.
+        ResetToIdle();
+    }
+
     private void CancelPendingRegistration(string message)
     {
-        _pendingPlot = null;
-        _wasPlacardOpen = false;
-        _loggedMissingPlacard = false;
-        _activePlacardAddonKey = null;
+        ResetToIdle();
 
         _chatGui.Print(new XivChatEntry
         {
@@ -175,294 +257,53 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         _logger.LogInformation("Cleared pending registration: {Message}", message);
     }
 
-    private async Task HandlePlacardOpenedAsync()
+    private void ResetToIdle()
     {
-        if (_pendingPlot == null)
-            return;
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-
-            var evaluation = await Service.UseFramework(() =>
-            {
-                unsafe
-                {
-                    if (_pendingPlot == null)
-                        return PlacardEvaluationData.Unavailable;
-
-                    var addon = TryGetPlacardAddon(out _);
-                    if (addon == null || !addon->IsVisible)
-                        return PlacardEvaluationData.Unavailable;
-
-                    var lines = ExtractPlacardLines(addon);
-                    var player = _objectTable.LocalPlayer;
-                    var playerName = player?.Name.TextValue;
-                    var playerCompanyTag = player?.CompanyTag?.TextValue;
-
-                    return new PlacardEvaluationData(lines, playerName, playerCompanyTag, true);
-                }
-            }).ConfigureAwait(false);
-
-            if (!evaluation.PlacardVisible)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        "[Snowcloak] Placard closed or unavailable before details loaded. Please open the placard again.",
-                    Type = XivChatType.SystemMessage
-                });
-
-                _wasPlacardOpen = false;
-                return;
-            }
-
-            if (evaluation.Lines == null || evaluation.Lines.Count == 0)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message = "[Snowcloak] Placard opened, but no text could be read. This could be a bug!",
-                    Type = XivChatType.SystemMessage
-                });
-                return;
-            }
-
-            _chatGui.Print(new XivChatEntry
-            {
-                Message = "[Snowcloak] Placard details detected; evaluating ownership.",
-                Type = XivChatType.SystemMessage
-            });
-            var placardKeywords = GetPlacardKeywords();
-
-            var (ward, plot) = ExtractWardAndPlot(evaluation.Lines, placardKeywords);
-            var plotMatches = plot == _pendingPlot.Value.PlotId;
-            var ownerResult = ExtractLabelAndValue(evaluation.Lines, placardKeywords.OwnerKeywords);
-            var ownerValue = ownerResult.Value;
-            var (_, freeCompanyValue, _, _) = ExtractLabelAndValue(evaluation.Lines, placardKeywords.CompanyKeywords);
-
-            
-            var matchesOwnerName = !string.IsNullOrWhiteSpace(evaluation.PlayerName)
-                                   && !string.IsNullOrWhiteSpace(ownerValue)
-                                   && ownerValue.Contains(evaluation.PlayerName, StringComparison.OrdinalIgnoreCase);
-
-            var matchesOwnerCompanyTag = !string.IsNullOrWhiteSpace(evaluation.PlayerCompanyTag)
-                                         && !string.IsNullOrWhiteSpace(ownerValue)
-                                         && MatchesFreeCompanyTag(ownerValue!, evaluation.PlayerCompanyTag!);
-            
-            var ownerTagLine = !matchesOwnerName && ownerResult.ValueIndex >= 0
-                ? FindFirstValue(evaluation.Lines, ownerResult.ValueIndex + 1, out _)
-                : null;
-
-
-            var companySource = freeCompanyValue ?? ownerTagLine ?? ownerValue;
-
-            var matchesFreeCompany = !string.IsNullOrWhiteSpace(evaluation.PlayerCompanyTag)
-                                     && !string.IsNullOrWhiteSpace(companySource)
-                                     && MatchesFreeCompanyTag(companySource!, evaluation.PlayerCompanyTag!);
-
-            var matchesOwner = matchesOwnerName || matchesOwnerCompanyTag;
-#if DEBUG
-            if (ward != null || plot != null)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        $"[Snowcloak] Placard location Ward {ward?.ToString() ?? "?"} Plot {plot?.ToString() ?? "?"} vs tracked {_pendingPlot.Value.DisplayName}: {(plotMatches ? "match" : "mismatch")}",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-#endif
-            var authorised = matchesOwner || matchesFreeCompany;
-            if (matchesOwner) {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        "[Snowcloak] Authority check succeeded - you own this house. Registration can proceed.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-            if (matchesFreeCompany) {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        "[Snowcloak] Authority check succeeded - your FC owns this house. Registration can proceed.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-
-            if (!authorised)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        "[Snowcloak] Authority check failed - this plot doesn't seem to belong to you.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-            
-
-            if (!authorised && !plotMatches)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message =
-                        "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-
-            if (authorised)
-            {
-                var freeCompanyTag = matchesFreeCompany
-                    ? ExtractFreeCompanyTag(companySource ?? freeCompanyValue, evaluation.PlayerCompanyTag)
-                    : ExtractFreeCompanyTag(freeCompanyValue, null);
-                var context = new VenueRegistrationContext(_pendingPlot.Value, ownerValue, freeCompanyTag, matchesFreeCompany);
-
-                _mediator.Publish(new OpenVenueRegistrationWindowMessage(context));
-
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message = "[Snowcloak] Opening venue registration window.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
-
-            _pendingPlot = null;
-            _wasPlacardOpen = false;
-        }
-        catch (Exception ex)
-        {
-            _wasPlacardOpen = false;
-            _logger.LogError(ex, "Error while handling placard open.");
-        }
+        _state = RegistrationFlowState.Idle;
+        _pendingPlot = default;
+        _placardVisibleSinceUtc = null;
     }
-    private sealed record PlacardEvaluationData(List<string>? Lines, string? PlayerName, string? PlayerCompanyTag, bool PlacardVisible)
+
+    private readonly record struct OwnershipResult(bool MatchesOwner, bool MatchesFreeCompany, string? OwnerValue, string? FreeCompanyTag)
     {
-        public static readonly PlacardEvaluationData Unavailable = new(null, null, null, false);
+        public bool Authorised => MatchesOwner || MatchesFreeCompany;
     }
 
-    private unsafe AtkUnitBase* TryGetPlacardAddon(out int? addonIndex)
+    private OwnershipResult EvaluateOwnership(IReadOnlyList<string> lines, PlacardKeywords keywords,
+        string? playerName, string? playerCompanyTag)
     {
-        addonIndex = null;
+        var ownerResult = ExtractLabelAndValue(lines, keywords.OwnerKeywords);
+        var ownerValue = ownerResult.Value;
+        var (_, freeCompanyValue, _, _) = ExtractLabelAndValue(lines, keywords.CompanyKeywords);
 
-        var addon = _gameGui.GetAddonByName<AtkUnitBase>(PlacardAddonName);
-        if (addon != null)
-        {
-            addonIndex = 0;
-            return addon;
-        }
+        var matchesOwnerName = !string.IsNullOrWhiteSpace(playerName)
+                               && !string.IsNullOrWhiteSpace(ownerValue)
+                               && ownerValue!.Contains(playerName!, StringComparison.OrdinalIgnoreCase);
 
-        addon = _gameGui.GetAddonByName<AtkUnitBase>(PlacardAddonName, 1);
-        if (addon != null)
-        {
-            addonIndex = 1;
-            return addon;
-        }
-        return null;
+        var matchesOwnerCompanyTag = !string.IsNullOrWhiteSpace(playerCompanyTag)
+                                     && !string.IsNullOrWhiteSpace(ownerValue)
+                                     && MatchesFreeCompanyTag(ownerValue!, playerCompanyTag!);
+
+        var ownerTagLine = !matchesOwnerName && ownerResult.ValueIndex >= 0
+            ? FindFirstValue(lines, ownerResult.ValueIndex + 1, out _)
+            : null;
+
+        var companySource = freeCompanyValue ?? ownerTagLine ?? ownerValue;
+
+        var matchesFreeCompany = !string.IsNullOrWhiteSpace(playerCompanyTag)
+                                 && !string.IsNullOrWhiteSpace(companySource)
+                                 && MatchesFreeCompanyTag(companySource!, playerCompanyTag!);
+
+        var matchesOwner = matchesOwnerName || matchesOwnerCompanyTag;
+
+        var freeCompanyTag = matchesFreeCompany
+            ? ExtractFreeCompanyTag(companySource ?? freeCompanyValue, playerCompanyTag)
+            : ExtractFreeCompanyTag(freeCompanyValue, null);
+
+        return new OwnershipResult(matchesOwner, matchesFreeCompany, ownerValue, freeCompanyTag);
     }
 
-    
-    private unsafe List<string> ExtractPlacardLines(AtkUnitBase* addon)    {
-        var lines = new List<string>();
-
-        if (addon == null)
-            return lines;
-
-        var visited = new HashSet<nint>();
-        var stack = new Stack<nint>();
-
-        void PushNode(AtkResNode* node)
-        {
-            if (node == null)
-                return;
-
-            var key = (nint)node;
-            if (visited.Contains(key))
-                return;
-
-            visited.Add(key);
-            stack.Push(key);
-        }
-
-        PushNode(addon->RootNode);
-        
-        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
-            PushNode(addon->UldManager.NodeList[i]);
-
-        while (stack.Count > 0)
-        {
-            var node = (AtkResNode*)stack.Pop();
-            
-            if (node->Type == NodeType.Text)
-            {
-                var textNode = (AtkTextNode*)node;
-                var text = ReadNodeText(textNode);
-                
-                if (!string.IsNullOrWhiteSpace(text))
-                    lines.Add(text);
-            }
-            else if (node->Type == NodeType.Component)
-            {
-                var component = ((AtkComponentNode*)node)->Component;
-                if (component != null)
-                {
-                    PushNode(component->UldManager.RootNode);
-                    for (var i = 0; i < component->UldManager.NodeListCount; i++)
-                        PushNode(component->UldManager.NodeList[i]);
-                }
-            }
-
-            PushNode(node->ChildNode);
-            PushNode(node->PrevSiblingNode);
-            PushNode(node->NextSiblingNode);
-        }
-
-        for (var i = 0; i < lines.Count; i++)
-                _logger.LogInformation("Placard extracted line {LineIndex}: {Text}", i, lines[i]);
-
-        return lines;
-    }
-
-    private static unsafe string ReadNodeText(AtkTextNode* textNode)
-    {
-        var text = textNode->NodeText.ToString();
-        if (!string.IsNullOrWhiteSpace(text))
-            return text;
-
-        if (textNode->NodeText.StringPtr != (byte*)null)
-        {
-            var span = MemoryMarshal.CreateReadOnlySpanFromNullTerminated(textNode->NodeText.StringPtr);
-
-            try
-            {
-                var seString = SeString.Parse(span);
-                if (!string.IsNullOrWhiteSpace(seString.TextValue))
-                    return seString.TextValue;
-            }
-            catch
-            {
-                // ignored – fallback to empty
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private unsafe void LogPlacardNode(AtkResNode* node, string? text = null)
-    {
-
-        var address = ((nint)node).ToString("X");
-        var typeName = node->Type.ToString();
-
-        if (!string.IsNullOrWhiteSpace(text))
-        {
-            _logger.LogInformation("Placard node {NodeType} @0x{NodeAddress} text: {Text}", typeName, address, text);
-            return;
-        }
-
-        _logger.LogInformation("Placard node {NodeType} @0x{NodeAddress} visited", typeName, address);
-    }
-
-      private PlacardKeywords GetPlacardKeywords()
+    private PlacardKeywords GetPlacardKeywords()
     {
         return _clientState.ClientLanguage switch
         {
@@ -528,7 +369,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         return null;
     }
 
-    private (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines, PlacardKeywords placardKeywords)
+    private static (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines, PlacardKeywords placardKeywords)
     {
         uint? ward = null;
         uint? plot = null;
@@ -587,8 +428,16 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
     private static string StripFormattingCharacters(string value)
     {
-        var filtered = value.Where(c => !char.IsControl(c) && c != '\u2028' && c != '\u2029'
-                                        && (c < '\uE000' || c > '\uF8FF'));
+        var filtered = value.Where(c =>
+        {
+            if (char.IsControl(c))
+                return false;
+
+            var category = CharUnicodeInfo.GetUnicodeCategory(c);
+            return category != UnicodeCategory.LineSeparator
+                   && category != UnicodeCategory.ParagraphSeparator
+                   && category != UnicodeCategory.PrivateUse;
+        });
 
         return new string(filtered.ToArray());
     }
@@ -619,14 +468,13 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         return null;
     }
 
-    // Don't fucking judge me for keeping this here this was a goddamn nightmare
     private static bool IsLikelyLabel(string text)
     {
         if (text.Length <= 2)
             return true;
 
         var lowered = text.ToLowerInvariant();
-        if (lowered.Contains(":"))
+        if (lowered.Contains(':'))
             return false;
 
         string[] templateKeywords =
@@ -637,8 +485,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
         return templateKeywords.Any(k => lowered.Contains(k));
     }
-    
-    
+
     private static string? ExtractFreeCompanyTag(string? source, string? fallbackTag)
     {
         if (!string.IsNullOrWhiteSpace(source))
@@ -671,4 +518,12 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         IReadOnlyList<string> CompanyKeywords,
         string? WardPattern = null,
         string? PlotPattern = null);
+
+    private enum RegistrationFlowState
+    {
+        Idle,
+        AwaitingPlacard,
+        Captured,
+        Submitting,
+    }
 }

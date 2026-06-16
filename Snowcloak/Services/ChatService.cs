@@ -3,7 +3,6 @@ using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
-using ElezenTools.Services;
 using ElezenTools.UI;
 using Snowcloak.API.Data;
 using Microsoft.Extensions.Logging;
@@ -18,6 +17,8 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Services;
 
 public class ChatService : DisposableMediatorSubscriberBase
@@ -31,11 +32,12 @@ public class ChatService : DisposableMediatorSubscriberBase
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly ApiController _apiController;
     private readonly PairManager _pairManager;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly NotesStore _notesStore;
+    private readonly ShellConfigStore _shellConfigStore;
 
     public ChatService(ILogger<ChatService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator, ApiController apiController,
         PairManager pairManager, IChatGui chatGui,
-        SnowcloakConfigService snowcloakConfig, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
+        SnowcloakConfigService snowcloakConfig, NotesStore notesStore, ShellConfigStore shellConfigStore) : base(logger, mediator)
     {
         _logger = logger;
         _dalamudUtil = dalamudUtil;
@@ -43,7 +45,8 @@ public class ChatService : DisposableMediatorSubscriberBase
         _snowcloakConfig = snowcloakConfig;
         _apiController = apiController;
         _pairManager = pairManager;
-        _serverConfigurationManager = serverConfigurationManager;
+        _notesStore = notesStore;
+        _shellConfigStore = shellConfigStore;
 
         Mediator.Subscribe<UserChatMsgMessage>(this, HandleUserChat);
         Mediator.Subscribe<GroupChatMsgMessage>(this, HandleGroupChat);
@@ -95,9 +98,9 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     private string ResolveChatDisplayName(UserData user)
     {
-        var note = _serverConfigurationManager.GetNoteForUid(user.UID);
+        var note = _notesStore.GetNoteForUid(user.UID);
         if (string.IsNullOrWhiteSpace(note) && !string.IsNullOrWhiteSpace(user.Alias))
-            note = _serverConfigurationManager.GetNoteForUid(user.Alias);
+            note = _notesStore.GetNoteForUid(user.Alias);
         if (!string.IsNullOrWhiteSpace(note))
             return note;
         if (!string.IsNullOrWhiteSpace(user.Alias))
@@ -153,7 +156,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     private void PrintGroupChatMessage(string gid, string fallbackGroupName, UserData sender, byte[] payloadContent, string? senderDisplayColour, string? senderGlowColour)
     {
-        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(gid);
+        var shellConfig = _shellConfigStore.GetShellConfigForGid(gid);
         if (!shellConfig.Enabled)
             return;
 
@@ -176,7 +179,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         msg.Append(BuildVanityColouredText(senderDisplay, senderDisplayColour, senderGlowColour));
         if (color != 0)
             msg.AddUiForeground(color);
-        var shellName = _serverConfigurationManager.GetNoteForGid(gid) ?? fallbackGroupName;
+        var shellName = _notesStore.GetNoteForGid(gid) ?? fallbackGroupName;
         msg.AddText($"@{shellName}: ");
         msg.Append(SeString.Parse(payloadContent));
         if (color != 0)
@@ -192,48 +195,12 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     private static SeString BuildVanityColouredText(string text, string? foregroundHexColor, string? glowHexColor)
     {
-        if (!TryBuildVanityColour(foregroundHexColor, glowHexColor, out var colors))
+        if (!ElezenStrings.TryBuildColours(foregroundHexColor, glowHexColor, out var colors))
         {
             return new SeStringBuilder().AddText(text).Build();
         }
 
         return ElezenStrings.BuildColouredString(text, colors);
-    }
-
-    private static bool TryBuildVanityColour(string? foregroundHexColor, string? glowHexColor, out ElezenStrings.Colour colors)
-    {
-        colors = default;
-        var hasForeground = TryParseBgrHex(foregroundHexColor, out var foregroundBgr);
-        var hasGlow = TryParseBgrHex(glowHexColor, out var glowBgr);
-        if (!hasForeground && !hasGlow)
-        {
-            return false;
-        }
-
-        colors = new ElezenStrings.Colour(Foreground: hasForeground ? foregroundBgr : 0u, Glow: hasGlow ? glowBgr : 0u);
-        return true;
-    }
-
-    private static bool TryParseBgrHex(string? hexColor, out uint bgr)
-    {
-        bgr = 0u;
-        if (string.IsNullOrWhiteSpace(hexColor))
-        {
-            return false;
-        }
-
-        var trimmed = hexColor.Trim().TrimStart('#');
-        if (trimmed.Length != 6
-            || !uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
-        {
-            return false;
-        }
-
-        var red = (parsed >> 16) & 0xFF;
-        var green = (parsed >> 8) & 0xFF;
-        var blue = parsed & 0xFF;
-        bgr = (blue << 16) | (green << 8) | red;
-        return true;
     }
 
     private (string? Foreground, string? Glow) ResolveSenderDisplayColours(UserData sender, string? preferredColour, string? preferredGlowColour)
@@ -276,7 +243,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         }
 
         if (!TryResolveVanityForGameChatSender(chatMessage.Sender, chatMessage.Message, out var foregroundHex, out var glowHex)
-            || !TryBuildVanityColour(foregroundHex, glowHex, out var colours))
+            || !ElezenStrings.TryBuildColours(foregroundHex, glowHex, out var colours))
         {
             return;
         }
@@ -490,7 +457,7 @@ public class ChatService : DisposableMediatorSubscriberBase
         {
             if (group.Key.GID.Equals(gid, StringComparison.Ordinal))
             {
-                int shellChatType = _serverConfigurationManager.GetShellConfigForGid(gid).LogKind;
+                int shellChatType = _shellConfigStore.GetShellConfigForGid(gid).LogKind;
                 if (shellChatType != 0)
                     chatType = shellChatType;
             }
@@ -507,7 +474,7 @@ public class ChatService : DisposableMediatorSubscriberBase
     {
         foreach (var group in _pairManager.Groups)
         {
-            var shellConfig = _serverConfigurationManager.GetShellConfigForGid(group.Key.GID);
+            var shellConfig = _shellConfigStore.GetShellConfigForGid(group.Key.GID);
             if (shellConfig.Enabled && shellConfig.ShellNumber == shellNumber)
             {
                 groupData = group.Key;
@@ -521,7 +488,7 @@ public class ChatService : DisposableMediatorSubscriberBase
 
     private async Task<ChatMessage> BuildOutgoingChatMessageAsync(string message)
     {
-        return await Service.UseFramework(() => new ChatMessage
+        return await Service.RunOnFrameworkAsync(() => new ChatMessage
         {
             SenderName = _dalamudUtil.GetPlayerName(),
             SenderHomeWorldId = _dalamudUtil.GetHomeWorldId(),

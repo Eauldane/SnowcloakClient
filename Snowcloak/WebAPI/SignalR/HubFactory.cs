@@ -15,7 +15,7 @@ namespace Snowcloak.WebAPI.SignalR;
 public class HubFactory : MediatorSubscriberBase
 {
     private readonly ILoggerProvider _loggingProvider;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ServerRegistry _serverConfigurationManager;
     private readonly TokenProvider _tokenProvider;
     private HubConnection? _instance;
     private string _cachedConfigFor = string.Empty;
@@ -23,7 +23,7 @@ public class HubFactory : MediatorSubscriberBase
     private bool _isDisposed = false;
 
     public HubFactory(ILogger<HubFactory> logger, SnowMediator mediator,
-        ServerConfigurationManager serverConfigurationManager, 
+        ServerRegistry serverConfigurationManager,
         TokenProvider tokenProvider, ILoggerProvider pluginLog) : base(logger, mediator)
     {
         _serverConfigurationManager = serverConfigurationManager;
@@ -146,7 +146,7 @@ public class HubFactory : MediatorSubscriberBase
 
                 opt.SerializerOptions =
                     MessagePackSerializerOptions.Standard
-                        .WithCompression(MessagePackCompression.Lz4Block)
+                        .WithCompression(MessagePackCompression.Lz4BlockArray)
                         .WithResolver(resolver);
             })
             .WithAutomaticReconnect(new ForeverRetryPolicy(Mediator))

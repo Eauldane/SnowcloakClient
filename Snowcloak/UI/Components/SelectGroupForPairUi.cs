@@ -13,7 +13,6 @@ public class SelectGroupForPairUi
 {
     private readonly TagHandler _tagHandler;
     private readonly UidDisplayHandler _uidDisplayHandler;
-    private readonly UiSharedService _uiSharedService;
 
     /// <summary>
     /// The group UI is always open for a specific pair. This defines which pair the UI is open for.
@@ -31,13 +30,12 @@ public class SelectGroupForPairUi
     /// </summary>
     private string _tagNameToAdd = "";
 
-    public SelectGroupForPairUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler, UiSharedService uiSharedService)
+    public SelectGroupForPairUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler)
     {
         _show = false;
         _pair = null;
         _tagHandler = tagHandler;
         _uidDisplayHandler = uidDisplayHandler;
-        _uiSharedService = uiSharedService;
     }
 
     public void Draw()
@@ -74,7 +72,7 @@ public class SelectGroupForPairUi
 
             ImGui.Separator();
             ImGui.TextUnformatted(string.Format("Create a new group for {0}.", name));
-            if (_uiSharedService.IconButton(FontAwesomeIcon.Plus))
+            if (ElezenImgui.IconButton(FontAwesomeIcon.Plus))
             {
                 HandleAddTag();
             }

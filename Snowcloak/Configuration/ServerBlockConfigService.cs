@@ -1,14 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class ServerBlockConfigService : ConfigurationServiceBase<ServerBlockConfig>
+public class ServerBlockConfigService : StateDocument<ServerBlockConfig>
 {
     public const string ConfigName = "blocks.json";
 
-    public ServerBlockConfigService(string configDir) : base(configDir)
+    public ServerBlockConfigService(StateDocumentStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

@@ -4,7 +4,7 @@ namespace Snowcloak.Configuration.Configurations;
 
 public class PlayerPerformanceConfig : ISnowcloakConfiguration
 {
-    public int Version { get; set; } = 7;
+    public int Version { get; set; } = 8;
     public bool AutoPausePlayersExceedingThresholds { get; set; } = true;
     public bool NotifyAutoPauseDirectPairs { get; set; } = true;
     public bool NotifyAutoPauseGroupPairs { get; set; } = true;

@@ -1,42 +1,29 @@
 using System.Numerics;
-using System.Linq;
+using System.Globalization;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools.Data;
 using ElezenTools.UI;
-using Snowcloak.API.Data;
-using Snowcloak.API.Dto.User;
+using ElezenTools.UI.Mvu;
 using Snowcloak.Services;
-using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.Services.Pairing;
 using Snowcloak.UI.Handlers;
+using Snowcloak.UI.PairingAvailability;
 
 namespace Snowcloak.UI.Components;
 
-public sealed class PendingPairRequestSection
+public static class PendingPairRequestSection
 {
-    private readonly PairRequestService _pairRequestService;
-    private readonly ServerConfigurationManager _serverManager;
-    private readonly UiSharedService _uiSharedService;
-
-    public PendingPairRequestSection(
-        PairRequestService pairRequestService,
-        ServerConfigurationManager serverManager,
-        UiSharedService uiSharedService)
+    public static void Draw(IReadOnlyList<PendingPairRequestRow> pendingRequests, IDispatcher dispatch,
+        TagHandler? tagHandler, string localisationPrefix, bool indent = false, bool collapsibleWhenNoTag = true)
     {
-        _pairRequestService = pairRequestService;
-        _serverManager = serverManager;
-        _uiSharedService = uiSharedService;
-    }
+        ArgumentNullException.ThrowIfNull(pendingRequests);
+        ArgumentNullException.ThrowIfNull(dispatch);
 
-    public int PendingCount => _pairRequestService.PendingRequests.Count;
-
-    public void Draw(TagHandler? tagHandler, string localisationPrefix, bool indent = false, bool collapsibleWhenNoTag = true)
-    {
-        var pending = _pairRequestService.PendingRequests
-            .OrderBy(r => r.RequestedAt)
-            .Where(r => !IsMalformed(r))
-            .Select(dto => BuildPendingRequestDisplay(dto))
+        var pending = pendingRequests
+            .OrderBy(request => request.RequestedAt)
             .ToList();
 
         if (pending.Count == 0)
@@ -79,103 +66,113 @@ public sealed class PendingPairRequestSection
         if (indent)
             ImGui.Indent(20 * ImGuiHelpers.GlobalScale);
 
-        ImGui.TextWrapped("Notes will be auto-filled with the sender's name when you accept.");
+        using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
+        {
+            ImGui.TextWrapped("Notes will be auto-filled with the sender's name when you accept.");
+        }
 
-        if (ImGui.BeginTable("pair-request-table", 2, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg))
+        using (ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(ImGui.GetStyle().FramePadding.X, 7f * ImGuiHelpers.GlobalScale)))
+        using (ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 2f * ImGuiHelpers.GlobalScale)))
         {
             foreach (var request in pending)
-            {
-                using var requestId = ImRaii.PushId(request.Request.RequestId.ToString());
-                ImGui.TableNextRow();
-
-                ImGui.TableSetColumnIndex(0);
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted(request.DisplayName);
-                if (request.ShowAlias)
-                {
-                    ImGui.SameLine();
-                    ImGui.TextDisabled($"({request.AliasOrUid})");
-                }
-                var requestedAtTemplate = "Requested at {0:HH:mm:ss}";
-                ElezenImgui.AttachTooltip(string.Format(requestedAtTemplate, request.Request.RequestedAt));
-                ImGui.TableSetColumnIndex(1);
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserPlus, "Add"))
-                {
-                    _ = _pairRequestService.RespondAsync(request.Request, true);
-                }
-
-                ImGui.SameLine();
-
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Reject"))
-                {
-                    _ = _pairRequestService.RespondAsync(request.Request, false);
-                }
-            }
-
-            ImGui.EndTable();
+                DrawRequestRow(request, dispatch);
         }
 
         if (indent)
             ImGui.Unindent(20 * ImGuiHelpers.GlobalScale);
 
-        ImGui.Separator();
+        DrawSoftSeparator();
 
         if (!usedCollapsingHeader && tagHandler == null)
             ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
     }
 
-    private PendingPairRequestDisplay BuildPendingRequestDisplay(PairingRequestDto dto)
+    private static void DrawRequestRow(PendingPairRequestRow request, IDispatcher dispatch)
     {
-        var requesterData = dto.Requester ?? new UserData(string.Empty);
-        var requester = _pairRequestService.GetRequesterDisplay(dto);
-        string? worldName = null;
-        var hasWorld = requester.WorldId.HasValue
-                       && _uiSharedService.WorldData != null
-                       && _uiSharedService.WorldData.TryGetValue(requester.WorldId.Value, out worldName);
-        var hasIdentName = !string.IsNullOrWhiteSpace(requester.Name)
-                           && !string.Equals(requester.Name, requesterData.UID, StringComparison.Ordinal);
-        var requesterName = hasIdentName ? requester.Name : null;
+        var scale = ImGuiHelpers.GlobalScale;
+        var metadataText = request.MetadataText;
+        var hasMetadata = !string.IsNullOrWhiteSpace(metadataText);
+        var nameSize = ImGui.CalcTextSize(request.DisplayName);
+        var metaSize = hasMetadata ? ImGui.CalcTextSize(metadataText) : Vector2.Zero;
+        var buttonSize = DrawPairBase.RowActionButtonSize;
+        var height = MathF.Max(buttonSize.Y + 8f * scale, nameSize.Y + (hasMetadata ? metaSize.Y + 4f * scale : 0f) + 14f * scale);
+        var min = ImGui.GetCursorScreenPos();
+        var max = min + new Vector2(ImGui.GetContentRegionAvail().X, height);
+        var drawList = ImGui.GetWindowDrawList();
+        var hovered = ImGui.IsMouseHoveringRect(min, max);
+        var fill = hovered
+            ? new Vector4(0.075f, 0.130f, 0.185f, 0.42f)
+            : new Vector4(0.030f, 0.070f, 0.100f, 0.10f);
 
-        if (hasIdentName && hasWorld && !string.IsNullOrWhiteSpace(worldName))
+        drawList.AddRectFilled(min, max, Colour.Vector4ToColour(fill), 0f);
+        drawList.AddLine(min with { Y = max.Y }, max, Colour.Vector4ToColour(new Vector4(SnowcloakColours.CompactBorderSubtle.X, SnowcloakColours.CompactBorderSubtle.Y, SnowcloakColours.CompactBorderSubtle.Z, 0.18f)), 1f * scale);
+
+        using var id = ImRaii.PushId(request.RequestId.ToString());
+        var leftX = min.X + 4f * scale;
+        var textX = leftX;
+        if (request.CharacterSnapshot is { ClassJobId: > 0 } snapshot)
         {
-            requesterName += $" @ {worldName}";
+            var badgeSize = DrawJobBadge(snapshot, min + new Vector2(4f * scale, (height - 24f * scale) * 0.5f));
+            textX += badgeSize.X + 9f * scale;
         }
 
-        var requesterUid = !string.IsNullOrWhiteSpace(requesterData.UID)
-            ? requesterData.UID
-            : dto.RequesterIdent;
+        var buttonsWidth = buttonSize.X * 2f + ImGui.GetStyle().ItemSpacing.X;
+        var textWidth = MathF.Max(1f, max.X - textX - buttonsWidth - 12f * scale);
+        ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - nameSize.Y - (hasMetadata ? metaSize.Y + 4f * scale : 0f)) * 0.5f));
+        ImGui.PushTextWrapPos(ImGui.GetCursorScreenPos().X + textWidth);
+        ImGui.TextUnformatted(request.DisplayName);
+        ImGui.PopTextWrapPos();
 
-        var note = !string.IsNullOrWhiteSpace(requesterUid)
-            ? _serverManager.GetNoteForUid(requesterUid!)
-            : null;
+        if (request.ShowAlias)
+        {
+            ImGui.SameLine();
+            using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
+                ImGui.TextUnformatted($"({request.AliasOrUid})");
+        }
 
-        var aliasOrUid = !string.IsNullOrWhiteSpace(requesterData.AliasOrUID)
-            ? requesterData.AliasOrUID
-            : !string.IsNullOrWhiteSpace(requesterUid)
-                ? requesterUid
-                : dto.RequestId.ToString();
+        if (hasMetadata)
+        {
+            ImGui.SetCursorScreenPos(new Vector2(textX, ImGui.GetCursorScreenPos().Y + 3f * scale));
+            using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
+                ImGui.TextUnformatted(metadataText);
+        }
 
-        var displayName = !string.IsNullOrWhiteSpace(note)
-            ? note!
-            : requesterName ?? aliasOrUid;
-        
-        var showAlias = string.IsNullOrWhiteSpace(note)
-                        && requesterName != null
-                        && !string.Equals(aliasOrUid, displayName, StringComparison.Ordinal);
-        
-        return new PendingPairRequestDisplay(dto, displayName, aliasOrUid, showAlias);
+        if (hovered)
+            ImGui.SetTooltip($"Requested at {request.RequestedAt:HH:mm:ss}");
+
+        ImGui.SetCursorScreenPos(new Vector2(max.X - buttonsWidth, min.Y + (height - buttonSize.Y) * 0.5f));
+        if (DrawPairBase.DrawRowActionButton(FontAwesomeIcon.UserPlus, "accept", SnowcloakColours.OnlineBlue))
+            dispatch.Dispatch(new RespondPairRequestIntent(request.RequestId, true));
+
+        ImGui.SameLine();
+        if (DrawPairBase.DrawRowActionButton(FontAwesomeIcon.Times, "reject", SnowcloakColours.CompactTextMuted))
+            dispatch.Dispatch(new RespondPairRequestIntent(request.RequestId, false));
+
+        ImGui.SetCursorScreenPos(new Vector2(min.X, max.Y + 2f * scale));
     }
 
-    private static bool IsMalformed(PairingRequestDto dto)
+    private static Vector2 DrawJobBadge(PairRequesterCharacterSnapshot snapshot, Vector2 min)
     {
-        var uid = dto.Requester?.UID;
-        return string.IsNullOrWhiteSpace(dto.RequesterIdent) && string.IsNullOrWhiteSpace(uid);
-    }
-    
-}
+        var scale = ImGuiHelpers.GlobalScale;
+        var job = ElezenData.Jobs.GetById(snapshot.ClassJobId);
+        var label = string.IsNullOrWhiteSpace(job?.Abbreviation)
+            ? snapshot.ClassJobId.ToString(CultureInfo.InvariantCulture)
+            : job.Value.Abbreviation;
+        var textSize = ImGui.CalcTextSize(label);
+        var size = new Vector2(MathF.Max(34f * scale, textSize.X + 12f * scale), 24f * scale);
+        var color = job?.ClassColour ?? SnowcloakColours.CompactTextMuted;
+        var fill = new Vector4(color.X, color.Y, color.Z, 0.18f);
 
-public readonly record struct PendingPairRequestDisplay(
-    PairingRequestDto Request,
-    string DisplayName,
-    string AliasOrUid,
-    bool ShowAlias);
+        ImGui.GetWindowDrawList().AddRectFilled(min, min + size, Colour.Vector4ToColour(fill), 3f * scale);
+        ImGui.GetWindowDrawList().AddText(min + (size - textSize) * 0.5f, Colour.Vector4ToColour(color), label);
+        return size;
+    }
+
+    private static void DrawSoftSeparator()
+    {
+        var min = ImGui.GetCursorScreenPos();
+        var max = min with { X = min.X + ImGui.GetContentRegionAvail().X };
+        ImGui.GetWindowDrawList().AddLine(min, max, Colour.Vector4ToColour(new Vector4(SnowcloakColours.CompactBorderSubtle.X, SnowcloakColours.CompactBorderSubtle.Y, SnowcloakColours.CompactBorderSubtle.Z, 0.26f)), 1f * ImGuiHelpers.GlobalScale);
+        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
+    }
+}

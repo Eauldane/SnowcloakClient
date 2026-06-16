@@ -11,21 +11,24 @@ using System.Globalization;
 
 namespace Snowcloak.Services;
 
-public class PluginWarningNotificationService
+public class PluginWarningNotificationService : IMediatorSubscriber
 {
     private readonly ConcurrentDictionary<UserData, OptionalPluginWarning> _cachedOptionalPluginWarnings = new(UserDataComparer.Instance);
     private readonly IpcManager _ipcManager;
     private readonly SnowcloakConfigService _snowcloakConfigService;
-    private readonly SnowMediator _mediator;
+
+    public SnowMediator Mediator { get; }
     
     public PluginWarningNotificationService(SnowcloakConfigService snowcloakConfigService, IpcManager ipcManager, SnowMediator mediator)
     {
         _snowcloakConfigService = snowcloakConfigService;
         _ipcManager = ipcManager;
-        _mediator = mediator;
+        Mediator = mediator;
+        Mediator.Subscribe<ClearProfileDataMessage>(this, message => ClearWarning(message.UserData));
+        Mediator.Subscribe<DisconnectedMessage>(this, _ => _cachedOptionalPluginWarnings.Clear());
     }
     
-    public void NotifyForMissingPlugins(UserData user, string playerName, HashSet<PlayerChanges> changes)
+    public void NotifyForMissingPlugins(UserData user, string playerName, IReadOnlyCollection<PlayerChanges> changes)
     {
         if (!_cachedOptionalPluginWarnings.TryGetValue(user, out var warning))
         {
@@ -39,43 +42,75 @@ public class PluginWarningNotificationService
             };
         }
 
-        List<string> missingPluginsForData = [];
-        if (changes.Contains(PlayerChanges.Heels) && !warning.ShownHeelsWarning && !_ipcManager.Heels.APIAvailable)
+        List<string> unavailablePluginsForData = [];
+        if (changes.Contains(PlayerChanges.Heels) && !warning.ShownHeelsWarning
+            && TryAddUnavailablePlugin(unavailablePluginsForData, "SimpleHeels", _ipcManager.GetStatus(IpcManager.HeelsIpcName)))
         {
-            missingPluginsForData.Add("SimpleHeels");
             warning.ShownHeelsWarning = true;
         }
-        if (changes.Contains(PlayerChanges.Customize) && !warning.ShownCustomizePlusWarning && !_ipcManager.CustomizePlus.APIAvailable)
+        if (changes.Contains(PlayerChanges.Customize) && !warning.ShownCustomizePlusWarning
+            && TryAddUnavailablePlugin(unavailablePluginsForData, "Customize+", _ipcManager.GetStatus(IpcManager.CustomizePlusIpcName)))
         {
-            missingPluginsForData.Add("Customize+");
             warning.ShownCustomizePlusWarning = true;
         }
 
-        if (changes.Contains(PlayerChanges.Honorific) && !warning.ShownHonorificWarning && !_ipcManager.Honorific.APIAvailable)
+        if (changes.Contains(PlayerChanges.Honorific) && !warning.ShownHonorificWarning
+            && TryAddUnavailablePlugin(unavailablePluginsForData, "Honorific", _ipcManager.GetStatus(IpcManager.HonorificIpcName)))
         {
-            missingPluginsForData.Add("Honorific");
             warning.ShownHonorificWarning = true;
         }
 
-        if (changes.Contains(PlayerChanges.PetNames) && !warning.ShowPetNicknamesWarning && !_ipcManager.PetNames.APIAvailable)
+        if (changes.Contains(PlayerChanges.PetNames) && !warning.ShowPetNicknamesWarning
+            && TryAddUnavailablePlugin(unavailablePluginsForData, "PetNicknames", _ipcManager.GetStatus(IpcManager.PetNamesIpcName)))
         {
-            missingPluginsForData.Add("PetNicknames");
             warning.ShowPetNicknamesWarning = true;
         }
 
-        if (changes.Contains(PlayerChanges.Moodles) && !warning.ShownMoodlesWarning && !_ipcManager.Moodles.APIAvailable)
+        if (changes.Contains(PlayerChanges.Moodles) && !warning.ShownMoodlesWarning
+            && TryAddUnavailablePlugin(unavailablePluginsForData, "Moodles", _ipcManager.GetStatus(IpcManager.MoodlesIpcName)))
         {
-            missingPluginsForData.Add("Moodles");
             warning.ShownMoodlesWarning = true;
         }
 
-        if (missingPluginsForData.Any())
+        if (unavailablePluginsForData.Count > 0)
         {
-            var title = "Missing plugins for {0}";
-            var content = "Received data for {0} that contained information for plugins you have not installed. Install {1} to experience their character fully.";
-            _mediator.Publish(new NotificationMessage(string.Format(CultureInfo.InvariantCulture, title, playerName),
-                string.Format(CultureInfo.InvariantCulture, content, playerName, string.Join(", ", missingPluginsForData)),
+            var title = "Unavailable optional plugins for {0}";
+            var content = "Received data for {0} that needs optional plugins. Install, enable, or update {1} to experience their character fully.";
+            Mediator.Publish(new NotificationMessage(string.Format(CultureInfo.InvariantCulture, title, playerName),
+                string.Format(CultureInfo.InvariantCulture, content, playerName, string.Join(", ", unavailablePluginsForData)),
                 NotificationType.Warning, TimeSpan.FromSeconds(10)));
         }
+    }
+
+    private static bool TryAddUnavailablePlugin(List<string> plugins, string displayName, IpcStatus status)
+    {
+        if (status.IsAvailable)
+        {
+            return false;
+        }
+
+        plugins.Add(string.Format(CultureInfo.InvariantCulture, "{0} ({1})", displayName, DescribeIpcReason(status)));
+        return true;
+    }
+
+    private static string DescribeIpcReason(IpcStatus status)
+        => status.State switch
+        {
+            IpcState.Missing => "missing",
+            IpcState.Disabled => "disabled",
+            IpcState.VersionMismatch => "unsupported version",
+            IpcState.Error => "error",
+            _ => "unavailable",
+        };
+
+    private void ClearWarning(UserData? user)
+    {
+        if (user == null)
+        {
+            _cachedOptionalPluginWarnings.Clear();
+            return;
+        }
+
+        _cachedOptionalPluginWarnings.TryRemove(user, out _);
     }
 }

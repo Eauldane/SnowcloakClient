@@ -2,20 +2,17 @@
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using ElezenTools.Services;
-using Snowcloak.FileCache;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
+using Snowcloak.FileCache;
+using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.Services.Venue;
 using Snowcloak.UI;
 using Snowcloak.WebAPI;
 using System.Globalization;
-using System.Linq;
 using System.Text;
-using Snowcloak.PlayerData.Pairs;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using Snowcloak.Services.Venue;
 
 namespace Snowcloak.Services;
 
@@ -36,15 +33,17 @@ public sealed class CommandManagerService : IDisposable
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly CacheMonitor _cacheMonitor;
     private readonly ChatService _chatService;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ServerRegistry _serverRegistry;
     private readonly IChatGui _chatGui;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly PairManager _pairManager;
     private readonly VenueRegistrationService _venueRegistrationService;
+    private readonly Dictionary<string, CommandVerb> _snowCommands = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _snowCommandOrder = [];
     private readonly List<string> _syncshellCommands = [];
 
     public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
-        ServerConfigurationManager serverConfigurationManager, CacheMonitor periodicFileScanner, ChatService chatService,
+        ServerRegistry serverRegistry, CacheMonitor periodicFileScanner, ChatService chatService,
         ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager,
         VenueRegistrationService venueRegistrationService)
     {
@@ -52,7 +51,7 @@ public sealed class CommandManagerService : IDisposable
         _chatGui = chatGui;
         _dalamudUtilService = dalamudService;
         _performanceCollectorService = performanceCollectorService;
-        _serverConfigurationManager = serverConfigurationManager;
+        _serverRegistry = serverRegistry;
         _cacheMonitor = periodicFileScanner;
         _chatService = chatService;
         _apiController = apiController;
@@ -60,6 +59,28 @@ public sealed class CommandManagerService : IDisposable
         _snowcloakConfigService = snowcloakConfigService;
         _pairManager = pairManager;
         _venueRegistrationService = venueRegistrationService;
+
+        RegisterSnowCommands();
+        RegisterDalamudCommands();
+        RegisterSyncshellCommands();
+    }
+
+    public void Dispose()
+    {
+        _commandManager.RemoveHandler(_commandName);
+        _commandManager.RemoveHandler(_commandName2);
+        _commandManager.RemoveHandler(_commandName3);
+        _commandManager.RemoveHandler(_animSyncCommand);
+        _commandManager.RemoveHandler(_venueFinder);
+        _commandManager.RemoveHandler(_venueCommand);
+        foreach (var syncshellCommand in _syncshellCommands)
+        {
+            _commandManager.RemoveHandler(syncshellCommand);
+        }
+    }
+
+    private void RegisterDalamudCommands()
+    {
         _commandManager.AddHandler(_commandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Opens the Snowcloak UI. Aliases include /snowcloak and /sync."
@@ -81,22 +102,26 @@ public sealed class CommandManagerService : IDisposable
             HelpMessage = "Manage your venues or ads. Use /venue ad to manage advertisements."
         });
         _commandManager.AddHandler(_venueFinder, new CommandInfo(OnVenueFindCommand) { ShowInHelp = false });
-        RegisterSyncshellCommands();
-        
     }
-    
-    public void Dispose()
+
+    private void RegisterSnowCommands()
     {
-        _commandManager.RemoveHandler(_commandName);
-        _commandManager.RemoveHandler(_commandName2);
-        _commandManager.RemoveHandler(_commandName3);
-        _commandManager.RemoveHandler(_animSyncCommand);
-        _commandManager.RemoveHandler(_venueFinder);
-        _commandManager.RemoveHandler(_venueCommand);
-        foreach (var syncshellCommand in _syncshellCommands)
-        {
-            _commandManager.RemoveHandler(syncshellCommand);
-        }
+        RegisterSnowCommand("help", "Show available Snowcloak commands.", ShowHelp);
+        RegisterSnowCommand("toggle", "Toggle syncing, or use on/off to set it.", ToggleSync);
+        RegisterSnowCommand("panic", "Toggle panic mode, reverting synced characters and blocking new applications.", TogglePanicMode);
+        RegisterSnowCommand("gpose", "Open the character data hub.", _ => _mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+        RegisterSnowCommand("rescan", "Run a cache scan.", _ => _cacheMonitor.InvokeScan());
+        RegisterSnowCommand("perf", "Print performance stats, optionally limited by seconds.", PrintPerformanceStats);
+        RegisterSnowCommand("medi", "Print mediator subscriber diagnostics.", _ => _mediator.PrintSubscriberInfo());
+        RegisterSnowCommand("analyze", "Open data analysis.", _ => _mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
+        RegisterSnowCommand("bbtest", "Open the BBCode test window.", _ => _mediator.Publish(new UiToggleMessage(typeof(BbCodeTestUi))));
+        RegisterSnowCommand("venue", "Open venues, or use ad/register.", HandleVenueCommand);
+    }
+
+    private void RegisterSnowCommand(string verb, string helpText, Action<string[]> handler)
+    {
+        _snowCommands[verb] = new CommandVerb(helpText, handler);
+        _snowCommandOrder.Add(verb);
     }
 
     private void OnCommand(string command, string args)
@@ -106,84 +131,153 @@ public sealed class CommandManagerService : IDisposable
             _ = AttemptAnimationSyncAsync();
             return;
         }
-        var splitArgs = args.ToLowerInvariant().Trim().Split(" ", StringSplitOptions.RemoveEmptyEntries);
 
+        var splitArgs = SplitCommandArgs(args);
         if (splitArgs.Length == 0)
         {
-            // Interpret this as toggling the UI
-            if (_snowcloakConfigService.Current.HasValidSetup())
-                _mediator.Publish(new UiToggleMessage(typeof(CompactUi)));
-            else
-                _mediator.Publish(new UiToggleMessage(typeof(IntroUi)));
+            ToggleMainWindow();
             return;
         }
 
-        if (string.Equals(splitArgs[0], "toggle", StringComparison.OrdinalIgnoreCase))
+        if (_snowCommands.TryGetValue(splitArgs[0], out var verb))
         {
-            if (_apiController.ServerState == WebAPI.SignalR.Utils.ServerState.Disconnecting)
+            verb.Handler(splitArgs[1..]);
+            return;
+        }
+
+        _chatGui.PrintError($"[Snowcloak] Unknown command: {splitArgs[0]}");
+        ShowHelp([]);
+    }
+
+    private void ToggleMainWindow()
+    {
+        if (_snowcloakConfigService.Current.HasValidSetup())
+            _mediator.Publish(new UiToggleMessage(typeof(CompactUi)));
+        else
+            _mediator.Publish(new UiToggleMessage(typeof(IntroUi)));
+    }
+
+    private void ToggleSync(string[] args)
+    {
+        if (_apiController.ServerState == WebAPI.SignalR.Utils.ServerState.Disconnecting)
+        {
+            _mediator.Publish(new NotificationMessage(
+                "Snowcloak disconnecting",
+                "Cannot use /toggle while Snowcloak is still disconnecting",
+                NotificationType.Error));
+        }
+
+        if (_serverRegistry.CurrentServer == null) return;
+        var fullPause = args.Length > 0
+            ? ResolveFullPause(args[0])
+            : !_serverRegistry.CurrentServer.FullPause;
+
+        if (fullPause != _serverRegistry.CurrentServer.FullPause)
+        {
+            _serverRegistry.CurrentServer.FullPause = fullPause;
+            _serverRegistry.Save();
+            _ = _apiController.CreateConnections();
+        }
+    }
+
+    private void PrintPerformanceStats(string[] args)
+    {
+        if (args.Length > 0 && int.TryParse(args[0], CultureInfo.InvariantCulture, out var limitBySeconds))
+            _performanceCollectorService.PrintPerformanceStats(limitBySeconds);
+        else
+            _performanceCollectorService.PrintPerformanceStats();
+    }
+
+    private bool ResolveFullPause(string value)
+    {
+        if (string.Equals(value, "on", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(value, "off", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !_serverRegistry.CurrentServer!.FullPause;
+    }
+
+    private void TogglePanicMode(string[] args)
+    {
+        PanicModeResult result;
+        if (args.Length > 0)
+        {
+            if (!TryResolvePanicMode(args[0], out var enabled))
             {
-                _mediator.Publish(new NotificationMessage(
-                    "Snowcloak disconnecting",
-                    "Cannot use /toggle while Snowcloak is still disconnecting",
-                    NotificationType.Error));
+                _chatGui.PrintError("[Snowcloak] Usage: /snow panic [on|off]");
+                return;
             }
 
-            if (_serverConfigurationManager.CurrentServer == null) return;
-            var fullPause = splitArgs.Length > 1 ? splitArgs[1] switch
-            {
-                "on" => false,
-                "off" => true,
-                _ => !_serverConfigurationManager.CurrentServer.FullPause,
-            } : !_serverConfigurationManager.CurrentServer.FullPause;
+            result = _pairManager.SetPanicMode(enabled);
+        }
+        else
+        {
+            result = _pairManager.TogglePanicMode();
+        }
 
-            if (fullPause != _serverConfigurationManager.CurrentServer.FullPause)
-            {
-                _serverConfigurationManager.CurrentServer.FullPause = fullPause;
-                _serverConfigurationManager.Save();
-                _ = _apiController.CreateConnections();
-            }
-        }
-        else if (string.Equals(splitArgs[0], "gpose", StringComparison.OrdinalIgnoreCase))
+        var message = result.Enabled
+            ? string.Format(CultureInfo.InvariantCulture,
+                "[Snowcloak] Panic mode enabled. Reverted and held {0} known pair(s). Use /snow panic again to resume syncing.",
+                result.AffectedPairs)
+            : string.Format(CultureInfo.InvariantCulture,
+                "[Snowcloak] Panic mode disabled. Released {0} known pair(s).",
+                result.AffectedPairs);
+
+        _chatGui.Print(new XivChatEntry
         {
-            _mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi)));
-        }
-        else if (string.Equals(splitArgs[0], "rescan", StringComparison.OrdinalIgnoreCase))
+            Message = message,
+            Type = XivChatType.SystemMessage
+        });
+    }
+
+    private static bool TryResolvePanicMode(string value, out bool enabled)
+    {
+        if (string.Equals(value, "on", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "enable", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "enabled", StringComparison.OrdinalIgnoreCase))
         {
-            _cacheMonitor.InvokeScan();
+            enabled = true;
+            return true;
         }
-        else if (string.Equals(splitArgs[0], "perf", StringComparison.OrdinalIgnoreCase))
+
+        if (string.Equals(value, "off", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "disable", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "disabled", StringComparison.OrdinalIgnoreCase))
         {
-            if (splitArgs.Length > 1 && int.TryParse(splitArgs[1], CultureInfo.InvariantCulture, out var limitBySeconds))
-            {
-                _performanceCollectorService.PrintPerformanceStats(limitBySeconds);
-            }
-            else
-            {
-                _performanceCollectorService.PrintPerformanceStats();
-            }
+            enabled = false;
+            return true;
         }
-        else if (string.Equals(splitArgs[0], "medi", StringComparison.OrdinalIgnoreCase))
+
+        enabled = false;
+        return false;
+    }
+
+    private void ShowHelp(string[] _)
+    {
+        var help = new StringBuilder();
+        help.AppendLine("Snowcloak commands:");
+        foreach (var verb in _snowCommandOrder)
         {
-            _mediator.PrintSubscriberInfo();
+            var command = _snowCommands[verb];
+            help.AppendFormat(CultureInfo.InvariantCulture, "/snow {0} - {1}", verb, command.HelpText);
+            help.AppendLine();
         }
-        else if (string.Equals(splitArgs[0], "analyze", StringComparison.OrdinalIgnoreCase))
+
+        help.AppendLine("/venue [ad|register] - Manage venues or advertisements.");
+        help.AppendLine("/animsync - Request local animation redraws for yourself, your target, and party members.");
+
+        _chatGui.Print(new XivChatEntry
         {
-            _mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi)));
-        }
-        else if (string.Equals(splitArgs[0], "bbtest", StringComparison.OrdinalIgnoreCase))
-        {
-            _mediator.Publish(new UiToggleMessage(typeof(BbCodeTestUi)));
-        }
-        else if (string.Equals(splitArgs[0], "venue", StringComparison.OrdinalIgnoreCase))
-        {
-            HandleVenueCommand(splitArgs.Skip(1).ToArray());
-        }
+            Message = help.ToString().TrimEnd(),
+            Type = XivChatType.SystemMessage
+        });
     }
 
     private void OnVenueCommand(string command, string args)
     {
-        var splitArgs = args.ToLowerInvariant().Trim().Split(" ", StringSplitOptions.RemoveEmptyEntries);
-        HandleVenueCommand(splitArgs);
+        HandleVenueCommand(SplitCommandArgs(args));
     }
 
     private void HandleVenueCommand(string[] args)
@@ -207,7 +301,7 @@ public sealed class CommandManagerService : IDisposable
     {
         _chatGui.Print(new XivChatEntry
         {
-            Message = $"Housing plot identifier: {_dalamudUtilService.GetHousingString()}",
+            Message = $"Housing plot identifier: {_dalamudUtilService.HousingString}",
             Type = XivChatType.SystemMessage
         });
     }
@@ -242,8 +336,13 @@ public sealed class CommandManagerService : IDisposable
 
         _ = _chatService.SendSyncshellCommandAsync(shellNumber, args);
     }
-    
-     private async Task AttemptAnimationSyncAsync()
+
+    private static string[] SplitCommandArgs(string args)
+    {
+        return args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    private async Task AttemptAnimationSyncAsync()
     {
         var pairsToRefresh = new HashSet<Pair>();
 
@@ -254,9 +353,8 @@ public sealed class CommandManagerService : IDisposable
             if (targetPair != null)
                 pairsToRefresh.Add(targetPair);
         }
-        
 
-        var partyMemberIds = await Service.UseFramework(() =>
+        var partyMemberIds = await Service.RunOnFrameworkAsync(() =>
         {
             return _dalamudUtilService.GetPartyPlayerCharacters()
                 .Select(member => member.EntityId)
@@ -266,23 +364,22 @@ public sealed class CommandManagerService : IDisposable
         foreach (var partyMemberId in partyMemberIds)
         {
             var partyPair = _pairManager.GetPairByObjectId(partyMemberId);
-            if (partyPair != null && pairsToRefresh.Add(partyPair))
-                if (partyPair != null)
-                    pairsToRefresh.Add(partyPair);
+            if (partyPair != null)
+                pairsToRefresh.Add(partyPair);
         }
-        
+
         if (pairsToRefresh.Count == 0)
         {
             return;
         }
+
         var refreshedObjectIds = pairsToRefresh
             .Select(pair => pair.PlayerCharacterId)
             .Where(id => id != uint.MaxValue)
             .ToHashSet();
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
-
             var processedIds = new HashSet<uint>();
             if (_dalamudUtilService.GetIsPlayerPresent())
             {
@@ -305,15 +402,19 @@ public sealed class CommandManagerService : IDisposable
                 if (refreshedObjectIds.Contains(partyMember.EntityId) && processedIds.Add(partyMember.EntityId))
                 {
                     _mediator.Publish(new PenumbraRedrawCharacterMessage(partyMember));
-                }            }
+                }
+            }
         }).ConfigureAwait(false);
+
+#if DEBUG
         var refreshedNames = string.Join(", ", pairsToRefresh.Select(p => p.UserData.AliasOrUID));
-        #if DEBUG
         _chatGui.Print(new XivChatEntry
         {
             Message = string.Format(CultureInfo.InvariantCulture, "Requested animation sync with {0}.", refreshedNames),
             Type = XivChatType.SystemMessage
         });
-        #endif
+#endif
     }
+
+    private sealed record CommandVerb(string HelpText, Action<string[]> Handler);
 }

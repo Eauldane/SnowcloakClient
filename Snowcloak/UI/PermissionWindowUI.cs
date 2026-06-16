@@ -1,4 +1,5 @@
-﻿using Dalamud.Bindings.ImGui;
+﻿using System.Numerics;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
@@ -8,7 +9,6 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
-using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI;
@@ -17,26 +17,22 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
 {
     public Pair Pair { get; init; }
 
-    private readonly UiSharedService _uiSharedService;
     private readonly ApiController _apiController;
+    private readonly UiFontService _fontService;
     private UserPermissions _ownPermissions;
 
-    public PermissionWindowUI(ILogger<PermissionWindowUI> logger, Pair pair, SnowMediator mediator, UiSharedService uiSharedService,
+    public PermissionWindowUI(ILogger<PermissionWindowUI> logger, Pair pair, SnowMediator mediator, UiFontService fontService,
         ApiController apiController, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, $"Permissions for {pair.UserData.AliasOrUID}" +
             "###SnowcloakSyncPermissions" + pair.UserData.UID,
             performanceCollectorService)
     {
         Pair = pair;
-        _uiSharedService = uiSharedService;
+        _fontService = fontService;
         _apiController = apiController;
-        _ownPermissions = pair.UserPair?.OwnPermissions.DeepClone() ?? default;
+        _ownPermissions = pair.UserPair?.OwnPermissions ?? default;
         Flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoResize;
-        SizeConstraints = new()
-        {
-            MinimumSize = new(450, 100),
-            MaximumSize = new(450, 500)
-        };
+        SetScaledSizeConstraints(new Vector2(450, 100), new Vector2(450, 500));
         IsOpen = true;
     }
 
@@ -49,7 +45,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         var style = ImGui.GetStyle();
         var indentSize = ImGui.GetFrameHeight() + style.ItemSpacing.X;
 
-        _uiSharedService.BigText(string.Format("Permissions for {0}", Pair.UserData.AliasOrUID));
+        _fontService.BigText(string.Format("Permissions for {0}", Pair.UserData.AliasOrUID));
         ImGuiHelpers.ScaledDummy(1f);
 
         if (Pair.UserPair == null)
@@ -59,7 +55,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetPaused(paused);
         }
-        ElezenImgui.DrawHelpText("Pausing will completely cease any sync with this user." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Pausing will completely cease any sync with this user." + ElezenImgui.TooltipSeparator
             +"Note: this is bidirectional, either user pausing will cease sync completely.");
         var otherPerms = Pair.UserPair.OtherPermissions;
 
@@ -84,7 +80,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableSounds(disableSounds);
         }
-        ElezenImgui.DrawHelpText("Disabling sounds will remove all sounds synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling sounds will remove all sounds synced with this user on both sides." + ElezenImgui.TooltipSeparator
             + "Note: this is bidirectional, either user disabling sound sync will stop sound sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -98,7 +94,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableAnimations(disableAnimations);
         }
-        ElezenImgui.DrawHelpText("Disabling animationss will remove all animations synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling animationss will remove all animations synced with this user on both sides." + ElezenImgui.TooltipSeparator
             + "Note: this is bidirectional, either user disabling animation sync will stop animation sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -112,7 +108,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         {
             _ownPermissions.SetDisableVFX(disableVfx);
         }
-        ElezenImgui.DrawHelpText("Disabling sounds will remove all VFX synced with this user on both sides." + UiSharedService.TooltipSeparator
+        ElezenImgui.DrawHelpText("Disabling sounds will remove all VFX synced with this user on both sides." + ElezenImgui.TooltipSeparator
             + "Note: this is bidirectional, either user disabling VFX sync will stop VFX sync on both sides.");
         using (ImRaii.PushIndent(indentSize, false))
         {
@@ -144,7 +140,7 @@ public class PermissionWindowUI : WindowMediatorSubscriberBase
         using (ImRaii.Disabled(!hasChanges))
             if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.Undo, "Revert"))
             {
-                _ownPermissions = Pair.UserPair.OwnPermissions.DeepClone();
+                _ownPermissions = Pair.UserPair.OwnPermissions;
             }
         ElezenImgui.AttachTooltip("Revert all changes");
         

@@ -1,6 +1,4 @@
 using Dalamud.Plugin;
-using Dalamud.Plugin.Ipc;
-using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Penumbra.Api.Enums;
 using Penumbra.Api.Helpers;
@@ -11,35 +9,25 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using System.Collections.Concurrent;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCaller
+public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenumbraIpc
 {
+    private const string IpcName = "Penumbra";
+    private const string RequiredVersion = "1.6.1.10";
+    private static readonly Version MinimumPluginVersion = new(1, 6, 1, 10);
+    private const IpcCapability SupportedCapabilities = IpcCapability.ModFiles
+        | IpcCapability.MetaManipulations
+        | IpcCapability.Redraw
+        | IpcCapability.ResourcePaths;
+
     private enum ModBackend
     {
         None,
         Penumbra,
-        Weave,
     }
-
-    private const string WeaveInternalName = "Weave";
-    private const string WeaveInitializedLabel = "Weave.Initialized.V1";
-    private const string WeaveDisposedLabel = "Weave.Disposed.V1";
-    private const string WeaveResourceResolvedLabel = "Weave.GameObjectResourcePathResolved.V1";
-    private const string WeaveModSettingsChangedLabel = "Weave.ModSettingsChanged.V1";
-    private const string WeaveGameObjectRedrawnLabel = "Weave.GameObjectRedrawn.V1";
-    private const string WeaveGetModDirectoryLabel = "Weave.GetModDirectory.V1";
-    private const string WeaveGetEnabledStateLabel = "Weave.GetEnabledState.V1";
-    private const string WeaveCreateTemporaryCollectionLabel = "Weave.CreateTemporaryCollection.V1";
-    private const string WeaveDeleteTemporaryCollectionLabel = "Weave.DeleteTemporaryCollection.V1";
-    private const string WeaveAssignTemporaryCollectionLabel = "Weave.AssignTemporaryCollection.V1";
-    private const string WeaveAddTemporaryModLabel = "Weave.AddTemporaryMod.V1";
-    private const string WeaveRemoveTemporaryModLabel = "Weave.RemoveTemporaryMod.V1";
-    private const string WeaveResolvePathsLabel = "Weave.ResolvePaths.V1";
-    private const string WeaveGetPlayerMetaManipulationsLabel = "Weave.GetPlayerMetaManipulations.V1";
-    private const string WeaveGetGameObjectResourcePathsLabel = "Weave.GetGameObjectResourcePaths.V1";
-    private const string WeaveRedrawObjectLabel = "Weave.RedrawObject.V1";
-    private const string WeaveConvertTextureFileLabel = "Weave.ConvertTextureFile.V1";
 
     private readonly IDalamudPluginInterface _pi;
     private readonly DalamudUtilService _dalamudUtil;
@@ -82,24 +70,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     private readonly GetModDirectory _penumbraResolveModDir;
     private readonly ResolvePlayerPathsAsync _penumbraResolvePaths;
     private readonly GetGameObjectResourcePaths _penumbraResourcePaths;
-
-    private readonly ICallGateSubscriber<object> _weaveInit;
-    private readonly ICallGateSubscriber<object> _weaveDispose;
-    private readonly ICallGateSubscriber<nint, string, string, object> _weaveResourceResolved;
-    private readonly ICallGateSubscriber<object> _weaveModSettingChanged;
-    private readonly ICallGateSubscriber<nint, int, object> _weaveObjectRedrawn;
-    private readonly ICallGateSubscriber<string> _weaveResolveModDir;
-    private readonly ICallGateSubscriber<bool> _weaveEnabled;
-    private readonly ICallGateSubscriber<string, Guid> _weaveCreateTemporaryCollection;
-    private readonly ICallGateSubscriber<Guid, bool> _weaveDeleteTemporaryCollection;
-    private readonly ICallGateSubscriber<Guid, int, bool, bool> _weaveAssignTemporaryCollection;
-    private readonly ICallGateSubscriber<string, Guid, Dictionary<string, string>, string, int, bool> _weaveAddTemporaryMod;
-    private readonly ICallGateSubscriber<string, Guid, bool> _weaveRemoveTemporaryMod;
-    private readonly ICallGateSubscriber<string[], string[], (string[], string[][])> _weaveResolvePaths;
-    private readonly ICallGateSubscriber<string> _weaveGetMetaManipulations;
-    private readonly ICallGateSubscriber<int, Dictionary<string, HashSet<string>>[]> _weaveResourcePaths;
-    private readonly ICallGateSubscriber<int, int, bool> _weaveRedraw;
-    private readonly ICallGateSubscriber<string, string, string, bool, bool> _weaveConvertTextureFile;
 
     public IpcCallerPenumbra(ILogger<IpcCallerPenumbra> logger, IDalamudPluginInterface pi, DalamudUtilService dalamudUtil,
         SnowMediator snowMediator, RedrawManager redrawManager) : base(logger, snowMediator)
@@ -145,30 +115,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             }
         });
 
-        _weaveInit = pi.GetIpcSubscriber<object>(WeaveInitializedLabel);
-        _weaveDispose = pi.GetIpcSubscriber<object>(WeaveDisposedLabel);
-        _weaveResourceResolved = pi.GetIpcSubscriber<nint, string, string, object>(WeaveResourceResolvedLabel);
-        _weaveModSettingChanged = pi.GetIpcSubscriber<object>(WeaveModSettingsChangedLabel);
-        _weaveObjectRedrawn = pi.GetIpcSubscriber<nint, int, object>(WeaveGameObjectRedrawnLabel);
-        _weaveResolveModDir = pi.GetIpcSubscriber<string>(WeaveGetModDirectoryLabel);
-        _weaveEnabled = pi.GetIpcSubscriber<bool>(WeaveGetEnabledStateLabel);
-        _weaveCreateTemporaryCollection = pi.GetIpcSubscriber<string, Guid>(WeaveCreateTemporaryCollectionLabel);
-        _weaveDeleteTemporaryCollection = pi.GetIpcSubscriber<Guid, bool>(WeaveDeleteTemporaryCollectionLabel);
-        _weaveAssignTemporaryCollection = pi.GetIpcSubscriber<Guid, int, bool, bool>(WeaveAssignTemporaryCollectionLabel);
-        _weaveAddTemporaryMod = pi.GetIpcSubscriber<string, Guid, Dictionary<string, string>, string, int, bool>(WeaveAddTemporaryModLabel);
-        _weaveRemoveTemporaryMod = pi.GetIpcSubscriber<string, Guid, bool>(WeaveRemoveTemporaryModLabel);
-        _weaveResolvePaths = pi.GetIpcSubscriber<string[], string[], (string[], string[][])>(WeaveResolvePathsLabel);
-        _weaveGetMetaManipulations = pi.GetIpcSubscriber<string>(WeaveGetPlayerMetaManipulationsLabel);
-        _weaveResourcePaths = pi.GetIpcSubscriber<int, Dictionary<string, HashSet<string>>[]>(WeaveGetGameObjectResourcePathsLabel);
-        _weaveRedraw = pi.GetIpcSubscriber<int, int, bool>(WeaveRedrawObjectLabel);
-        _weaveConvertTextureFile = pi.GetIpcSubscriber<string, string, string, bool, bool>(WeaveConvertTextureFileLabel);
-
-        _weaveInit.Subscribe(OnWeaveInit);
-        _weaveDispose.Subscribe(OnWeaveDispose);
-        _weaveResourceResolved.Subscribe(OnWeaveResourceLoaded);
-        _weaveModSettingChanged.Subscribe(OnWeaveModSettingChanged);
-        _weaveObjectRedrawn.Subscribe(OnWeaveRedrawEvent);
-
         CheckAPI();
         CheckModDirectory();
 
@@ -176,46 +122,45 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         Mediator.Subscribe<DalamudLoginMessage>(this, _ => _shownPenumbraUnavailable = false);
     }
 
-    public bool APIAvailable { get; private set; }
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Required, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public void CheckAPI()
     {
-        var penumbraPlugin = _pi.InstalledPlugins.FirstOrDefault(p => string.Equals(p.InternalName, "Penumbra", StringComparison.OrdinalIgnoreCase));
-        var weavePlugin = _pi.InstalledPlugins.FirstOrDefault(p => string.Equals(p.InternalName, WeaveInternalName, StringComparison.OrdinalIgnoreCase));
+        var penumbraPlugin = IpcPluginProbe.Find(_pi, IpcName);
+        var version = penumbraPlugin.Version?.ToString();
 
-        var penumbraAvailable = false;
-        if ((penumbraPlugin?.Version ?? new Version(0, 0, 0, 0)) >= new Version(1, 2, 0, 22))
+        if (!penumbraPlugin.IsInstalled)
+        {
+            Status = IpcStatus.Missing(IpcName, IpcRole.Required, SupportedCapabilities, RequiredVersion);
+            _backend = ModBackend.None;
+        }
+        else if (!penumbraPlugin.IsLoaded)
+        {
+            Status = IpcStatus.Disabled(IpcName, IpcRole.Required, SupportedCapabilities, version, "plugin is installed but not loaded");
+            _backend = ModBackend.None;
+        }
+        else if (penumbraPlugin.Version!.CompareTo(MinimumPluginVersion) < 0)
+        {
+            Status = IpcStatus.VersionMismatch(IpcName, IpcRole.Required, SupportedCapabilities, version, RequiredVersion);
+            _backend = ModBackend.None;
+        }
+        else
         {
             try
             {
-                penumbraAvailable = _penumbraEnabled.Invoke();
+                var penumbraAvailable = _penumbraEnabled.Invoke();
+                Status = penumbraAvailable
+                    ? IpcStatus.Available(IpcName, IpcRole.Required, SupportedCapabilities, version)
+                    : IpcStatus.Disabled(IpcName, IpcRole.Required, SupportedCapabilities, version, "Penumbra reports itself inactive");
+                _backend = penumbraAvailable ? ModBackend.Penumbra : ModBackend.None;
             }
-            catch
+            catch (Exception ex)
             {
-                penumbraAvailable = false;
+                Status = IpcStatus.Error(IpcName, IpcRole.Required, SupportedCapabilities, ex.Message, version, RequiredVersion);
+                _backend = ModBackend.None;
             }
         }
-
-        var weaveAvailable = false;
-        if (weavePlugin is not null)
-        {
-            try
-            {
-                weaveAvailable = _weaveEnabled.InvokeFunc();
-            }
-            catch
-            {
-                weaveAvailable = false;
-            }
-        }
-
-        _backend = penumbraAvailable
-            ? ModBackend.Penumbra
-            : weaveAvailable
-                ? ModBackend.Weave
-                : ModBackend.None;
-
-        APIAvailable = _backend != ModBackend.None;
         _shownPenumbraUnavailable = _shownPenumbraUnavailable && !APIAvailable;
 
         if (!APIAvailable && !_shownPenumbraUnavailable)
@@ -223,19 +168,16 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             _shownPenumbraUnavailable = true;
             _snowMediator.Publish(new NotificationMessage(
                 "Penumbra inactive",
-                "Neither Penumbra nor Weave is active. Enable Penumbra or install Weave to continue to use Snowcloak.",
+                "Penumbra is not active. Enable Penumbra to continue to use Snowcloak.",
                 NotificationType.Error));
         }
     }
 
     public void CheckModDirectory()
     {
-        ModDirectory = _backend switch
-        {
-            ModBackend.Penumbra => _penumbraResolveModDir.Invoke().ToLowerInvariant(),
-            ModBackend.Weave => _weaveResolveModDir.InvokeFunc().ToLowerInvariant(),
-            _ => string.Empty,
-        };
+        ModDirectory = _backend == ModBackend.Penumbra
+            ? _penumbraResolveModDir.Invoke().ToLowerInvariant()
+            : string.Empty;
     }
 
     protected override void Dispose(bool disposing)
@@ -249,11 +191,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         _penumbraDispose.Dispose();
         _penumbraInit.Dispose();
         _penumbraObjectIsRedrawn.Dispose();
-        _weaveInit.Unsubscribe(OnWeaveInit);
-        _weaveDispose.Unsubscribe(OnWeaveDispose);
-        _weaveResourceResolved.Unsubscribe(OnWeaveResourceLoaded);
-        _weaveModSettingChanged.Unsubscribe(OnWeaveModSettingChanged);
-        _weaveObjectRedrawn.Unsubscribe(OnWeaveRedrawEvent);
     }
 
     public async Task AssignTemporaryCollectionAsync(ILogger logger, Guid collName, int idx)
@@ -263,19 +200,10 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return;
         }
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
-            if (_backend == ModBackend.Penumbra)
-            {
-                var retAssign = _penumbraAssignTemporaryCollection.Invoke(collName, idx, forceAssignment: true);
-                logger.LogTrace("Assigning Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
-            }
-            else
-            {
-                var retAssign = _weaveAssignTemporaryCollection.InvokeFunc(collName, idx, true);
-                logger.LogTrace("Assigning Weave Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
-            }
-
+            var retAssign = _penumbraAssignTemporaryCollection.Invoke(collName, idx, forceAssignment: true);
+            logger.LogTrace("Assigning Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
             return collName;
         }).ConfigureAwait(false);
     }
@@ -299,17 +227,9 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             progress.Report((texture.Key, ++currentTexture));
             logger.LogInformation("Converting Texture {path} to {type}", texture.Key, texture.Value.TextureType);
 
-            var converted = false;
-            if (_backend == ModBackend.Penumbra)
-            {
-                var convertTask = _penumbraConvertTextureFile.Invoke(texture.Key, texture.Key, texture.Value.TextureType, mipMaps: true);
-                await convertTask.ConfigureAwait(false);
-                converted = convertTask.IsCompletedSuccessfully;
-            }
-            else
-            {
-                converted = _weaveConvertTextureFile.InvokeFunc(texture.Key, texture.Key, texture.Value.TextureType.ToString(), true);
-            }
+            var convertTask = _penumbraConvertTextureFile.Invoke(texture.Key, texture.Key, texture.Value.TextureType, mipMaps: true);
+            await convertTask.ConfigureAwait(false);
+            var converted = convertTask.IsCompletedSuccessfully;
 
             if (converted && texture.Value.Duplicates.Any())
             {
@@ -330,7 +250,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
 
         _snowMediator.Publish(new ResumeScanMessage(nameof(ConvertTextureFiles)));
 
-        await Service.UseFramework(async () =>
+        await Service.RunOnFrameworkAsync(async () =>
         {
             var gameObject = await _dalamudUtil.CreateGameObjectAsync(await _dalamudUtil.GetPlayerPointerAsync().ConfigureAwait(false)).ConfigureAwait(false);
             if (gameObject != null)
@@ -347,49 +267,40 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return Guid.Empty;
         }
 
-        return await Service.UseFramework(() =>
+        return await Service.RunOnFrameworkAsync(() =>
         {
             var random = new Random();
             var collName = "Snowcloak_" + uid + random.Next();
 
-            if (_backend == ModBackend.Penumbra)
+            Guid collId;
+            var penumbraEc = _penumbraCreateNamedTemporaryCollection.Invoke(uid + random.Next(), collName, out collId);
+            logger.LogTrace("Creating Temp Collection {collName}, GUID: {collId}", collName, collId);
+            if (penumbraEc != PenumbraApiEc.Success)
             {
-                Guid collId;
-                var penumbraEc = _penumbraCreateNamedTemporaryCollection.Invoke(uid + random.Next(), collName, out collId);
-                logger.LogTrace("Creating Temp Collection {collName}, GUID: {collId}", collName, collId);
-                if (penumbraEc != PenumbraApiEc.Success)
-                {
-                    logger.LogError("Failed to create temporary collection");
-                }
-
-                return collId;
+                logger.LogError("Failed to create temporary collection");
             }
 
-            var weaveId = _weaveCreateTemporaryCollection.InvokeFunc(collName);
-            logger.LogTrace("Creating Weave Temp Collection {collName}, GUID: {collId}", collName, weaveId);
-            return weaveId;
+            return collId;
         }).ConfigureAwait(false);
     }
 
-    public async Task<Dictionary<string, HashSet<string>>?> GetCharacterData(ILogger logger, GameObjectHandler handler)
+    public async Task<Dictionary<string, HashSet<string>>?> GetCharacterData(ILogger logger, IGameObjectHandle handler)
     {
         if (!APIAvailable)
         {
             return null;
         }
 
-        return await Service.UseFramework(() =>
+        return await Service.RunOnFrameworkAsync(() =>
         {
             logger.LogTrace("Calling resource path IPC via {backend}", _backend);
-            var idx = handler.GetGameObject()?.ObjectIndex;
+            var idx = handler.ObjectIndex;
             if (idx == null)
             {
                 return null;
             }
 
-            return _backend == ModBackend.Penumbra
-                ? _penumbraResourcePaths.Invoke(idx.Value)[0]
-                : _weaveResourcePaths.InvokeFunc(idx.Value)[0];
+            return _penumbraResourcePaths.Invoke(idx.Value)[0];
         }).ConfigureAwait(false);
     }
 
@@ -400,31 +311,21 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return string.Empty;
         }
 
-        return _backend == ModBackend.Penumbra
-            ? _penumbraGetMetaManipulations.Invoke()
-            : _weaveGetMetaManipulations.InvokeFunc();
+        return _penumbraGetMetaManipulations.Invoke();
     }
 
-    public async Task RedrawAsync(ILogger logger, GameObjectHandler handler, Guid applicationId, CancellationToken token)
+    public async Task RedrawAsync(ILogger logger, IGameObjectHandle handler, Guid applicationId, CancellationToken token)
     {
         if (!APIAvailable || _dalamudUtil.IsZoning)
         {
             return;
         }
 
-        try
+        await _redrawManager.RunWithRedrawSlotAsync(logger, (GameObjectHandler)handler, applicationId, chara =>
         {
-            await _redrawManager.RedrawSemaphore.WaitAsync(token).ConfigureAwait(false);
-            await _redrawManager.PenumbraRedrawInternalAsync(logger, handler, applicationId, chara =>
-            {
-                logger.LogDebug("[{appid}] Calling redraw on {backend}", applicationId, _backend);
-                InvokeRedraw(chara.ObjectIndex, RedrawType.Redraw);
-            }, token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _redrawManager.RedrawSemaphore.Release();
-        }
+            logger.LogDebug("[{appid}] Calling redraw on {backend}", applicationId, _backend);
+            InvokeRedraw(chara.ObjectIndex, RedrawType.Redraw);
+        }, token).ConfigureAwait(false);
     }
 
     public async Task RemoveTemporaryCollectionAsync(ILogger logger, Guid applicationId, Guid collId)
@@ -434,26 +335,17 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return;
         }
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
-            logger.LogTrace("[{applicationId}] Removing temp collection for {collId}", applicationId, collId);
-            if (_backend == ModBackend.Penumbra)
-            {
-                var ret = _penumbraRemoveTemporaryCollection.Invoke(collId);
-                logger.LogTrace("[{applicationId}] RemoveTemporaryCollection: {ret}", applicationId, ret);
-            }
-            else
-            {
-                var ret = _weaveDeleteTemporaryCollection.InvokeFunc(collId);
-                logger.LogTrace("[{applicationId}] Weave RemoveTemporaryCollection: {ret}", applicationId, ret);
-            }
+            using var scope = logger.BeginScope("{ApplicationId}", applicationId);
+            logger.LogTrace("Removing temp collection for {collId}", collId);
+            var ret = _penumbraRemoveTemporaryCollection.Invoke(collId);
+            logger.LogTrace("RemoveTemporaryCollection: {ret}", ret);
         }).ConfigureAwait(false);
     }
 
     public async Task<(string[] forward, string[][] reverse)> ResolvePathsAsync(string[] forward, string[] reverse)
-        => _backend == ModBackend.Penumbra
-            ? await _penumbraResolvePaths.Invoke(forward, reverse).ConfigureAwait(false)
-            : _weaveResolvePaths.InvokeFunc(forward, reverse);
+        => await _penumbraResolvePaths.Invoke(forward, reverse).ConfigureAwait(false);
 
     public async Task SetManipulationDataAsync(ILogger logger, Guid applicationId, Guid collId, string manipulationData)
     {
@@ -462,19 +354,12 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return;
         }
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
-            logger.LogTrace("[{applicationId}] Manip: {data}", applicationId, manipulationData);
-            if (_backend == ModBackend.Penumbra)
-            {
-                var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Meta", collId, [], manipulationData, 0);
-                logger.LogTrace("[{applicationId}] Setting temp meta mod for {collId}, Success: {ret}", applicationId, collId, retAdd);
-            }
-            else
-            {
-                var retAdd = _weaveAddTemporaryMod.InvokeFunc("SnowChara_Meta", collId, new Dictionary<string, string>(StringComparer.Ordinal), manipulationData, 0);
-                logger.LogTrace("[{applicationId}] Setting Weave temp meta mod for {collId}, Success: {ret}", applicationId, collId, retAdd);
-            }
+            using var scope = logger.BeginScope("{ApplicationId}", applicationId);
+            logger.LogTrace("Manip: {data}", manipulationData);
+            var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Meta", collId, [], manipulationData, 0);
+            logger.LogTrace("Setting temp meta mod for {collId}, Success: {ret}", collId, retAdd);
         }).ConfigureAwait(false);
     }
 
@@ -485,27 +370,18 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
             return;
         }
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
+            using var scope = logger.BeginScope("{ApplicationId}", applicationId);
             foreach (var mod in modPaths)
             {
-                logger.LogTrace("[{applicationId}] Change: {from} => {to}", applicationId, mod.Key, mod.Value);
+                logger.LogTrace("Change: {from} => {to}", mod.Key, mod.Value);
             }
 
-            if (_backend == ModBackend.Penumbra)
-            {
-                var retRemove = _penumbraRemoveTemporaryMod.Invoke("SnowChara_Files", collId, 0);
-                logger.LogTrace("[{applicationId}] Removing temp files mod for {collId}, Success: {ret}", applicationId, collId, retRemove);
-                var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Files", collId, modPaths, string.Empty, 0);
-                logger.LogTrace("[{applicationId}] Setting temp files mod for {collId}, Success: {ret}", applicationId, collId, retAdd);
-            }
-            else
-            {
-                var retRemove = _weaveRemoveTemporaryMod.InvokeFunc("SnowChara_Files", collId);
-                logger.LogTrace("[{applicationId}] Removing Weave temp files mod for {collId}, Success: {ret}", applicationId, collId, retRemove);
-                var retAdd = _weaveAddTemporaryMod.InvokeFunc("SnowChara_Files", collId, modPaths, string.Empty, 0);
-                logger.LogTrace("[{applicationId}] Setting Weave temp files mod for {collId}, Success: {ret}", applicationId, collId, retAdd);
-            }
+            var retRemove = _penumbraRemoveTemporaryMod.Invoke("SnowChara_Files", collId, 0);
+            logger.LogTrace("Removing temp files mod for {collId}, Success: {ret}", collId, retRemove);
+            var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Files", collId, modPaths, string.Empty, 0);
+            logger.LogTrace("Setting temp files mod for {collId}, Success: {ret}", collId, retAdd);
         }).ConfigureAwait(false);
     }
 
@@ -519,10 +395,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
         if (_backend == ModBackend.Penumbra)
         {
             _penumbraRedraw.Invoke(objectIndex.Value, setting);
-        }
-        else if (_backend == ModBackend.Weave)
-        {
-            _weaveRedraw.InvokeFunc(objectIndex.Value, (int)setting);
         }
     }
 
@@ -562,54 +434,10 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IIpcCa
     {
         if (_backend == ModBackend.Penumbra)
         {
-            APIAvailable = true;
+            Status = IpcStatus.Available(IpcName, IpcRole.Required, SupportedCapabilities, Status.Version);
             ModDirectory = _penumbraResolveModDir.Invoke();
             _snowMediator.Publish(new PenumbraInitializedMessage());
             InvokeRedraw(0, RedrawType.Redraw);
-        }
-    }
-
-    private void OnWeaveInit()
-    {
-        CheckAPI();
-        if (_backend == ModBackend.Weave)
-        {
-            CheckModDirectory();
-            _snowMediator.Publish(new PenumbraInitializedMessage());
-            InvokeRedraw(0, RedrawType.Redraw);
-        }
-    }
-
-    private void OnWeaveDispose()
-    {
-        if (_backend == ModBackend.Weave)
-        {
-            _redrawManager.Cancel();
-            _snowMediator.Publish(new PenumbraDisposedMessage());
-        }
-    }
-
-    private void OnWeaveResourceLoaded(nint ptr, string gamePath, string resolvedPath)
-    {
-        if (_backend == ModBackend.Weave)
-        {
-            ResourceLoaded(ptr, gamePath, resolvedPath);
-        }
-    }
-
-    private void OnWeaveModSettingChanged()
-    {
-        if (_backend == ModBackend.Weave)
-        {
-            _snowMediator.Publish(new PenumbraModSettingChangedMessage());
-        }
-    }
-
-    private void OnWeaveRedrawEvent(nint address, int objectIndex)
-    {
-        if (_backend == ModBackend.Weave)
-        {
-            RedrawEvent(address, objectIndex);
         }
     }
 }

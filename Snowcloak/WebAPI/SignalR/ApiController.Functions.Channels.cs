@@ -7,16 +7,16 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
-    public async Task UserSetConnectionMode(ConnectionModeDto mode)
+    public async Task UserSetConnectionMode(ConnectionModeDto connectionMode)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(UserSetConnectionMode), mode).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(UserSetConnectionMode), connectionMode).ConfigureAwait(false);
     }
 
-    public async Task<ChannelDto> ChannelCreate(ChannelCreateDto createDto)
+    public async Task<ChannelDto> ChannelCreate(ChannelCreateDto dto)
     {
         CheckConnection();
-        return await _snowHub!.InvokeAsync<ChannelDto>(nameof(ChannelCreate), createDto).ConfigureAwait(false);
+        return await _snowHub!.InvokeAsync<ChannelDto>(nameof(ChannelCreate), dto).ConfigureAwait(false);
     }
 
     public async Task<ChannelMemberDto?> ChannelJoin(ChannelDto channel)
@@ -31,40 +31,40 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(ChannelLeave), channel).ConfigureAwait(false);
     }
 
-    public async Task ChannelKick(ChannelKickDto kickDto)
+    public async Task ChannelKick(ChannelKickDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelKick), kickDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelKick), dto).ConfigureAwait(false);
     }
 
-    public async Task ChannelBan(ChannelBanDto banDto)
+    public async Task ChannelBan(ChannelBanDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelBan), banDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelBan), dto).ConfigureAwait(false);
     }
 
-    public async Task ChannelUnban(ChannelUnbanDto unbanDto)
+    public async Task ChannelUnban(ChannelUnbanDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelUnban), unbanDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelUnban), dto).ConfigureAwait(false);
     }
 
-    public async Task ChannelSetMode(ChannelModeUpdateDto modeUpdateDto)
+    public async Task ChannelSetMode(ChannelModeUpdateDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelSetMode), modeUpdateDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelSetMode), dto).ConfigureAwait(false);
     }
 
-    public async Task ChannelSetRole(ChannelRoleUpdateDto roleUpdateDto)
+    public async Task ChannelSetRole(ChannelRoleUpdateDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelSetRole), roleUpdateDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelSetRole), dto).ConfigureAwait(false);
     }
 
-    public async Task ChannelSetTopic(ChannelTopicUpdateDto topicUpdateDto)
+    public async Task ChannelSetTopic(ChannelTopicUpdateDto dto)
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(ChannelSetTopic), topicUpdateDto).ConfigureAwait(false);
+        await _snowHub!.SendAsync(nameof(ChannelSetTopic), dto).ConfigureAwait(false);
     }
 
     public async Task<List<ChannelDto>> ChannelList()

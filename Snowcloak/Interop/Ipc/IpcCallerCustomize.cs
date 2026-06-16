@@ -2,16 +2,22 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Utility;
-using ElezenTools.Services;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using System.Text;
 
+using ElezenTools.Services;
+
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerCustomize : IIpcCaller
+public sealed class IpcCallerCustomize : ICustomizePlusIpc
 {
+    private const string IpcName = "CustomizePlus";
+    private const string RequiredVersion = "IPC 6.0";
+    private const IpcCapability SupportedCapabilities = IpcCapability.BodyScale;
+
+    private readonly IDalamudPluginInterface _pi;
     private readonly ICallGateSubscriber<(int, int)> _customizePlusApiVersion;
     private readonly ICallGateSubscriber<ushort, (int, Guid?)> _customizePlusGetActiveProfile;
     private readonly ICallGateSubscriber<Guid, (int, string?)> _customizePlusGetProfileById;
@@ -26,6 +32,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public IpcCallerCustomize(ILogger<IpcCallerCustomize> logger, IDalamudPluginInterface dalamudPluginInterface,
         DalamudUtilService dalamudUtil, SnowMediator snowMediator)
     {
+        _pi = dalamudPluginInterface;
         _customizePlusApiVersion = dalamudPluginInterface.GetIpcSubscriber<(int, int)>("CustomizePlus.General.GetApiVersion");
         _customizePlusGetActiveProfile = dalamudPluginInterface.GetIpcSubscriber<ushort, (int, Guid?)>("CustomizePlus.Profile.GetActiveProfileIdOnCharacter");
         _customizePlusGetProfileById = dalamudPluginInterface.GetIpcSubscriber<Guid, (int, string?)>("CustomizePlus.Profile.GetByUniqueId");
@@ -42,12 +49,13 @@ public sealed class IpcCallerCustomize : IIpcCaller
         CheckAPI();
     }
 
-    public bool APIAvailable { get; private set; } = false;
+    public IpcStatus Status { get; private set; } = IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion);
+    public bool APIAvailable => Status.IsAvailable;
 
     public async Task RevertAsync(nint character)
     {
         if (!APIAvailable) return;
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)
@@ -61,7 +69,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public async Task<Guid?> SetBodyScaleAsync(nint character, string scale)
     {
         if (!APIAvailable) return null;
-        return await Service.UseFramework(() =>
+        return await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)
@@ -88,7 +96,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     {
         if (!APIAvailable || profileId == null) return;
 
-        await Service.UseFramework(() =>
+        await Service.RunOnFrameworkAsync(() =>
         {
             _ = _customizePlusDeleteByUniqueId.InvokeFunc(profileId.Value);
         }).ConfigureAwait(false);
@@ -97,7 +105,7 @@ public sealed class IpcCallerCustomize : IIpcCaller
     public async Task<string?> GetScaleAsync(nint character)
     {
         if (!APIAvailable) return null;
-        var scale = await Service.UseFramework(() =>
+        var scale = await Service.RunOnFrameworkAsync(() =>
         {
             var gameObj = _dalamudUtil.CreateGameObject(character);
             if (gameObj is ICharacter c)
@@ -119,11 +127,20 @@ public sealed class IpcCallerCustomize : IIpcCaller
         try
         {
             var version = _customizePlusApiVersion.InvokeFunc();
-            APIAvailable = (version.Item1 == 6 && version.Item2 >= 0);
+            var statusVersion = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"IPC {version.Item1}.{version.Item2}");
+            Status = version is { Item1: 6, Item2: >= 0 }
+                ? IpcStatus.Available(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion)
+                : IpcStatus.VersionMismatch(IpcName, IpcRole.Optional, SupportedCapabilities, statusVersion, RequiredVersion);
         }
-        catch
+        catch (Exception ex)
         {
-            APIAvailable = false;
+            var plugin = IpcPluginProbe.Find(_pi, IpcName);
+            Status = plugin switch
+            {
+                { IsInstalled: false } => IpcStatus.Missing(IpcName, IpcRole.Optional, SupportedCapabilities, RequiredVersion),
+                { IsLoaded: false } => IpcStatus.Disabled(IpcName, IpcRole.Optional, SupportedCapabilities, plugin.Version?.ToString(), "plugin is installed but not loaded"),
+                _ => IpcStatus.Error(IpcName, IpcRole.Optional, SupportedCapabilities, ex.Message, plugin.Version?.ToString(), RequiredVersion),
+            };
         }
     }
 

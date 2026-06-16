@@ -1,11 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class CharaDataConfigService : ConfigurationServiceBase<CharaDataConfig>
+public class CharaDataConfigService : ConfigDocument<CharaDataConfig>
 {
     public const string ConfigName = "charadata.json";
 
-    public CharaDataConfigService(string configDir) : base(configDir) { }
-    public override string ConfigurationName => ConfigName;
+    public CharaDataConfigService(ConfigStore store) : base(store)
+    {
+    }
+
+    public override string FileName => ConfigName;
 }

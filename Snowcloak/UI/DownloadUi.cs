@@ -8,28 +8,32 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
-using System.Collections.Concurrent;
+using System.Globalization;
 using System.Numerics;
 
 namespace Snowcloak.UI;
 
-public class DownloadUi : WindowMediatorSubscriberBase
+public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
 {
     private readonly SnowcloakConfigService _configService;
-    private readonly ConcurrentDictionary<GameObjectHandler, IReadOnlyDictionary<string, FileDownloadStatus>> _currentDownloads = new();
+    private readonly DownloadStatusStore _statusStore;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly FileUploadManager _fileTransferManager;
-    private readonly UiSharedService _uiShared;
-    private readonly ConcurrentDictionary<GameObjectHandler, bool> _uploadingPlayers = new();
+    private readonly TransferOverlayUiState _transferOverlayState;
+    private readonly UiFontService _fontService;
 
     public DownloadUi(ILogger<DownloadUi> logger, DalamudUtilService dalamudUtilService, SnowcloakConfigService configService,
-        FileUploadManager fileTransferManager, SnowMediator mediator, UiSharedService uiShared, PerformanceCollectorService performanceCollectorService)
+        FileUploadManager fileTransferManager, DownloadStatusStore statusStore, SnowMediator mediator,
+        TransferOverlayUiState transferOverlayState, UiFontService fontService,
+        PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Downloads", performanceCollectorService)
     {
         _dalamudUtilService = dalamudUtilService;
         _configService = configService;
         _fileTransferManager = fileTransferManager;
-        _uiShared = uiShared;
+        _statusStore = statusStore;
+        _transferOverlayState = transferOverlayState;
+        _fontService = fontService;
         WindowName = "Snowcloak Downloads";
 
         SizeConstraints = new WindowSizeConstraints()
@@ -54,30 +58,21 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
         IsOpen = true;
 
-        Mediator.Subscribe<DownloadStartedMessage>(this, (msg) => _currentDownloads[msg.DownloadId] = msg.DownloadStatus);
-        Mediator.Subscribe<DownloadFinishedMessage>(this, (msg) => _currentDownloads.TryRemove(msg.DownloadId, out _));
         Mediator.Subscribe<GposeStartMessage>(this, (_) => IsOpen = false);
         Mediator.Subscribe<GposeEndMessage>(this, (_) => IsOpen = true);
-        Mediator.Subscribe<PlayerUploadingMessage>(this, (msg) =>
-        {
-            if (msg.IsUploading)
-            {
-                _uploadingPlayers[msg.Handler] = true;
-            }
-            else
-            {
-                _uploadingPlayers.TryRemove(msg.Handler, out _);
-            }
-        });
+        Mediator.Subscribe<PlayerUploadingMessage>(this, msg => _transferOverlayState.SetUploading(msg.Handler, msg.IsUploading));
     }
     
     protected override void DrawInternal()
     {
+        var snapshot = CreateTransferSnapshot();
+        var currentDownloads = snapshot.Downloads;
+
         if (_configService.Current.ShowTransferWindow)
         {
             try
             {
-                var currentUploads = _fileTransferManager.GetCurrentUploadsSnapshot();
+                var currentUploads = snapshot.Uploads;
                 if (currentUploads.Count > 0)
                 {
                     var totalUploads = currentUploads.Count;
@@ -86,18 +81,18 @@ public class DownloadUi : WindowMediatorSubscriberBase
                     var totalUploaded = currentUploads.Sum(c => c.Transferred);
                     var totalToUpload = currentUploads.Sum(c => c.Total);
 
-                    UiSharedService.DrawOutlinedFont($"▲", ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
+                    ElezenImgui.DrawOutlinedFont($"▲", ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
-                    UiSharedService.DrawOutlinedFont(string.Format("Compressing+Uploading {0}/{1}", doneUploads, totalUploads),
+                    ElezenImgui.DrawOutlinedFont(string.Format(CultureInfo.InvariantCulture, "Compressing+Uploading {0}/{1}", doneUploads, totalUploads),
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();
                     ImGui.SameLine(xDistance);
-                    UiSharedService.DrawOutlinedFont(
-                        $"{UiSharedService.ByteToString(totalUploaded, addSuffix: false)}/{UiSharedService.ByteToString(totalToUpload)}",
+                    ElezenImgui.DrawOutlinedFont(
+                        $"{ElezenImgui.ByteToString(totalUploaded, addSuffix: false)}/{ElezenImgui.ByteToString(totalToUpload)}",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
 
-                    if (_currentDownloads.Any()) ImGui.Separator();
+                    if (currentDownloads.Count > 0) ImGui.Separator();
                 }
             }
             catch
@@ -107,27 +102,27 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
             try
             {
-                foreach (var item in _currentDownloads.ToList())
+                foreach (var item in currentDownloads)
                 {
-                    var dlSlot = item.Value.Count(c => c.Value.DownloadStatus == DownloadStatus.WaitingForSlot);
-                    var dlQueue = item.Value.Count(c => c.Value.DownloadStatus == DownloadStatus.WaitingForQueue);
-                    var dlProg = item.Value.Count(c => c.Value.DownloadStatus == DownloadStatus.Downloading);
-                    var dlDecomp = item.Value.Count(c => c.Value.DownloadStatus == DownloadStatus.Decompressing);
-                    var totalFiles = item.Value.Sum(c => c.Value.TotalFiles);
-                    var transferredFiles = item.Value.Sum(c => c.Value.TransferredFiles);
-                    var totalBytes = item.Value.Sum(c => c.Value.TotalBytes);
-                    var transferredBytes = item.Value.Sum(c => c.Value.TransferredBytes);
+                    var dlSlot = item.CountByStatus(DownloadStatus.WaitingForSlot);
+                    var dlQueue = item.CountByStatus(DownloadStatus.WaitingForQueue);
+                    var dlProg = item.CountByStatus(DownloadStatus.Downloading);
+                    var dlDecomp = item.CountByStatus(DownloadStatus.Decompressing);
+                    var totalFiles = item.TotalFiles;
+                    var transferredFiles = item.TransferredFiles;
+                    var totalBytes = item.TotalBytes;
+                    var transferredBytes = item.TransferredBytes;
 
-                    UiSharedService.DrawOutlinedFont($"▼", ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
+                    ElezenImgui.DrawOutlinedFont($"▼", ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
-                    UiSharedService.DrawOutlinedFont(
-                        $"{item.Key.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/D:{dlDecomp}]",
+                    ElezenImgui.DrawOutlinedFont(
+                        $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/D:{dlDecomp}]",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();
                     ImGui.SameLine(xDistance);
-                    UiSharedService.DrawOutlinedFont(
-                        $"{transferredFiles}/{totalFiles} ({UiSharedService.ByteToString(transferredBytes, addSuffix: false)}/{UiSharedService.ByteToString(totalBytes)})",
+                    ElezenImgui.DrawOutlinedFont(
+                        $"{transferredFiles}/{totalFiles} ({ElezenImgui.ByteToString(transferredBytes, addSuffix: false)}/{ElezenImgui.ByteToString(totalBytes)})",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                 }
             }
@@ -142,9 +137,9 @@ public class DownloadUi : WindowMediatorSubscriberBase
             const int transparency = 100;
             const int dlBarBorder = 3;
 
-            foreach (var transfer in _currentDownloads.ToList())
+            foreach (var transfer in currentDownloads)
             {
-                var handler = transfer.Key;
+                var handler = transfer.Handler;
                 if (handler == null) continue;
 
                 var gameObject = handler.GetGameObject();
@@ -153,10 +148,10 @@ public class DownloadUi : WindowMediatorSubscriberBase
                 var screenPos = _dalamudUtilService.WorldToScreen(gameObject);
                 if (screenPos == Vector2.Zero) continue;
 
-                var totalBytes = transfer.Value.Sum(c => c.Value.TotalBytes);
-                var transferredBytes = transfer.Value.Sum(c => c.Value.TransferredBytes);
+                var totalBytes = transfer.TotalBytes;
+                var transferredBytes = transfer.TransferredBytes;
 
-                var maxDlText = $"{UiSharedService.ByteToString(totalBytes, addSuffix: false)}/{UiSharedService.ByteToString(totalBytes)}";
+                var maxDlText = $"{ElezenImgui.ByteToString(totalBytes, addSuffix: false)}/{ElezenImgui.ByteToString(totalBytes)}";
                 var textSize = _configService.Current.TransferBarsShowText ? ImGui.CalcTextSize(maxDlText) : new Vector2(10, 10);
 
                 int dlBarHeight = _configService.Current.TransferBarsHeight > ((int)textSize.Y + 5) ? _configService.Current.TransferBarsHeight : (int)textSize.Y + 5;
@@ -181,8 +176,8 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
                 if (_configService.Current.TransferBarsShowText)
                 {
-                    var downloadText = $"{UiSharedService.ByteToString(transferredBytes, addSuffix: false)}/{UiSharedService.ByteToString(totalBytes)}";
-                    UiSharedService.DrawOutlinedFont(drawList, downloadText,
+                    var downloadText = $"{ElezenImgui.ByteToString(transferredBytes, addSuffix: false)}/{ElezenImgui.ByteToString(totalBytes)}";
+                    ElezenImgui.DrawOutlinedFont(drawList, downloadText,
                         screenPos with { X = screenPos.X - textSize.X / 2f - 1, Y = screenPos.Y - textSize.Y / 2f - 1 },
                         ElezenTools.UI.Colour.RgbaToColour(255, 255, 255, transparency),
                         ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 1);
@@ -191,7 +186,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
             if (_configService.Current.ShowUploading)
             {
-                foreach (var player in _uploadingPlayers.Select(p => p.Key).ToList())
+                foreach (var player in snapshot.UploadingPlayers)
                 {
                     if (player == null) continue;
 
@@ -203,13 +198,13 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
                     try
                     {
-                        using var _ = _uiShared.UidFont.Push();
+                        using var _ = _fontService.UidFont.Push();
                         var uploadText = "Uploading";
                         
                         var textSize = ImGui.CalcTextSize(uploadText);
 
                         var drawList = ImGui.GetBackgroundDrawList();
-                        UiSharedService.DrawOutlinedFont(drawList, uploadText,
+                        ElezenImgui.DrawOutlinedFont(drawList, uploadText,
                             screenPos with { X = screenPos.X - textSize.X / 2f - 1, Y = screenPos.Y - textSize.Y / 2f - 1 },
                             ElezenTools.UI.Colour.RgbaToColour(255, 255, 0, transparency),
                             ElezenTools.UI.Colour.RgbaToColour(0, 0, 0, transparency), 2);
@@ -225,9 +220,9 @@ public class DownloadUi : WindowMediatorSubscriberBase
 
     public override bool DrawConditions()
     {
-        if (_uiShared.EditTrackerPosition) return true;
+        if (_transferOverlayState.EditTrackerPosition) return true;
         if (!_configService.Current.ShowTransferWindow && !_configService.Current.ShowTransferBars) return false;
-        if (!_currentDownloads.Any() && !_fileTransferManager.IsUploading && !_uploadingPlayers.Any()) return false;
+        if (!_statusStore.HasActiveDownloads && !_fileTransferManager.IsUploading && !_transferOverlayState.HasUploadingPlayers) return false;
         if (!IsOpen) return false;
         return true;
     }
@@ -236,7 +231,7 @@ public class DownloadUi : WindowMediatorSubscriberBase
     {
         base.PreDraw();
 
-        if (_uiShared.EditTrackerPosition)
+        if (_transferOverlayState.EditTrackerPosition)
         {
             Flags &= ~ImGuiWindowFlags.NoMove;
             Flags &= ~ImGuiWindowFlags.NoBackground;
@@ -258,4 +253,17 @@ public class DownloadUi : WindowMediatorSubscriberBase
             MaximumSize = new Vector2(300, maxHeight),
         };
     }
+
+    private TransferWindowSnapshot CreateTransferSnapshot()
+    {
+        return new(
+            _fileTransferManager.GetCurrentUploadsSnapshot(),
+            _statusStore.Snapshot(),
+            _transferOverlayState.UploadingPlayersSnapshot);
+    }
+
+    private sealed record TransferWindowSnapshot(
+        IReadOnlyList<UploadStatusSnapshot> Uploads,
+        IReadOnlyList<DownloadSnapshot> Downloads,
+        IReadOnlyList<GameObjectHandler> UploadingPlayers);
 }

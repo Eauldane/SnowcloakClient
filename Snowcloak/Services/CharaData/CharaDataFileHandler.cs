@@ -1,5 +1,4 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
-using K4os.Compression.LZ4.Legacy;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.CharaData;
@@ -7,13 +6,13 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Handlers;
+using Snowcloak.PlayerData.Services;
 using Snowcloak.Services.CharaData.Models;
-using Snowcloak.Utils;
 using Snowcloak.WebAPI.Files;
 
 namespace Snowcloak.Services.CharaData;
 
-public sealed class CharaDataFileHandler : IDisposable
+public sealed partial class CharaDataFileHandler : IDisposable
 {
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly FileCacheManager _fileCacheManager;
@@ -22,24 +21,28 @@ public sealed class CharaDataFileHandler : IDisposable
     private readonly GameObjectHandlerFactory _gameObjectHandlerFactory;
     private readonly ILogger<CharaDataFileHandler> _logger;
     private readonly MareCharaFileDataFactory _mareCharaFileDataFactory;
-    private readonly PlayerDataFactory _playerDataFactory;
-    private int _globalFileCounter = 0;
+    private readonly SnapshotBuilder _snapshotBuilder;
+    private int _globalFileCounter;
 
     public CharaDataFileHandler(ILogger<CharaDataFileHandler> logger, FileDownloadManagerFactory fileDownloadManagerFactory, FileUploadManager fileUploadManager, FileCacheManager fileCacheManager,
-            DalamudUtilService dalamudUtilService, GameObjectHandlerFactory gameObjectHandlerFactory, PlayerDataFactory playerDataFactory)
+            DalamudUtilService dalamudUtilService, GameObjectHandlerFactory gameObjectHandlerFactory, SnapshotBuilder snapshotBuilder)
     {
+        ArgumentNullException.ThrowIfNull(fileDownloadManagerFactory);
+
         _fileDownloadManager = fileDownloadManagerFactory.Create();
         _logger = logger;
         _fileUploadManager = fileUploadManager;
         _fileCacheManager = fileCacheManager;
         _dalamudUtilService = dalamudUtilService;
         _gameObjectHandlerFactory = gameObjectHandlerFactory;
-        _playerDataFactory = playerDataFactory;
+        _snapshotBuilder = snapshotBuilder;
         _mareCharaFileDataFactory = new(fileCacheManager);
     }
 
-    public void ComputeMissingFiles(CharaDataDownloadDto charaDataDownloadDto, out Dictionary<string, string> modPaths, out List<FileReplacementData> missingFiles)
+    internal void ComputeMissingFiles(CharaDataDownloadDto charaDataDownloadDto, out Dictionary<string, string> modPaths, out List<FileReplacementData> missingFiles)
     {
+        ArgumentNullException.ThrowIfNull(charaDataDownloadDto);
+
         modPaths = [];
         missingFiles = [];
         foreach (var file in charaDataDownloadDto.FileGamePaths)
@@ -87,7 +90,7 @@ public sealed class CharaDataFileHandler : IDisposable
         using var tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Player,
                         () => _dalamudUtilService.GetCharacterFromObjectTableByIndex(chara.ObjectIndex)?.Address ?? IntPtr.Zero, isWatched: false).ConfigureAwait(false);
         PlayerData.Data.CharacterData newCdata = new();
-        var fragment = await _playerDataFactory.BuildCharacterData(tempHandler, CancellationToken.None).ConfigureAwait(false);
+        var fragment = await _snapshotBuilder.BuildCharacterData(tempHandler, CancellationToken.None).ConfigureAwait(false);
         newCdata.SetFragment(ObjectKind.Player, fragment);
         if (newCdata.FileReplacements.TryGetValue(ObjectKind.Player, out var playerData) && playerData != null)
         {
@@ -115,8 +118,12 @@ public sealed class CharaDataFileHandler : IDisposable
         _fileDownloadManager.Dispose();
     }
 
-    public async Task DownloadFilesAsync(GameObjectHandler tempHandler, List<FileReplacementData> missingFiles, Dictionary<string, string> modPaths, CancellationToken token)
+    internal async Task DownloadFilesAsync(GameObjectHandler tempHandler, List<FileReplacementData> missingFiles, Dictionary<string, string> modPaths, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(tempHandler);
+        ArgumentNullException.ThrowIfNull(missingFiles);
+        ArgumentNullException.ThrowIfNull(modPaths);
+
         await _fileDownloadManager.InitiateDownloadList(tempHandler, missingFiles, token).ConfigureAwait(false);
         await _fileDownloadManager.DownloadFiles(tempHandler, missingFiles, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
@@ -135,89 +142,31 @@ public sealed class CharaDataFileHandler : IDisposable
     {
         try
         {
-            using var unwrapped = File.OpenRead(filePath);
-            using var lz4Stream = new LZ4Stream(unwrapped, LZ4StreamMode.Decompress, LZ4StreamFlags.HighCompression);
-            using var reader = new BinaryReader(lz4Stream);
-            var loadedCharaFile = MareCharaFileHeader.FromBinaryReader(filePath, reader);
-
-            _logger.LogInformation("Read Mare Chara File");
-            _logger.LogInformation("Version: {ver}", (loadedCharaFile?.Version ?? -1));
-            long expectedLength = 0;
-            if (loadedCharaFile != null)
-            {
-                _logger.LogTrace("Data");
-                foreach (var item in loadedCharaFile.CharaFileData.FileSwaps)
-                {
-                    foreach (var gamePath in item.GamePaths)
-                    {
-                        _logger.LogTrace("Swap: {gamePath} => {fileSwapPath}", gamePath, item.FileSwapPath);
-                    }
-                }
-
-                var itemNr = 0;
-                foreach (var item in loadedCharaFile.CharaFileData.Files)
-                {
-                    itemNr++;
-                    expectedLength += item.Length;
-                    foreach (var gamePath in item.GamePaths)
-                    {
-                        _logger.LogTrace("File {itemNr}: {gamePath} = {len}", itemNr, gamePath, item.Length.ToByteString());
-                    }
-                }
-
-                _logger.LogInformation("Expected length: {expected}", expectedLength.ToByteString());
-            }
-            else
-            {
-                throw new InvalidOperationException("MCDF Header was null");
-            }
-            return Task.FromResult((loadedCharaFile, expectedLength));
+            var result = McdfIo.ReadHeader(filePath, _logger);
+            return Task.FromResult((result.Header, result.ExpectedLength));
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not parse MCDF header of file {file}", filePath);
-            throw;
+            throw new InvalidDataException($"Could not parse MCDF header of file {filePath}.", ex);
         }
     }
 
-    public Dictionary<string, string> McdfExtractFiles(MareCharaFileHeader? charaFileHeader, long expectedLength, List<string> extractedFiles)
+    internal Dictionary<string, string> McdfExtractFiles(MareCharaFileHeader? charaFileHeader, long expectedLength, ICollection<string> extractedFiles)
     {
         if (charaFileHeader == null) return [];
 
-        using var lz4Stream = new LZ4Stream(File.OpenRead(charaFileHeader.FilePath), LZ4StreamMode.Decompress, LZ4StreamFlags.HighCompression);
-        using var reader = new BinaryReader(lz4Stream);
-        MareCharaFileHeader.AdvanceReaderToData(reader);
-
-        long totalRead = 0;
-        Dictionary<string, string> gamePathToFilePath = new(StringComparer.Ordinal);
-        foreach (var fileData in charaFileHeader.CharaFileData.Files)
-        {
-            var fileName = Path.Combine(_fileCacheManager.CacheFolder, "mare_" + _globalFileCounter++ + ".tmp");
-            extractedFiles.Add(fileName);
-            var length = fileData.Length;
-            var bufferSize = length;
-            using var fs = File.OpenWrite(fileName);
-            using var wr = new BinaryWriter(fs);
-            _logger.LogTrace("Reading {length} of {fileName}", length.ToByteString(), fileName);
-            var buffer = reader.ReadBytes(bufferSize);
-            wr.Write(buffer);
-            wr.Flush();
-            wr.Close();
-            if (buffer.Length == 0) throw new EndOfStreamException("Unexpected EOF");
-            foreach (var path in fileData.GamePaths)
-            {
-                gamePathToFilePath[path] = fileName;
-                _logger.LogTrace("{path} => {fileName} [{hash}]", path, fileName, fileData.Hash);
-            }
-            totalRead += length;
-            _logger.LogTrace("Read {read}/{expected} bytes", totalRead.ToByteString(), expectedLength.ToByteString());
-        }
-
-        return gamePathToFilePath;
+        return McdfIo.ExtractFiles(
+            charaFileHeader,
+            expectedLength,
+            () => Path.Combine(_fileCacheManager.CacheFolder, "mare_" + _globalFileCounter++ + ".tmp"),
+            extractedFiles,
+            _logger);
     }
 
-    public async Task UpdateCharaDataAsync(CharaDataExtendedUpdateDto updateDto)
+    internal async Task UpdateCharaDataAsync(CharaDataExtendedUpdateDto updateDto)
     {
+        ArgumentNullException.ThrowIfNull(updateDto);
+
         var data = await CreatePlayerData().ConfigureAwait(false);
 
         if (data != null)
@@ -235,63 +184,35 @@ public sealed class CharaDataFileHandler : IDisposable
             var hasFiles = data.FileReplacements.TryGetValue(ObjectKind.Player, out var fileReplacements);
             if (!hasFiles)
             {
-                updateDto.FileGamePaths = [];
-                updateDto.FileSwaps = [];
+                updateDto.SetFileGamePaths([]);
+                updateDto.SetFileSwaps([]);
             }
             else
             {
-                updateDto.FileGamePaths = [.. fileReplacements!.Where(u => string.IsNullOrEmpty(u.FileSwapPath)).SelectMany(u => u.GamePaths, (file, path) => new GamePathEntry(file.Hash, path))];
-                updateDto.FileSwaps = [.. fileReplacements!.Where(u => !string.IsNullOrEmpty(u.FileSwapPath)).SelectMany(u => u.GamePaths, (file, path) => new GamePathEntry(file.FileSwapPath, path))];
+                updateDto.SetFileGamePaths(fileReplacements!.Where(u => string.IsNullOrEmpty(u.FileSwapPath)).SelectMany(u => u.GamePaths, (file, path) => new GamePathEntry(file.Hash, path)));
+                updateDto.SetFileSwaps(fileReplacements!.Where(u => !string.IsNullOrEmpty(u.FileSwapPath)).SelectMany(u => u.GamePaths, (file, path) => new GamePathEntry(file.FileSwapPath, path)));
             }
         }
     }
 
     internal async Task SaveCharaFileAsync(string description, string filePath)
     {
-        var tempFilePath = filePath + ".tmp";
-
         try
         {
             var data = await CreatePlayerData().ConfigureAwait(false);
             if (data == null) return;
 
             var mareCharaFileData = _mareCharaFileDataFactory.Create(description, data);
-            MareCharaFileHeader output = new(MareCharaFileHeader.CurrentVersion, mareCharaFileData);
-
-            using var fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-            using var lz4 = new LZ4Stream(fs, LZ4StreamMode.Compress, LZ4StreamFlags.HighCompression);
-            using var writer = new BinaryWriter(lz4);
-            output.WriteToStream(writer);
-
-            foreach (var item in output.CharaFileData.Files)
-            {
-                var file = _fileCacheManager.GetFileCacheByHash(item.Hash)!;
-                _logger.LogDebug("Saving to MCDF: {hash}:{file}", item.Hash, file.ResolvedFilepath);
-                _logger.LogDebug("\tAssociated GamePaths:");
-                foreach (var path in item.GamePaths)
-                {
-                    _logger.LogDebug("\t{path}", path);
-                }
-
-                var fsRead = File.OpenRead(file.ResolvedFilepath);
-                await using (fsRead.ConfigureAwait(false))
-                {
-                    using var br = new BinaryReader(fsRead);
-                    byte[] buffer = new byte[item.Length];
-                    br.Read(buffer, 0, item.Length);
-                    writer.Write(buffer);
-                }
-            }
-            writer.Flush();
-            await lz4.FlushAsync().ConfigureAwait(false);
-            await fs.FlushAsync().ConfigureAwait(false);
-            fs.Close();
-            File.Move(tempFilePath, filePath, true);
+            MareCharaFileHeader header = new(MareCharaFileHeader.CurrentVersion, mareCharaFileData);
+            await McdfIo.WriteAsync(
+                header,
+                filePath,
+                hash => _fileCacheManager.GetFileCacheByHash(hash)?.ResolvedFilepath,
+                _logger).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failure Saving Mare Chara File, deleting output");
-            File.Delete(tempFilePath);
+            LogFailureSavingMareCharaFile(_logger, ex);
         }
     }
 
@@ -299,4 +220,7 @@ public sealed class CharaDataFileHandler : IDisposable
     {
         return await _fileUploadManager.UploadFiles(fileList, uploadProgress, token).ConfigureAwait(false);
     }
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Error, Message = "Failure Saving Mare Chara File")]
+    private static partial void LogFailureSavingMareCharaFile(ILogger logger, Exception exception);
 }

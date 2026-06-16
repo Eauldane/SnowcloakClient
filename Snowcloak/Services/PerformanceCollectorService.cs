@@ -8,13 +8,14 @@ using System.Text;
 
 namespace Snowcloak.Services;
 
-public sealed class PerformanceCollectorService : IHostedService
+public sealed partial class PerformanceCollectorService : IHostedService, IDisposable
 {
     private const string _counterSplit = "=>";
     private readonly ILogger<PerformanceCollectorService> _logger;
     private readonly SnowcloakConfigService _snowcloakConfigService;
     public ConcurrentDictionary<string, RollingList<(TimeOnly, long)>> PerformanceCounters { get; } = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _periodicLogPruneTaskCts = new();
+    private Task? _periodicLogPruneTask;
 
     public PerformanceCollectorService(ILogger<PerformanceCollectorService> logger, SnowcloakConfigService snowcloakConfigService)
     {
@@ -24,6 +25,9 @@ public sealed class PerformanceCollectorService : IHostedService
 
     public T LogPerformance<T>(object sender, InterpolatedStringHandler counterName, Func<T> func, int maxEntries = 10000)
     {
+        ArgumentNullException.ThrowIfNull(sender);
+        ArgumentNullException.ThrowIfNull(func);
+
         if (!_snowcloakConfigService.Current.LogPerformance) return func.Invoke();
 
         string cn = sender.GetType().Name + _counterSplit + counterName.BuildMessage();
@@ -51,6 +55,9 @@ public sealed class PerformanceCollectorService : IHostedService
 
     public void LogPerformance(object sender, InterpolatedStringHandler counterName, Action act, int maxEntries = 10000)
     {
+        ArgumentNullException.ThrowIfNull(sender);
+        ArgumentNullException.ThrowIfNull(act);
+
         if (!_snowcloakConfigService.Current.LogPerformance) { act.Invoke(); return; }
 
         var cn = sender.GetType().Name + _counterSplit + counterName.BuildMessage();
@@ -76,101 +83,113 @@ public sealed class PerformanceCollectorService : IHostedService
         }
     }
 
+    public void RecordTimeToFirstModdedRender(TimeSpan elapsed)
+    {
+        RecordCounter("F5=>TimeToFirstModdedRender", elapsed.Ticks);
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting PerformanceCollectorService");
-        _ = Task.Run(PeriodicLogPrune, _periodicLogPruneTaskCts.Token);
-        _logger.LogInformation("Started PerformanceCollectorService");
+        LogStartingPerformanceCollectorService(_logger);
+        _periodicLogPruneTask = Task.Run(PeriodicLogPrune, _periodicLogPruneTaskCts.Token);
+        LogStartedPerformanceCollectorService(_logger);
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _periodicLogPruneTaskCts.Cancel();
+        await _periodicLogPruneTaskCts.CancelAsync().ConfigureAwait(false);
+
+        if (_periodicLogPruneTask != null)
+        {
+            try
+            {
+                await _periodicLogPruneTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_periodicLogPruneTaskCts.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+            {
+                LogPerformanceCollectorStopCancelled(_logger);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
         _periodicLogPruneTaskCts.Dispose();
-        return Task.CompletedTask;
     }
 
     internal void PrintPerformanceStats(int limitBySeconds = 0)
     {
         if (!_snowcloakConfigService.Current.LogPerformance)
         {
-            _logger.LogWarning("Performance counters are disabled");
+            LogPerformanceCountersDisabled(_logger);
         }
 
-        StringBuilder sb = new();
-        if (limitBySeconds > 0)
+        var snapshots = CreateSnapshots(limitBySeconds).ToList();
+        if (snapshots.Count == 0)
         {
-            sb.AppendLine($"Performance Metrics over the past {limitBySeconds} seconds of each counter");
+            LogNoPerformanceCountersRecorded(_logger);
+            return;
         }
-        else
+
+        var width = Math.Max("Counter".Length, snapshots.Max(snapshot => snapshot.Name.Length));
+        var sb = new StringBuilder();
+        sb.AppendLine(limitBySeconds > 0
+            ? string.Format(CultureInfo.InvariantCulture, "Performance metrics over the past {0} seconds", limitBySeconds)
+            : "Performance metrics over total lifetime");
+        sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
+            "{0,-12} {1,-12} {2,-12} {3,-16} {4,-8} {5}",
+            "Last", "Max", "Average", "Last Update", "Entries", "Counter".PadRight(width)));
+
+        foreach (var snapshot in snapshots)
         {
-            sb.AppendLine("Performance metrics over total lifetime of each counter");
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                "{0,-12:0.00000} {1,-12:0.00000} {2,-12:0.00000} {3,-16} {4,-8} {5}",
+                snapshot.LastMs,
+                snapshot.MaxMs,
+                snapshot.AverageMs,
+                snapshot.LastUpdate,
+                snapshot.Entries,
+                snapshot.Name));
         }
-        var data = PerformanceCounters.ToList();
-        var longestCounterName = data.OrderByDescending(d => d.Key.Length).First().Key.Length + 2;
-        sb.Append("-Last".PadRight(15, '-'));
-        sb.Append('|');
-        sb.Append("-Max".PadRight(15, '-'));
-        sb.Append('|');
-        sb.Append("-Average".PadRight(15, '-'));
-        sb.Append('|');
-        sb.Append("-Last Update".PadRight(15, '-'));
-        sb.Append('|');
-        sb.Append("-Entries".PadRight(10, '-'));
-        sb.Append('|');
-        sb.Append("-Counter Name".PadRight(longestCounterName, '-'));
-        sb.AppendLine();
-        var orderedData = data.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase).ToList();
-        var previousCaller = orderedData[0].Key.Split(_counterSplit, StringSplitOptions.RemoveEmptyEntries)[0];
-        foreach (var entry in orderedData)
+
+        if (_logger.IsEnabled(LogLevel.Information))
         {
-            var newCaller = entry.Key.Split(_counterSplit, StringSplitOptions.RemoveEmptyEntries)[0];
-            if (!string.Equals(previousCaller, newCaller, StringComparison.Ordinal))
-            {
-                DrawSeparator(sb, longestCounterName);
-            }
-
-            var pastEntries = limitBySeconds > 0 ? entry.Value.Where(e => e.Item1.AddMinutes(limitBySeconds / 60.0d) >= TimeOnly.FromDateTime(DateTime.Now)).ToList() : [.. entry.Value];
-
-            if (pastEntries.Any())
-            {
-                sb.Append((" " + TimeSpan.FromTicks(pastEntries.LastOrDefault() == default ? 0 : pastEntries[^1].Item2).TotalMilliseconds.ToString("0.00000", CultureInfo.InvariantCulture)).PadRight(15));
-                sb.Append('|');
-                sb.Append((" " + TimeSpan.FromTicks(pastEntries.Max(m => m.Item2)).TotalMilliseconds.ToString("0.00000", CultureInfo.InvariantCulture)).PadRight(15));
-                sb.Append('|');
-                sb.Append((" " + TimeSpan.FromTicks((long)pastEntries.Average(m => m.Item2)).TotalMilliseconds.ToString("0.00000", CultureInfo.InvariantCulture)).PadRight(15));
-                sb.Append('|');
-                sb.Append((" " + (pastEntries.LastOrDefault() == default ? "-" : pastEntries[^1].Item1.ToString("HH:mm:ss.ffff", CultureInfo.InvariantCulture))).PadRight(15, ' '));
-                sb.Append('|');
-                sb.Append((" " + pastEntries.Count).PadRight(10));
-                sb.Append('|');
-                sb.Append(' ').Append(entry.Key);
-                sb.AppendLine();
-            }
-
-            previousCaller = newCaller;
+            var performanceStats = sb.ToString();
+            LogPerformanceStats(_logger, performanceStats);
         }
-
-        DrawSeparator(sb, longestCounterName);
-
-        _logger.LogInformation("{perf}", sb.ToString());
     }
 
-    private static void DrawSeparator(StringBuilder sb, int longestCounterName)
+    private void RecordCounter(string counterName, long elapsedTicks, int maxEntries = 10000)
     {
-        sb.Append("".PadRight(15, '-'));
-        sb.Append('+');
-        sb.Append("".PadRight(15, '-'));
-        sb.Append('+');
-        sb.Append("".PadRight(15, '-'));
-        sb.Append('+');
-        sb.Append("".PadRight(15, '-'));
-        sb.Append('+');
-        sb.Append("".PadRight(10, '-'));
-        sb.Append('+');
-        sb.Append("".PadRight(longestCounterName, '-'));
-        sb.AppendLine();
+        if (!PerformanceCounters.TryGetValue(counterName, out var list))
+        {
+            list = PerformanceCounters[counterName] = new(maxEntries);
+        }
+
+        list.Add((TimeOnly.FromDateTime(DateTime.Now), elapsedTicks));
+    }
+
+    private IEnumerable<PerformanceCounterSnapshot> CreateSnapshots(int limitBySeconds)
+    {
+        foreach (var entry in PerformanceCounters.OrderBy(counter => counter.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var values = limitBySeconds > 0
+                ? entry.Value.Where(value => value.Item1.AddMinutes(limitBySeconds / 60.0d) >= TimeOnly.FromDateTime(DateTime.Now)).ToList()
+                : [.. entry.Value];
+            if (values.Count == 0)
+            {
+                continue;
+            }
+
+            yield return new PerformanceCounterSnapshot(
+                entry.Key,
+                TimeSpan.FromTicks(values[^1].Item2).TotalMilliseconds,
+                TimeSpan.FromTicks(values.Max(value => value.Item2)).TotalMilliseconds,
+                TimeSpan.FromTicks((long)values.Average(value => value.Item2)).TotalMilliseconds,
+                values[^1].Item1.ToString("HH:mm:ss.ffff", CultureInfo.InvariantCulture),
+                values.Count);
+        }
     }
 
     private async Task PeriodicLogPrune()
@@ -186,14 +205,50 @@ public sealed class PerformanceCollectorService : IHostedService
                     var last = entries.Value.ToList()[^1];
                     if (last.Item1.AddMinutes(10) < TimeOnly.FromDateTime(DateTime.Now) && !PerformanceCounters.TryRemove(entries.Key, out _))
                     {
-                        _logger.LogDebug("Could not remove performance counter {counter}", entries.Key);
+                        LogCouldNotRemovePerformanceCounter(_logger, entries.Key);
                     }
                 }
-                catch (Exception e)
+                catch (InvalidOperationException e)
                 {
-                    _logger.LogWarning(e, "Error removing performance counter {counter}", entries.Key);
+                    LogErrorRemovingPerformanceCounter(_logger, e, entries.Key);
+                }
+                catch (ArgumentOutOfRangeException e)
+                {
+                    LogErrorRemovingPerformanceCounter(_logger, e, entries.Key);
                 }
             }
         }
     }
+
+    private sealed record PerformanceCounterSnapshot(
+        string Name,
+        double LastMs,
+        double MaxMs,
+        double AverageMs,
+        string LastUpdate,
+        int Entries);
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Debug, Message = "Could not remove performance counter {Counter}")]
+    private static partial void LogCouldNotRemovePerformanceCounter(ILogger logger, string counter);
+
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Error removing performance counter {Counter}")]
+    private static partial void LogErrorRemovingPerformanceCounter(ILogger logger, Exception exception, string counter);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Starting PerformanceCollectorService")]
+    private static partial void LogStartingPerformanceCollectorService(ILogger logger);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Information, Message = "Started PerformanceCollectorService")]
+    private static partial void LogStartedPerformanceCollectorService(ILogger logger);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Warning, Message = "Performance counters are disabled")]
+    private static partial void LogPerformanceCountersDisabled(ILogger logger);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "No performance counters recorded")]
+    private static partial void LogNoPerformanceCountersRecorded(ILogger logger);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "{PerformanceStats}")]
+    private static partial void LogPerformanceStats(ILogger logger, string performanceStats);
+
+    [LoggerMessage(EventId = 7, Level = LogLevel.Trace, Message = "PerformanceCollectorService stop was cancelled")]
+    private static partial void LogPerformanceCollectorStopCancelled(ILogger logger);
 }

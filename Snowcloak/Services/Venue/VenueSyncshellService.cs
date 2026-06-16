@@ -1,12 +1,14 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Venue;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
-using Snowcloak.Services.Housing;
+using ElezenTools.Housing;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
@@ -17,26 +19,30 @@ using System.Collections.Generic;
 
 namespace Snowcloak.Services.Venue;
 
-public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IHostedService
+public sealed partial class VenueSyncshellService : DisposableMediatorSubscriberBase, IHostedService
 {
     private static readonly TimeSpan AutoLeaveGracePeriod = TimeSpan.FromMinutes(90);
     private static readonly TimeSpan AutoLeaveWarningPeriod = TimeSpan.FromMinutes(5);
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
+    private readonly VenueStateConfigService _venueStateConfig;
     private readonly PairManager _pairManager;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
+    private readonly ShellConfigStore _shellConfigStore;
     private readonly Dictionary<string, AutoJoinedVenue> _autoJoinedVenues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _pendingRemovalTokens = new(StringComparer.Ordinal);
     private readonly Lock _syncRoot = new();
     private VenueSyncshellPrompt? _activePrompt;
+    private VenueJoinPhase _joinPhase = VenueJoinPhase.Idle;
 
     public VenueSyncshellService(ILogger<VenueSyncshellService> logger, SnowMediator mediator, ApiController apiController,
-        SnowcloakConfigService configService, PairManager pairManager, ServerConfigurationManager serverConfigurationManager) : base(logger, mediator)
+        SnowcloakConfigService configService, VenueStateConfigService venueStateConfig, PairManager pairManager,
+        ShellConfigStore shellConfigStore) : base(logger, mediator)
     {
         _apiController = apiController;
         _configService = configService;
+        _venueStateConfig = venueStateConfig;
         _pairManager = pairManager;
-        _serverConfigurationManager = serverConfigurationManager;
+        _shellConfigStore = shellConfigStore;
 
         Mediator.Subscribe<HousingPlotEnteredMessage>(this, msg => _ = HandleHousingPlotEntered(msg.Location));
         Mediator.Subscribe<HousingPlotLeftMessage>(this, msg => HandleHousingPlotLeft(msg.Location));
@@ -52,26 +58,46 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        UnsubscribeAll();
         ClearRuntimeState();
         return Task.CompletedTask;
     }
 
-    public async Task<bool> JoinVenueShellAsync(Guid promptId)
+    public async Task<bool> JoinVenueShellAsync(Guid promptId, GroupUserPermissions initialPermissions = default)
     {
-        var prompt = _activePrompt;
-        if (prompt == null || prompt.PromptId != promptId)
-            return false;
+        VenueSyncshellPrompt prompt;
+        lock (_syncRoot)
+        {
+            if (_activePrompt == null || _activePrompt.PromptId != promptId)
+                return false;
+
+            // Reject a second concurrent join for the same prompt (e.g. a double-clicked button).
+            if (_joinPhase == VenueJoinPhase.Joining)
+                return false;
+
+            prompt = _activePrompt;
+            _joinPhase = VenueJoinPhase.Joining;
+        }
 
         var joinGroupId = prompt.Venue.JoinInfo.Group.GID;
         if (_pairManager.Groups.Keys.Any(g => string.Equals(g.GID, joinGroupId, StringComparison.Ordinal)))
+        {
+            lock (_syncRoot)
+            {
+                _activePrompt = null;
+                _joinPhase = VenueJoinPhase.Idle;
+            }
+
             return true;
+        }
 
         try
         {
             var joined = await _apiController.GroupJoin(prompt.Venue.JoinInfo).ConfigureAwait(false);
             if (joined)
             {
-                Logger.LogInformation("Joined venue syncshell {GID} for {Venue}", joinGroupId, prompt.Venue.VenueName);
+                LogVenueSyncshellJoined(Logger, joinGroupId, prompt.Venue.VenueName);
+                await ApplyInitialPermissionsAsync(prompt, initialPermissions).ConfigureAwait(false);
                 DisableAutoJoinedSyncshellChat(joinGroupId);
                 var autoJoinedVenue = new AutoJoinedVenue(prompt.Venue.JoinInfo.Group, prompt.Location);
                 CancelPendingRemoval(joinGroupId, clearPersistedDeadline: true);
@@ -79,30 +105,76 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
                 {
                     _autoJoinedVenues[joinGroupId] = autoJoinedVenue;
                     _activePrompt = null;
+                    _joinPhase = VenueJoinPhase.Idle;
                 }
 
                 UpsertPersistedVenue(autoJoinedVenue, leaveAfterUtc: null);
+            }
+            else
+            {
+                RevertToPromptedPhase(promptId);
             }
 
             return joined;
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to join venue syncshell {GID}", joinGroupId);
+            LogVenueSyncshellJoinFailed(Logger, ex, joinGroupId);
+            RevertToPromptedPhase(promptId);
             return false;
+        }
+    }
+
+    // After a failed join, re-arm the still-open prompt so the user can retry from the popup.
+    private void RevertToPromptedPhase(Guid promptId)
+    {
+        lock (_syncRoot)
+        {
+            if (_activePrompt?.PromptId == promptId)
+                _joinPhase = VenueJoinPhase.Prompted;
         }
     }
 
     private void DisableAutoJoinedSyncshellChat(string joinGroupId)
     {
-        if (_serverConfigurationManager.HasShellConfigForGid(joinGroupId))
+        if (_shellConfigStore.HasShellConfigForGid(joinGroupId))
         {
             return;
         }
 
-        var shellConfig = _serverConfigurationManager.GetShellConfigForGid(joinGroupId);
+        var shellConfig = _shellConfigStore.GetShellConfigForGid(joinGroupId);
         shellConfig.Enabled = false;
-        _serverConfigurationManager.SaveShellConfigForGid(joinGroupId, shellConfig);
+        _shellConfigStore.SaveShellConfigForGid(joinGroupId, shellConfig);
+    }
+
+    private async Task ApplyInitialPermissionsAsync(VenueSyncshellPrompt prompt, GroupUserPermissions initialPermissions)
+    {
+        if (!HasContentPermissions(initialPermissions))
+        {
+            return;
+        }
+
+        try
+        {
+            await _apiController.GroupChangeIndividualPermissionState(
+                new GroupPairUserPermissionDto(prompt.Venue.JoinInfo.Group, new UserData(_apiController.UID), initialPermissions))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LogInitialVenueSyncshellPermissionsFailed(Logger, ex, prompt.Venue.JoinInfo.Group.GID);
+            Mediator.Publish(new NotificationMessage(
+                "Venue syncshell joined",
+                "Snowcloak joined the syncshell, but could not apply the selected initial permissions.",
+                NotificationType.Warning));
+        }
+    }
+
+    private static bool HasContentPermissions(GroupUserPermissions permissions)
+    {
+        return permissions.IsDisableSounds()
+            || permissions.IsDisableAnimations()
+            || permissions.IsDisableVFX();
     }
 
     internal bool IsAutoJoined(GroupData group)
@@ -115,7 +187,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
     private void ClearRuntimeState()
     {
-        Logger.LogDebug("Clearing venue syncshell state");
+        LogClearingVenueSyncshellState(Logger);
         lock (_syncRoot)
         {
             foreach (var token in _pendingRemovalTokens.Values)
@@ -126,6 +198,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             _pendingRemovalTokens.Clear();
             _autoJoinedVenues.Clear();
             _activePrompt = null;
+            _joinPhase = VenueJoinPhase.Idle;
         }
     }
 
@@ -209,6 +282,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             }
 
             _activePrompt = new VenueSyncshellPrompt(response.Venue, location);
+            _joinPhase = VenueJoinPhase.Prompted;
         }
 
         Mediator.Publish(new OpenVenueSyncshellPopupMessage(_activePrompt));
@@ -391,7 +465,7 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
 
     private List<VenueAutoJoinedSyncshell> GetPersistedVenues()
     {
-        return _configService.Current.AutoJoinedVenueSyncshells ??= [];
+        return _venueStateConfig.Current.AutoJoinedVenueSyncshells ??= [];
     }
 
     private void UpsertPersistedVenue(AutoJoinedVenue venue, DateTime? leaveAfterUtc)
@@ -414,13 +488,15 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         entry.TerritoryId = venue.Location.TerritoryId;
         entry.DivisionId = venue.Location.DivisionId;
         entry.WardId = venue.Location.WardId;
-        entry.PlotId = venue.Location.PlotId;
-        entry.RoomId = venue.Location.RoomId;
-        entry.IsApartment = venue.Location.IsApartment;
-        entry.UpdatedAtUtc = DateTime.UtcNow;
-        entry.LeaveAfterUtc = leaveAfterUtc.HasValue ? NormalizeUtc(leaveAfterUtc.Value) : null;
-        entry.LeaveWarningShown = false;
-        _configService.Save();
+        _venueStateConfig.Update(_ =>
+        {
+            entry.PlotId = venue.Location.PlotId;
+            entry.RoomId = venue.Location.RoomId;
+            entry.IsApartment = venue.Location.IsApartment;
+            entry.UpdatedAtUtc = DateTime.UtcNow;
+            entry.LeaveAfterUtc = leaveAfterUtc.HasValue ? NormalizeUtc(leaveAfterUtc.Value) : null;
+            entry.LeaveWarningShown = false;
+        });
     }
 
     private void ClearPersistedLeaveDeadline(string groupId)
@@ -431,10 +507,12 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             return;
         }
 
-        entry.LeaveAfterUtc = null;
-        entry.LeaveWarningShown = false;
-        entry.UpdatedAtUtc = DateTime.UtcNow;
-        _configService.Save();
+        _venueStateConfig.Update(_ =>
+        {
+            entry.LeaveAfterUtc = null;
+            entry.LeaveWarningShown = false;
+            entry.UpdatedAtUtc = DateTime.UtcNow;
+        });
     }
 
     private async Task ShowAutoLeaveWarningWhenDue(AutoJoinedVenue venue, DateTime leaveAfterUtc, bool warningAlreadyShown, CancellationToken token)
@@ -485,17 +563,19 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
             return;
         }
 
-        entry.LeaveWarningShown = true;
-        entry.UpdatedAtUtc = DateTime.UtcNow;
-        _configService.Save();
+        _venueStateConfig.Update(_ =>
+        {
+            entry.LeaveWarningShown = true;
+            entry.UpdatedAtUtc = DateTime.UtcNow;
+        });
     }
 
     private void RemovePersistedVenue(string groupId)
     {
         var persisted = GetPersistedVenues();
-        if (persisted.RemoveAll(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal)) > 0)
+        if (persisted.Any(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal)))
         {
-            _configService.Save();
+            _venueStateConfig.Update(_ => persisted.RemoveAll(v => string.Equals(v.GroupGid, groupId, StringComparison.Ordinal)));
         }
     }
 
@@ -514,6 +594,26 @@ public sealed class VenueSyncshellService : DisposableMediatorSubscriberBase, IH
         };
     }
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Joined venue syncshell {GroupId} for {VenueName}")]
+    private static partial void LogVenueSyncshellJoined(ILogger logger, string groupId, string venueName);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to join venue syncshell {GroupId}")]
+    private static partial void LogVenueSyncshellJoinFailed(ILogger logger, Exception exception, string groupId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to set initial venue syncshell permissions for {GroupId}")]
+    private static partial void LogInitialVenueSyncshellPermissionsFailed(ILogger logger, Exception exception, string groupId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Clearing venue syncshell state")]
+    private static partial void LogClearingVenueSyncshellState(ILogger logger);
 
     private readonly record struct AutoJoinedVenue(GroupData Group, HousingPlotLocation Location);
+
+    // Explicit lifecycle for the single active auto-join prompt: a venue plot was entered (Prompted),
+    // the user confirmed and the join is in flight (Joining), then it clears back to Idle.
+    private enum VenueJoinPhase
+    {
+        Idle,
+        Prompted,
+        Joining,
+    }
 }

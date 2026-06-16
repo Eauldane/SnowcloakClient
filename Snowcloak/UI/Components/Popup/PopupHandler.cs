@@ -10,15 +10,14 @@ using System.Numerics;
 
 namespace Snowcloak.UI.Components.Popup;
 
-public class PopupHandler : WindowMediatorSubscriberBase
+public class PopupHandler : WindowMediatorSubscriberBase, IStaticWindow
 {
     protected bool _openPopup = false;
     private readonly HashSet<IPopupHandler> _handlers;
-    private readonly UiSharedService _uiSharedService;
     private IPopupHandler? _currentHandler = null;
 
     public PopupHandler(ILogger<PopupHandler> logger, SnowMediator mediator, IEnumerable<IPopupHandler> popupHandlers,
-        PerformanceCollectorService performanceCollectorService, UiSharedService uiSharedService)
+        PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "SnowPopupHandler", performanceCollectorService)
     {
         Flags = ImGuiWindowFlags.NoBringToFrontOnFocus
@@ -64,7 +63,6 @@ public class PopupHandler : WindowMediatorSubscriberBase
             ((BbCodeLinkPopupHandler)_currentHandler).Open(msg.Url);
             IsOpen = true;
         });
-        _uiSharedService = uiSharedService;
         DisableWindowSounds = true;
     }
 

@@ -1,21 +1,19 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Interface;
 using Dalamud.Interface.Colors;
-using Dalamud.Interface.Utility;
-using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
 using Dalamud.Utility;
-using ElezenTools.UI;
-using Snowcloak.API.Dto.Account;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
+using Snowcloak.Core.Onboarding;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI.Components;
+using Snowcloak.UI.Components.Account;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.SignalR.Utils;
 using System.Numerics;
@@ -23,64 +21,54 @@ using System.Text.RegularExpressions;
 
 namespace Snowcloak.UI;
 
-public partial class IntroUi : WindowMediatorSubscriberBase
+public partial class IntroUi : WindowMediatorSubscriberBase, IStaticWindow
 {
-    private enum AccountAuthMode
-    {
-        SignIn,
-        CreateAccount
-    }
-
     private readonly SnowcloakConfigService _configService;
     private readonly CacheMonitor _cacheMonitor;
-    private readonly ServerConfigurationManager _serverConfigurationManager;
-    private readonly SecretKeyBackupService _secretKeyBackupService;
+    private readonly ServerRegistry _serverConfigurationManager;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly AccountRegistrationService _registerService;
-    private readonly UiSharedService _uiShared;
-    private bool _readFirstPage;
+    private readonly ApiController _apiController;
+    private readonly PluginAvailabilityPanel _pluginAvailabilityPanel;
+    private readonly ServiceSelectionPanel _serviceSelectionPanel;
+    private readonly StorageSettingsPanel _storageSettingsPanel;
+    private readonly UiFontService _fontService;
 
+    // Onboarding shell state. Account-registration flows live in dedicated flow components (P30).
+    private readonly PasswordAccountFlow _accountFlow = new();
+    private readonly SecretKeyBackupFlow _secretKeyBackupFlow;
+    private readonly StandaloneKeyRegistrationFlow _standaloneKeyFlow;
+
+    private bool _readFirstPage;
     private string _secretKey = string.Empty;
     private string _timeoutLabel = string.Empty;
     private Task? _timeoutTask;
-    private bool _registrationInProgress = false;
-    private bool _registrationSuccess = false;
-    private string? _registrationMessage;
-    private RegisterReplyDto? _registrationReply;
-    private bool _secretKeyBackupSuccess = false;
-    private string? _secretKeyBackupMessage;
-    private string _lastSecretKeyBackupDirectory = string.Empty;
-    private string _accountUsername = string.Empty;
-    private string _accountPassword = string.Empty;
-    private string _accountPasswordConfirm = string.Empty;
-    private AccountAuthMode _accountAuthMode;
-    private bool _accountInProgress = false;
-    private bool _accountSuccess = false;
-    private string? _accountMessage;
-    private bool _showAccountPassword;
-    
-    public IntroUi(ILogger<IntroUi> logger, UiSharedService uiShared, SnowcloakConfigService configService,
-        CacheMonitor fileCacheManager, ServerConfigurationManager serverConfigurationManager, SnowMediator snowMediator,
+
+    public IntroUi(ILogger<IntroUi> logger, UiFontService fontService, PluginAvailabilityPanel pluginAvailabilityPanel,
+        StorageSettingsPanel storageSettingsPanel, ServiceSelectionPanel serviceSelectionPanel,
+        FileDialogManager fileDialogManager, ApiController apiController, SnowcloakConfigService configService,
+        CacheMonitor fileCacheManager, ServerRegistry serverConfigurationManager, SnowMediator snowMediator,
         PerformanceCollectorService performanceCollectorService, DalamudUtilService dalamudUtilService,
         AccountRegistrationService registerService, SecretKeyBackupService secretKeyBackupService)
         : base(logger, snowMediator, "Snowcloak Setup", performanceCollectorService)
     {
-        _uiShared = uiShared;
+        _fontService = fontService;
+        _pluginAvailabilityPanel = pluginAvailabilityPanel;
+        _storageSettingsPanel = storageSettingsPanel;
+        _serviceSelectionPanel = serviceSelectionPanel;
+        _apiController = apiController;
         _configService = configService;
         _cacheMonitor = fileCacheManager;
         _serverConfigurationManager = serverConfigurationManager;
-        _secretKeyBackupService = secretKeyBackupService;
         _dalamudUtilService = dalamudUtilService;
         _registerService = registerService;
+        _secretKeyBackupFlow = new SecretKeyBackupFlow(logger, secretKeyBackupService, fileDialogManager);
+        _standaloneKeyFlow = new StandaloneKeyRegistrationFlow(logger);
         IsOpen = false;
         ShowCloseButton = false;
         RespectCloseHotkey = false;
 
-        SizeConstraints = new WindowSizeConstraints()
-        {
-            MinimumSize = new Vector2(650, 500),
-            MaximumSize = new Vector2(650, 2000),
-        };
+        SetScaledSizeConstraints(new Vector2(650, 500), new Vector2(650, 2000));
 
         Mediator.Subscribe<SwitchToMainUiMessage>(this, (_) => IsOpen = false);
         Mediator.Subscribe<SwitchToIntroUiMessage>(this, (_) =>
@@ -90,9 +78,169 @@ public partial class IntroUi : WindowMediatorSubscriberBase
         });
     }
 
+    protected override void DrawInternal()
+    {
+        if (_dalamudUtilService.IsInGpose) return;
+
+        var step = OnboardingStateMachine.Resolve(new OnboardingInputs(
+            AgreementAccepted: _configService.Current.AcceptedAgreement,
+            RequirementsAcknowledged: _readFirstPage,
+            StorageReady: IsStorageReady(),
+            Connected: _apiController.IsConnected));
+
+        switch (step)
+        {
+            case OnboardingStep.Welcome:
+                DrawWelcomePage();
+                break;
+            case OnboardingStep.Agreement:
+                DrawAgreementPage();
+                break;
+            case OnboardingStep.Storage:
+                DrawStoragePage();
+                break;
+            case OnboardingStep.Service:
+                DrawServicePage();
+                break;
+            case OnboardingStep.Complete:
+                CompleteOnboarding();
+                break;
+        }
+    }
+
+    private bool IsStorageReady()
+    {
+        var cacheFolder = _configService.Current.CacheFolder;
+        return !string.IsNullOrEmpty(cacheFolder)
+            && _configService.Current.InitialScanComplete
+            && Directory.Exists(cacheFolder);
+    }
+
+    private void CompleteOnboarding()
+    {
+        _secretKey = string.Empty;
+        _serverConfigurationManager.Save();
+        Mediator.Publish(new SwitchToMainUiMessage());
+        IsOpen = false;
+    }
+
+    // ----- Command methods: render-triggered side effects are funnelled through these. -----
+
+    private void BeginAgreementTimeout()
+    {
+        _readFirstPage = true;
+#if !DEBUG
+        _timeoutTask = Task.Run(async () =>
+        {
+            for (int i = 10; i > 0; i--)
+            {
+                _timeoutLabel = string.Format(CultureInfo.InvariantCulture, "'I agree' button will be available in {0}s", i);
+                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            }
+        });
+#else
+        _timeoutTask = Task.CompletedTask;
+#endif
+    }
+
+    private void BeginSecretKeyBackupImport()
+    {
+        _secretKeyBackupFlow.BeginImportForInitialSetup(imported =>
+        {
+            _secretKey = string.Empty;
+            _standaloneKeyFlow.Reset();
+            if (imported.CurrentCharacterAssigned)
+                _ = Task.Run(() => _apiController.CreateConnections());
+        });
+    }
+
+    private void SaveAndConnectWithSecretKey()
+    {
+        string keyName;
+        if (_serverConfigurationManager.CurrentServer == null) _serverConfigurationManager.SelectServer(0);
+        var reply = _standaloneKeyFlow.Reply;
+        if (reply != null && _secretKey.Equals(reply.SecretKey, StringComparison.Ordinal))
+            keyName = reply.UID + " " + string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now);
+        else
+            keyName = string.Format(CultureInfo.InvariantCulture, "Secret Key added on Setup ({0:yyyy-MM-dd})", DateTime.Now);
+        _serverConfigurationManager.CurrentServer!.SecretKeys.Add(_serverConfigurationManager.CurrentServer.SecretKeys.Select(k => k.Key).LastOrDefault() + 1, new SecretKey()
+        {
+            FriendlyName = keyName,
+            Key = _secretKey,
+        });
+        _serverConfigurationManager.AddCurrentCharacterToServer(save: false);
+        _ = Task.Run(() => _apiController.CreateConnections());
+    }
+
+    // ----- Account credential delegates handed to the shared PasswordAccountFlow. -----
+
+    private async Task<AccountFlowResult> CreateAccountWithPassword(string username, string password)
+    {
+        Mediator.Publish(new NotificationMessage("Account creation started",
+            "Registering a character key with the selected service...", NotificationType.Info, TimeSpan.FromSeconds(5)));
+        _logger.LogInformation("Starting password account creation on {server}", _serverConfigurationManager.CurrentApiUrl);
+
+        try
+        {
+            var result = await _registerService.CreateAccountWithPassword(username, password, CancellationToken.None, _ => { }).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                var failure = result.ErrorMessage.IsNullOrEmpty() ? "Account setup failed. Please try again later." : result.ErrorMessage;
+                Mediator.Publish(new NotificationMessage("Account creation failed", failure, NotificationType.Error, TimeSpan.FromSeconds(5)));
+                return new AccountFlowResult(false, failure);
+            }
+
+            var success = string.Format(CultureInfo.InvariantCulture,
+                "Account created. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
+                result.SecretKeyCount, result.NewSecretKeyCount);
+            Mediator.Publish(new NotificationMessage("Account created", success, NotificationType.Info, TimeSpan.FromSeconds(5)));
+            _ = _apiController.CreateConnections();
+            return new AccountFlowResult(true, success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Account setup failed");
+            Mediator.Publish(new NotificationMessage("Account creation failed", "Account setup failed. Please try again later.", NotificationType.Error, TimeSpan.FromSeconds(5)));
+            return new AccountFlowResult(false, "Account setup failed. Please try again later.");
+        }
+    }
+
+    private async Task<AccountFlowResult> SignInWithPassword(string username, string password)
+    {
+        Mediator.Publish(new NotificationMessage("Account sign-in started",
+            "Signing in to the selected service...", NotificationType.Info, TimeSpan.FromSeconds(5)));
+        _logger.LogInformation("Starting password account sign-in on {server}", _serverConfigurationManager.CurrentApiUrl);
+
+        try
+        {
+            var result = await _registerService.LoginWithPassword(username, password, CancellationToken.None).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                var failure = result.ErrorMessage.IsNullOrEmpty() ? "Account login failed. Please try again later." : result.ErrorMessage;
+                Mediator.Publish(new NotificationMessage("Account sign-in failed", failure, NotificationType.Error, TimeSpan.FromSeconds(5)));
+                return new AccountFlowResult(false, failure);
+            }
+
+            _secretKey = string.Empty;
+            _standaloneKeyFlow.Reset();
+            var success = string.Format(CultureInfo.InvariantCulture,
+                "Account login succeeded. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
+                result.SecretKeyCount, result.NewSecretKeyCount);
+            Mediator.Publish(new NotificationMessage("Account sign-in succeeded", success, NotificationType.Info, TimeSpan.FromSeconds(5)));
+            _ = _apiController.CreateConnections();
+            return new AccountFlowResult(true, success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Account login failed");
+            Mediator.Publish(new NotificationMessage("Account sign-in failed", "Account login failed. Please try again later.", NotificationType.Error, TimeSpan.FromSeconds(5)));
+            return new AccountFlowResult(false, "Account login failed. Please try again later.");
+        }
+    }
+
     private Vector4 GetConnectionColor()
     {
-        return _uiShared.ApiController.ServerState switch
+        return _apiController.ServerState switch
         {
             ServerState.Connecting => ImGuiColors.DalamudYellow,
             ServerState.Reconnecting => ImGuiColors.DalamudRed,
@@ -111,7 +259,7 @@ public partial class IntroUi : WindowMediatorSubscriberBase
 
     private string GetConnectionStatus()
     {
-        return _uiShared.ApiController.ServerState switch
+        return _apiController.ServerState switch
         {
             ServerState.Reconnecting => "Reconnecting",
             ServerState.Connecting => "Connecting",
@@ -126,592 +274,6 @@ public partial class IntroUi : WindowMediatorSubscriberBase
             ServerState.Connected => "Connected",
             _ => string.Empty
         };
-    }
-
-    protected override void DrawInternal()
-    {
-        if (_uiShared.IsInGpose) return;
-
-        if (!_configService.Current.AcceptedAgreement && !_readFirstPage)
-        {
-            _uiShared.BigText("Welcome to Snowcloak");
-            ImGui.Separator();
-            ElezenImgui.WrappedText("Snowcloak is a plugin that will replicate your full current character state including all active mods to other paired users. " +
-                                            "You need Penumbra or Weave, and Glamourer or Armoire, to use this plugin.");
-            ElezenImgui.WrappedText("We will have to setup a few things first before you can start using this plugin. Click on next to continue.");
-
-            ElezenImgui.ColouredWrappedText("Note: Any modifications you have applied through anything but Penumbra or Weave cannot be shared and your character state on other clients " +
-                                            "might look broken because of this or others players mods might not apply on your end altogether. " +
-                                            "If you want to use this plugin you will have to move your mods to Penumbra or Weave.", ImGuiColors.DalamudYellow);
-            if (!_uiShared.DrawOtherPluginState(intro: true)) return;
-            ImGui.Separator();
-            if (ImGui.Button("Next##toAgreement"))
-            {
-                _readFirstPage = true;
-#if !DEBUG
-                _timeoutTask = Task.Run(async () =>
-                {
-                    for (int i = 10; i > 0; i--)
-                    {
-                        _timeoutLabel = string.Format(CultureInfo.InvariantCulture, "'I agree' button will be available in {0}s", i);
-                        await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-                    }
-                });
-#else
-                _timeoutTask = Task.CompletedTask;
-#endif
-            }
-        }
-        else if (!_configService.Current.AcceptedAgreement && _readFirstPage)
-        {
-            using (_uiShared.UidFont.Push())
-            {
-                ImGui.TextUnformatted("Agreement of Usage of Service");
-            }
-
-            ImGui.Separator();
-            ImGui.SetWindowFontScale(1.5f);
-            string readThis = "READ THIS CAREFULLY";
-            Vector2 textSize = ImGui.CalcTextSize(readThis);
-            ImGui.SetCursorPosX(ImGui.GetWindowSize().X / 2 - textSize.X / 2);
-            ElezenImgui.ColouredText(readThis, ImGuiColors.DalamudRed);
-            ImGui.SetWindowFontScale(1.0f);
-            ImGui.Separator();
-            ElezenImgui.WrappedText("To use Snowcloak, you must be over the age of 18, or 21 in some jurisdictions.");
-            ElezenImgui.WrappedText("All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.");
-            ElezenImgui.WrappedText("If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again.");
-            ElezenImgui.WrappedText("The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod.");
-            ElezenImgui.WrappedText("The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.");
-            ElezenImgui.WrappedText("Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.");
-            ElezenImgui.WrappedText("Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.");
-            ElezenImgui.WrappedText("Snowcloak is operated from servers located in the European Union and Canada. You agree not to upload any content to the service that violates the law of either jurisdiction");
-            ElezenImgui.WrappedText("You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days.");
-            ElezenImgui.WrappedText("This service is provided as-is.");
-
-            ImGui.Separator();
-            if (_timeoutTask?.IsCompleted ?? true)
-            {
-                if (ImGui.Button("I agree##toSetup"))
-                {
-                    _configService.Current.AcceptedAgreement = true;
-                    _configService.Save();
-                }
-            }
-            else
-            {
-                ElezenImgui.WrappedText(_timeoutLabel);
-            }
-        }
-        else if (_configService.Current.AcceptedAgreement
-                 && (string.IsNullOrEmpty(_configService.Current.CacheFolder)
-                     || !_configService.Current.InitialScanComplete
-                     || !Directory.Exists(_configService.Current.CacheFolder)))
-        {
-            using (_uiShared.UidFont.Push())
-                ImGui.TextUnformatted("File Storage Setup");
-            ImGui.Separator();
-
-            if (!_uiShared.HasValidPenumbraModPath)
-            {
-                ElezenImgui.ColouredWrappedText("You do not have a valid mod directory path set. Open Penumbra or Weave and configure a valid mod directory.", ImGuiColors.DalamudRed);
-                
-            }
-            else
-            {
-                ElezenImgui.WrappedText("To avoid downloading files already present on your computer, Snowcloak will have to scan your configured mod directory. " +
-                                                "Additionally, a local storage folder must be set where Snowcloak will download other character files to. " +
-                                                "Once the storage folder is set and the scan complete, this page will automatically forward to registration at a service.");
-                ElezenImgui.WrappedText("Note: The initial scan, depending on the amount of mods you have, might take a while. Please wait until it is completed.");
-                ElezenImgui.ColouredWrappedText("Warning: once past this step you should not delete SnowcloakFiles.csv or Snowcloak.db in the Plugin Configurations folder of Dalamud. " +
-                                                "Otherwise on the next launch a full re-scan of the file cache database will be initiated.", ImGuiColors.DalamudYellow);
-                ElezenImgui.ColouredWrappedText("Warning: if the scan is hanging and does nothing for a long time, chances are high your mod directory is not set up properly.", ImGuiColors.DalamudYellow);
-                _uiShared.DrawCacheDirectorySetting();
-            }
-
-            if (!_cacheMonitor.IsScanRunning && !string.IsNullOrEmpty(_configService.Current.CacheFolder) && _uiShared.HasValidPenumbraModPath && Directory.Exists(_configService.Current.CacheFolder))
-            {
-                if (ImGui.Button("Start Scan##startScan"))
-                {
-                    _cacheMonitor.InvokeScan();
-                }
-            }
-            else
-            {
-                _uiShared.DrawFileScanState();
-            }
-            if (!_dalamudUtilService.IsWine)
-            {
-                var useFileCompactor = _configService.Current.UseCompactor;
-                if (ImGui.Checkbox("Use File Compactor", ref useFileCompactor))
-                {
-                    _configService.Current.UseCompactor = useFileCompactor;
-                    _configService.Save();
-                }
-                ElezenImgui.ColouredWrappedText("The File Compactor can save a tremendeous amount of space on the hard disk for downloads through Snowcloak. It will incur a minor CPU penalty on download but can speed up " +
-                                                "loading of other characters. It is recommended to keep it enabled. You can change this setting later anytime in the Snowcloak settings.", ImGuiColors.DalamudYellow);
-            }
-        }
-        else if (!_uiShared.ApiController.IsConnected)
-        {
-            using (_uiShared.UidFont.Push())
-                ImGui.TextUnformatted("Service Registration");
-            ImGui.Separator();
-            ElezenImgui.WrappedText("To be able to use Snowcloak you will have to register an account.");
-            ElezenImgui.WrappedText("Refer to the instructions at the location you obtained this plugin for more information or support.");
-
-            ImGui.Separator();
-
-            ImGui.BeginDisabled(_registrationInProgress);
-            using (ImRaii.Disabled(_accountInProgress))
-            {
-                _ = _uiShared.DrawServiceSelection(selectOnChange: true, intro: true);
-            }
-
-            if (true) // Enable registration button for all servers
-            {
-                ImGui.Separator();
-                ImGui.TextUnformatted("If you already exported a Snowcloak backup, restore it here to reuse your existing service setup.");
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileImport, "Import Snowcloak backup"))
-                {
-                    BeginSecretKeyBackupImport();
-                }
-                ElezenImgui.AttachTooltip("Restore secret keys, character assignments, and notes from a Snowcloak backup JSON.");
-                if (!_secretKeyBackupMessage.IsNullOrEmpty())
-                {
-                    ElezenImgui.ColouredWrappedText(_secretKeyBackupMessage, _secretKeyBackupSuccess ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed);
-                }
-
-                ImGui.Separator();
-                DrawAccountAuthSetup();
-
-                ImGui.Separator();
-                ImGui.BeginDisabled(_registrationInProgress || _accountInProgress || _registrationSuccess || _secretKey.Length > 0);
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
-                {
-                    _registrationInProgress = true;
-                    _ = Task.Run(async () => {
-                        try
-                        {
-                            var reply = await _registerService.XIVAuth(CancellationToken.None).ConfigureAwait(false);
-                            if (!reply.Success)
-                            {
-                                _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
-                                _registrationMessage = reply.ErrorMessage;
-                                if (_registrationMessage.IsNullOrEmpty())
-                                    _registrationMessage = "An unknown error occured. Please try again later.";
-                                return;
-                            }
-                            _registrationMessage = "Account registered. Welcome to Snowcloak!";
-                            _secretKey = reply.SecretKey ?? "";
-                            _registrationReply = reply;
-                            _registrationSuccess = true;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Registration failed");
-                            _registrationSuccess = false;
-                            _registrationMessage = "An unknown error occured. Please try again later.";
-                        }
-                        finally
-                        {
-                            _registrationInProgress = false;
-                        }
-                    });
-                }
-                ImGui.SameLine();
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone secret key"))
-                {
-                    _registrationInProgress = true;
-                    _ = Task.Run(async () => {
-                        try
-                        {
-                            var reply = await _registerService.RegisterAccount(CancellationToken.None).ConfigureAwait(false);
-                            if (!reply.Success)
-                            {
-                                _logger.LogWarning("Registration failed: {err}", reply.ErrorMessage);
-                                _registrationMessage = reply.ErrorMessage;
-                                if (_registrationMessage.IsNullOrEmpty())
-                                    _registrationMessage = "An unknown error occured. Please try again later.";
-                                return;
-                            }
-                            _registrationMessage ="New standalone key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.";
-                            _secretKey = reply.SecretKey ?? "";
-                            _registrationReply = reply;
-                            _registrationSuccess = true;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Registration failed");
-                            _registrationSuccess = false;
-                            _registrationMessage = "An unknown error occured. Please try again later.";
-                        }
-                        finally
-                        {
-                            _registrationInProgress = false;
-                        }
-                    });
-                }
-                ImGui.EndDisabled(); // _registrationInProgress || _registrationSuccess
-                if (_registrationInProgress)
-                {
-                    ImGui.TextUnformatted("Waiting for the server...");
-                }
-                else if (!_registrationMessage.IsNullOrEmpty())
-                {
-                    if (!_registrationSuccess)
-                        ImGui.TextColored(ImGuiColors.DalamudYellow, _registrationMessage);
-                    else
-                        ImGui.TextWrapped(_registrationMessage);
-                }
-            }
-
-            ImGui.Separator();
-
-            var text = "Enter Secret Key";
-            
-            if (_registrationSuccess)
-            {
-                text = "Secret Key";
-            }
-            else
-            {
-                ImGui.TextUnformatted("If you already have a registered account, you can enter its secret key below to use it instead.");
-            }
-
-            var textSize = ImGui.CalcTextSize(text);
-            ImGui.AlignTextToFramePadding();
-            ImGui.TextUnformatted(text);
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(UiSharedService.GetWindowContentRegionWidth() - ImGui.GetWindowContentRegionMin().X - textSize.X);
-            ImGui.InputText("", ref _secretKey, 64);
-            if (_secretKey.Length > 0 && _secretKey.Length != 64)
-            {
-                ElezenImgui.ColouredWrappedText("Your secret key must be exactly 64 characters long.", ImGuiColors.DalamudRed);
-            }
-            else if (_secretKey.Length == 64 && !HexRegex().IsMatch(_secretKey))
-            {
-                ElezenImgui.ColouredWrappedText("Your secret key can only contain ABCDEF and the numbers 0-9.", ImGuiColors.DalamudRed);
-            }
-            else if (_secretKey.Length == 64)
-            {
-                using var saveDisabled = ImRaii.Disabled(_uiShared.ApiController.ServerState == ServerState.Connecting || _uiShared.ApiController.ServerState == ServerState.Reconnecting);
-                if (ImGui.Button("Save and Connect"))
-                {
-                    string keyName;
-                    if (_serverConfigurationManager.CurrentServer == null) _serverConfigurationManager.SelectServer(0);
-                    if (_registrationReply != null && _secretKey.Equals(_registrationReply.SecretKey, StringComparison.Ordinal))
-                        keyName = _registrationReply.UID + " " + string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now);
-                    else
-                        keyName = string.Format(CultureInfo.InvariantCulture, "Secret Key added on Setup ({0:yyyy-MM-dd})", DateTime.Now);
-                    _serverConfigurationManager.CurrentServer!.SecretKeys.Add(_serverConfigurationManager.CurrentServer.SecretKeys.Select(k => k.Key).LastOrDefault() + 1, new SecretKey()
-                    {
-                        FriendlyName = keyName,
-                        Key = _secretKey,
-                    });
-                    _serverConfigurationManager.AddCurrentCharacterToServer(save: false);
-                    _ = Task.Run(() => _uiShared.ApiController.CreateConnections());
-                }
-            }
-
-            if (_uiShared.ApiController.ServerState != ServerState.NoSecretKey)
-            {
-                ElezenImgui.ColouredText(GetConnectionStatus(), GetConnectionColor());
-            }
-
-            ImGui.EndDisabled(); // _registrationInProgress
-        }
-        else
-        {
-            _secretKey = string.Empty;
-            _serverConfigurationManager.Save();
-            Mediator.Publish(new SwitchToMainUiMessage());
-            IsOpen = false;
-        }
-    }
-
-    private void BeginSecretKeyBackupImport()
-    {
-        string? initialDirectory = Directory.Exists(_lastSecretKeyBackupDirectory) ? _lastSecretKeyBackupDirectory : null;
-        _uiShared.FileDialogManager.OpenFileDialog("Import backup", ".json", (success, paths) =>
-        {
-            if (!success) return;
-            if (paths.FirstOrDefault() is not string path) return;
-
-            try
-            {
-                var imported = _secretKeyBackupService.ImportForInitialSetup(path);
-                _lastSecretKeyBackupDirectory = Path.GetDirectoryName(path) ?? string.Empty;
-                _secretKey = string.Empty;
-                _registrationMessage = null;
-                _registrationReply = null;
-                _registrationSuccess = false;
-                SetSecretKeyBackupStatus(
-                    imported.CurrentCharacterAssigned
-                        ? imported.AutoAssignedCurrentCharacter
-                            ? $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). This character was assigned to the only key in the backup. Attempting to connect."
-                            : $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). Attempting to connect."
-                        : $"Backup imported for {imported.ServiceName}: {imported.SecretKeyCount} key(s), {imported.CharacterAssignmentCount} assignment(s), {imported.UserNoteCount} user note(s). This character is not assigned to a key in the backup.",
-                    success: imported.CurrentCharacterAssigned);
-
-                if (imported.CurrentCharacterAssigned)
-                {
-                    _ = Task.Run(() => _uiShared.ApiController.CreateConnections());
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to import secret key backup during initial setup");
-                SetSecretKeyBackupStatus("Secret key backup import failed. Ensure the file is a valid backup JSON.", success: false);
-            }
-        }, 1, initialDirectory);
-    }
-
-    private void SetSecretKeyBackupStatus(string message, bool success)
-    {
-        _secretKeyBackupMessage = message;
-        _secretKeyBackupSuccess = success;
-    }
-
-    private void DrawAccountAuthSetup()
-    {
-        if (ImGui.CollapsingHeader("Which option should I use?"))
-        {
-            ElezenImgui.WrappedText("The preferred option is you manage your keys yourself. This option gives you full and complete control.");
-            ElezenImgui.WrappedText("Failing that, Snowcloak accounts will generate fresh keys for your linked characters if you need it. You choose a username and password, and Snowcloak handles the rest. Passwords are hashed using state-of-the-art Argon2id algorithms. If in doubt, use a password manager to generate a random username and password.");
-            ElezenImgui.WrappedText("XIVAuth also remains available, but is considered decrepated at this time.");
-        }
-
-        AccountCredentialUi.DrawHeader("Snowcloak account",
-            "Use one account across characters and computers. Snowcloak restores the secret keys needed for the selected character after sign-in.");
-
-        var modeButtonWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2;
-        if (AccountCredentialUi.DrawModeButton("Sign in", _accountAuthMode == AccountAuthMode.SignIn, modeButtonWidth))
-            SetAccountAuthMode(AccountAuthMode.SignIn);
-        ImGui.SameLine();
-        if (AccountCredentialUi.DrawModeButton("Create account", _accountAuthMode == AccountAuthMode.CreateAccount, modeButtonWidth))
-            SetAccountAuthMode(AccountAuthMode.CreateAccount);
-
-        ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
-        if (_accountAuthMode == AccountAuthMode.SignIn)
-        {
-            ImGui.TextWrapped("Sign in to restore this account's character keys for the current character.");
-        }
-        else
-        {
-            ImGui.TextWrapped("Create an account on the selected service for this character.");
-        }
-
-        ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
-        AccountCredentialUi.DrawTextInput("accountUsername", "Username", "Enter your username", ref _accountUsername, 64);
-        AccountCredentialUi.DrawPasswordInput("accountPassword", "Password", "Enter your password", ref _accountPassword, 128, _showAccountPassword);
-        if (_accountAuthMode == AccountAuthMode.CreateAccount)
-        {
-            AccountCredentialUi.DrawPasswordInput("accountPasswordConfirm", "Confirm password", "Re-enter your password",
-                ref _accountPasswordConfirm, 128, _showAccountPassword);
-        }
-        AccountCredentialUi.DrawPasswordVisibilityToggle("accountPasswordVisibility", ref _showAccountPassword);
-        AccountCredentialUi.DrawRequirements(includePassword: _accountAuthMode == AccountAuthMode.CreateAccount);
-
-        var validationMessage = GetAccountCredentialValidationMessage(requireConfirmation: _accountAuthMode == AccountAuthMode.CreateAccount);
-        var canSubmit = validationMessage == null;
-        using (ImRaii.Disabled(_accountInProgress || _registrationInProgress))
-        {
-            var buttonLabel = _accountInProgress
-                ? _accountAuthMode == AccountAuthMode.CreateAccount
-                    ? "Creating account..."
-                    : "Signing in..."
-                : _accountAuthMode == AccountAuthMode.CreateAccount
-                    ? "Create account"
-                    : "Sign in";
-            if (AccountCredentialUi.DrawPrimaryButton("accountAuthSubmit", buttonLabel))
-            {
-                if (!canSubmit)
-                    SetAccountAttemptResult("Account request not sent", validationMessage ?? "Check the account fields and try again.", NotificationType.Warning);
-                else if (_accountAuthMode == AccountAuthMode.CreateAccount)
-                    BeginAccountCreation();
-                else
-                    BeginAccountPasswordLogin();
-            }
-        }
-
-        if (validationMessage != null)
-        {
-            ElezenImgui.ColouredWrappedText(validationMessage, ImGuiColors.DalamudYellow);
-        }
-
-        DrawAccountAttemptStatus();
-    }
-
-    private void SetAccountAuthMode(AccountAuthMode mode)
-    {
-        if (_accountAuthMode == mode) return;
-        _accountAuthMode = mode;
-        _accountMessage = null;
-        _accountPasswordConfirm = string.Empty;
-    }
-
-    private string? GetAccountCredentialValidationMessage(bool requireConfirmation)
-    {
-        if (_accountUsername.Trim().Length == 0)
-        {
-            return "Enter a username.";
-        }
-
-        if (_accountUsername.Trim().Length is < 3 or > 64)
-        {
-            return "Username must contain between 3 and 64 characters.";
-        }
-
-        if (_accountUsername.Any(char.IsWhiteSpace))
-        {
-            return "Username cannot contain spaces.";
-        }
-
-        if (string.IsNullOrEmpty(_accountPassword))
-        {
-            return "Enter a password.";
-        }
-
-        if (!requireConfirmation)
-        {
-            return null;
-        }
-
-        if (_accountPassword.Length < 12)
-        {
-            return "New account passwords must be at least 12 characters long.";
-        }
-
-        if (string.IsNullOrEmpty(_accountPasswordConfirm))
-        {
-            return "Re-enter your password to confirm it.";
-        }
-
-        return string.Equals(_accountPassword, _accountPasswordConfirm, StringComparison.Ordinal)
-            ? null
-            : "The password confirmation does not match.";
-    }
-
-    private void DrawAccountAttemptStatus()
-    {
-        if (_accountMessage.IsNullOrEmpty())
-        {
-            return;
-        }
-
-        ImGui.Separator();
-        var title = _accountInProgress
-            ? "Account request in progress"
-            : _accountSuccess
-                ? "Account request succeeded"
-                : "Account request failed";
-        var color = _accountInProgress
-            ? ImGuiColors.DalamudYellow
-            : _accountSuccess
-                ? ImGuiColors.HealerGreen
-                : ImGuiColors.DalamudRed;
-        ImGui.TextColored(color, title);
-        ImGui.TextWrapped(_accountMessage);
-    }
-
-    private void SetAccountAttemptResult(string title, string message, NotificationType type)
-    {
-        _accountSuccess = type == NotificationType.Info;
-        _accountMessage = message;
-        Mediator.Publish(new NotificationMessage(title, message, type, TimeSpan.FromSeconds(5)));
-    }
-
-    private void BeginAccountCreation()
-    {
-        _accountInProgress = true;
-        _accountSuccess = false;
-        _accountMessage = "Registering a character key with the selected service...";
-        Mediator.Publish(new NotificationMessage("Account creation started", _accountMessage, NotificationType.Info, TimeSpan.FromSeconds(5)));
-        _logger.LogInformation("Starting password account creation on {server}", _serverConfigurationManager.CurrentApiUrl);
-
-        var username = _accountUsername;
-        var password = _accountPassword;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var result = await _registerService.CreateAccountWithPassword(
-                    username,
-                    password,
-                    CancellationToken.None,
-                    message => _accountMessage = message).ConfigureAwait(false);
-                if (!result.Success)
-                {
-                    SetAccountAttemptResult("Account creation failed",
-                        result.ErrorMessage.IsNullOrEmpty() ? "Account setup failed. Please try again later." : result.ErrorMessage,
-                        NotificationType.Error);
-                    return;
-                }
-
-                _accountPassword = string.Empty;
-                _accountPasswordConfirm = string.Empty;
-                SetAccountAttemptResult("Account created", string.Format(CultureInfo.InvariantCulture,
-                    "Account created. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
-                    result.SecretKeyCount,
-                    result.NewSecretKeyCount), NotificationType.Info);
-                _ = _uiShared.ApiController.CreateConnections();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Account setup failed");
-                SetAccountAttemptResult("Account creation failed", "Account setup failed. Please try again later.", NotificationType.Error);
-            }
-            finally
-            {
-                _accountInProgress = false;
-            }
-        }, CancellationToken.None);
-    }
-
-    private void BeginAccountPasswordLogin()
-    {
-        _accountInProgress = true;
-        _accountSuccess = false;
-        _accountMessage = "Signing in to the selected service...";
-        Mediator.Publish(new NotificationMessage("Account sign-in started", _accountMessage, NotificationType.Info, TimeSpan.FromSeconds(5)));
-        _logger.LogInformation("Starting password account sign-in on {server}", _serverConfigurationManager.CurrentApiUrl);
-
-        var username = _accountUsername;
-        var password = _accountPassword;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var result = await _registerService.LoginWithPassword(username, password, CancellationToken.None).ConfigureAwait(false);
-                if (!result.Success)
-                {
-                    SetAccountAttemptResult("Account sign-in failed",
-                        result.ErrorMessage.IsNullOrEmpty() ? "Account login failed. Please try again later." : result.ErrorMessage,
-                        NotificationType.Error);
-                    return;
-                }
-
-                _accountPassword = string.Empty;
-                _accountPasswordConfirm = string.Empty;
-                _secretKey = string.Empty;
-                _registrationReply = null;
-                _registrationSuccess = false;
-                SetAccountAttemptResult("Account sign-in succeeded", string.Format(CultureInfo.InvariantCulture,
-                    "Account login succeeded. Stored {0} account key(s), including {1} new key(s). Attempting to connect.",
-                    result.SecretKeyCount,
-                    result.NewSecretKeyCount), NotificationType.Info);
-                _ = _uiShared.ApiController.CreateConnections();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Account login failed");
-                SetAccountAttemptResult("Account sign-in failed", "Account login failed. Please try again later.", NotificationType.Error);
-            }
-            finally
-            {
-                _accountInProgress = false;
-            }
-        }, CancellationToken.None);
     }
 
 #pragma warning disable MA0009

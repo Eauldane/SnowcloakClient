@@ -15,6 +15,7 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
+using Snowcloak.Core.Display;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
@@ -22,11 +23,12 @@ using Snowcloak.WebAPI;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Snowcloak.UI;
 
-public class ChatWindow : WindowMediatorSubscriberBase
+public class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 {
     public enum ChatSoundOption
     {
@@ -59,9 +61,11 @@ public class ChatWindow : WindowMediatorSubscriberBase
         Direct
     }
 
+    [StructLayout(LayoutKind.Auto)]
     private readonly record struct ChatChannelKey(ChannelKind Kind, string Id);
 
     private sealed record ChatLine(DateTime Timestamp, string SenderUid, string Sender, string Message, Vector4? SenderColor, Vector4? SenderGlowColor);
+    [StructLayout(LayoutKind.Auto)]
     private readonly record struct ToneStep(double Frequency, int DurationMs, double Volume, int SilenceAfterMs = 0);
 
     private readonly ApiController _apiController;
@@ -71,7 +75,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private readonly IGameGui _gameGui;
     private readonly SnowcloakConfigService _configService;
     private readonly PairManager _pairManager;
-    private readonly ServerConfigurationManager _serverManager;
+    private readonly NotesStore _notesStore;
+    private readonly ShellConfigStore _shellConfigStore;
     private readonly Dictionary<ChatChannelKey, List<ChatLine>> _channelLogs = [];
     private readonly List<ChatChannelData> _standardChannels = [];
     private readonly Dictionary<string, ChatChannelData> _standardChannelLookup = new(StringComparer.Ordinal);
@@ -130,7 +135,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     ];
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ApiController apiController,
-        PairManager pairManager, ServerConfigurationManager serverManager, PerformanceCollectorService performanceCollectorService,
+        PairManager pairManager, NotesStore notesStore, ShellConfigStore shellConfigStore, PerformanceCollectorService performanceCollectorService,
         ChatService chatService, DalamudUtilService dalamudUtil, SnowcloakConfigService configService, IFramework framework, IGameGui gameGui)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChatWindow", performanceCollectorService)
     {
@@ -141,13 +146,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
         _gameGui = gameGui;
         _configService = configService;
         _pairManager = pairManager;
-        _serverManager = serverManager;
+        _notesStore = notesStore;
+        _shellConfigStore = shellConfigStore;
 
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(700, 400),
-            MaximumSize = new Vector2(1400, 1200)
-        };
+        SetScaledSizeConstraints(new Vector2(700, 400), new Vector2(1400, 1200));
 
         Mediator.Subscribe<GroupChatMsgMessage>(this, message => AddGroupMessage(message));
         Mediator.Subscribe<UserChatMsgMessage>(this, message => AddDirectMessage(message.ChatMsg));
@@ -384,19 +386,13 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         var shouldScroll = _autoScroll && ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 10f;
 
-        var channelLabel = string.Empty;
-        if (key.Kind == ChannelKind.Syncshell || key.Kind == ChannelKind.Standard)
-        {
-            channelLabel = GetChannelDisplayName(key.Kind, key.Id, GetChannelDisplayLabel(key));
-        }
-
         ImGui.PushTextWrapPos(0f);
         foreach (var entry in log)
         {
             var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
             ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "[{0}] ", timestamp));
             ImGui.SameLine(0f, 0f);
-            DrawTextWithOptionalColor(entry.Sender, entry.SenderColor, entry.SenderGlowColor);
+            ElezenImgui.ColouredText(entry.Sender, entry.SenderColor, entry.SenderGlowColor);
 
             ImGui.SameLine(0f, 0f);
             ImGui.TextUnformatted(": ");
@@ -446,13 +442,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 ImGui.InputTextWithHint("##StandardChannelTopicEdit", "Update topic", ref _standardChannelTopicDraft, 200);
                 using (ImRaii.Disabled(!_apiController.IsConnected))
                 {
-                    if (ImGui.Button("Update Topic"))
-                    {
-                        if (channel != null)
-                        {
-                            _ = UpdateStandardChannelTopic(channel, _standardChannelTopicDraft);
-                        }
-                    }
+                if (ImGui.Button("Update Topic") && channel != null)
+                {
+                    _ = UpdateStandardChannelTopic(channel, _standardChannelTopicDraft);
+                }
                 }
             }
 
@@ -486,7 +479,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
         else if (key.Kind == ChannelKind.Syncshell)
         {
-            var shellConfig = _serverManager.GetShellConfigForGid(key.Id);
+            var shellConfig = _shellConfigStore.GetShellConfigForGid(key.Id);
             using (ImRaii.Disabled(!_apiController.IsConnected))
             {
                 if (shellConfig.Enabled)
@@ -494,7 +487,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                     if (ImGui.Button("Leave Chat"))
                     {
                         shellConfig.Enabled = false;
-                        _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
+                        _shellConfigStore.SaveShellConfigForGid(key.Id, shellConfig);
                         _joinedSyncshellChats.Remove(key.Id);
                         _syncshellChatMembers.Remove(key.Id);
                         _loadedSyncshellHistory.Remove(key.Id);
@@ -511,7 +504,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
                     if (ImGui.Button("Join Chat"))
                     {
                         shellConfig.Enabled = true;
-                        _serverManager.SaveShellConfigForGid(key.Id, shellConfig);
+                        _shellConfigStore.SaveShellConfigForGid(key.Id, shellConfig);
                         _joinedSyncshellChats.Add(key.Id);
                         var group = GetGroupData(key.Id);
                         if (group != null)
@@ -573,7 +566,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
 
         foreach (var entry in members.Values
-                     .GroupBy(user => user.UID)
+                     .GroupBy(user => user.UID, StringComparer.Ordinal)
                      .Select(group => group.First())
                      .Select(user => (User: user, Rank: GetSyncshellChatMemberRank(groupInfo, user)))
                      .OrderByDescending(member => member.Rank)
@@ -581,7 +574,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             var prefix = GetRolePrefix(groupInfo, entry.User);
             var label = prefix + GetUserDisplayName(entry.User);
-            DrawTextWithOptionalColor(label, TryGetVanityColor(entry.User.DisplayColour), TryGetVanityColor(entry.User.DisplayGlowColour));
+            var decoration = ResolveChatUserDecoration(entry.User);
+            var (foreground, glow) = PairDisplayDecorationMapper.ToVectorColours(decoration);
+            ElezenImgui.ColouredText(label, foreground, glow);
         }
     }
 
@@ -590,21 +585,46 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var userData = GetUserData(key.Id);
         if (userData != null)
         {
-            DrawTextWithOptionalColor(GetUserDisplayName(userData), TryGetVanityColor(userData.DisplayColour), TryGetVanityColor(userData.DisplayGlowColour));
+            var decoration = ResolveChatUserDecoration(userData);
+            var (foreground, glow) = PairDisplayDecorationMapper.ToVectorColours(decoration);
+            ElezenImgui.ColouredText(GetUserDisplayName(userData), foreground, glow);
         }
 
         if (!string.IsNullOrWhiteSpace(_apiController.UID))
         {
-            var selfName = GetUserDisplayName(new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour));
-            var selfColor = TryGetVanityColor(_apiController.DisplayColour);
-            var selfGlowColor = TryGetVanityColor(_apiController.DisplayGlowColour);
+            var self = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
+            var selfName = GetUserDisplayName(self);
+            var decoration = ResolveSelfChatDecoration();
+            var (selfColor, selfGlowColor) = PairDisplayDecorationMapper.ToVectorColours(decoration);
             ImGui.TextDisabled("You (");
             ImGui.SameLine(0f, 0f);
-            DrawTextWithOptionalColor(selfName, selfColor, selfGlowColor);
+            ElezenImgui.ColouredText(selfName, selfColor, selfGlowColor);
 
             ImGui.SameLine(0f, 0f);
             ImGui.TextDisabled(")");
         }
+    }
+
+    private PairDisplayDecoration? ResolveChatUserDecoration(UserData userData)
+    {
+        var options = PairDisplayDecorationMapper.CreateOptions(
+            _configService.Current,
+            inRestrictedContent: false,
+            usePairColours: false,
+            usePairingHighlights: false);
+        return PairDisplayDecorationPolicy.Resolve(options, PairDisplayDecorationMapper.CreateUserDataSubject(userData));
+    }
+
+    private PairDisplayDecoration? ResolveSelfChatDecoration()
+    {
+        var options = PairDisplayDecorationMapper.CreateOptions(
+            _configService.Current,
+            inRestrictedContent: false,
+            usePairColours: false,
+            usePairingHighlights: false);
+        return PairDisplayDecorationPolicy.Resolve(
+            options,
+            PairDisplayDecorationMapper.CreateSelfSubject(_apiController.DisplayColour, _apiController.DisplayGlowColour));
     }
 
     private void DrawChatInput()
@@ -619,12 +639,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
         ImGui.SetNextItemWidth(inputWidth);
         var send = ImGui.InputTextWithHint("##ChatInput", "Type a message...", ref _pendingMessage, 500, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
-        if (ImGui.Button("Send", new Vector2(60f * ImGuiHelpers.GlobalScale, 0)) || send)
+        if ((ImGui.Button("Send", new Vector2(60f * ImGuiHelpers.GlobalScale, 0)) || send) && _selectedChannel != null)
         {
-            if (_selectedChannel != null)
-            {
-                _ = SendMessageAsync(_selectedChannel.Value, _pendingMessage);
-            }
+            _ = SendMessageAsync(_selectedChannel.Value, _pendingMessage);
         }
 
         ImGui.SameLine();
@@ -699,15 +716,15 @@ public class ChatWindow : WindowMediatorSubscriberBase
         var selfUser = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
         var displayName = FormatSenderName(channel, selfUser);
         AppendMessage(channel, selfUser.UID, displayName, message, DateTime.Now, markUnread: false,
-            senderColor: TryGetVanityColor(_apiController.DisplayColour),
-            senderGlowColor: TryGetVanityColor(_apiController.DisplayGlowColour));
+            senderColor: Colour.HexToVector4OrNull(_apiController.DisplayColour),
+            senderGlowColor: Colour.HexToVector4OrNull(_apiController.DisplayGlowColour));
     }
 
     private void AddGroupMessage(GroupChatMsgMessage message)
     {
         if (_configService.Current.DisableChat) return;
 
-        var shellConfig = _serverManager.GetShellConfigForGid(message.GroupInfo.GID);
+        var shellConfig = _shellConfigStore.GetShellConfigForGid(message.GroupInfo.GID);
         if (!shellConfig.Enabled)
         {
             return;
@@ -824,15 +841,15 @@ public class ChatWindow : WindowMediatorSubscriberBase
             if (memberState.IsJoined)
             {
                 var groupInfo = GetGroupInfo(gid);
-                if (!_serverManager.HasShellConfigForGid(gid)
+                if (!_shellConfigStore.HasShellConfigForGid(gid)
                     && (groupInfo == null || !string.Equals(groupInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal)))
                 {
-                    var shellConfig = _serverManager.GetShellConfigForGid(gid);
+                    var shellConfig = _shellConfigStore.GetShellConfigForGid(gid);
                     shellConfig.Enabled = false;
-                    _serverManager.SaveShellConfigForGid(gid, shellConfig);
+                    _shellConfigStore.SaveShellConfigForGid(gid, shellConfig);
                 }
 
-                var config = _serverManager.GetShellConfigForGid(gid);
+                var config = _shellConfigStore.GetShellConfigForGid(gid);
                 if (!config.Enabled)
                 {
                     _joinedSyncshellChats.Remove(gid);
@@ -1037,13 +1054,13 @@ public class ChatWindow : WindowMediatorSubscriberBase
         return false;
     }
 
-    private string DecodeMessage(byte[] payload)
+    private static string DecodeMessage(byte[] payload)
     {
         if (payload.Length == 0) return string.Empty;
         return Encoding.UTF8.GetString(payload);
     }
 
-    private DateTime ResolveTimestamp(long timestamp)
+    private static DateTime ResolveTimestamp(long timestamp)
     {
         if (timestamp <= 0)
         {
@@ -1055,27 +1072,10 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private string GetUserDisplayName(UserData user)
     {
-        var note = _serverManager.GetNoteForUid(user.UID);
+        var note = _notesStore.GetNoteForUid(user.UID);
         if (!string.IsNullOrWhiteSpace(note)) return note;
         if (!string.IsNullOrWhiteSpace(user.Alias)) return user.Alias!;
         return user.UID;
-    }
-
-    private static Vector4? TryGetVanityColor(string? hexColor)
-    {
-        if (string.IsNullOrWhiteSpace(hexColor))
-        {
-            return null;
-        }
-
-        try
-        {
-            return ElezenTools.UI.Colour.HexToVector4(hexColor);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private void HandleUserProfileUpdate(UserData? updatedUser)
@@ -1114,22 +1114,22 @@ public class ChatWindow : WindowMediatorSubscriberBase
     {
         if (string.Equals(sender.UID, _apiController.UID, StringComparison.Ordinal))
         {
-            return (TryGetVanityColor(_apiController.DisplayColour), TryGetVanityColor(_apiController.DisplayGlowColour));
+            return (Colour.HexToVector4OrNull(_apiController.DisplayColour), Colour.HexToVector4OrNull(_apiController.DisplayGlowColour));
         }
 
         var pairUserData = _pairManager.GetPairByUID(sender.UID)?.UserData;
         if (pairUserData != null)
         {
-            var pairColor = TryGetVanityColor(pairUserData.DisplayColour);
-            var pairGlowColor = TryGetVanityColor(pairUserData.DisplayGlowColour);
+            var pairColor = Colour.HexToVector4OrNull(pairUserData.DisplayColour);
+            var pairGlowColor = Colour.HexToVector4OrNull(pairUserData.DisplayGlowColour);
             if (pairColor.HasValue || pairGlowColor.HasValue)
             {
                 return (pairColor, pairGlowColor);
             }
         }
 
-        var senderColor = TryGetVanityColor(sender.DisplayColour);
-        var senderGlowColor = TryGetVanityColor(sender.DisplayGlowColour);
+        var senderColor = Colour.HexToVector4OrNull(sender.DisplayColour);
+        var senderGlowColor = Colour.HexToVector4OrNull(sender.DisplayGlowColour);
         if (senderColor.HasValue || senderGlowColor.HasValue)
         {
             return (senderColor, senderGlowColor);
@@ -1139,8 +1139,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
             && _standardChannelMembers.TryGetValue(channel.Id, out var standardMembers))
         {
             var standardMember = standardMembers.FirstOrDefault(entry => string.Equals(entry.User.UID, sender.UID, StringComparison.Ordinal));
-            var standardColor = TryGetVanityColor(standardMember?.User.DisplayColour);
-            var standardGlowColor = TryGetVanityColor(standardMember?.User.DisplayGlowColour);
+            var standardColor = Colour.HexToVector4OrNull(standardMember?.User.DisplayColour);
+            var standardGlowColor = Colour.HexToVector4OrNull(standardMember?.User.DisplayGlowColour);
             if (standardColor.HasValue || standardGlowColor.HasValue)
             {
                 return (standardColor, standardGlowColor);
@@ -1151,8 +1151,8 @@ public class ChatWindow : WindowMediatorSubscriberBase
             && _syncshellChatMembers.TryGetValue(channel.Id, out var syncshellMembers)
             && syncshellMembers.TryGetValue(sender.UID, out var syncshellMember))
         {
-            var syncshellColor = TryGetVanityColor(syncshellMember.DisplayColour);
-            var syncshellGlowColor = TryGetVanityColor(syncshellMember.DisplayGlowColour);
+            var syncshellColor = Colour.HexToVector4OrNull(syncshellMember.DisplayColour);
+            var syncshellGlowColor = Colour.HexToVector4OrNull(syncshellMember.DisplayGlowColour);
             if (syncshellColor.HasValue || syncshellGlowColor.HasValue)
             {
                 return (syncshellColor, syncshellGlowColor);
@@ -1186,32 +1186,6 @@ public class ChatWindow : WindowMediatorSubscriberBase
                 log[i] = log[i] with { Sender = displayName, SenderColor = colors.Foreground, SenderGlowColor = colors.Glow };
             }
         }
-    }
-
-    private static void DrawTextWithOptionalColor(string text, Vector4? color, Vector4? glowColor = null)
-    {
-        if (!color.HasValue && !glowColor.HasValue)
-        {
-            ImGui.TextUnformatted(text);
-            return;
-        }
-
-        var foreground = color ?? ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
-        if (glowColor.HasValue)
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            var textPos = ImGui.GetCursorScreenPos();
-            var glow = glowColor.Value;
-            var glowAlpha = Math.Clamp(glow.W <= 0f ? 0.45f : glow.W, 0.05f, 1f);
-            var glowU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(glow.X, glow.Y, glow.Z, glowAlpha));
-            var spread = 1.0f * ImGuiHelpers.GlobalScale;
-            drawList.AddText(new Vector2(textPos.X - spread, textPos.Y), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X + spread, textPos.Y), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X, textPos.Y - spread), glowU32, text);
-            drawList.AddText(new Vector2(textPos.X, textPos.Y + spread), glowU32, text);
-        }
-
-        ImGui.TextColored(foreground, text);
     }
 
     private static void DrawSelectableWithOptionalColor(string label, Vector4? color)
@@ -1254,7 +1228,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         return GetChannelRolePrefix(roles);
     }
 
-    private string GetChannelRolePrefix(ChannelUserRole roles)
+    private static string GetChannelRolePrefix(ChannelUserRole roles)
     {
         if (roles.HasFlag(ChannelUserRole.Owner)) return "~";
         if (roles.HasFlag(ChannelUserRole.Admin)) return "&";
@@ -1264,7 +1238,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         return string.Empty;
     }
 
-    private int GetChannelRoleRank(ChannelUserRole roles)
+    private static int GetChannelRoleRank(ChannelUserRole roles)
     {
         if (roles.HasFlag(ChannelUserRole.Owner)) return 5;
         if (roles.HasFlag(ChannelUserRole.Admin)) return 4;
@@ -1301,7 +1275,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         return GetChannelRoleRank(roles) >= GetChannelRoleRank(ChannelUserRole.Operator);
     }
 
-    private bool IsModerator(Pair pair, GroupFullInfoDto groupInfo)
+    private static bool IsModerator(Pair pair, GroupFullInfoDto groupInfo)
     {
         if (pair.GroupPair.TryGetValue(groupInfo, out var groupPairInfo))
         {
@@ -1330,7 +1304,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private List<(string Id, string Name)> GetSyncshellChannels()
     {
         return _pairManager.GroupPairs.Keys
-            .Where(group => _serverManager.GetShellConfigForGid(group.GID).Enabled)
+            .Where(group => _shellConfigStore.GetShellConfigForGid(group.GID).Enabled)
             .Select(group => (group.GID, GetChannelName(group.Group)))
             .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1372,7 +1346,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private string GetChannelName(GroupData group)
     {
-        var note = _serverManager.GetNoteForGid(group.GID);
+        var note = _notesStore.GetNoteForGid(group.GID);
         if (!string.IsNullOrWhiteSpace(note)) return note;
         if (!string.IsNullOrWhiteSpace(group.Alias)) return group.Alias!;
         return group.GID;
@@ -1468,7 +1442,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         {
             var label = GetChannelRolePrefix(member.Roles) + GetUserDisplayName(member.User);
             ImGui.PushID(member.User.UID);
-            DrawSelectableWithOptionalColor(label, TryGetVanityColor(member.User.DisplayColour));
+            DrawSelectableWithOptionalColor(label, Colour.HexToVector4OrNull(member.User.DisplayColour));
             DrawStandardChannelMemberContextMenu(channelId, member, selfRoles, selfRank);
             ImGui.PopID();
         }
@@ -1568,12 +1542,9 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         var currentRole = NormalizeChannelRole(member.Roles);
         var isSelected = currentRole == role;
-        if (ImGui.MenuItem(GetRoleLabel(role), string.Empty, isSelected))
+        if (ImGui.MenuItem(GetRoleLabel(role), string.Empty, isSelected) && !isSelected)
         {
-            if (!isSelected)
-            {
-                _ = UpdateStandardChannelRole(channelId, member.User, role);
-            }
+            _ = UpdateStandardChannelRole(channelId, member.User, role);
         }
 
         if (role == ChannelUserRole.Owner && !isSelected && ImGui.IsItemHovered())
@@ -1676,7 +1647,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
         foreach (var group in _pairManager.GroupPairs.Keys)
         {
-          var shellConfig = _serverManager.GetShellConfigForGid(group.GID);
+          var shellConfig = _shellConfigStore.GetShellConfigForGid(group.GID);
             if (!shellConfig.Enabled)
             {
                 continue;
@@ -1806,7 +1777,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
     private void LoadSavedStandardChannels()
     {
         _joinedStandardChannels.Clear();
-        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
         {
             _joinedStandardChannels.Add(channel.ChannelId);
             if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
@@ -1819,7 +1790,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
 
     private void MergeSavedStandardChannels()
     {
-        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
         {
             if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
             {
@@ -1829,7 +1800,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         }
 
         _joinedStandardChannels.Clear();
-        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
         {
             _joinedStandardChannels.Add(channel.ChannelId);
         }
@@ -1847,12 +1818,12 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (isJoined)
         {
             _joinedStandardChannels.Add(channel.ChannelId);
-            _serverManager.UpsertJoinedStandardChannel(channel);
+            _shellConfigStore.UpsertJoinedStandardChannel(channel);
         }
         else
         {
             _joinedStandardChannels.Remove(channel.ChannelId);
-            _serverManager.RemoveJoinedStandardChannel(channel.ChannelId);
+            _shellConfigStore.RemoveJoinedStandardChannel(channel.ChannelId);
         }
     }
 
@@ -1875,7 +1846,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
         if (!_apiController.IsConnected) return;
 
         // Iterate a snapshot so membership updates can safely mutate persisted channel state.
-        var channelsToJoin = _serverManager.GetJoinedStandardChannels().ToList();
+        var channelsToJoin = _shellConfigStore.GetJoinedStandardChannels().ToList();
         foreach (var channel in channelsToJoin)
         {
             await JoinStandardChannel(channel).ConfigureAwait(false);
@@ -2091,7 +2062,7 @@ public class ChatWindow : WindowMediatorSubscriberBase
             TrackStandardChannel(channel);
             if (_joinedStandardChannels.Contains(channel.ChannelId))
             {
-                _serverManager.UpsertJoinedStandardChannel(channel);
+                _shellConfigStore.UpsertJoinedStandardChannel(channel);
             }
             _standardChannelTopicDraft = trimmedTopic ?? string.Empty;
             _isEditingStandardChannelTopic = false;

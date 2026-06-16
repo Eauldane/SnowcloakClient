@@ -22,26 +22,32 @@ using System.Text;
 
 namespace Snowcloak.UI;
 
-public class SyncshellAdminUI : WindowMediatorSubscriberBase
+public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
 {
     private const int AuditPageSize = 50;
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
-    private readonly bool _isModerator = false;
-    private readonly bool _isOwner = false;
+    private readonly bool _isModerator;
+    private readonly bool _isOwner;
+    private readonly AsyncOp<GroupAliasResponseDto> _aliasChangeOperation = new();
+    private readonly AsyncOp<GroupAuditPageDto> _auditLogOperation = new();
+    private readonly AsyncOp<List<string>> _bulkInviteOperation = new();
+    private readonly AsyncOp _groupPermissionOperation = new();
+    private readonly AsyncOp<bool> _memberLabelSaveOperation = new();
     private readonly List<string> _oneTimeInvites = [];
     private readonly PairManager _pairManager;
+    private readonly AsyncOp<bool> _passwordChangeOperation = new();
+    private readonly AsyncOp<List<string>> _singleInviteOperation = new();
+    private readonly SyncshellCommunityManagementPanel _communityManagementPanel;
+    private readonly SyncshellMemberManagementPanel _memberManagementPanel;
     private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
-    private readonly UiSharedService _uiSharedService;
+    private readonly UiFontService _fontService;
     private GroupAuditAction? _auditActionFilter;
     private List<GroupAuditEntryDto> _auditEntries = [];
-    private Task<GroupAuditPageDto>? _auditLogTask;
     private string _auditSearch = string.Empty;
     private int _auditSkip;
     private int _auditTotalCount;
-    private List<BannedGroupUserDto> _bannedUsers = [];
     private int _multiInvites;
-    private Task<GroupAliasResponseDto>? _aliasChangeTask;
     private string _aliasChangeMessage = string.Empty;
     private bool _aliasChangeIsError;
     private string _newPassword;
@@ -50,494 +56,287 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
     private List<string> _memberLabelDraft = [];
     private string _memberLabelError = string.Empty;
     private bool _memberLabelEditorPopupPendingOpen;
-    private bool _pwChangeSuccess;
-    private Task<int>? _pruneTestTask;
-    private Task<int>? _pruneTask;
-    private int _pruneDays = 14;
+    private string _passwordChangeMessage = string.Empty;
+    private bool _passwordChangeIsError;
     private bool _showMemberLabelEditor;
+    private SyncshellAdminTab _selectedTab = SyncshellAdminTab.Settings;
+
+    private enum SyncshellAdminTab
+    {
+        Performance,
+        Settings,
+        Community,
+        Directory,
+        Invites,
+        Members,
+        Cleanup,
+        Bans,
+        Permissions,
+        Audit,
+        Owner,
+    }
 
     public SyncshellAdminUI(ILogger<SyncshellAdminUI> logger, SnowMediator mediator, ApiController apiController,
         SnowcloakConfigService configService,
-        UiSharedService uiSharedService, PairManager pairManager, GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService,
-        SyncshellBudgetService syncshellBudgetService)
-        : base(logger, mediator, string.Format("Syncshell Admin Panel ({0})", groupFullInfo.GroupAliasOrGID), performanceCollectorService)
+        UiFontService fontService, PairManager pairManager, GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService,
+        SyncshellBudgetService syncshellBudgetService, DalamudUtilService dalamudUtilService)
+        : base(logger, mediator, BuildWindowTitle(groupFullInfo), performanceCollectorService)
     {
+        ArgumentNullException.ThrowIfNull(groupFullInfo);
         GroupFullInfo = groupFullInfo;
         _apiController = apiController;
         _configService = configService;
-        _uiSharedService = uiSharedService;
+        _fontService = fontService;
         _pairManager = pairManager;
         _syncshellBudgetPanel = new(syncshellBudgetService);
+        _communityManagementPanel = new(apiController, dalamudUtilService);
+        _memberManagementPanel = new(apiController, mediator, pairManager);
         _isOwner = string.Equals(GroupFullInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal);
         _isModerator = GroupFullInfo.GroupUserInfo.IsModerator();
         _newPassword = string.Empty;
         _syncshellAlias = groupFullInfo.Group.Alias ?? string.Empty;
         _multiInvites = 30;
-        _pwChangeSuccess = true;
         IsOpen = true;
         RequestAuditLogPage(0);
-        SizeConstraints = new WindowSizeConstraints()
-        {
-            MinimumSize = new(700, 500),
-            MaximumSize = new(700, 2000),
-        };
+        SetScaledSizeConstraints(new Vector2(700, 500), new Vector2(700, 2000));
     }
 
     public GroupFullInfoDto GroupFullInfo { get; private set; }
+
+    private static string BuildWindowTitle(GroupFullInfoDto groupFullInfo)
+    {
+        ArgumentNullException.ThrowIfNull(groupFullInfo);
+        return string.Format(CultureInfo.CurrentCulture, "Syncshell Admin Panel ({0})", groupFullInfo.GroupAliasOrGID);
+    }
     
     protected override void DrawInternal()
     {
         if (!_isModerator && !_isOwner) return;
         ConsumeAuditLogTask();
         ConsumeAliasChangeTask();
+        ConsumeInviteTasks();
+        ConsumePasswordChangeTask();
 
         GroupFullInfo = _pairManager.Groups[GroupFullInfo.Group];
 
         using var id = ImRaii.PushId("syncshell_admin_" + GroupFullInfo.GID);
 
-        using (_uiSharedService.UidFont.Push())
-            ImGui.TextUnformatted(string.Format("{0} Administrative Panel", GroupFullInfo.GroupAliasOrGID));
+        using (_fontService.UidFont.Push())
+            ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} Administrative Panel", GroupFullInfo.GroupAliasOrGID));
         ImGui.Separator();
-        var perm = GroupFullInfo.GroupPermissions;
 
-        using var tabbar = ImRaii.TabBar("syncshell_tab_" + GroupFullInfo.GID);
-
-        if (tabbar)
-        {
-            if (_configService.Current.ShowSyncshellBudgetDashboard)
-            {
-                var budgetTab = ImRaii.TabItem("Performance");
-                if (budgetTab)
-                {
-                    if (_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var budgetPairs))
-                    {
-                        _syncshellBudgetPanel.Draw(GroupFullInfo, budgetPairs
-                            .Where(p => !string.Equals(p.UserData.UID, _apiController.UID, StringComparison.Ordinal))
-                            .ToList());
-                    }
-                    else
-                    {
-                        _syncshellBudgetPanel.Draw(GroupFullInfo, []);
-                    }
-                }
-                budgetTab.Dispose();
-            }
-
-            var settingsTab = ImRaii.TabItem("Settings");
-            if (settingsTab)
-            {
-                DrawSyncshellSettings();
-            }
-            settingsTab.Dispose();
-
-            var inviteTab = ImRaii.TabItem("Invites");
-            if (inviteTab)
-            {
-                bool isInvitesDisabled = perm.IsDisableInvites();
-
-                if (ElezenImgui.ShowIconButton(isInvitesDisabled ? FontAwesomeIcon.Unlock : FontAwesomeIcon.Lock,
-                        isInvitesDisabled ? "Unlock Syncshell" : "Lock Syncshell"))
-                {
-                    perm.SetDisableInvites(!isInvitesDisabled);
-                    _ = _apiController.GroupChangeGroupPermissionState(new(GroupFullInfo.Group, perm));
-                }
-
-                ImGuiHelpers.ScaledDummy(2f);
-
-                ElezenImgui.WrappedText("One-time invites work as single-use passwords. Use those if you do not want to distribute your Syncshell password.");
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Envelope, "Single one-time invite"))
-                {
-                    ImGui.SetClipboardText(_apiController.GroupCreateTempInvite(new(GroupFullInfo.Group), 1).Result.FirstOrDefault() ?? string.Empty);
-                }
-                ElezenImgui.AttachTooltip("Creates a single-use password for joining the syncshell which is valid for 24h and copies it to the clipboard.");
-                ImGui.InputInt("##amountofinvites", ref _multiInvites);
-                ImGui.SameLine();
-                using (ImRaii.Disabled(_multiInvites <= 1 || _multiInvites > 100))
-                {
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Envelope, string.Format("Generate {0} one-time invites", _multiInvites)))
-                    {
-                        _oneTimeInvites.AddRange(_apiController.GroupCreateTempInvite(new(GroupFullInfo.Group), _multiInvites).Result);
-                    }
-                }
-
-                if (_oneTimeInvites.Any())
-                {
-                    var invites = string.Join(Environment.NewLine, _oneTimeInvites);
-                    ImGui.InputTextMultiline("Generated Multi Invites", ref invites, 5000, new(0, 0), ImGuiInputTextFlags.ReadOnly);
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy Invites to clipboard"))
-                    {
-                        ImGui.SetClipboardText(invites);
-                    }
-                }
-            }
-            inviteTab.Dispose();
-
-            var mgmtTab = ImRaii.TabItem("User Management");
-            if (mgmtTab)
-            {
-                var userNode = ImRaii.TreeNode("User List & Administration");
-                if (userNode)
-                {
-                    if (!_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var pairs))
-                    {
-                        ElezenImgui.ColouredWrappedText("No users found in this Syncshell", ImGuiColors.DalamudYellow);
-                    }
-                    else
-                    {
-                        using var table = ImRaii.Table("userList#" + GroupFullInfo.Group.GID, 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY);
-                        if (table)
-                        {
-                            ImGui.TableSetupColumn("Alias/UID/Note", ImGuiTableColumnFlags.None, 3);
-                            ImGui.TableSetupColumn("Online/Name", ImGuiTableColumnFlags.None, 2);
-                            ImGui.TableSetupColumn("Roles", ImGuiTableColumnFlags.None, 2);
-                            ImGui.TableSetupColumn("Flags", ImGuiTableColumnFlags.None, 1);
-                            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.None, 2);
-                            ImGui.TableHeadersRow();
-
-                            var groupedPairs = new Dictionary<Pair, GroupUserInfo?>(pairs.Select(p => new KeyValuePair<Pair, GroupUserInfo?>(p,
-                                p.GroupPair.TryGetValue(GroupFullInfo, out GroupPairFullInfoDto? value) ? value.GroupPairStatusInfo : null)));
-
-                            foreach (var pair in groupedPairs.OrderBy(p =>
-                            {
-                                if (p.Value == null) return 10;
-                                if (p.Value.Value.IsModerator()) return 0;
-                                if (p.Value.Value.IsPinned()) return 1;
-                                return 10;
-                            }).ThenBy(p => p.Key.GetNote() ?? p.Key.UserData.AliasOrUID, StringComparer.OrdinalIgnoreCase))
-                            {
-                                using var tableId = ImRaii.PushId("userTable_" + pair.Key.UserData.UID);
-                                pair.Key.GroupPair.TryGetValue(GroupFullInfo, out GroupPairFullInfoDto? memberInfo);
-
-                                ImGui.TableNextColumn(); // alias/uid/note
-                                var note = pair.Key.GetNote();
-                                var text = note == null ? pair.Key.UserData.AliasOrUID : note + " (" + pair.Key.UserData.AliasOrUID + ")";
-                                ImGui.AlignTextToFramePadding();
-                                ImGui.TextUnformatted(text);
-
-                                ImGui.TableNextColumn(); // online/name
-                                string onlineText = pair.Key.IsOnline ?"Online" :"Offline";
-                                string? name = pair.Key.GetNoteOrName();
-                                if (!string.IsNullOrEmpty(name))
-                                {
-                                    onlineText += " (" + name + ")";
-                                }
-                                var boolcolor = ElezenImgui.GetBooleanColour(pair.Key.IsOnline);
-                                ImGui.AlignTextToFramePadding();
-                                ElezenImgui.ColouredText(onlineText, boolcolor);
-
-                                ImGui.TableNextColumn(); // roles
-                                if (memberInfo != null && memberInfo.MemberLabels.Count > 0)
-                                {
-                                    ElezenImgui.WrappedText(SyncshellMemberLabelUi.FormatLabels(memberInfo.MemberLabels));
-                                }
-                                else
-                                {
-                                    ElezenImgui.ColouredText("None", ImGuiColors.DalamudGrey);
-                                }
-
-                                ImGui.TableNextColumn(); // special flags
-                                if (pair.Value != null && (pair.Value.Value.IsModerator() || pair.Value.Value.IsPinned()))
-                                {
-                                    if (pair.Value.Value.IsModerator())
-                                    {
-                                        ElezenImgui.ShowIcon(FontAwesomeIcon.UserShield);
-                                        ElezenImgui.AttachTooltip("Moderator");
-                                    }
-                                    if (pair.Value.Value.IsPinned())
-                                    {
-                                        ElezenImgui.ShowIcon(FontAwesomeIcon.Thumbtack);
-                                        ElezenImgui.AttachTooltip("Pinned");
-                                    }
-                                }
-                                else
-                                {
-                                    ElezenImgui.ShowIcon(FontAwesomeIcon.None);
-                                }
-
-                                ImGui.TableNextColumn(); // actions
-                                if (_isOwner)
-                                {
-                                    if (_uiSharedService.IconButton(FontAwesomeIcon.UserShield))
-                                    {
-                                        GroupUserInfo userInfo = pair.Value ?? GroupUserInfo.None;
-
-                                        userInfo.SetModerator(!userInfo.IsModerator());
-
-                                        _ = _apiController.GroupSetUserInfo(new GroupPairUserInfoDto(GroupFullInfo.Group, pair.Key.UserData, userInfo));
-                                    }
-                                    ElezenImgui.AttachTooltip(pair.Value != null && pair.Value.Value.IsModerator() ? "Demod user" : "Mod user");
-                                    ImGui.SameLine();
-                                }
-
-                                if (memberInfo != null && _uiSharedService.IconButton(FontAwesomeIcon.IdBadge))
-                                {
-                                    OpenMemberLabelEditor(memberInfo);
-                                }
-                                if (memberInfo != null)
-                                {
-                                    ElezenImgui.AttachTooltip("Edit shared syncshell roles for this member.");
-                                    ImGui.SameLine();
-                                }
-
-                                if (_isOwner || (pair.Value == null || (pair.Value != null && !pair.Value.Value.IsModerator())))
-                                {
-                                    if (_uiSharedService.IconButton(FontAwesomeIcon.Thumbtack))
-                                    {
-                                        GroupUserInfo userInfo = pair.Value ?? GroupUserInfo.None;
-
-                                        userInfo.SetPinned(!userInfo.IsPinned());
-
-                                        _ = _apiController.GroupSetUserInfo(new GroupPairUserInfoDto(GroupFullInfo.Group, pair.Key.UserData, userInfo));
-                                    }
-
-                                    ElezenImgui.AttachTooltip(pair.Value != null && pair.Value.Value.IsPinned()
-                                        ? "Unpin user"
-                                        : "Pin user");
-                                    ImGui.SameLine();
-
-                                    using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
-                                    {
-                                        if (_uiSharedService.IconButton(FontAwesomeIcon.Trash))
-                                        {
-                                            _ = _apiController.GroupRemoveUser(new GroupPairDto(GroupFullInfo.Group, pair.Key.UserData));
-                                        }
-                                    }
-                                    ElezenImgui.AttachTooltip("Remove user from Syncshell"
-                                                                  + UiSharedService.TooltipSeparator + "Hold CTRL to enable this button");
-
-                                    ImGui.SameLine();
-                                    using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
-                                    {
-                                        if (_uiSharedService.IconButton(FontAwesomeIcon.Ban))
-                                        {
-                                            Mediator.Publish(new OpenBanUserPopupMessage(pair.Key, GroupFullInfo));
-                                        }
-                                    }
-                                    ElezenImgui.AttachTooltip("Ban user from Syncshell"
-                                                                  + UiSharedService.TooltipSeparator + "Hold CTRL to enable this button");
-                                }
-                            }
-                        }
-                    }
-                }
-                userNode.Dispose();
-                var clearNode = ImRaii.TreeNode("Mass Cleanup");
-                if (clearNode)
-                {
-                    using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
-                    {
-                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Broom, "Clear Syncshell"))
-                        {
-                            _ = _apiController.GroupClear(new(GroupFullInfo.Group));
-                        }
-                    }
-                    ElezenImgui.AttachTooltip("This will remove all non-pinned, non-moderator users from the Syncshell."
-                                                  + UiSharedService.TooltipSeparator + "Hold CTRL to enable this button");
-
-                    ImGuiHelpers.ScaledDummy(2f);
-                    ImGui.Separator();
-                    ImGuiHelpers.ScaledDummy(2f);
-
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Unlink, "Check for Inactive Users"))
-                    {
-                        _pruneTestTask = _apiController.GroupPrune(new(GroupFullInfo.Group), _pruneDays, execute: false);
-                        _pruneTask = null;
-                    }
-                    ElezenImgui.AttachTooltip(string.Format("This will start the prune process for this Syncshell of inactive users that have not logged in the past {0} days.", _pruneDays)
-                                                  + Environment.NewLine +"You will be able to review the amount of inactive users before executing the prune."
-                                                  + UiSharedService.TooltipSeparator +"Note: pruning excludes pinned users and moderators of this Syncshell.");
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(150);
-                    _uiSharedService.DrawCombo("Days of inactivity", [7, 14, 30, 90], (count) =>
-                    {
-                        return string.Format("{0} days", count);
-                    },
-                    (selected) =>
-                    {
-                        _pruneDays = selected;
-                        _pruneTestTask = null;
-                        _pruneTask = null;
-                    },
-                    _pruneDays);
-
-                    if (_pruneTestTask != null)
-                    {
-                        if (!_pruneTestTask.IsCompleted)
-                        {
-                            ElezenImgui.ColouredWrappedText("Calculating inactive users...", ImGuiColors.DalamudYellow);
-                        }
-                        else
-                        {
-                            ImGui.AlignTextToFramePadding();
-                            ElezenImgui.WrappedText(string.Format("Found {0} user(s) that have not logged in the past {1} days.", _pruneTestTask.Result, _pruneDays));
-                            if (_pruneTestTask.Result > 0)
-                            {
-                                using (ImRaii.Disabled(!UiSharedService.CtrlPressed()))
-                                {
-                                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Broom, "Prune Inactive Users"))
-                                    {
-                                        _pruneTask = _apiController.GroupPrune(new(GroupFullInfo.Group), _pruneDays, execute: true);
-                                        _pruneTestTask = null;
-                                    }
-                                }
-                                ElezenImgui.AttachTooltip(string.Format("Pruning will remove {0} inactive user(s).", _pruneTestTask?.Result ?? 0)
-                                                              + UiSharedService.TooltipSeparator + "Hold CTRL to enable this button");
-                            }
-                        }
-                    }
-                    if (_pruneTask != null)
-                    {
-                        if (!_pruneTask.IsCompleted)
-                        {
-                            ElezenImgui.ColouredWrappedText("Pruning Syncshell...", ImGuiColors.DalamudYellow);
-                        }
-                        else
-                        {
-                            ElezenImgui.WrappedText(string.Format("Syncshell was pruned and {0} inactive user(s) have been removed.", _pruneTask.Result));
-                        }
-                    }
-                }
-                clearNode.Dispose();
-
-                var banNode = ImRaii.TreeNode("User Bans");
-                if (banNode)
-                {
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Retweet, "Refresh Banlist from Server"))
-                    {
-                        _bannedUsers = _apiController.GroupGetBannedUsers(new GroupDto(GroupFullInfo.Group)).Result;
-                    }
-
-                    if (ImGui.BeginTable("bannedusertable" + GroupFullInfo.GID, 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY))
-                    {
-                        ImGui.TableSetupColumn( "UID", ImGuiTableColumnFlags.None, 1);
-                        ImGui.TableSetupColumn("Alias", ImGuiTableColumnFlags.None, 1);
-                        ImGui.TableSetupColumn("By", ImGuiTableColumnFlags.None, 1);
-                        ImGui.TableSetupColumn("Date", ImGuiTableColumnFlags.None, 2);
-                        ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.None, 3);
-                        ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.None, 1);
-
-                        ImGui.TableHeadersRow();
-
-                        foreach (var bannedUser in _bannedUsers.ToList())
-                        {
-                            ImGui.TableNextColumn();
-                            ImGui.TextUnformatted(bannedUser.UID);
-                            ImGui.TableNextColumn();
-                            ImGui.TextUnformatted(bannedUser.UserAlias ?? string.Empty);
-                            ImGui.TableNextColumn();
-                            ImGui.TextUnformatted(bannedUser.BannedBy);
-                            ImGui.TableNextColumn();
-                            ImGui.TextUnformatted(bannedUser.BannedOn.ToLocalTime().ToString(CultureInfo.CurrentCulture));
-                            ImGui.TableNextColumn();
-                            ElezenImgui.WrappedText(bannedUser.Reason);
-                            ImGui.TableNextColumn();
-                            using var pushId = ImRaii.PushId(bannedUser.UID);
-                            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Check, "Unban"))
-                            {
-                                _ = Task.Run(async () => await _apiController.GroupUnbanUser(bannedUser).ConfigureAwait(false));
-                                _bannedUsers.RemoveAll(b => string.Equals(b.UID, bannedUser.UID, StringComparison.Ordinal));
-                            }
-                        }
-
-                        ImGui.EndTable();
-                    }
-                }
-                banNode.Dispose();
-            }
-            mgmtTab.Dispose();
-
-            var permissionTab = ImRaii.TabItem("Permissions");
-            if (permissionTab)
-            {
-                bool isDisableAnimations = perm.IsDisableAnimations();
-                bool isDisableSounds = perm.IsDisableSounds();
-                bool isDisableVfx = perm.IsDisableVFX();
-
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted("Sound Sync");
-                ElezenImgui.GetBooleanIcon(!isDisableSounds);
-                ImGui.SameLine(230);
-                if (ElezenImgui.ShowIconButton(isDisableSounds ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute,
-                        isDisableSounds ? "Enable sound sync" : "Disable sound sync"))
-                {
-                    perm.SetDisableSounds(!perm.IsDisableSounds());
-                    _ = _apiController.GroupChangeGroupPermissionState(new(GroupFullInfo.Group, perm));
-                }
-
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted("Animation Sync");
-                ElezenImgui.GetBooleanIcon(!isDisableAnimations);
-                ImGui.SameLine(230);
-                if (ElezenImgui.ShowIconButton(isDisableAnimations ? FontAwesomeIcon.Running : FontAwesomeIcon.Stop,
-                        isDisableAnimations ? "Enable animation sync" : "Disable animation sync"))
-                {
-                    perm.SetDisableAnimations(!perm.IsDisableAnimations());
-                    _ = _apiController.GroupChangeGroupPermissionState(new(GroupFullInfo.Group, perm));
-                }
-
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted("VFX Sync");
-                ElezenImgui.GetBooleanIcon(!isDisableVfx);
-                ImGui.SameLine(230);
-                if (ElezenImgui.ShowIconButton(isDisableVfx ? FontAwesomeIcon.Sun : FontAwesomeIcon.Circle,
-                        isDisableVfx ? "Enable VFX sync" : "Disable VFX sync"))
-                {
-                    perm.SetDisableVFX(!perm.IsDisableVFX());
-                    _ = _apiController.GroupChangeGroupPermissionState(new(GroupFullInfo.Group, perm));
-                }
-            }
-            permissionTab.Dispose();
-
-            var auditTab = ImRaii.TabItem("Audit History");
-            if (auditTab)
-            {
-                DrawAuditHistory();
-            }
-            auditTab.Dispose();
-
-            if (_isOwner)
-            {
-                var ownerTab = ImRaii.TabItem("Owner Settings");
-                if (ownerTab)
-                {
-                    ImGui.AlignTextToFramePadding();
-                    ImGui.TextUnformatted("New Password");
-                    var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
-                    var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.Passport, "Change Password");
-                    var textSize = ImGui.CalcTextSize("New Password").X;
-                    var spacing = ImGui.GetStyle().ItemSpacing.X;
-
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(availableWidth - buttonSize - textSize - spacing * 2);
-                    ImGui.InputTextWithHint("##changepw", "Min 10 characters", ref _newPassword, 50);
-                    ImGui.SameLine();
-                    using (ImRaii.Disabled(_newPassword.Length < 10))
-                    {
-                        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Passport, "Change Password"))
-                        {
-                            _pwChangeSuccess = _apiController.GroupChangePassword(new GroupPasswordDto(GroupFullInfo.Group, _newPassword)).Result;
-                            _newPassword = string.Empty;
-                        }
-                    }
-                    ElezenImgui.AttachTooltip("Password requires to be at least 10 characters long. This action is irreversible.");
-                    
-                    if (!_pwChangeSuccess)
-                    {
-                        ElezenImgui.ColouredWrappedText("Failed to change the password. Password requires to be at least 10 characters long.", ImGuiColors.DalamudYellow);
-                    }
-
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Syncshell") && UiSharedService.CtrlPressed() && UiSharedService.ShiftPressed())
-                    {
-                        IsOpen = false;
-                        _ = _apiController.GroupDelete(new(GroupFullInfo.Group));
-                    }
-                    ElezenImgui.AttachTooltip("Hold CTRL and Shift and click to delete this Syncshell." + Environment.NewLine +"WARNING: this action is irreversible.");
-                }
-                ownerTab.Dispose();
-            }
-        }
+        NormalizeSelectedTab();
+        DrawAdminSidebar();
+        ImGui.SameLine(0f, 8f * ImGuiHelpers.GlobalScale);
+        DrawAdminContent();
 
         DrawMemberLabelEditorModal();
+    }
+
+    private void DrawAdminContent()
+    {
+        using var childBg = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactBg);
+        using var contentPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(16f, 12f) * ImGuiHelpers.GlobalScale);
+        using var content = ImRaii.Child("syncshell_admin_content", new Vector2(-1, -1), false);
+        if (!content)
+        {
+            return;
+        }
+
+        switch (_selectedTab)
+        {
+            case SyncshellAdminTab.Performance:
+                DrawPerformanceTab();
+                break;
+            case SyncshellAdminTab.Settings:
+                DrawSyncshellSettings();
+                break;
+            case SyncshellAdminTab.Community:
+                _communityManagementPanel.DrawCommunity(GroupFullInfo);
+                break;
+            case SyncshellAdminTab.Directory:
+                _communityManagementPanel.DrawDirectory(GroupFullInfo);
+                break;
+            case SyncshellAdminTab.Invites:
+                DrawInvitesTab();
+                break;
+            case SyncshellAdminTab.Members:
+                _memberManagementPanel.DrawMembers(GroupFullInfo, _isOwner, _isModerator, OpenMemberLabelEditor);
+                break;
+            case SyncshellAdminTab.Cleanup:
+                _memberManagementPanel.DrawCleanup(GroupFullInfo);
+                break;
+            case SyncshellAdminTab.Bans:
+                _memberManagementPanel.DrawBans(GroupFullInfo);
+                break;
+            case SyncshellAdminTab.Permissions:
+                DrawPermissionsTab();
+                break;
+            case SyncshellAdminTab.Audit:
+                DrawAuditHistory();
+                break;
+            case SyncshellAdminTab.Owner:
+                DrawOwnerSettingsTab();
+                break;
+        }
+    }
+
+    private void DrawPerformanceTab()
+    {
+        if (_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var budgetPairs))
+        {
+            _syncshellBudgetPanel.Draw(GroupFullInfo, budgetPairs
+                .Where(p => !string.Equals(p.UserData.UID, _apiController.UID, StringComparison.Ordinal))
+                .ToList());
+        }
+        else
+        {
+            _syncshellBudgetPanel.Draw(GroupFullInfo, []);
+        }
+    }
+
+    private void DrawInvitesTab()
+    {
+        var perm = GroupFullInfo.GroupPermissions;
+        bool isInvitesDisabled = perm.IsDisableInvites();
+
+        using (ImRaii.Disabled(_groupPermissionOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(isInvitesDisabled ? FontAwesomeIcon.Unlock : FontAwesomeIcon.Lock,
+                    isInvitesDisabled ? "Unlock Syncshell" : "Lock Syncshell"))
+            {
+                perm.SetDisableInvites(!isInvitesDisabled);
+                RunGroupPermissionChange(perm);
+            }
+        }
+        DrawOperationStatus(_groupPermissionOperation, "Saving...");
+
+        ImGuiHelpers.ScaledDummy(2f);
+
+        ElezenImgui.WrappedText("One-time invites work as single-use passwords. Use those if you do not want to distribute your Syncshell password.");
+        using (ImRaii.Disabled(_singleInviteOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Envelope, "Single one-time invite"))
+            {
+                _ = _singleInviteOperation.Run(() => _apiController.GroupCreateTempInvite(new(GroupFullInfo.Group), 1));
+            }
+        }
+        ElezenImgui.AttachTooltip("Creates a single-use password for joining the syncshell which is valid for 24h and copies it to the clipboard.");
+        DrawOperationStatus(_singleInviteOperation, "Generating...");
+        ImGui.InputInt("##amountofinvites", ref _multiInvites);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_multiInvites <= 1 || _multiInvites > 100 || _bulkInviteOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Envelope, string.Format(CultureInfo.CurrentCulture, "Generate {0} one-time invites", _multiInvites)))
+            {
+                _ = _bulkInviteOperation.Run(() => _apiController.GroupCreateTempInvite(new(GroupFullInfo.Group), _multiInvites));
+            }
+        }
+        DrawOperationStatus(_bulkInviteOperation, "Generating...");
+
+        if (_oneTimeInvites.Count > 0)
+        {
+            var invites = string.Join(Environment.NewLine, _oneTimeInvites);
+            ImGui.InputTextMultiline("Generated Multi Invites", ref invites, 5000, new(0, 0), ImGuiInputTextFlags.ReadOnly);
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy Invites to clipboard"))
+            {
+                ImGui.SetClipboardText(invites);
+            }
+        }
+    }
+
+    private void DrawPermissionsTab()
+    {
+        var perm = GroupFullInfo.GroupPermissions;
+        bool isDisableAnimations = perm.IsDisableAnimations();
+        bool isDisableSounds = perm.IsDisableSounds();
+        bool isDisableVfx = perm.IsDisableVFX();
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Sound Sync");
+        ElezenImgui.GetBooleanIcon(!isDisableSounds);
+        ImGui.SameLine(230);
+        using (ImRaii.Disabled(_groupPermissionOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(isDisableSounds ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute,
+                    isDisableSounds ? "Enable sound sync" : "Disable sound sync"))
+            {
+                perm.SetDisableSounds(!perm.IsDisableSounds());
+                RunGroupPermissionChange(perm);
+            }
+        }
+        DrawOperationStatus(_groupPermissionOperation, "Saving...");
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Animation Sync");
+        ElezenImgui.GetBooleanIcon(!isDisableAnimations);
+        ImGui.SameLine(230);
+        using (ImRaii.Disabled(_groupPermissionOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(isDisableAnimations ? FontAwesomeIcon.Running : FontAwesomeIcon.Stop,
+                    isDisableAnimations ? "Enable animation sync" : "Disable animation sync"))
+            {
+                perm.SetDisableAnimations(!perm.IsDisableAnimations());
+                RunGroupPermissionChange(perm);
+            }
+        }
+        DrawOperationStatus(_groupPermissionOperation, "Saving...");
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("VFX Sync");
+        ElezenImgui.GetBooleanIcon(!isDisableVfx);
+        ImGui.SameLine(230);
+        using (ImRaii.Disabled(_groupPermissionOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(isDisableVfx ? FontAwesomeIcon.Sun : FontAwesomeIcon.Circle,
+                    isDisableVfx ? "Enable VFX sync" : "Disable VFX sync"))
+            {
+                perm.SetDisableVFX(!perm.IsDisableVFX());
+                RunGroupPermissionChange(perm);
+            }
+        }
+        DrawOperationStatus(_groupPermissionOperation, "Saving...");
+    }
+
+    private void DrawOwnerSettingsTab()
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("New Password");
+        var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
+        var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.Passport, "Change Password");
+        var textSize = ImGui.CalcTextSize("New Password").X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(availableWidth - buttonSize - textSize - spacing * 2);
+        ImGui.InputTextWithHint("##changepw", "Min 10 characters", ref _newPassword, 50);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_newPassword.Length < 10 || _passwordChangeOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Passport, "Change Password"))
+            {
+                var newPassword = _newPassword;
+                _passwordChangeMessage = string.Empty;
+                _passwordChangeIsError = false;
+                _newPassword = string.Empty;
+                _ = _passwordChangeOperation.Run(() => _apiController.GroupChangePassword(new GroupPasswordDto(GroupFullInfo.Group, newPassword)));
+            }
+        }
+        ElezenImgui.AttachTooltip("Password requires to be at least 10 characters long. This action is irreversible.");
+
+        DrawOperationStatus(_passwordChangeOperation, "Changing password...");
+        if (!string.IsNullOrWhiteSpace(_passwordChangeMessage))
+        {
+            ElezenImgui.ColouredWrappedText(_passwordChangeMessage,
+                _passwordChangeIsError ? ImGuiColors.DalamudYellow : ImGuiColors.HealerGreen);
+        }
+
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete Syncshell") && ElezenImgui.CtrlPressed() && ElezenImgui.ShiftPressed())
+        {
+            IsOpen = false;
+            _ = _apiController.GroupDelete(new(GroupFullInfo.Group));
+        }
+        ElezenImgui.AttachTooltip("Hold CTRL and Shift and click to delete this Syncshell." + Environment.NewLine + "WARNING: this action is irreversible.");
     }
 
     public override void OnClose()
@@ -566,18 +365,19 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         ImGui.SetNextItemWidth(availableWidth - buttonSize - textSize - spacing * 2);
         ImGui.InputTextWithHint("##syncshellalias", "Blank uses Syncshell ID", ref _syncshellAlias, 50);
         ImGui.SameLine();
-        using (ImRaii.Disabled(!aliasChanged || _aliasChangeTask != null))
+        using (ImRaii.Disabled(!aliasChanged || _aliasChangeOperation.IsRunning))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Name"))
             {
                 _aliasChangeMessage = string.Empty;
                 _aliasChangeIsError = false;
-                _aliasChangeTask = _apiController.GroupChangeAlias(new GroupAliasDto(
+                _ = _aliasChangeOperation.Run(() => _apiController.GroupChangeAlias(new GroupAliasDto(
                     GroupFullInfo.Group,
-                    string.IsNullOrWhiteSpace(requestedAlias) ? null : requestedAlias));
+                    string.IsNullOrWhiteSpace(requestedAlias) ? null : requestedAlias)));
             }
         }
         ElezenImgui.AttachTooltip("Syncshell names must be unique. Leave blank to show the Syncshell ID.");
+        DrawOperationStatus(_aliasChangeOperation, "Saving...");
 
         if (!string.IsNullOrWhiteSpace(_aliasChangeMessage))
         {
@@ -588,15 +388,15 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
 
     private void ConsumeAliasChangeTask()
     {
-        if (_aliasChangeTask == null || !_aliasChangeTask.IsCompleted)
+        if (!_aliasChangeOperation.IsCompleted)
         {
             return;
         }
 
-        if (_aliasChangeTask.IsCompletedSuccessfully)
+        if (!_aliasChangeOperation.Faulted)
         {
-            var result = _aliasChangeTask.Result;
-            if (result.Success)
+            var result = _aliasChangeOperation.Result;
+            if (result?.Success == true)
             {
                 _syncshellAlias = result.GroupInfo?.Group.Alias ?? string.Empty;
                 _aliasChangeMessage = "Syncshell name updated.";
@@ -604,7 +404,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
             }
             else
             {
-                _aliasChangeMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                _aliasChangeMessage = string.IsNullOrWhiteSpace(result?.ErrorMessage)
                     ? "Failed to update syncshell name."
                     : result.ErrorMessage;
                 _aliasChangeIsError = true;
@@ -612,33 +412,101 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         }
         else
         {
-            _logger.LogWarning(_aliasChangeTask.Exception, "Failed to update syncshell alias for {gid}", GroupFullInfo.GID);
+            LogSyncshellAliasUpdateFailed(_logger, GroupFullInfo.GID, _aliasChangeOperation.Error);
             _aliasChangeMessage = "Failed to update syncshell name.";
             _aliasChangeIsError = true;
         }
 
-        _aliasChangeTask = null;
+        _aliasChangeOperation.Reset();
     }
 
-    private void ConsumeAuditLogTask()
+    private void ConsumeInviteTasks()
     {
-        if (_auditLogTask == null || !_auditLogTask.IsCompleted)
+        if (_singleInviteOperation.IsCompleted)
+        {
+            if (!_singleInviteOperation.Faulted)
+            {
+                ImGui.SetClipboardText(_singleInviteOperation.Result?.FirstOrDefault() ?? string.Empty);
+            }
+
+            _singleInviteOperation.Reset();
+        }
+
+        if (_bulkInviteOperation.IsCompleted)
+        {
+            if (!_bulkInviteOperation.Faulted)
+            {
+                _oneTimeInvites.AddRange(_bulkInviteOperation.Result ?? []);
+            }
+
+            _bulkInviteOperation.Reset();
+        }
+    }
+
+    private void ConsumePasswordChangeTask()
+    {
+        if (!_passwordChangeOperation.IsCompleted)
         {
             return;
         }
 
-        if (_auditLogTask.IsCompletedSuccessfully)
+        if (_passwordChangeOperation.Faulted)
         {
-            var result = _auditLogTask.Result;
-            _auditEntries = result.Entries;
-            _auditTotalCount = result.TotalCount;
+            _passwordChangeMessage = _passwordChangeOperation.Error ?? "Failed to change the password.";
+            _passwordChangeIsError = true;
         }
-        else if (_auditLogTask.Exception != null)
+        else if (_passwordChangeOperation.Result)
         {
-            _logger.LogWarning(_auditLogTask.Exception, "Failed to load syncshell audit history for {gid}", GroupFullInfo.GID);
+            _passwordChangeMessage = "Syncshell password updated.";
+            _passwordChangeIsError = false;
+        }
+        else
+        {
+            _passwordChangeMessage = "Failed to change the password. Password requires to be at least 10 characters long.";
+            _passwordChangeIsError = true;
         }
 
-        _auditLogTask = null;
+        _passwordChangeOperation.Reset();
+    }
+
+    private void ConsumeAuditLogTask()
+    {
+        if (!_auditLogOperation.IsCompleted)
+        {
+            return;
+        }
+
+        if (!_auditLogOperation.Faulted)
+        {
+            var result = _auditLogOperation.Result;
+            _auditEntries = result?.Entries ?? [];
+            _auditTotalCount = result?.TotalCount ?? 0;
+        }
+        else
+        {
+            LogSyncshellAuditLoadFailed(_logger, GroupFullInfo.GID, _auditLogOperation.Error);
+        }
+
+        _auditLogOperation.Reset();
+    }
+
+    private void RunGroupPermissionChange(GroupPermissions permissions)
+    {
+        _ = _groupPermissionOperation.Run(() => _apiController.GroupChangeGroupPermissionState(new(GroupFullInfo.Group, permissions)));
+    }
+
+    private static void DrawOperationStatus(AsyncOp op, string runningText)
+    {
+        if (op.IsRunning)
+        {
+            ImGui.SameLine();
+            ElezenImgui.ColouredText(runningText, ImGuiColors.DalamudYellow);
+        }
+        else if (op.Faulted)
+        {
+            ImGui.SameLine();
+            ElezenImgui.ColouredText(op.Error ?? "Failed", ImGuiColors.DalamudRed);
+        }
     }
 
     private void DrawAuditHistory()
@@ -649,7 +517,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         }
 
         ImGui.SameLine();
-        using (ImRaii.Disabled(!_auditEntries.Any()))
+        using (ImRaii.Disabled(_auditEntries.Count == 0))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Copy, "Copy Current Page"))
             {
@@ -698,7 +566,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
 
         ImGuiHelpers.ScaledDummy(2f);
 
-        using (ImRaii.Disabled(_auditSkip <= 0 || _auditLogTask != null))
+        using (ImRaii.Disabled(_auditSkip <= 0 || _auditLogOperation.IsRunning))
         {
             if (ImGui.Button("Previous"))
             {
@@ -707,7 +575,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         }
 
         ImGui.SameLine();
-        using (ImRaii.Disabled(_auditSkip + AuditPageSize >= _auditTotalCount || _auditLogTask != null))
+        using (ImRaii.Disabled(_auditSkip + AuditPageSize >= _auditTotalCount || _auditLogOperation.IsRunning))
         {
             if (ImGui.Button("Next"))
             {
@@ -721,9 +589,13 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted($"Showing {pageStart}-{pageEnd} of {_auditTotalCount}");
 
-        if (_auditLogTask != null)
+        if (_auditLogOperation.IsRunning)
         {
             ElezenImgui.ColouredWrappedText("Loading audit history...", ImGuiColors.DalamudYellow);
+        }
+        else if (_auditLogOperation.Faulted)
+        {
+            ElezenImgui.ColouredWrappedText(_auditLogOperation.Error ?? "Failed to load audit history.", ImGuiColors.DalamudRed);
         }
 
         using var table = ImRaii.Table("auditHistoryTable_" + GroupFullInfo.GID, 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY);
@@ -739,7 +611,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableHeadersRow();
 
-        if (!_auditEntries.Any() && _auditLogTask == null)
+        if (_auditEntries.Count == 0 && !_auditLogOperation.IsRunning)
         {
             ImGui.TableNextColumn();
             ElezenImgui.ColouredWrappedText("No audit entries found for the current filters.", ImGuiColors.DalamudYellow);
@@ -817,11 +689,11 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
     private void RequestAuditLogPage(int skip)
     {
         _auditSkip = Math.Max(0, skip);
-        _auditLogTask = _apiController.GroupGetAuditLog(new GroupAuditQueryDto(GroupFullInfo.Group, _auditSkip, AuditPageSize)
+        _ = _auditLogOperation.Run(() => _apiController.GroupGetAuditLog(new GroupAuditQueryDto(GroupFullInfo.Group, _auditSkip, AuditPageSize)
         {
             Action = _auditActionFilter,
             Search = string.IsNullOrWhiteSpace(_auditSearch) ? null : _auditSearch.Trim()
-        });
+        }));
     }
 
     private void OpenMemberLabelEditor(GroupPairFullInfoDto memberInfo)
@@ -829,6 +701,7 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
         _memberLabelEditorTarget = memberInfo;
         _memberLabelDraft = SyncshellMemberLabelUi.NormalizeSingleSelection(memberInfo.MemberLabels);
         _memberLabelError = string.Empty;
+        _memberLabelSaveOperation.Reset();
         _showMemberLabelEditor = true;
         _memberLabelEditorPopupPendingOpen = true;
     }
@@ -843,8 +716,10 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
             _memberLabelEditorPopupPendingOpen = false;
         }
 
-        if (ImGui.BeginPopupModal(popupTitle, ref _showMemberLabelEditor, UiSharedService.PopupWindowFlags))
+        if (ImGui.BeginPopupModal(popupTitle, ref _showMemberLabelEditor, SnowcloakUi.PopupWindowFlags))
         {
+            ConsumeMemberLabelSave();
+
             if (_memberLabelEditorTarget == null)
             {
                 _showMemberLabelEditor = false;
@@ -906,27 +781,57 @@ public class SyncshellAdminUI : WindowMediatorSubscriberBase
             }
 
             ImGui.Separator();
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Role"))
+            using (ImRaii.Disabled(_memberLabelSaveOperation.IsRunning))
             {
-                var success = _apiController.GroupSetMemberLabels(new GroupMemberLabelsDto(GroupFullInfo.Group, _memberLabelEditorTarget.User, _memberLabelDraft)).Result;
-                if (success)
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save Role"))
+                {
+                    var target = _memberLabelEditorTarget;
+                    var labels = _memberLabelDraft.ToList();
+                    _ = _memberLabelSaveOperation.Run(() => _apiController.GroupSetMemberLabels(new GroupMemberLabelsDto(GroupFullInfo.Group, target.User, labels)));
+                }
+            }
+            DrawOperationStatus(_memberLabelSaveOperation, "Saving...");
+
+            ImGui.SameLine();
+            using (ImRaii.Disabled(_memberLabelSaveOperation.IsRunning))
+            {
+                if (ImGui.Button("Cancel"))
                 {
                     _showMemberLabelEditor = false;
                 }
-                else
-                {
-                    _memberLabelError = "Unable to save roles. The member may have left the syncshell, your permissions changed, or the selection failed validation.";
-                }
             }
 
-            ImGui.SameLine();
-            if (ImGui.Button("Cancel"))
-            {
-                _showMemberLabelEditor = false;
-            }
-
-            UiSharedService.SetScaledWindowSize(430, centerWindow: false);
+            ElezenImgui.SetScaledWindowSize(430, centerWindow: false);
             ImGui.EndPopup();
         }
     }
+
+    private void ConsumeMemberLabelSave()
+    {
+        if (!_memberLabelSaveOperation.IsCompleted)
+        {
+            return;
+        }
+
+        if (_memberLabelSaveOperation.Faulted)
+        {
+            _memberLabelError = _memberLabelSaveOperation.Error ?? "Unable to save roles.";
+        }
+        else if (_memberLabelSaveOperation.Result)
+        {
+            _showMemberLabelEditor = false;
+        }
+        else
+        {
+            _memberLabelError = "Unable to save roles. The member may have left the syncshell, your permissions changed, or the selection failed validation.";
+        }
+
+        _memberLabelSaveOperation.Reset();
+    }
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Warning, Message = "Failed to update syncshell alias for {Gid}: {Message}")]
+    private static partial void LogSyncshellAliasUpdateFailed(ILogger logger, string gid, string? message);
+
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Failed to load syncshell audit history for {Gid}: {Message}")]
+    private static partial void LogSyncshellAuditLoadFailed(ILogger logger, string gid, string? message);
 }

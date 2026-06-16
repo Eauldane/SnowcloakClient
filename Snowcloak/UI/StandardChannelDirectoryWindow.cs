@@ -20,10 +20,10 @@ using System.Numerics;
 
 namespace Snowcloak.UI;
 
-public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBase
+public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBase, IStaticWindow
 {
     private readonly ApiController _apiController;
-    private readonly ServerConfigurationManager _serverManager;
+    private readonly ShellConfigStore _shellConfigStore;
     private readonly List<ChatChannelData> _channels = [];
     private readonly HashSet<string> _joinedChannelIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _channelUserCounts = new(StringComparer.Ordinal);
@@ -33,18 +33,14 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
     private bool _hasUserCounts;
 
     public StandardChannelDirectoryWindow(ILogger<StandardChannelDirectoryWindow> logger, SnowMediator mediator,
-        ApiController apiController, ServerConfigurationManager serverManager,
+        ApiController apiController, ShellConfigStore shellConfigStore,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Standard Channels###SnowcloakStandardChannels", performanceCollectorService)
     {
         _apiController = apiController;
-        _serverManager = serverManager;
+        _shellConfigStore = shellConfigStore;
 
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(520, 360),
-            MaximumSize = new Vector2(900, 1200)
-        };
+        SetScaledSizeConstraints(new Vector2(520, 360), new Vector2(900, 1200));
 
         Mediator.Subscribe<ConnectedMessage>(this, message =>
         {
@@ -201,7 +197,7 @@ public sealed class StandardChannelDirectoryWindow : WindowMediatorSubscriberBas
     private void LoadJoinedChannels()
     {
         _joinedChannelIds.Clear();
-        foreach (var channel in _serverManager.GetJoinedStandardChannels())
+        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
         {
             _joinedChannelIds.Add(channel.ChannelId);
         }

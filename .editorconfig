@@ -244,6 +244,13 @@ dotnet_diagnostic.MA0026.severity = warning
 dotnet_diagnostic.MA0046.severity = suggestion
 dotnet_diagnostic.MA0051.severity = suggestion
 dotnet_diagnostic.MA0011.severity = suggestion
+# MA0008 (Add StructLayoutAttribute) is noise for managed domain value-structs, whose default
+# auto-layout is what we want; silenced so Core (on the TreatWarningsAsErrors ratchet) stays clean.
+dotnet_diagnostic.MA0008.severity = silent
+dotnet_diagnostic.MA0048.severity = silent
+dotnet_diagnostic.S3267.severity = silent
+dotnet_diagnostic.S6605.severity = none
+dotnet_diagnostic.S6678.severity = none
 
 [*.{cs,vb}]
 dotnet_style_operator_placement_when_wrapping = beginning_of_line

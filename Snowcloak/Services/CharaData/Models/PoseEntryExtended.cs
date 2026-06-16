@@ -1,10 +1,11 @@
 ﻿using Dalamud.Utility;
-using ElezenTools.Services;
 using Lumina.Excel.Sheets;
 using Snowcloak.API.Dto.CharaData;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+
+using ElezenTools.Services;
 
 namespace Snowcloak.Services.CharaData.Models;
 
@@ -38,15 +39,15 @@ public sealed record PoseEntryExtended : PoseEntry
         if (newPose.HasWorldData)
         {
             var worldData = newPose.WorldData!.Value;
-            newPose.MapCoordinates = await Service.UseFramework(() =>
-                    MapUtil.WorldToMap(new Vector2(worldData.PositionX, worldData.PositionY), dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map))
+            newPose.MapCoordinates = await Service.RunOnFrameworkAsync(() =>
+                    MapUtil.WorldToMap(new Vector2(worldData.PositionX, worldData.PositionY), dalamudUtilService.Maps[worldData.LocationInfo.MapId].Map))
                 .ConfigureAwait(false);
-            newPose.Map = dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].Map;
+            newPose.Map = dalamudUtilService.Maps[worldData.LocationInfo.MapId].Map;
 
             StringBuilder sb = new();
-            sb.AppendLine("Server: " + dalamudUtilService.WorldData.Value[(ushort)worldData.LocationInfo.ServerId]);
-            sb.AppendLine("Territory: " + dalamudUtilService.TerritoryData.Value[worldData.LocationInfo.TerritoryId]);
-            sb.AppendLine("Map: " + dalamudUtilService.MapData.Value[worldData.LocationInfo.MapId].MapName);
+            sb.AppendLine("Server: " + dalamudUtilService.WorldData[(ushort)worldData.LocationInfo.ServerId]);
+            sb.AppendLine("Territory: " + dalamudUtilService.TerritoryData[worldData.LocationInfo.TerritoryId]);
+            sb.AppendLine("Map: " + dalamudUtilService.Maps[worldData.LocationInfo.MapId].MapName);
 
             if (worldData.LocationInfo.WardId != 0)
                 sb.AppendLine("Ward #: " + worldData.LocationInfo.WardId);

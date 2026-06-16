@@ -182,6 +182,22 @@ public partial class ApiController
         }
     }
 
+    public async Task<List<UserData>> GposeLobbyRejoin(string lobbyId)
+    {
+        if (!IsConnected) return [];
+
+        try
+        {
+            Logger.LogDebug("Rejoining GPose Lobby {id}", lobbyId);
+            return await _snowHub!.InvokeAsync<List<UserData>>(nameof(GposeLobbyRejoin), lobbyId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to rejoin GPose lobby {id}", lobbyId);
+            return [];
+        }
+    }
+
     public async Task GposeLobbyPushCharacterData(CharaDataDownloadDto charaDownloadDto)
     {
         if (!IsConnected) return;
@@ -194,6 +210,21 @@ public partial class ApiController
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to send Chara Data to GPose lobby");
+        }
+    }
+
+    public async Task GposeLobbyPushCharacterDataTo(string targetUid, CharaDataDownloadDto charaDownloadDto)
+    {
+        if (!IsConnected) return;
+
+        try
+        {
+            Logger.LogDebug("Sending Chara Data to GPose Lobby member {uid}", targetUid);
+            await _snowHub!.InvokeAsync(nameof(GposeLobbyPushCharacterDataTo), targetUid, charaDownloadDto).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to send Chara Data to GPose lobby member {uid}", targetUid);
         }
     }
 

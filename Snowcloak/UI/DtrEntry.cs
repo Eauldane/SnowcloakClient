@@ -1,19 +1,16 @@
 ﻿using Dalamud.Game.Gui.Dtr;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using ElezenTools.UI;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
-using System.Runtime.InteropServices;
+using System.Globalization;
 
 namespace Snowcloak.UI;
 
-public sealed class DtrEntry : IDisposable, IHostedService
+public sealed class DtrEntry : DtrEntryBase
 {
     private enum DtrStyle
     {
@@ -32,112 +29,46 @@ public sealed class DtrEntry : IDisposable, IHostedService
     public const int NumStyles = 10;
 
     private readonly ApiController _apiController;
-    private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly SnowcloakConfigService _configService;
-    private readonly IDtrBar _dtrBar;
-    private readonly Lazy<IDtrBarEntry> _entry;
-    private readonly ILogger<DtrEntry> _logger;
     private readonly SnowMediator _snowMediator;
     private readonly PairManager _pairManager;
-    private Task? _runTask;
     private string? _text;
     private string? _tooltip;
     private ElezenStrings.Colour _colors;
 
     public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator, PairManager pairManager, ApiController apiController)
+        : base(logger, dtrBar, "Snowcloak")
     {
-        _logger = logger;
-        _dtrBar = dtrBar;
-        _entry = new(CreateEntry);
         _configService = configService;
         _snowMediator = snowMediator;
         _pairManager = pairManager;
         _apiController = apiController;
     }
 
-    public void Dispose()
+    protected override void ResetCachedState()
     {
-        if (_entry.IsValueCreated)
-        {
-            _logger.LogDebug("Disposing DtrEntry");
-            Clear();
-            _entry.Value.Remove();
-        }
-    }
-
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Starting DtrEntry");
-        _runTask = Task.Run(RunAsync, _cancellationTokenSource.Token);
-        _logger.LogInformation("Started DtrEntry");
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _cancellationTokenSource.Cancel();
-        try
-        {
-            await _runTask!.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // ignore cancelled
-        }
-        finally
-        {
-            _cancellationTokenSource.Dispose();
-        }
-    }
-
-    private void Clear()
-    {
-        if (!_entry.IsValueCreated) return;
-        _logger.LogInformation("Clearing entry");
         _text = null;
         _tooltip = null;
         _colors = default;
-
-        _entry.Value.Shown = false;
     }
 
-    private IDtrBarEntry CreateEntry()
+    protected override void ConfigureEntry(IDtrBarEntry entry)
     {
-        _logger.LogTrace("Creating new DtrBar entry");
-        var entry = _dtrBar.Get("Snowcloak");
         entry.OnClick = _ => _snowMediator.Publish(new UiToggleMessage(typeof(CompactUi)));
-
-        return entry;
     }
 
-    private async Task RunAsync()
-    {
-        while (!_cancellationTokenSource.IsCancellationRequested)
-        {
-            await Task.Delay(1000, _cancellationTokenSource.Token).ConfigureAwait(false);
-
-            Update();
-        }
-    }
-
-    private void Update()
+    protected override void UpdateEntry()
     {
         if (!_configService.Current.EnableDtrEntry || !_configService.Current.HasValidSetup())
         {
-            if (_entry.IsValueCreated && _entry.Value.Shown)
+            if (HasVisibleEntry)
             {
-                _logger.LogInformation("Disabling entry");
-
-                Clear();
+                HideEntry();
             }
             return;
         }
 
-        if (!_entry.Value.Shown)
-        {
-            _logger.LogInformation("Showing entry");
-            _entry.Value.Shown = true;
-        }
+        ShowEntry();
 
         string text;
         string tooltip;
@@ -146,7 +77,7 @@ public sealed class DtrEntry : IDisposable, IHostedService
         {
             var pairCount = _pairManager.GetVisibleUserCount();
 
-            text = RenderDtrStyle(_configService.Current.DtrStyle, pairCount.ToString());
+            text = RenderDtrStyle(_configService.Current.DtrStyle, pairCount.ToString(CultureInfo.InvariantCulture));
             if (pairCount > 0)
             {
                 IEnumerable<string> visiblePairs;
@@ -154,13 +85,14 @@ public sealed class DtrEntry : IDisposable, IHostedService
                 {
                     visiblePairs = _pairManager.GetOnlineUserPairs()
                         .Where(x => x.IsVisible)
-                        .Select(x => string.Format("{0} ({1})", _configService.Current.PreferNoteInDtrTooltip ? x.GetNoteOrName() : x.PlayerName, x.UserData.AliasOrUID));
+                        .Select(x => string.Format(CultureInfo.InvariantCulture, "{0} ({1})", _configService.Current.PreferNoteInDtrTooltip ? x.GetNoteOrName() : x.PlayerName, x.UserData.AliasOrUID));
                 }
                 else
                 {
                     visiblePairs = _pairManager.GetOnlineUserPairs()
                         .Where(x => x.IsVisible)
-                        .Select(x => string.Format("{0}", _configService.Current.PreferNoteInDtrTooltip ? x.GetNoteOrName() : x.PlayerName));
+                        .Select(x => (_configService.Current.PreferNoteInDtrTooltip ? x.GetNoteOrName() : x.PlayerName)
+                                     ?? x.UserData.AliasOrUID);
                 }
 
                 tooltip = $"Snowcloak: Connected{Environment.NewLine}----------{Environment.NewLine}{string.Join(Environment.NewLine, visiblePairs)}";
@@ -187,8 +119,8 @@ public sealed class DtrEntry : IDisposable, IHostedService
             _text = text;
             _tooltip = tooltip;
             _colors = colors;
-            _entry.Value.Text = ElezenStrings.BuildColouredString(text, colors);
-            _entry.Value.Tooltip = tooltip;
+            Entry.Text = ElezenStrings.BuildColouredString(text, colors);
+            Entry.Tooltip = tooltip;
         }
     }
 

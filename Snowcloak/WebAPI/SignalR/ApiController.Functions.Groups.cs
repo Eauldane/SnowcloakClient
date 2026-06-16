@@ -106,6 +106,54 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<GroupAuditPageDto>(nameof(GroupGetAuditLog), query).ConfigureAwait(false);
     }
 
+    public async Task<GroupCommunityDto> GroupGetCommunity(GroupDto group)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupCommunityDto>(nameof(GroupGetCommunity), group).ConfigureAwait(false);
+    }
+
+    public async Task<GroupCommunityDto> GroupSetMotd(GroupMotdUpdateDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupCommunityDto>(nameof(GroupSetMotd), dto).ConfigureAwait(false);
+    }
+
+    public async Task<GroupCommunityDto> GroupUpsertEvent(GroupEventUpsertDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupCommunityDto>(nameof(GroupUpsertEvent), dto).ConfigureAwait(false);
+    }
+
+    public async Task<GroupCommunityDto> GroupDeleteEvent(GroupEventDeleteDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupCommunityDto>(nameof(GroupDeleteEvent), dto).ConfigureAwait(false);
+    }
+
+    public async Task<GroupDirectoryListResponseDto> GroupDirectoryList(GroupDirectoryQueryDto query)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupDirectoryListResponseDto>(nameof(GroupDirectoryList), query).ConfigureAwait(false);
+    }
+
+    public async Task<GroupDirectoryListingDto> GroupDirectoryGetOwn(GroupDto group)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupDirectoryListingDto>(nameof(GroupDirectoryGetOwn), group).ConfigureAwait(false);
+    }
+
+    public async Task<GroupDirectoryListingDto> GroupDirectorySetListing(GroupDirectoryListingDto listing)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<GroupDirectoryListingDto>(nameof(GroupDirectorySetListing), listing).ConfigureAwait(false);
+    }
+
+    public async Task<bool> GroupDirectoryJoin(GroupDto group)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<bool>(nameof(GroupDirectoryJoin), group).ConfigureAwait(false);
+    }
+
     public async Task<List<BannedGroupUserDto>> GroupGetBannedUsers(GroupDto group)
     {
         CheckConnection();

@@ -147,8 +147,7 @@ public sealed class XivDataAnalyzer
             File.Delete(tempHavokDataPath);
         }
 
-        _configService.Current.BonesDictionary[hash] = output;
-        _configService.Save();
+        _configService.Update(c => c.BonesDictionary[hash] = output);
         return output;
     }
 
@@ -173,8 +172,7 @@ public sealed class XivDataAnalyzer
             if (file.LodCount <= 0)
             {
                 _failedCalculatedTris.Add(hash);
-                _configService.Current.TriangleDictionary[hash] = 0;
-                _configService.Save();
+                _configService.Update(c => c.TriangleDictionary[hash] = 0);
                 return 0;
             }
 
@@ -196,8 +194,7 @@ public sealed class XivDataAnalyzer
                 if (tris > 0)
                 {
                     _logger.LogDebug("TriAnalysis: {filePath} => {tris} triangles", filePath, tris);
-                    _configService.Current.TriangleDictionary[hash] = tris;
-                    _configService.Save();
+                    _configService.Update(c => c.TriangleDictionary[hash] = tris);
                     break;
                 }
             }
@@ -207,8 +204,7 @@ public sealed class XivDataAnalyzer
         catch (Exception e)
         {
             _failedCalculatedTris.Add(hash);
-            _configService.Current.TriangleDictionary[hash] = 0;
-            _configService.Save();
+            _configService.Update(c => c.TriangleDictionary[hash] = 0);
             _logger.LogWarning(e, "Could not parse file {file}", filePath);
             return 0;
         }
@@ -238,8 +234,7 @@ public sealed class XivDataAnalyzer
             if (texHeader.Format == default || texHeader.MipCount == 0 || texHeader.ArraySize != 0 || texHeader.MipCount > 13)
             {
                 _failedCalculatedTex.Add(hash);
-                _configService.Current.TexDictionary[hash] = default;
-                _configService.Save();
+                _configService.Update(c => c.TexDictionary[hash] = default);
                 return default;
             }
 
@@ -248,8 +243,7 @@ public sealed class XivDataAnalyzer
         catch (Exception e)
         {
             _failedCalculatedTex.Add(hash);
-            _configService.Current.TriangleDictionary[hash] = 0;
-            _configService.Save();
+            _configService.Update(c => c.TriangleDictionary[hash] = 0);
             _logger.LogWarning(e, "Could not parse file {file}", filePath);
             return default;
         }

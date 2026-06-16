@@ -1,14 +1,14 @@
-﻿using Snowcloak.Configuration.Configurations;
+using Snowcloak.Configuration.Configurations;
 
 namespace Snowcloak.Configuration;
 
-public class SyncshellConfigService : ConfigurationServiceBase<SyncshellConfig>
+public class SyncshellConfigService : StateDocument<SyncshellConfig>
 {
     public const string ConfigName = "syncshells.json";
 
-    public SyncshellConfigService(string configDir) : base(configDir)
+    public SyncshellConfigService(StateDocumentStore store) : base(store)
     {
     }
 
-    public override string ConfigurationName => ConfigName;
+    public override string FileName => ConfigName;
 }

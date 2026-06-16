@@ -19,12 +19,19 @@ public partial class MoodlesStatusData
     public MoodlesChainTrigger ChainTrigger;
     public string Applier = string.Empty;
     public string Dispeller = string.Empty;
+    [MemoryPackIgnore]
     public bool Persistent;
+    [MemoryPackIgnore]
     public int Days;
+    [MemoryPackIgnore]
     public int Hours;
+    [MemoryPackIgnore]
     public int Minutes;
+    [MemoryPackIgnore]
     public int Seconds;
+    [MemoryPackIgnore]
     public bool NoExpire;
+    [MemoryPackIgnore]
     public bool AsPermanent;
 }
 
@@ -121,22 +128,12 @@ public static class MoodlesDataParser
     public static bool TrySerializePayload(MoodlesStatusPayload payload, out string base64)
     {
         base64 = string.Empty;
-        try
-        {
-            if (payload.Manager != null)
-            {
-                payload.Manager.Statuses = payload.Statuses;
-                var managerData = MemoryPackSerializer.Serialize(payload.Manager, SerializerOptions);
-                base64 = Convert.ToBase64String(managerData);
-                return true;
-            }
-
-            return TrySerialize(payload.Statuses, out base64);
-        }
-        catch
+        if (payload == null)
         {
             return false;
         }
+
+        return TrySerialize(payload.Statuses, out base64);
     }
 
     private static bool TryDeserializeManager(byte[] data, out MoodlesStatusManagerData manager)
@@ -214,3 +211,4 @@ public partial class MoodlesStatusManagerData
     public bool Ephemeral;
     public bool WasTouchedByIPC;
 }
+

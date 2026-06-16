@@ -1,53 +1,24 @@
 ﻿using Dalamud.Game.ClientState.Objects;
-using Dalamud.Interface.ImGuiFileDialog;
-using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using ElezenTools;
-using Snowcloak.UI;
+using ElezenTools.Logging;
+using Snowcloak.Configuration;
+using Snowcloak.Initialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Snowcloak.FileCache;
-using Snowcloak.Interop;
-using Snowcloak.Interop.Ipc;
-using Snowcloak.Configuration;
-using Snowcloak.Configuration.Configurations;
-using Snowcloak.PlayerData.Factories;
-using Snowcloak.PlayerData.Pairs;
-using Snowcloak.PlayerData.Services;
-using Snowcloak.Services;
-using Snowcloak.Services.CharaData;
-using Snowcloak.Services.Events;
-using Snowcloak.Services.Mediator;
-using Snowcloak.Services.Venue;
-using Snowcloak.Services.ServerConfiguration;
-using Snowcloak.UI.Components.Popup;
-using Snowcloak.UI.Handlers;
-using Snowcloak.WebAPI;
-using Snowcloak.WebAPI.Files;
-using Snowcloak.WebAPI.SignalR;
-using IntroUi = Snowcloak.UI.IntroUi;
-using UiSharedService = Snowcloak.UI.UiSharedService;
-using Snowcloak.UI.Components.BbCode;
-using Snowcloak.Services.ModNullification;
 
 namespace Snowcloak;
 
-public sealed class Plugin : IDalamudPlugin
+public sealed class Plugin : IAsyncDalamudPlugin
 {
+    private static readonly TimeSpan HostStopTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan HostDisposeTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IHost _host;
-
-#pragma warning disable CA2211, CS8618, MA0069, S1104, S2223
-    public static Plugin Self;
-#pragma warning restore CA2211, CS8618, MA0069, S1104, S2223
-    public Action<IFramework>? RealOnFrameworkUpdate { get; set; }
-
-    // Proxy function in the SnowcloakSync namespace to avoid confusion in /xlstats
-    public void OnFrameworkUpdate(IFramework framework)
-    {
-        RealOnFrameworkUpdate?.Invoke(framework);
-    }
+    private readonly IPluginLog _pluginLog;
+    private int _disposeStarted;
 
     public Plugin(IDalamudPluginInterface pluginInterface, ICommandManager commandManager, IDataManager gameData,
         IFramework framework, IObjectTable objectTable, IPlayerState playerState, IClientState clientState, ICondition condition, IChatGui chatGui,
@@ -55,210 +26,149 @@ public sealed class Plugin : IDalamudPlugin
         ITextureProvider textureProvider, IContextMenu contextMenu, IGameInteropProvider gameInteropProvider,
         INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList)
     {
-        Plugin.Self = this;
-        ElezenTools.ElezenInit.Init(pluginInterface, this);
+        _pluginLog = pluginLog;
+        ElezenInit.Init(pluginInterface, this);
         _host = new HostBuilder()
         .UseContentRoot(pluginInterface.ConfigDirectory.FullName)
         .ConfigureLogging(lb =>
         {
             lb.ClearProviders();
-            lb.AddDalamudLogging(pluginLog);
+            lb.AddDalamudLogging(pluginLog, sp =>
+            {
+                var configService = sp.GetService<SnowcloakConfigService>();
+                return configService == null ? null : () => configService.Current.LogLevel;
+            });
             lb.SetMinimumLevel(LogLevel.Trace);
         })
         .ConfigureServices(collection =>
         {
-            collection.AddSingleton(new WindowSystem("Snowcloak"));
-            collection.AddSingleton<FileDialogManager>();
-
-            // add dalamud services
-            collection.AddSingleton(_ => pluginInterface);
-            collection.AddSingleton(_ => pluginInterface.UiBuilder);
-            collection.AddSingleton(_ => commandManager);
-            collection.AddSingleton(_ => gameData);
-            collection.AddSingleton(_ => framework);
-            collection.AddSingleton(_ => objectTable);
-            collection.AddSingleton(_ => clientState);
-            collection.AddSingleton(_ => playerState);
-            collection.AddSingleton(_ => condition);
-            collection.AddSingleton(_ => chatGui);
-            collection.AddSingleton(_ => gameGui);
-            collection.AddSingleton(_ => dtrBar);
-            collection.AddSingleton(_ => toastGui);
-            collection.AddSingleton(_ => pluginLog);
-            collection.AddSingleton(_ => targetManager);
-            collection.AddSingleton(_ => notificationManager);
-            collection.AddSingleton(_ => textureProvider);
-            collection.AddSingleton(_ => contextMenu);
-            collection.AddSingleton(_ => gameInteropProvider);
-            collection.AddSingleton(_ => namePlateGui);
-            collection.AddSingleton(_ => gameConfig);
-            collection.AddSingleton(_ => partyList);
-
-            // add snow related singletons
-            collection.AddSingleton<SnowMediator>();
-            collection.AddSingleton<FileCacheManager>();
-            collection.AddSingleton<DatabaseService>();
-
-            collection.AddSingleton<ServerConfigurationManager>();
-            collection.AddSingleton<SecretKeyBackupService>();
-            collection.AddSingleton<ApiController>();
-            collection.AddSingleton<PerformanceCollectorService>();
-            collection.AddSingleton<HubFactory>();
-            collection.AddSingleton<FileUploadManager>();
-            collection.AddSingleton<FileTransferOrchestrator>();
-            collection.AddSingleton<SnowPlugin>();
-            collection.AddSingleton<SnowProfileManager>();
-            collection.AddSingleton<CharacterProfileBackupService>();
-            collection.AddSingleton<GameObjectHandlerFactory>();
-            collection.AddSingleton<FileDownloadManagerFactory>();
-            collection.AddSingleton<PairHandlerFactory>();
-            collection.AddSingleton<PairAnalyzerFactory>();
-            collection.AddSingleton<PairFactory>();
-            collection.AddSingleton<XivDataAnalyzer>();
-            collection.AddSingleton<CharacterAnalyzer>();
-            collection.AddSingleton<TokenProvider>();
-            collection.AddSingleton<AccountRegistrationService>();
-            collection.AddSingleton<PluginWarningNotificationService>();
-            collection.AddSingleton<FileCompactor>();
-            collection.AddSingleton<TagHandler>();
-            collection.AddSingleton<UidDisplayHandler>();
-            collection.AddSingleton<PluginWatcherService>();
-            collection.AddSingleton<PlayerPerformanceService>();
-            collection.AddSingleton<HumanCmpDefaultsProvider>();
-            collection.AddSingleton<ModNullificationService>();
-            collection.AddSingleton<SyncTroubleshootingService>();
-            collection.AddSingleton<GpuMemoryBudgetService>();
-            collection.AddSingleton<SyncshellBudgetService>();
-            collection.AddSingleton<BbCodeRenderer>();
-            collection.AddSingleton<CharaDataManager>();
-            collection.AddSingleton<CharaDataFileHandler>();
-            collection.AddSingleton<CharaDataCharacterHandler>();
-            collection.AddSingleton<CharaDataNearbyManager>();
-            collection.AddSingleton<CharaDataGposeTogetherManager>();
-
-            collection.AddSingleton<VfxSpawnManager>();
-            collection.AddSingleton<BlockedCharacterHandler>();
-            collection.AddSingleton<IpcProvider>();
-            collection.AddSingleton<VisibilityService>();
-            collection.AddSingleton<EventAggregator>();
-            collection.AddSingleton<DalamudUtilService>();
-            collection.AddSingleton<DtrEntry>();
-            collection.AddSingleton<PairManager>();
-            collection.AddSingleton<PairRequestService>();
-            collection.AddSingleton<PairingAvailabilityDtrEntry>();
-            collection.AddSingleton<RedrawManager>();
-            collection.AddSingleton<IpcCallerPenumbra>();
-            collection.AddSingleton<IpcCallerGlamourer>();
-            collection.AddSingleton<IpcCallerCustomize>();
-            collection.AddSingleton<IpcCallerHeels>();
-            collection.AddSingleton<IpcCallerHonorific>();
-            collection.AddSingleton<IpcCallerMoodles>();
-            collection.AddSingleton<IpcCallerPetNames>();
-            collection.AddSingleton<IpcCallerBrio>();
-            collection.AddSingleton<IpcCallerSnow>();
-            collection.AddSingleton<IpcManager>();
-            collection.AddSingleton<NotificationService>();
-            collection.AddSingleton<VenueSyncshellService>();
-            collection.AddSingleton<VenueRegistrationService>();
-            collection.AddSingleton<VenueReminderService>();
-
-            collection.AddSingleton((s) => new SnowcloakConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new ServerConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new NotesConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new ServerTagConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new SyncshellConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new TransientConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new XivDataStorageService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new PlayerPerformanceConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new ServerBlockConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new CharaDataConfigService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton((s) => new RemoteConfigCacheService(pluginInterface.ConfigDirectory.FullName));
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<SnowcloakConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<ServerConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<NotesConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<ServerTagConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<SyncshellConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<TransientConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<XivDataStorageService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<PlayerPerformanceConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<ServerBlockConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<CharaDataConfigService>());
-            collection.AddSingleton<IConfigService<ISnowcloakConfiguration>>(s => s.GetRequiredService<RemoteConfigCacheService>());
-            collection.AddSingleton<ConfigurationSaveService>();
-
-
-            collection.AddSingleton<HubFactory>();
-
-            // add scoped services
-            collection.AddScoped<CacheMonitor>();
-            collection.AddScoped<UiFactory>();
-            collection.AddScoped<WindowMediatorSubscriberBase, SettingsUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, CompactUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, IntroUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, DownloadUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, PopoutProfileUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, DataAnalysisUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, EventViewerUI>();
-            collection.AddScoped<WindowMediatorSubscriberBase, CharaDataHubUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, EditProfileUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, VenueRegistrationUi>();
-            collection.AddScoped<WindowMediatorSubscriberBase, VenueRegistryWindow>();
-            collection.AddScoped<WindowMediatorSubscriberBase, VenueAdsWindow>();
-            collection.AddScoped<WindowMediatorSubscriberBase, ChatWindow>();
-            collection.AddScoped<WindowMediatorSubscriberBase, StandardChannelDirectoryWindow>();
-            collection.AddScoped<WindowMediatorSubscriberBase, StandardChannelCreateWindow>();
-            collection.AddScoped<WindowMediatorSubscriberBase, PopupHandler>();
-            collection.AddScoped<WindowMediatorSubscriberBase, BbCodeTestUi>();
-            collection.AddScoped<IPopupHandler, ReportPopupHandler>();
-            collection.AddScoped<IPopupHandler, BanUserPopupHandler>();
-            collection.AddScoped<IPopupHandler, BbCodeLinkPopupHandler>();
-            collection.AddScoped<CacheCreationService>();
-            collection.AddScoped<TransientResourceManager>();
-            collection.AddScoped<PlayerDataFactory>();
-            collection.AddScoped<OnlinePlayerManager>();
-            collection.AddScoped<UiService>();
-            collection.AddScoped<CommandManagerService>();
-            collection.AddScoped<UiSharedService>();
-            collection.AddScoped<ChatService>();
-            collection.AddScoped<GuiHookService>();
-            collection.AddScoped<WindowMediatorSubscriberBase, PairingAvailabilityWindow>();
-            collection.AddScoped<IPopupHandler, VenueSyncshellPopupHandler>();
-
-            collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
-            collection.AddHostedService(p => p.GetRequiredService<ConfigurationSaveService>());
-            collection.AddHostedService(p => p.GetRequiredService<SnowMediator>());
-            collection.AddHostedService(p => p.GetRequiredService<NotificationService>());
-            collection.AddHostedService(p => p.GetRequiredService<FileCacheManager>());
-            collection.AddHostedService(p => p.GetRequiredService<DalamudUtilService>());
-            collection.AddHostedService(p => p.GetRequiredService<SyncTroubleshootingService>());
-            collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
-            collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());
-            collection.AddHostedService(p => p.GetRequiredService<PairingAvailabilityDtrEntry>());
-            collection.AddHostedService(p => p.GetRequiredService<EventAggregator>());
-            collection.AddHostedService(p => p.GetRequiredService<SnowPlugin>());
-            collection.AddHostedService(p => p.GetRequiredService<IpcProvider>());
-            collection.AddHostedService(p => p.GetRequiredService<VenueSyncshellService>());
-            collection.AddHostedService(p => p.GetRequiredService<VenueRegistrationService>());
-            collection.AddHostedService(p => p.GetRequiredService<VenueReminderService>());
-            
+            collection
+                .AddDalamudServices(pluginInterface, commandManager, gameData, framework, objectTable, playerState,
+                    clientState, condition, chatGui, gameGui, dtrBar, toastGui, pluginLog, targetManager,
+                    notificationManager, textureProvider, contextMenu, gameInteropProvider, namePlateGui, gameConfig,
+                    partyList)
+                .AddSnowcloakConfiguration(pluginInterface.ConfigDirectory.FullName)
+                .AddSnowcloakCore()
+                .AddSnowcloakWebApi()
+                .AddSnowcloakIpc()
+                .AddSnowcloakPlayerData()
+                .AddSnowcloakCharaData()
+                .AddSnowcloakVenue()
+                .AddSnowcloakUi()
+                .AddSnowcloakRuntimePlan()
+                .AddSnowcloakHostedServices();
         })
         .Build();
-
-        _ = Task.Run(async () => {
-            try
-            {
-                await _host.StartAsync().ConfigureAwait(false);
-            }
-            catch (Exception e)
-            {
-                pluginLog.Error(e, "HostBuilder startup exception");
-            }
-        }).ConfigureAwait(false);
     }
 
-    public void Dispose()
+    public async Task LoadAsync(CancellationToken cancellationToken)
     {
-        _host.StopAsync().GetAwaiter().GetResult();
-        _host.Dispose();
+        try
+        {
+            await _host.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _pluginLog.Error(e, "HostBuilder startup exception");
+            throw;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
+        {
+            return;
+        }
+
+        var stopCts = new CancellationTokenSource(HostStopTimeout);
+        var stopTask = Task.Run(() => _host.StopAsync(stopCts.Token));
+
+        if (!await CompleteWithinAsync(stopTask, HostStopTimeout).ConfigureAwait(false))
+        {
+            await stopCts.CancelAsync().ConfigureAwait(false);
+            _pluginLog.Warning("Timed out stopping Snowcloak host after {Timeout}. Continuing plugin unload; cleanup will finish in the background.", HostStopTimeout);
+            _ = FinishTimedOutStopAsync(stopTask, stopCts);
+            return;
+        }
+
+        stopCts.Dispose();
+        await ObserveStopAsync(stopTask).ConfigureAwait(false);
+        await DisposeHostAsync().ConfigureAwait(false);
+    }
+
+    private async Task FinishTimedOutStopAsync(Task stopTask, CancellationTokenSource stopCts)
+    {
+        try
+        {
+            await ObserveStopAsync(stopTask).ConfigureAwait(false);
+            await DisposeHostAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            stopCts.Dispose();
+        }
+    }
+
+    private async Task ObserveStopAsync(Task stopTask)
+    {
+        try
+        {
+            await stopTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _pluginLog.Warning("Snowcloak host stop was cancelled.");
+        }
+        catch (Exception e)
+        {
+            _pluginLog.Error(e, "Snowcloak host stop failed.");
+        }
+    }
+
+    private async Task DisposeHostAsync()
+    {
+        Task disposeTask;
+        if (_host is IAsyncDisposable asyncDisposable)
+        {
+            disposeTask = asyncDisposable.DisposeAsync().AsTask();
+        }
+        else
+        {
+            disposeTask = Task.Run(_host.Dispose);
+        }
+
+        if (!await CompleteWithinAsync(disposeTask, HostDisposeTimeout).ConfigureAwait(false))
+        {
+            _pluginLog.Warning("Timed out disposing Snowcloak host after {Timeout}. Continuing plugin unload.", HostDisposeTimeout);
+            _ = ObserveDisposeAsync(disposeTask);
+            return;
+        }
+
+        await ObserveDisposeAsync(disposeTask).ConfigureAwait(false);
+        ElezenInit.Dispose();
+    }
+
+    private async Task ObserveDisposeAsync(Task disposeTask)
+    {
+        try
+        {
+            await disposeTask.ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _pluginLog.Error(e, "Snowcloak host disposal failed.");
+        }
+    }
+
+    private static async Task<bool> CompleteWithinAsync(Task task, TimeSpan timeout)
+    {
+        if (task.IsCompleted)
+        {
+            return true;
+        }
+
+        var completed = await Task.WhenAny(task, Task.Delay(timeout)).ConfigureAwait(false);
+        return completed == task;
     }
 }
