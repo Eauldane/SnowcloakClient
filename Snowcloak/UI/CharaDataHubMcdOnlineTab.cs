@@ -274,8 +274,7 @@ internal sealed class CharaDataHubMcdOnlineTab
         ElezenImgui.WrappedText($"Chara Data Entries on Server: {_charaDataManager.OwnCharaData.Count}/{_charaDataManager.MaxCreatableCharaData}");
         if (_charaDataManager.OwnCharaData.Count == _charaDataManager.MaxCreatableCharaData)
         {
-            ImGui.AlignTextToFramePadding();
-            ElezenImgui.ColouredWrappedText("You have reached the maximum Character Data entries and cannot create more.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Warning("You have reached the maximum number of Character Data entries and cannot create more.");
         }
     }
 
@@ -315,14 +314,14 @@ internal sealed class CharaDataHubMcdOnlineTab
         if (dataDto == null)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("Select an entry above to edit its data.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Info("Select an entry above to edit its data.");
             return;
         }
 
         var updateDto = _charaDataManager.GetUpdateDto(dataDto.Id);
         if (updateDto == null)
         {
-            ElezenImgui.DrawGroupedCenteredColorText("Something went awfully wrong and there's no update DTO. Try updating Character Data via the button above.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Warning("Something went wrong and there's no update data. Try refreshing Character Data with the button above.");
             return;
         }
 
@@ -815,13 +814,13 @@ internal sealed class CharaDataHubMcdOnlineTab
         if (!_dalamudUtilService.IsInGpose && _charaDataManager.BrioAvailable)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("To attach pose and world data you need to be in GPose.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Warning("To attach pose and world data you need to be in GPose.");
             ImGuiHelpers.ScaledDummy(5);
         }
         else if (!_charaDataManager.BrioAvailable)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("To attach pose and world data Brio requires to be installed.", ImGuiColors.DalamudRed);
+            CharaDataHubCard.Error("To attach pose and world data, Brio must be installed.");
             ImGuiHelpers.ScaledDummy(5);
         }
     }

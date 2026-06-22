@@ -331,7 +331,9 @@ public sealed partial class CharaDataApplicationService : DisposableMediatorSubs
         LogRevertingChara(Logger, tempHandler.Name);
         bool reverted = await _characterHandler.RevertHandledChara(tempHandler.Name).ConfigureAwait(false);
         if (reverted)
-            await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+        {
+            await ObjectTableCache.WaitWhileCharacterIsDrawing(Logger, tempHandler, Guid.NewGuid()).ConfigureAwait(false);
+        }
     }
 
     private async Task<Guid?> ApplyAppearanceAsync(Guid applicationId, GameObjectHandler tempHandler, CharaDataMetaInfoExtendedDto metaInfo,

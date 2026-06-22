@@ -44,14 +44,14 @@ internal sealed class CharaDataHubGposeTogetherTab
         if (!_charaDataManager.BrioAvailable)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("BRIO IS MANDATORY FOR GPOSE TOGETHER.", ImGuiColors.DalamudRed);
+            CharaDataHubCard.Error("Brio is required for GPose Together. Install and enable Brio to use this feature.");
             ImGuiHelpers.ScaledDummy(5);
         }
 
         if (!_apiController.IsConnected)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("CANNOT USE GPOSE TOGETHER WHILE DISCONNECTED FROM THE SERVER.", ImGuiColors.DalamudRed);
+            CharaDataHubCard.Error("GPose Together is unavailable while you are disconnected from the server.");
             ImGuiHelpers.ScaledDummy(5);
         }
 
@@ -61,7 +61,8 @@ internal sealed class CharaDataHubGposeTogetherTab
             + "To use GPose together you either create or join a GPose Together Lobby. After you and other people have joined, make sure that everyone is on the same map. "
             + "It is not required for you to be on the same server, DC or instance. Users that are on the same map will be drawn as moving purple wisps in the overworld, so you can easily find each other." + (Environment.NewLine + Environment.NewLine)
             + "Once you are close to each other you can initiate GPose. You must either assign or spawn characters for each of the lobby users. Their own poses and positions to their character will be automatically applied." + Environment.NewLine
-            + "Pose and location data during GPose are updated approximately every few seconds.");
+            + "Pose and location data during GPose are updated approximately every few seconds." + (Environment.NewLine + Environment.NewLine)
+            + "If you delete an actor that is assigned to a user, it will be unassigned automatically. You can also unassign it manually with the trash button before deleting.");
 
         using var disabled = ImRaii.Disabled(!_charaDataManager.BrioAvailable || !_apiController.IsConnected);
 
@@ -76,16 +77,21 @@ internal sealed class CharaDataHubGposeTogetherTab
             ImGuiHelpers.ScaledDummy(5);
             ImGui.SetNextItemWidth(250);
             ImGui.InputTextWithHint("##lobbyId", "GPose Lobby ID", ref _joinLobbyId, 30);
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Join GPose Together Lobby"))
+            using (ImRaii.Disabled(string.IsNullOrWhiteSpace(_joinLobbyId)))
             {
-                _session.JoinGPoseLobby(_joinLobbyId);
-                _joinLobbyId = string.Empty;
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowRight, "Join GPose Together Lobby"))
+                {
+                    _session.JoinGPoseLobby(_joinLobbyId);
+                    _joinLobbyId = string.Empty;
+                }
             }
             if (!string.IsNullOrEmpty(_session.LastGPoseLobbyId)
                 && ElezenImgui.ShowIconButton(FontAwesomeIcon.LongArrowAltRight, string.Format("Rejoin Last Lobby {0}", _session.LastGPoseLobbyId)))
             {
                 _session.JoinGPoseLobby(_session.LastGPoseLobbyId);
             }
+            ImGuiHelpers.ScaledDummy(5);
+            CharaDataHubCard.Info("Create or join a lobby to start a GPose Together session.");
         }
         else
         {
@@ -108,39 +114,43 @@ internal sealed class CharaDataHubGposeTogetherTab
             }
             ElezenImgui.AttachTooltip("Leave the current GPose lobby." + ElezenImgui.TooltipSeparator + "Hold CTRL and click to leave.");
         }
+
+        // Sending data and assigning users only makes sense once you are in a lobby; rendering these
+        // controls disabled (and an empty user list) outside a lobby just reads as broken UI.
+        if (string.IsNullOrEmpty(_session.CurrentGPoseLobbyId))
+            return;
+
         SnowcloakUi.DistanceSeparator();
-        using (ImRaii.Disabled(string.IsNullOrEmpty(_session.CurrentGPoseLobbyId)))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowUp, "Send Updated Character Data"))
         {
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowUp, "Send Updated Character Data"))
-            {
-                _ = _session.PushCharacterDownloadDto();
-            }
-            ElezenImgui.AttachTooltip("This will send your current appearance, pose and world data to all users in the lobby.");
-            if (!_dalamudUtilService.IsInGpose)
-            {
-                ImGuiHelpers.ScaledDummy(5);
-                ElezenImgui.DrawGroupedCenteredColorText("Assigning users to characters is only available in GPose.", ImGuiColors.DalamudYellow, 300);
-            }
-            SnowcloakUi.DistanceSeparator();
-            ImGui.TextUnformatted("Users In Lobby");
-            var gposeCharas = _dalamudUtilService.GetGposeCharactersFromObjectTable();
-            var self = _dalamudUtilService.GetPlayerCharacter();
-            gposeCharas = gposeCharas.Where(c => c != null && !string.Equals(c.Name.TextValue, self.Name.TextValue, StringComparison.Ordinal)).ToList();
+            _ = _session.PushCharacterDownloadDto();
+        }
+        ElezenImgui.AttachTooltip("This will send your current appearance, pose and world data to all users in the lobby.");
+        if (!_dalamudUtilService.IsInGpose)
+        {
+            ImGuiHelpers.ScaledDummy(5);
+            CharaDataHubCard.Warning("Assigning users to characters is only available in GPose.");
+            ImGuiHelpers.ScaledDummy(5);
+        }
+        SnowcloakUi.DistanceSeparator();
+        ImGui.TextUnformatted("Users In Lobby");
+        var gposeCharas = _dalamudUtilService.GetGposeCharactersFromObjectTable();
+        var self = _dalamudUtilService.GetPlayerCharacter();
+        gposeCharas = gposeCharas.Where(c => c != null && !string.Equals(c.Name.TextValue, self.Name.TextValue, StringComparison.Ordinal)).ToList();
 
-            using (ImRaii.Child("charaChild", new(0, 0), false, ImGuiWindowFlags.AlwaysAutoResize))
-            {
-                ImGuiHelpers.ScaledDummy(3);
+        using (ImRaii.Child("charaChild", new(0, 0), false, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGuiHelpers.ScaledDummy(3);
 
-                if (!_session.UsersInLobby.Any() && !string.IsNullOrEmpty(_session.CurrentGPoseLobbyId))
+            if (!_session.UsersInLobby.Any())
+            {
+                CharaDataHubCard.Info("No other users in the current GPose lobby yet. Share the Lobby ID above to invite people.");
+            }
+            else
+            {
+                foreach (var user in _session.UsersInLobby)
                 {
-                    ElezenImgui.DrawGroupedCenteredColorText("No other users in current GPose lobby", ImGuiColors.DalamudYellow);
-                }
-                else
-                {
-                    foreach (var user in _session.UsersInLobby)
-                    {
-                        DrawLobbyUser(user, gposeCharas);
-                    }
+                    DrawLobbyUser(user, gposeCharas);
                 }
             }
         }
@@ -182,7 +192,7 @@ internal sealed class CharaDataHubGposeTogetherTab
                     _ = _session.SpawnAndApplyData(user);
                 }
             }
-            ElezenImgui.AttachTooltip("Spawn new actor, apply character data and and assign it to this user." + ElezenImgui.TooltipSeparator + "Note: If the button is grayed out, " +
+            ElezenImgui.AttachTooltip("Spawn new actor, apply character data and assign it to this user." + ElezenImgui.TooltipSeparator + "Note: If the button is grayed out, " +
                                                                                "the user has not sent any character data or you are on the same map, server and instance. If the latter is the case, join a group with that user and assign the character to them.");
 
 
@@ -210,12 +220,15 @@ internal sealed class CharaDataHubGposeTogetherTab
 
             ImGui.SameLine();
             ElezenImgui.ShowIcon(FontAwesomeIcon.Running, sameMapAndServer.SameEverything ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
-            ElezenImgui.AttachTooltip((sameMapAndServer.SameEverything ? "You are in the same instanced area." : "You are not the same instanced area.") + ElezenImgui.TooltipSeparator +
+            ElezenImgui.AttachTooltip((sameMapAndServer.SameEverything ? "You are in the same instanced area." : "You are not in the same instanced area.") + ElezenImgui.TooltipSeparator +
                                           "Note: Users not in your instance, but on the same map, will be drawn as floating wisps." + Environment.NewLine
                                               + "Note: GPose synchronization is not dependent on the current instance, but you will have to spawn a character for the other lobby users.");
 
             using (ImRaii.Disabled(!_dalamudUtilService.IsInGpose))
             {
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextUnformatted("Actor");
+                ImGui.SameLine();
                 ImGui.SetNextItemWidth(200);
                 using (var combo = ImRaii.Combo("##character", string.IsNullOrEmpty(user.AssociatedCharaName) ? "No character assigned" : _ctx.CharaName(user.AssociatedCharaName)))
                 {

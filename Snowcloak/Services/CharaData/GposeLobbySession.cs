@@ -174,11 +174,12 @@ public sealed class GposeLobbySession : DisposableMediatorSubscriberBase, IAsync
 
     private async Task LeaveGPoseLobbyAsync()
     {
-        var left = await _apiController.GposeLobbyLeave().ConfigureAwait(false);
-        if (!left) return;
+        var lobbyId = CurrentGPoseLobbyId;
+        
+        await _apiController.GposeLobbyLeave().ConfigureAwait(false);
 
-        if (!string.IsNullOrEmpty(CurrentGPoseLobbyId))
-            LastGPoseLobbyId = CurrentGPoseLobbyId;
+        if (!string.IsNullOrEmpty(lobbyId))
+            LastGPoseLobbyId = lobbyId;
 
         ClearLobby(revertCharas: true);
     }

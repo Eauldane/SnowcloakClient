@@ -88,8 +88,12 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return false;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return false;
-        _logger.LogDebug("Despawning Brio Actor {actor}", gameObject.Name.TextValue);
-        return await Service.RunOnFrameworkAsync(() => _despawnActor.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() =>
+        {
+            if (!_dalamudUtilService.IsGameObjectPresent(address)) return false;
+            _logger.LogDebug("Despawning Brio Actor {actor}", gameObject.Name.TextValue);
+            return _despawnActor.Invoke(gameObject);
+        }).ConfigureAwait(false);
     }
 
     public async Task<bool> ApplyTransformAsync(nint address, WorldData data)
@@ -97,12 +101,16 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return false;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return false;
-        _logger.LogDebug("Applying Transform to Actor {actor}", gameObject.Name.TextValue);
 
-        return await Service.RunOnFrameworkAsync(() => _setModelTransform.Invoke(gameObject,
-            new Vector3(data.PositionX, data.PositionY, data.PositionZ),
-            new Quaternion(data.RotationX, data.RotationY, data.RotationZ, data.RotationW),
-            new Vector3(data.ScaleX, data.ScaleY, data.ScaleZ), false)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() =>
+        {
+            if (!_dalamudUtilService.IsGameObjectPresent(address)) return false;
+            _logger.LogDebug("Applying Transform to Actor {actor}", gameObject.Name.TextValue);
+            return _setModelTransform.Invoke(gameObject,
+                new Vector3(data.PositionX, data.PositionY, data.PositionZ),
+                new Quaternion(data.RotationX, data.RotationY, data.RotationZ, data.RotationW),
+                new Vector3(data.ScaleX, data.ScaleY, data.ScaleZ), false);
+        }).ConfigureAwait(false);
     }
 
     public async Task<WorldData> GetTransformAsync(nint address)
@@ -110,7 +118,8 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return default;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return default;
-        var data = await Service.RunOnFrameworkAsync(() => _getModelTransform.Invoke(gameObject)).ConfigureAwait(false);
+        var data = await Service.RunOnFrameworkAsync(() =>
+            _dalamudUtilService.IsGameObjectPresent(address) ? _getModelTransform.Invoke(gameObject) : default).ConfigureAwait(false);
         if (data.Item1 == null || data.Item2 == null || data.Item3 == null) return default;
 
         return new WorldData()
@@ -133,9 +142,9 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return null;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return null;
-        _logger.LogDebug("Getting Pose from Actor {actor}", gameObject.Name.TextValue);
 
-        return await Service.RunOnFrameworkAsync(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() =>
+            _dalamudUtilService.IsGameObjectPresent(address) ? _getPoseAsJson.Invoke(gameObject) : null).ConfigureAwait(false);
     }
 
     public async Task<bool> SetPoseAsync(nint address, string pose)
@@ -143,10 +152,10 @@ public sealed class IpcCallerBrio : IIpcCaller
         if (!APIAvailable) return false;
         var gameObject = await _dalamudUtilService.CreateGameObjectAsync(address).ConfigureAwait(false);
         if (gameObject == null) return false;
-        _logger.LogDebug("Setting Pose to Actor {actor}", gameObject.Name.TextValue);
 
         var applicablePose = JsonNode.Parse(pose)!;
-        var currentPose = await Service.RunOnFrameworkAsync(() => _getPoseAsJson.Invoke(gameObject)).ConfigureAwait(false);
+        var currentPose = await Service.RunOnFrameworkAsync(() =>
+            _dalamudUtilService.IsGameObjectPresent(address) ? _getPoseAsJson.Invoke(gameObject) : null).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(currentPose))
         {
             return false;
@@ -160,13 +169,15 @@ public sealed class IpcCallerBrio : IIpcCaller
         }
 
         applicablePose["ModelDifference"] = JsonNode.Parse(modelDifference.ToJsonString());
-
-        await Service.RunOnFrameworkAsync(() =>
+        
+        return await Service.RunOnFrameworkAsync(() =>
         {
+            if (!_dalamudUtilService.IsGameObjectPresent(address)) return false;
+            _logger.LogDebug("Setting Pose to Actor {actor}", gameObject.Name.TextValue);
             _freezeActor.Invoke(gameObject);
             _freezePhysics.Invoke();
+            return _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false);
         }).ConfigureAwait(false);
-        return await Service.RunOnFrameworkAsync(() => _loadPoseFromJson.Invoke(gameObject, applicablePose.ToJsonString(), false)).ConfigureAwait(false);
     }
 
     public void Dispose()

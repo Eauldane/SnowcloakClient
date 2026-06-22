@@ -101,7 +101,7 @@ internal sealed class CharaDataHubNearbyPosesTab
         if (!_dalamudUtilService.IsInGpose)
         {
             ImGuiHelpers.ScaledDummy(5);
-            ElezenImgui.DrawGroupedCenteredColorText("Spawning and applying pose data is only available in GPose.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Warning("Spawning and applying pose data is only available in GPose.");
             ImGuiHelpers.ScaledDummy(5);
         }
 
@@ -116,7 +116,7 @@ internal sealed class CharaDataHubNearbyPosesTab
         using var indent = ImRaii.PushIndent(5f);
         if (_charaDataNearbyManager.NearbyData.Count == 0)
         {
-            ElezenImgui.DrawGroupedCenteredColorText("No Shared World Poses found nearby.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Info("No Shared World Poses found nearby.");
         }
 
         bool wasAnythingHovered = false;

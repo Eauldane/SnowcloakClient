@@ -144,7 +144,7 @@ internal sealed class CharaDataHubDataApplicationTab
         if (!_ctx.HasValidGposeTarget)
         {
             ImGuiHelpers.ScaledDummy(3);
-            ElezenImgui.DrawGroupedCenteredColorText("Applying data is only available in GPose with a valid selected GPose target.", ImGuiColors.DalamudYellow, 350);
+            CharaDataHubCard.Warning("Applying data is only available in GPose with a valid selected GPose target.");
         }
     }
 
@@ -172,7 +172,7 @@ internal sealed class CharaDataHubDataApplicationTab
 
         if (_stateConfigService.Current.FavoriteCodes.Count == 0)
         {
-            ElezenImgui.ColouredWrappedText("You have no favorites added. Add Favorites through the other tabs before you can use this tab.", ImGuiColors.DalamudYellow);
+            CharaDataHubCard.Info("You have no favorites yet. Add favorites from the other tabs to use this one.");
         }
     }
 
@@ -631,10 +631,8 @@ internal sealed class CharaDataHubDataApplicationTab
 
     private static void DrawMcdfFailure()
     {
-        ElezenImgui.ColouredWrappedText("Failure to read MCDF file. MCDF file is possibly corrupt. Re-export the MCDF file and try again.",
-            ImGuiColors.DalamudRed);
-        ElezenImgui.ColouredWrappedText("Note: if this is your MCDF, try redrawing yourself, wait and re-export the file. If you received it from someone else have them do the same.",
-            ImGuiColors.DalamudYellow);
+        CharaDataHubCard.Error("Failed to read the MCDF file — it may be corrupt. Re-export it and try again.");
+        CharaDataHubCard.Info("If this is your MCDF, try redrawing yourself, wait a moment, then re-export. If someone sent it to you, ask them to do the same.");
     }
 
     private void DrawMetaInfoCard(CharaDataMetaInfoExtendedDto data, bool canOpen = false)

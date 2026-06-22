@@ -199,7 +199,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase, ISt
         if (!_charaDataManager.BrioAvailable)
         {
             ImGuiHelpers.ScaledDummy(3);
-            ElezenImgui.DrawGroupedCenteredColorText("To utilize any features related to posing or spawning characters you require to have Brio installed.", ImGuiColors.DalamudRed);
+            CharaDataHubCard.Warning("Brio is not installed. Posing and spawning characters will be unavailable until you install and enable it.");
             SnowcloakUi.DistanceSeparator();
         }
 
@@ -219,11 +219,11 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase, ISt
             }
             if (!string.IsNullOrEmpty(_charaDataManager.DataApplicationProgress))
             {
-                ElezenImgui.ColouredWrappedText(_charaDataManager.DataApplicationProgress, ImGuiColors.DalamudYellow);
+                CharaDataHubCard.Info(_charaDataManager.DataApplicationProgress);
             }
             if (_charaDataManager.DataApplication.IsRunning)
             {
-                ElezenImgui.ColouredWrappedText("WARNING: During the data application avoid interacting with this actor to prevent potential crashes.", ImGuiColors.DalamudRed);
+                CharaDataHubCard.Warning("Avoid interacting with this actor while data is being applied — doing so can cause crashes.");
                 ImGuiHelpers.ScaledDummy(5);
                 ImGui.Separator();
             }
