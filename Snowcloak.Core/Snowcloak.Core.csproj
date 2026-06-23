@@ -9,7 +9,7 @@
   <ItemGroup>
     <PackageReference Include="ElezenTools.Core" Version="15.2.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
-    <PackageReference Include="Snowcloak.API" Version="3.0.0.12" />
+    <PackageReference Include="Snowcloak.API" Version="3.0.0.13" />
   </ItemGroup>
 
 

@@ -2,10 +2,7 @@ using Dalamud.Utility;
 using Snowcloak.API.Dto.Account;
 using Snowcloak.API.Routes;
 using Snowcloak.Utils;
-using System.Net;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text.Json;
 
 namespace Snowcloak.WebAPI;
 
@@ -15,55 +12,60 @@ public sealed partial class AccountRegistrationService
     {
         var secretKey = GenerateSecretKey();
         var hashedSecretKey = secretKey.GetHash256();
-        var playerName = _dalamudUtilService.GetPlayerNameAsync().GetAwaiter().GetResult();
-        var worldId = (ushort)_dalamudUtilService.GetHomeWorldIdAsync().GetAwaiter().GetResult();
+        var playerName = await _dalamudUtilService.GetPlayerNameAsync().ConfigureAwait(false);
+        var worldId = (ushort)await _dalamudUtilService.GetHomeWorldIdAsync().ConfigureAwait(false);
         var worldName = _dalamudUtilService.WorldData[worldId];
 
-        var sessionID = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-        var handshakeUri = new Uri("https://account.snowcloak-sync.com/register");
-        var handshakePayload = new { session_id = sessionID, hashed_secret = hashedSecretKey, character_name = playerName, home_world = worldName };
-        var handshakeResponse = await _httpClient.PostAsJsonAsync(handshakeUri, handshakePayload, token).ConfigureAwait(false);
-        handshakeResponse.EnsureSuccessStatusCode();
-        using var registerStream = await handshakeResponse.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
-        using var register = await JsonDocument.ParseAsync(registerStream, cancellationToken: token).ConfigureAwait(false);
-        var linkUrl = register.RootElement.TryGetProperty("link_url", out var linkUrlProperty) ? linkUrlProperty.GetString() : null;
-        var pollUrl = register.RootElement.TryGetProperty("poll_url", out var pollUrlProperty) ? pollUrlProperty.GetString() : null;
-        if (string.IsNullOrWhiteSpace(linkUrl) || string.IsNullOrWhiteSpace(pollUrl))
+        var startUri = new Uri(GetApiBaseUri(), XivAuthRegisterStartRoute);
+        var startPayload = new XivAuthRegisterStartRequestDto
+        {
+            HashedSecretKey = hashedSecretKey,
+            CharacterName = playerName,
+            HomeWorld = worldName
+        };
+
+        using var startResponse = await _httpClient.PostAsJsonAsync(startUri, startPayload, token).ConfigureAwait(false);
+        if (!startResponse.IsSuccessStatusCode)
+        {
+            return new RegisterReplyDto { Success = false, ErrorMessage = await ReadErrorAsync(startResponse, token).ConfigureAwait(false) };
+        }
+
+        var start = await startResponse.Content.ReadFromJsonAsync<XivAuthRegisterStartReplyDto>(token).ConfigureAwait(false);
+        if (start == null || string.IsNullOrWhiteSpace(start.SessionId) || string.IsNullOrWhiteSpace(start.AuthorizationUrl))
         {
             return new RegisterReplyDto { Success = false, ErrorMessage = "Malformed registration response." };
         }
 
-        Util.OpenLink(linkUrl);
-        const int maxAttempts = 600 / 5;
-        var pollUri = new Uri(pollUrl);
-        for (var i = 0; i < maxAttempts; i++)
+        Util.OpenLink(start.AuthorizationUrl);
+        var expiry = start.ExpiresAtUtc > DateTimeOffset.UtcNow ? start.ExpiresAtUtc : DateTimeOffset.UtcNow.AddMinutes(10);
+        var pollUri = new Uri(GetApiBaseUri(), XivAuthRegisterPollRoutePrefix + start.SessionId);
+
+        while (DateTimeOffset.UtcNow < expiry)
         {
             token.ThrowIfCancellationRequested();
-            using var resp = await _httpClient.GetAsync(pollUri, token).ConfigureAwait(false);
-            if (resp.StatusCode == HttpStatusCode.Gone)
+            using var pollResponse = await _httpClient.GetAsync(pollUri, token).ConfigureAwait(false);
+            if (!pollResponse.IsSuccessStatusCode)
             {
-                return new RegisterReplyDto
-                {
-                    Success = false, ErrorMessage = "Registration session expired. Please try again."
-                };
+                return new RegisterReplyDto { Success = false, ErrorMessage = $"Registration polling failed ({(int)pollResponse.StatusCode})." };
             }
 
-            if (resp.StatusCode == HttpStatusCode.OK)
+            var poll = await pollResponse.Content.ReadFromJsonAsync<XivAuthRegisterPollReplyDto>(token).ConfigureAwait(false) ?? new XivAuthRegisterPollReplyDto();
+            if (poll.Status.Equals("pending", StringComparison.OrdinalIgnoreCase))
             {
-                using var pollStream = await resp.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
-                using var pollPayload = await JsonDocument.ParseAsync(pollStream, cancellationToken: token).ConfigureAwait(false);
-                var status = pollPayload.RootElement.TryGetProperty("status", out var statusProperty) ? statusProperty.GetString() : null;
-                if (status?.Equals("bound", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    var uid = pollPayload.RootElement.TryGetProperty("uid", out var uidProperty) ? uidProperty.GetString() : null;
-                    return new RegisterReplyDto
-                    {
-                        Success = true, ErrorMessage = string.Empty, UID = uid ?? string.Empty, SecretKey = secretKey
-                    };
-                }
+                await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                continue;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+            if (poll.Status.Equals("completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return new RegisterReplyDto { Success = true, ErrorMessage = string.Empty, UID = poll.Uid, SecretKey = secretKey };
+            }
+
+            return new RegisterReplyDto
+            {
+                Success = false,
+                ErrorMessage = string.IsNullOrWhiteSpace(poll.ErrorMessage) ? "XIVAuth registration failed. Please try again." : poll.ErrorMessage
+            };
         }
 
         return new RegisterReplyDto

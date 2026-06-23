@@ -337,34 +337,62 @@ public partial class SettingsUi
         }
 
         ImGui.Separator();
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add new Secret Key"))
+        var isCurrentServer = selectedServer == _serverConfigurationManager.CurrentServer;
+        if (isCurrentServer)
         {
-            selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Any() ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
+            if (selectedServer.AccountLinked)
+            {
+                using (ImRaii.Disabled(_addKeyAccountUidFlow.IsRunning))
+                {
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create new Secret Key"))
+                    {
+                        _addKeyAccountUidFlow.Begin();
+                    }
+                }
+                ElezenImgui.AttachTooltip("Creates a new UID on the server, attaches it to your Snowcloak account, and downloads its key.");
+            }
+            else
+            {
+                using (ImRaii.Disabled(_standaloneKeyFlow.IsRunning))
+                {
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create new Secret Key"))
+                    {
+                        _standaloneKeyFlow.Begin(_registerService.RegisterAccount,
+                            "New secret key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.",
+                            reply =>
+                            {
+                                selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Count != 0 ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
+                                {
+                                    FriendlyName = string.Format(CultureInfo.InvariantCulture, "{0} {1}", reply.UID, string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
+                                    Key = reply.SecretKey ?? ""
+                                });
+                                _serverConfigurationManager.Save();
+                            },
+                            "Registration failed");
+                    }
+                }
+                ElezenImgui.AttachTooltip("Registers a new secret key with the server and adds it to this service.");
+            }
+
+            ImGui.SameLine();
+        }
+
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add empty key"))
+        {
+            selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Count != 0 ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
             {
                 FriendlyName = "New Secret Key",
             });
             _serverConfigurationManager.Save();
         }
+        ElezenImgui.AttachTooltip("Adds an empty entry so you can paste a secret key you already have.");
 
-        if (!selectedServer.AccountLinked)
+        if (isCurrentServer)
         {
-            ImGui.SameLine();
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone key"))
-            {
-                _standaloneKeyFlow.Begin(_registerService.RegisterAccount,
-                    "New standalone key created.\nPlease keep a copy of your secret key in case you need to reset your plugins, or to use it on another PC.",
-                    reply =>
-                    {
-                        selectedServer.SecretKeys.Add(selectedServer.SecretKeys.Any() ? selectedServer.SecretKeys.Max(p => p.Key) + 1 : 0, new SecretKey()
-                        {
-                            FriendlyName = string.Format(CultureInfo.InvariantCulture, "{0} {1}", reply.UID, string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
-                            Key = reply.SecretKey ?? ""
-                        });
-                        _serverConfigurationManager.Save();
-                    },
-                    "Registration failed");
-            }
-            _standaloneKeyFlow.DrawStatus("Sending request...");
+            if (selectedServer.AccountLinked)
+                _addKeyAccountUidFlow.DrawStatus();
+            else
+                _standaloneKeyFlow.DrawStatus("Sending request...");
         }
     }
 

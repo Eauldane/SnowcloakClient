@@ -42,15 +42,13 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
 
     public override void OnOpen()
     {
-        // Default the location filter to the player's own world so they see nearby shells first.
         ApplyDefaultLocationFilter();
-        // Refresh on each open so the listing reflects the latest server state.
         RefreshDirectoryResults();
     }
 
     private void ApplyDefaultLocationFilter()
     {
-        var worldId = (uint)_dalamudUtilService.GetHomeWorldId();
+        var worldId = _dalamudUtilService.GetHomeWorldId();
         var region = _dalamudUtilService.GetWorldRegion(worldId);
         if (worldId == 0 || string.IsNullOrEmpty(region))
         {
@@ -98,7 +96,6 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
     {
         try
         {
-            // A specific world implies its region; the server gates on Region, then narrows by WorldId.
             var region = _regionFilter;
             if (_worldFilter != 0 && string.IsNullOrEmpty(region))
             {
@@ -209,7 +206,6 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
     {
         _regionFilter = region;
 
-        // Drop a single-world selection that no longer belongs to the chosen region.
         if (_worldFilter != 0
             && (string.IsNullOrEmpty(region)
                 || !string.Equals(_dalamudUtilService.GetWorldRegion(_worldFilter), region, StringComparison.Ordinal)))

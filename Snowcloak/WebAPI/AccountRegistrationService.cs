@@ -18,6 +18,8 @@ public sealed partial class AccountRegistrationService : IDisposable
     private const string AccountKeysRoute = "/auth/account/keys";
     private const string AccountKeyLinkRoute = "/auth/account/keys/link";
     private const string AccountUidRoute = "/auth/account/uid";
+    private const string XivAuthRegisterStartRoute = "/auth/xivauth/register/start";
+    private const string XivAuthRegisterPollRoutePrefix = "/auth/xivauth/register/poll/";
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<AccountRegistrationService> _logger;

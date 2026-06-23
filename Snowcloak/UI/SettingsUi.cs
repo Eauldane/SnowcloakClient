@@ -64,6 +64,7 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly SecretKeyBackupFlow _secretKeyBackupFlow;
     private readonly CharacterKeyAssignmentFlow _characterKeyAssignmentFlow;
     private readonly AccountUidGenerationFlow _accountUidGenerationFlow;
+    private readonly AccountUidGenerationFlow _addKeyAccountUidFlow;
     private readonly StandaloneKeyRegistrationFlow _standaloneKeyFlow;
 
     public SettingsUi(ILogger<SettingsUi> logger,
@@ -101,6 +102,7 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         _secretKeyBackupFlow = new SecretKeyBackupFlow(logger, secretKeyBackupService, fileDialogManager);
         _characterKeyAssignmentFlow = new CharacterKeyAssignmentFlow(logger, serverConfigurationManager, apiController);
         _accountUidGenerationFlow = new AccountUidGenerationFlow(logger, registerService, apiController);
+        _addKeyAccountUidFlow = new AccountUidGenerationFlow(logger, registerService, apiController);
         _standaloneKeyFlow = new StandaloneKeyRegistrationFlow(logger);
         AllowClickthrough = false;
         AllowPinning = false;
