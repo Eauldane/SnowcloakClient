@@ -36,6 +36,10 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     private volatile TaskCompletionSource _cachedPlayerReadySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private OnlineUserIdentDto? _onlineUserIdentDto;
     private int _disposed;
+
+  
+    private static readonly long FullDataRequestCooldownTicks = (long)TimeSpan.FromSeconds(65).TotalMilliseconds;
+    private long _lastFullDataRequestTick;
     public Vector4 PairColour { get; private set; }
 
     public Pair(ILogger<Pair> logger, UserData userData, PairHandlerFactory cachedPlayerFactory,
@@ -128,6 +132,14 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
             if (!LastReceivedCharacterData.TryApplyDelta(data.Delta, LastReceivedDataVersion, out var reconstructedData))
             {
                 scope.Dispose();
+                var sinceLastRequest = Environment.TickCount64 - _lastFullDataRequestTick;
+                if (_lastFullDataRequestTick != 0 && sinceLastRequest < FullDataRequestCooldownTicks)
+                {
+                    _logger.LogDebug("Received delta for {uid} without base version {baseVersion}; full data already requested {ms}ms ago, suppressing", data.User.UID, data.Delta.BaseVersion, sinceLastRequest);
+                    return;
+                }
+
+                _lastFullDataRequestTick = Environment.TickCount64;
                 _logger.LogDebug("Received delta for {uid} without base version {baseVersion}; requesting full data", data.User.UID, data.Delta.BaseVersion);
                 Mediator.Publish(new RequestPairDataMessage(data.User));
                 return;
@@ -141,6 +153,9 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
             LastReceivedCharacterData = data.CharaData;
             LastReceivedDataVersion = data.DataVersion;
         }
+
+        // We received and accepted data for this pair, so any prior full-data request was satisfied.
+        _lastFullDataRequestTick = 0;
 
         LastReportedApproximateVRAMBytes = data.ReportedVramBytes;
         LastReportedTriangles = data.ReportedTriangles;

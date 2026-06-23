@@ -495,9 +495,13 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             Logger.LogDebug("Group: {entry}", entry);
             _pairManager.AddGroup(entry);
         }
-        foreach (var group in _pairManager.GroupPairs.Keys)
+
+        var groups = _pairManager.GroupPairs.Keys.ToList();
+        var groupUsers = await Task.WhenAll(groups.Select(async group =>
+            await GroupsGetUsersInGroup(group).ConfigureAwait(false))).ConfigureAwait(false);
+
+        foreach (var users in groupUsers)
         {
-            var users = await GroupsGetUsersInGroup(group).ConfigureAwait(false);
             foreach (var user in users)
             {
                 Logger.LogDebug("Group Pair: {user}", user);

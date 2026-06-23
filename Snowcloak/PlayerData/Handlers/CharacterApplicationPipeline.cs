@@ -117,8 +117,7 @@ internal sealed partial class CharacterApplicationPipeline
         var updateModdedPaths = updatedData.ContainsAny(PlayerChanges.ModFiles);
         var updateManip = updatedData.ContainsAny(PlayerChanges.ModManip);
 
-        // Begin() synchronously cancels any prior in-flight download (preserving cancel-before-replace
-        // ordering); the async task owns the scope and disposes it in its finally.
+
         var downloadScope = _downloadFlight.Begin(_runtimeCts.Token);
 
         _ = _backgroundTasks.Track(
@@ -132,6 +131,19 @@ internal sealed partial class CharacterApplicationPipeline
         using var downloadLifetime = downloadScope;
         var downloadToken = downloadScope.Token;
 
+        try
+        {
+            await DownloadAndApplyCharacterInternalAsync(charaData, updatedData, updateModdedPaths, updateManip, downloadToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
+        {
+            LogSkippingDownloadNotInitialized(_handler);
+        }
+    }
+
+    private async Task DownloadAndApplyCharacterInternalAsync(CharacterData charaData, CharacterDataChangeSet updatedData,
+        bool updateModdedPaths, bool updateManip, CancellationToken downloadToken)
+    {
         Dictionary<(string GamePath, string? Hash), string> moddedPaths = [];
         Dictionary<string, long> moddedFileSizes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -408,6 +420,9 @@ internal sealed partial class CharacterApplicationPipeline
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Nothing to update for {obj}")]
     private partial void LogNothingToUpdate(object obj);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping download for {obj} because file transfers are not initialized yet")]
+    private partial void LogSkippingDownloadNotInitialized(object obj);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Finishing prior running download task for player {name}, {kind}")]
     private partial void LogFinishingPriorDownload(string? name, object kind);

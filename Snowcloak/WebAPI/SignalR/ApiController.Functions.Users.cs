@@ -121,15 +121,19 @@ public partial class ApiController
     }
     
     
-    public async Task UserPushData(UserCharaDataMessageDto dto)
+    public Task UserPushData(UserCharaDataMessageDto dto) => TryPushData(dto);
+
+    private async Task<bool> TryPushData(UserCharaDataMessageDto dto)
     {
         try
         {
             await _snowHub!.InvokeAsync(nameof(UserPushData), dto).ConfigureAwait(false);
+            return true;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to Push character data");
+            return false;
         }
     }
 
@@ -276,7 +280,9 @@ public partial class ApiController
             Logger.LogDebug("Chara data contained: {NewLine} {Data}", Environment.NewLine, sb.ToString());
         }
 
-        await UserPushData(new(visibleCharacters, character)).ConfigureAwait(false);
-        Mediator.Publish(new LocalCharacterDataPushedMessage(visibleCharacters, character.DataHash.Value));
+        if (await TryPushData(new(visibleCharacters, character)).ConfigureAwait(false))
+        {
+            Mediator.Publish(new LocalCharacterDataPushedMessage(visibleCharacters, character.DataHash.Value));
+        }
     }
 }

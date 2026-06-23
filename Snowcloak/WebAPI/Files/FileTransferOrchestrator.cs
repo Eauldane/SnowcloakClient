@@ -4,6 +4,7 @@ using Snowcloak.Core.Async;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI.Files.Models;
 using Snowcloak.WebAPI.SignalR;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -14,6 +15,17 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan UntrackedRequestTimeout = TimeSpan.FromSeconds(100);
+    
+    private const int MaxTransientAttempts = 4;
+    private static readonly TimeSpan TransientRetryBaseDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan TransientRetryMaxDelay = TimeSpan.FromSeconds(8);
+    private static readonly HashSet<HttpStatusCode> TransientStatusCodes =
+    [
+        HttpStatusCode.RequestTimeout,      // 408
+        HttpStatusCode.BadGateway,          // 502
+        HttpStatusCode.ServiceUnavailable,  // 503
+        HttpStatusCode.GatewayTimeout,      // 504
+    ];
 
     private readonly HttpClient _httpClient;
     private readonly SnowcloakConfigService _snowcloakConfig;
@@ -120,64 +132,100 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     public async Task<HttpResponseMessage> SendRequestAsync(HttpMethod method, Uri uri,
         CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead)
     {
-        using var requestMessage = new HttpRequestMessage(method, uri);
-        return await SendRequestInternalAsync(requestMessage, ct, httpCompletionOption).ConfigureAwait(false);
+        return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri), ct, httpCompletionOption, allowRetry: true).ConfigureAwait(false);
     }
 
     public async Task<HttpResponseMessage> SendRequestAsync<T>(HttpMethod method, Uri uri, T content, CancellationToken ct) where T : class
     {
-        using var requestMessage = new HttpRequestMessage(method, uri);
-        if (content is not ByteArrayContent)
-            requestMessage.Content = JsonContent.Create(content);
-        else
-            requestMessage.Content = content as ByteArrayContent;
-        return await SendRequestInternalAsync(requestMessage, ct).ConfigureAwait(false);
+        // A caller-supplied ByteArrayContent is owned (and disposed) by the caller and cannot be
+        // rebuilt here, so it is sent once without retry. JSON content is recreated per attempt.
+        if (content is ByteArrayContent byteContent)
+        {
+            return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = byteContent }, ct, allowRetry: false).ConfigureAwait(false);
+        }
+
+        return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = JsonContent.Create(content) }, ct, allowRetry: true).ConfigureAwait(false);
     }
 
     public async Task<HttpResponseMessage> SendRequestStreamAsync(HttpMethod method, Uri uri, ProgressableStreamContent content, CancellationToken ct)
     {
-        using var requestMessage = new HttpRequestMessage(method, uri);
-        requestMessage.Content = content;
-        return await SendRequestInternalAsync(requestMessage, ct).ConfigureAwait(false);
+        // The stream is consumed/disposed on send and cannot be replayed, so this is a single attempt.
+        return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = content }, ct, allowRetry: false).ConfigureAwait(false);
     }
 
-    private async Task<HttpResponseMessage> SendRequestInternalAsync(HttpRequestMessage requestMessage,
-        CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead)
+    private async Task<HttpResponseMessage> SendRequestInternalAsync(Func<HttpRequestMessage> requestFactory,
+        CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead, bool allowRetry = true)
     {
         var token = await _tokenProvider.GetToken().ConfigureAwait(false);
-        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        if (requestMessage.Content != null && requestMessage.Content is not StreamContent && requestMessage.Content is not ByteArrayContent)
+        var attempt = 0;
+        while (true)
         {
-            var content = await ((JsonContent)requestMessage.Content).ReadAsStringAsync().ConfigureAwait(false);
-            Logger.LogDebug("Sending {method} to {uri} (Content: {content})", requestMessage.Method, requestMessage.RequestUri, content);
+            attempt++;
+            using var requestMessage = requestFactory();
+            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            if (requestMessage.Content != null && requestMessage.Content is not StreamContent && requestMessage.Content is not ByteArrayContent)
+            {
+                var content = await ((JsonContent)requestMessage.Content).ReadAsStringAsync().ConfigureAwait(false);
+                Logger.LogDebug("Sending {method} to {uri} (Content: {content})", requestMessage.Method, requestMessage.RequestUri, content);
+            }
+            else
+            {
+                Logger.LogDebug("Sending {method} to {uri}", requestMessage.Method, requestMessage.RequestUri);
+            }
+
+            using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
+            var requestToken = ct ?? untrackedTimeout!.Token;
+
+            try
+            {
+                var response = await _httpClient.SendAsync(requestMessage, httpCompletionOption, requestToken).ConfigureAwait(false);
+
+                if (allowRetry && attempt < MaxTransientAttempts && TransientStatusCodes.Contains(response.StatusCode))
+                {
+                    var delay = GetTransientRetryDelay(response.Headers.RetryAfter?.Delta, attempt);
+                    LogTransientRetry(Logger, requestMessage.RequestUri, (int)response.StatusCode, attempt, delay);
+                    response.Dispose();
+                    await Task.Delay(delay, requestToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                return response;
+            }
+            catch (OperationCanceledException ex) when (ct is { IsCancellationRequested: true })
+            {
+                LogRequestCancelled(Logger, ex, requestMessage.RequestUri);
+                throw;
+            }
+            catch (OperationCanceledException ex) when (untrackedTimeout?.IsCancellationRequested == true)
+            {
+                LogRequestTimedOut(Logger, ex, requestMessage.RequestUri, UntrackedRequestTimeout);
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                if (allowRetry && attempt < MaxTransientAttempts)
+                {
+                    var delay = GetTransientRetryDelay(null, attempt);
+                    LogTransientRetry(Logger, requestMessage.RequestUri, (int)(ex.StatusCode ?? 0), attempt, delay);
+                    await Task.Delay(delay, requestToken).ConfigureAwait(false);
+                    continue;
+                }
+                throw new HttpRequestException($"Error during file transfer request for {requestMessage.RequestUri}", ex, ex.StatusCode);
+            }
         }
-        else
+    }
+
+    private static TimeSpan GetTransientRetryDelay(TimeSpan? retryAfter, int attempt)
+    {
+        if (retryAfter is { } delta && delta > TimeSpan.Zero)
         {
-            Logger.LogDebug("Sending {method} to {uri}", requestMessage.Method, requestMessage.RequestUri);
+            return delta < TransientRetryMaxDelay ? delta : TransientRetryMaxDelay;
         }
 
-        using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
-        var requestToken = ct ?? untrackedTimeout!.Token;
-
-        try
-        {
-            return await _httpClient.SendAsync(requestMessage, httpCompletionOption, requestToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex) when (ct is { IsCancellationRequested: true })
-        {
-            LogRequestCancelled(Logger, ex, requestMessage.RequestUri);
-            throw;
-        }
-        catch (OperationCanceledException ex) when (untrackedTimeout?.IsCancellationRequested == true)
-        {
-            LogRequestTimedOut(Logger, ex, requestMessage.RequestUri, UntrackedRequestTimeout);
-            throw;
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new HttpRequestException($"Error during file transfer request for {requestMessage.RequestUri}", ex, ex.StatusCode);
-        }
+        var backoff = TransientRetryBaseDelay * Math.Pow(2, attempt - 1);
+        return backoff < TransientRetryMaxDelay ? backoff : TransientRetryMaxDelay;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Request to {Uri} was cancelled")]
@@ -185,4 +233,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request to {Uri} timed out after {Timeout}")]
     private static partial void LogRequestTimedOut(ILogger logger, Exception ex, Uri? uri, TimeSpan timeout);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Transient error {StatusCode} from {Uri} (attempt {Attempt}); retrying after {Delay}")]
+    private static partial void LogTransientRetry(ILogger logger, Uri? uri, int statusCode, int attempt, TimeSpan delay);
 }

@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>3.0.0.63</Version>
+    <Version>3.0.1.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Configurations>Release;Debug</Configurations>
@@ -45,7 +45,7 @@
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
     <PackageReference Include="Snowcloak.API" Version="3.0.0.63" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="3.2.2" />
+    <PackageReference Include="Snowcloak.CacheFile" Version="3.2.2.1" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
