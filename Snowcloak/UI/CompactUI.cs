@@ -180,8 +180,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
                 Click = (btn) => Util.OpenLink("https://patreon.com/elznmods")
             }
         ];
-        // changed min size
-        SetScaledSizeConstraints(new Vector2(700, 750), new Vector2(1200, 2000));
+
+        SetScaledSizeConstraints(new Vector2(560, 700), new Vector2(1200, 2000));
         Size = new Vector2(860, 720);
         SizeCondition = ImGuiCond.FirstUseEver;
         

@@ -227,6 +227,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
                 _connectionContext = ConnectionContext.From(connectionDto);
                 _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
+                Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
 
                 await CheckClientHealth().ConfigureAwait(false);
 
@@ -545,6 +546,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
             _connectionContext = ConnectionContext.From(connectionDto);
             _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
+            Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
             if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
             {
                 await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);

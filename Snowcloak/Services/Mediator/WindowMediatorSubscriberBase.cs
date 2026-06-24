@@ -1,5 +1,4 @@
 ﻿using System.Numerics;
-using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 using Microsoft.Extensions.Logging;
 using Snowcloak.UI.Components;
@@ -11,7 +10,6 @@ public abstract class WindowMediatorSubscriberBase : Window, IMediatorSubscriber
     protected readonly ILogger _logger;
     private readonly PerformanceCollectorService _performanceCollectorService;
     private bool _windowStylePushed;
-    private WindowSizeConstraints? _unscaledConstraints;
 
     protected WindowMediatorSubscriberBase(ILogger logger, SnowMediator mediator, string name,
         PerformanceCollectorService performanceCollectorService) : base(name)
@@ -40,30 +38,17 @@ public abstract class WindowMediatorSubscriberBase : Window, IMediatorSubscriber
 
     protected void SetScaledSizeConstraints(Vector2 minimumSize, Vector2? maximumSize = null)
     {
-        _unscaledConstraints = new WindowSizeConstraints
+        // Dalamud's Window.SizeConstraints is already scaled by ImGuiHelpers.GlobalScale
+        // internally
+        SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = minimumSize,
             MaximumSize = maximumSize ?? new Vector2(float.MaxValue),
-        };
-        ApplyScaledConstraints();
-    }
-
-    private void ApplyScaledConstraints()
-    {
-        if (_unscaledConstraints is not { } constraints)
-            return;
-
-        var scale = ImGuiHelpers.GlobalScale;
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = constraints.MinimumSize * scale,
-            MaximumSize = constraints.MaximumSize * scale,
         };
     }
 
     public override void PreDraw()
     {
-        ApplyScaledConstraints();
         ModernWindowStyle.PushTitleBar();
         _windowStylePushed = true;
         base.PreDraw();

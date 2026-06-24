@@ -64,6 +64,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ShowVisibleUsersSeparately { get; set; } = true;
     public bool ShowSyncshellBudgetDashboard { get; set; } = false;
     public bool ShowCompactUiPerformanceTab { get; set; } = false;
+    public bool CompactUiSidebarCollapsed { get; set; } = false;
     public int TimeSpanBetweenScansInSeconds { get; set; } = 30;
     public int TransferBarsHeight { get; set; } = 12;
     public bool TransferBarsShowText { get; set; } = true;

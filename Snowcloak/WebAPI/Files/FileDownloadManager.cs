@@ -13,7 +13,6 @@ using Snowcloak.Utils;
 using Snowcloak.WebAPI.Files.Models;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net.Http.Json;
 
 namespace Snowcloak.WebAPI.Files;
@@ -21,8 +20,6 @@ namespace Snowcloak.WebAPI.Files;
 public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
     private const int DownloadBufferSize = 256 * 1024;
-    private const long DownloadProgressReportByteInterval = 256 * 1024;
-    private static readonly TimeSpan DownloadProgressReportMinInterval = TimeSpan.FromMilliseconds(100);
 
     private readonly FileCacheManager _fileDbManager;
     private readonly FileTransferOrchestrator _orchestrator;
@@ -223,8 +220,6 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private static async Task CopyToBlockFileAsync(Stream source, Stream destination, DownloadStatusStore.DownloadGroupHandle groupHandle, CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(DownloadBufferSize);
-        long pendingProgressBytes = 0;
-        var lastProgressReportTimestamp = Stopwatch.GetTimestamp();
         try
         {
             int bytesRead;
@@ -232,26 +227,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             {
                 ct.ThrowIfCancellationRequested();
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
-                pendingProgressBytes += bytesRead;
-
-                var currentTimestamp = Stopwatch.GetTimestamp();
-                var byteThresholdReached = pendingProgressBytes >= DownloadProgressReportByteInterval;
-                var timeThresholdReached =
-                    Stopwatch.GetElapsedTime(lastProgressReportTimestamp, currentTimestamp) >= DownloadProgressReportMinInterval;
-
-                if (!byteThresholdReached && !timeThresholdReached)
-                {
-                    continue;
-                }
-
-                groupHandle.AddBytes(pendingProgressBytes);
-                pendingProgressBytes = 0;
-                lastProgressReportTimestamp = currentTimestamp;
-            }
-
-            if (pendingProgressBytes > 0)
-            {
-                groupHandle.AddBytes(pendingProgressBytes);
+                groupHandle.AddBytes(bytesRead);
             }
         }
         finally

@@ -26,6 +26,7 @@ internal sealed class PairVisibilityTracker
     private readonly GameObjectHandlerFactory _gameObjectHandlerFactory;
     private readonly NotesStore _notesStore;
     private readonly IpcManager _ipcManager;
+    private int _initLookupMisses;
 
     public PairVisibilityTracker(PairHandler handler, ILogger logger, SnowMediator mediator, Pair pair,
         PairAppliedState appliedState, BackgroundTaskTracker backgroundTasks, SingleFlightCts downloadFlight,
@@ -77,11 +78,21 @@ internal sealed class PairVisibilityTracker
             var pc = _dalamudUtil.FindPlayerByNameHash(Pair.Ident);
             if (pc.EntityId == 0)
             {
-                Logger.LogDebug("Visibility update skipped for {this}, player not found yet; rearming tracking", _handler);
+                _initLookupMisses++;
+                if (_initLookupMisses >= 5)
+                {
+                    Logger.LogWarning("Visibility update skipped for {this}, player not found yet after {misses} consecutive attempts; rearming tracking",
+                        _handler, _initLookupMisses);
+                }
+                else
+                {
+                    Logger.LogDebug("Visibility update skipped for {this}, player not found yet; rearming tracking", _handler);
+                }
                 _visibilityService.StopTracking(Pair.Ident);
                 _visibilityService.StartTracking(Pair.Ident);
                 return;
             }
+            _initLookupMisses = 0;
             Logger.LogDebug("One-Time Initializing {this}", _handler);
             Initialize(pc.Name);
             Logger.LogDebug("One-Time Initialized {this}", _handler);

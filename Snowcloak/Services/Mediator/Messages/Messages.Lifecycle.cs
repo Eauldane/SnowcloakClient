@@ -20,6 +20,7 @@ public record GposeStartMessage : SameThreadMessage;
 public record GposeEndMessage : MessageBase;
 public record CutsceneEndMessage : MessageBase;
 public record ConnectedMessage(ConnectionDto Connection) : MessageBase;
+public record FileServerInfoReceivedMessage(ConnectionDto Connection) : MessageBase;
 public record ServerNewsMessage(string News) : MessageBase;
 
 public record DisconnectedMessage : SameThreadMessage;

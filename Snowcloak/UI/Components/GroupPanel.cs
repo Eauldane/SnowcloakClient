@@ -478,8 +478,16 @@ internal sealed class GroupPanel
                 ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellConfig.ShellNumber));
                 ImGui.SameLine();
             }
+
+            var community = GetCommunity(groupDto);
+            var (_, buttonsStartX) = GetSyncShellButtonsLayout(groupDto);
+          
+            var reservedTrailingWidth = MeasureTrailingDecorationWidth(community);
+            var availableNameWidth = buttonsStartX - ImGui.GetCursorPosX() - reservedTrailingWidth;
+
             if (textIsGid) ImGui.PushFont(UiBuilder.MonoFont);
-            ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupDto.Group.DisplayColour), groupName);
+            var displayName = ImGuiTextUtils.TruncateToWidth(groupName, availableNameWidth);
+            ImGui.TextColored(ElezenTools.UI.Colour.HexToVector4(groupDto.Group.DisplayColour), displayName);
             if (textIsGid) ImGui.PopFont();
             ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Left click to switch between GID display and comment{0}Right click to change comment for {1}{0}{0}Users: {2}, Owner: {3}",
                 Environment.NewLine, groupName, validPairsInGroup.Count + 1, groupDto.OwnerAliasOrUID));
@@ -499,7 +507,6 @@ internal sealed class GroupPanel
                 _editGroupEntry = groupDto.GID;
             }
 
-            var community = GetCommunity(groupDto);
             DrawEventIndicator(groupDto, community);
             DrawSyncshellWorldTag(community);
         }
@@ -651,8 +658,6 @@ internal sealed class GroupPanel
     {
         var community = GetCommunity(groupDto);
 
-        // Events live in their own window now (opened from the calendar indicator or the
-        // syncshell menu); the expanded row keeps only the message of the day.
         if (!string.IsNullOrWhiteSpace(community.Motd))
         {
             ElezenImgui.WrappedText(community.Motd);
@@ -666,16 +671,12 @@ internal sealed class GroupPanel
             return community;
         }
 
-        // Load community details off the draw thread; render an empty record until it
-        // arrives rather than blocking the frame on a SignalR round-trip (the old
-        // `.Result` call stalled or deadlocked the UI thread).
         QueueCommunityLoad(groupDto);
         return new GroupCommunityDto(groupDto.Group);
     }
 
     private void QueueCommunityLoad(GroupFullInfoDto groupDto)
     {
-        // Single-flight per syncshell: at most one in-flight request per GID.
         if (!_communityLoading.TryAdd(groupDto.GID, true))
         {
             return;
@@ -693,9 +694,7 @@ internal sealed class GroupPanel
         }
         catch (Exception)
         {
-            // Community MOTD/events are optional chrome. If the lookup fails (not connected,
-            // or the shell has no community record) cache an empty record so the row renders
-            // without it and we do not re-request it every frame.
+
             community = null;
         }
 
@@ -703,13 +702,8 @@ internal sealed class GroupPanel
         _communityLoading.TryRemove(groupDto.GID, out _);
     }
 
-    // An event counts as "active" for one hour after its start time.
     private static readonly TimeSpan EventActiveWindow = TimeSpan.FromHours(1);
-
-    /// <summary>
-    /// Draws a clickable calendar indicator beside the syncshell name when it has events
-    /// that are running or still to come. Clicking opens the dedicated events window.
-    /// </summary>
+    
     private void DrawEventIndicator(GroupFullInfoDto groupDto, GroupCommunityDto community)
     {
         var summary = GetEventSummary(community, DateTime.UtcNow);
@@ -727,6 +721,30 @@ internal sealed class GroupPanel
             _mediator.Publish(new OpenSyncshellEventsWindow(groupDto));
         }
         ElezenImgui.AttachTooltip(BuildIndicatorTooltip(summary));
+    }
+    
+    private float MeasureTrailingDecorationWidth(GroupCommunityDto community)
+    {
+        var spacingX = ImGui.GetStyle().ItemSpacing.X;
+        var width = 0f;
+
+        var summary = GetEventSummary(community, DateTime.UtcNow);
+        if (summary.HasAny)
+        {
+            ImGui.PushFont(UiBuilder.IconFont);
+            width += ImGui.CalcTextSize(FontAwesomeIcon.CalendarDay.ToIconString()).X;
+            ImGui.PopFont();
+            width += spacingX;
+        }
+
+        var locationText = _dalamudUtilService.GetWorldName(community.MainWorldId) ?? community.MainRegion;
+        if (!string.IsNullOrEmpty(locationText))
+        {
+            width += ImGui.CalcTextSize("· " + locationText).X;
+            width += spacingX;
+        }
+
+        return width;
     }
 
     /// <summary>Shows the admin-configured location (world, else region) next to the syncshell name.</summary>
@@ -788,6 +806,33 @@ internal sealed class GroupPanel
         return header + Environment.NewLine + "Click to view events.";
     }
 
+
+    private static (bool ShowInfoIcon, float StartX) GetSyncShellButtonsLayout(GroupFullInfoDto groupDto)
+    {
+        bool invitesEnabled = !groupDto.GroupPermissions.IsDisableInvites();
+        var soundsDisabled = groupDto.GroupPermissions.IsDisableSounds();
+        var animDisabled = groupDto.GroupPermissions.IsDisableAnimations();
+        var vfxDisabled = groupDto.GroupPermissions.IsDisableVFX();
+
+        var userSoundsDisabled = groupDto.GroupUserPermissions.IsDisableSounds();
+        var userAnimDisabled = groupDto.GroupUserPermissions.IsDisableAnimations();
+        var userVFXDisabled = groupDto.GroupUserPermissions.IsDisableVFX();
+
+        bool showInfoIcon = !invitesEnabled || soundsDisabled || animDisabled || vfxDisabled || userSoundsDisabled || userAnimDisabled || userVFXDisabled;
+
+        var actionButtonSize = DrawPairBase.RowActionButtonSize;
+        var spacingX = ImGui.GetStyle().ItemSpacing.X;
+        var windowEndX = ImGui.GetWindowContentRegionMin().X + ElezenImgui.GetWindowContentRegionWidth();
+
+        var startX = windowEndX
+            - actionButtonSize.X
+            - (showInfoIcon ? actionButtonSize.X + spacingX : 0)
+            - actionButtonSize.X
+            - spacingX;
+
+        return (showInfoIcon, startX);
+    }
+
     private void DrawSyncShellButtons(GroupFullInfoDto groupDto, List<Pair> groupPairs)
     {
         var infoIcon = FontAwesomeIcon.InfoCircle;
@@ -802,8 +847,6 @@ internal sealed class GroupPanel
         var userAnimDisabled = groupDto.GroupUserPermissions.IsDisableAnimations();
         var userVFXDisabled = groupDto.GroupUserPermissions.IsDisableVFX();
 
-        bool showInfoIcon = !invitesEnabled || soundsDisabled || animDisabled || vfxDisabled || userSoundsDisabled || userAnimDisabled || userVFXDisabled;
-
         var lockedIcon = invitesEnabled ? FontAwesomeIcon.LockOpen : FontAwesomeIcon.Lock;
         var animIcon = animDisabled ? FontAwesomeIcon.Stop : FontAwesomeIcon.Running;
         var soundsIcon = soundsDisabled ? FontAwesomeIcon.VolumeOff : FontAwesomeIcon.VolumeUp;
@@ -812,18 +855,12 @@ internal sealed class GroupPanel
         var userSoundsIcon = userSoundsDisabled ? FontAwesomeIcon.VolumeOff : FontAwesomeIcon.VolumeUp;
         var userVFXIcon = userVFXDisabled ? FontAwesomeIcon.Circle : FontAwesomeIcon.Sun;
 
-        var actionButtonSize = DrawPairBase.RowActionButtonSize;
         var isOwner = string.Equals(groupDto.OwnerUID, ApiController.UID, StringComparison.Ordinal);
 
-        var spacingX = ImGui.GetStyle().ItemSpacing.X;
-        var windowEndX = ImGui.GetWindowContentRegionMin().X + ElezenImgui.GetWindowContentRegionWidth();
         var pauseIcon = groupDto.GroupUserPermissions.IsPaused() ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
 
-        ImGui.SameLine(windowEndX
-            - actionButtonSize.X
-            - (showInfoIcon ? actionButtonSize.X + spacingX : 0)
-            - actionButtonSize.X
-            - spacingX);
+        var (showInfoIcon, buttonsStartX) = GetSyncShellButtonsLayout(groupDto);
+        ImGui.SameLine(buttonsStartX);
 
         if (showInfoIcon)
         {

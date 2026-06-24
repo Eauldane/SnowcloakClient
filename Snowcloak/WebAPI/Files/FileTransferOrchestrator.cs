@@ -47,6 +47,11 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
 
         _downloadSlots = new DownloadSlotGate(snowcloakConfig.Current.ParallelDownloads);
+        
+        Mediator.Subscribe<FileServerInfoReceivedMessage>(this, (msg) =>
+        {
+            FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
+        });
 
         Mediator.Subscribe<ConnectedMessage>(this, (msg) =>
         {
