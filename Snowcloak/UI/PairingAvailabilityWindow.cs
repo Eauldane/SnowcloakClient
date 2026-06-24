@@ -23,7 +23,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase, IS
     public PairingAvailabilityWindow(ILogger<PairingAvailabilityWindow> logger, SnowMediator mediator,
         PairRequestService pairRequestService, DalamudUtilService dalamudUtilService,
         PerformanceCollectorService performanceCollectorService)
-        : base(logger, mediator, "SnowcloakPairingAvailability", performanceCollectorService)
+        : base(logger, mediator, "Frostbrand - Open to Pairs###SnowcloakPairingAvailability", performanceCollectorService)
     {
         ArgumentNullException.ThrowIfNull(pairRequestService);
 

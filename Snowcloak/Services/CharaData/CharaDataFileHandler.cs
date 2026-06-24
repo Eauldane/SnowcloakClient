@@ -207,7 +207,11 @@ public sealed partial class CharaDataFileHandler : IDisposable
             await McdfIo.WriteAsync(
                 header,
                 filePath,
-                hash => _fileCacheManager.GetFileCacheByHash(hash)?.ResolvedFilepath,
+                hash =>
+                {
+                    var caches = _fileCacheManager.GetFileCachesByHash(hash);
+                    return (caches.Penumbra ?? caches.Cache ?? caches.Subst)?.ResolvedFilepath;
+                },
                 _logger).ConfigureAwait(false);
         }
         catch (Exception ex)

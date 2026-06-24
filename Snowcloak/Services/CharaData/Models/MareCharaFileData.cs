@@ -44,7 +44,8 @@ public record MareCharaFileData
                 }
                 else
                 {
-                    var filePath = manager.GetFileCacheByHash(file.First().Hash)?.ResolvedFilepath;
+                    var caches = manager.GetFileCachesByHash(file.First().Hash);
+                    var filePath = (caches.Penumbra ?? caches.Cache ?? caches.Subst)?.ResolvedFilepath;
                     if (filePath != null)
                     {
                         Files.Add(new FileData(file.SelectMany(f => f.GamePaths), (int)new FileInfo(filePath).Length, file.First().Hash));

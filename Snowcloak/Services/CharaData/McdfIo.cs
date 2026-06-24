@@ -99,7 +99,7 @@ public static partial class McdfIo
             var fileStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
             await using (fileStream.ConfigureAwait(false))
             {
-                using (var lz4 = new LZ4Stream(fileStream, LZ4StreamMode.Compress, LZ4StreamFlags.HighCompression))
+                using (var lz4 = new LZ4Stream(fileStream, LZ4StreamMode.Compress, LZ4StreamFlags.HighCompression | LZ4StreamFlags.IsolateInnerStream))
                 {
                     using var writer = new BinaryWriter(lz4, Encoding.UTF8, leaveOpen: true);
                     header.WriteToStream(writer);
