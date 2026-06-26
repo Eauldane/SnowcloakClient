@@ -27,7 +27,7 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         while (true)
         {
             onPhase?.Invoke(DownloadStatus.WaitingForQueue);
-            var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, requestUrl, request.Hashes, ct).ConfigureAwait(false);
+            var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, requestUrl, request.Hashes, ct, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 var retryAfter = response.Headers.RetryAfter?.Delta ?? RetryAfterFallback;

@@ -36,11 +36,23 @@ namespace Snowcloak.UI;
 
 public partial class CompactUi
 {
-    private const float ExpandedSidebarWidth = ModernSidebar.ExpandedWidth;
+    private const float ExpandedSidebarWidth = ModernSidebar.ExpandedWidth - 15f;
     private const float CollapsedSidebarWidth = 28f;
     private const float CollapseToggleRowHeight = 26f;
+    private const float SidebarItemSpacingY = 4f;
+    private const float SidebarSeparatorHeight = 9f;
+    private const float SidebarTopGap = 4f;
+    private const float CollapsedSidebarPaddingX = 4f;
+    private const float CollapsedSidebarButtonHeight = 26f;
 
-    private static void DrawSidebarSeparator() => ModernSidebar.DrawSeparator();
+    private static void DrawSidebarSeparator()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var start = ImGui.GetCursorScreenPos() + new Vector2(8f * scale, 4f * scale);
+        var end = start with { X = start.X + ImGui.GetContentRegionAvail().X - 16f * scale };
+        ImGui.GetWindowDrawList().AddLine(start, end, Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle), 1f * scale);
+        ImGui.Dummy(new Vector2(1f, SidebarSeparatorHeight * scale));
+    }
 
     private void DrawSidebarButton(Menu menu, FontAwesomeIcon icon, string label)
     {
@@ -75,7 +87,10 @@ public partial class CompactUi
         var sidebarWidth = (collapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth) * ImGuiHelpers.GlobalScale;
 
         using var childBg = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
-        using var childPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(14f, 12f) * ImGuiHelpers.GlobalScale);
+        var childPaddingValue = collapsed
+            ? new Vector2(CollapsedSidebarPaddingX, 12f)
+            : new Vector2(14f, 12f);
+        using var childPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, childPaddingValue * ImGuiHelpers.GlobalScale);
         using (var child = ImRaii.Child("Sidebar", new Vector2(sidebarWidth, -1), false))
         {
             if (collapsed)
@@ -85,8 +100,8 @@ public partial class CompactUi
             }
 
             using var sidebarPadding = ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(10f, 9f) * ImGuiHelpers.GlobalScale);
-            using var sidebarSpacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 8f * ImGuiHelpers.GlobalScale));
-            ImGuiHelpers.ScaledDummy(9);
+            using var sidebarSpacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, SidebarItemSpacingY * ImGuiHelpers.GlobalScale));
+            ImGuiHelpers.ScaledDummy(SidebarTopGap);
 
             // Buttons with state change
             DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
@@ -143,6 +158,42 @@ public partial class CompactUi
 
     private void DrawCollapsedSidebar()
     {
+        using var sidebarSpacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(0f, SidebarItemSpacingY * ImGuiHelpers.GlobalScale));
+        ImGuiHelpers.ScaledDummy(SidebarTopGap);
+
+        DrawCollapsedSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
+        DrawCollapsedSidebarButton(Menu.Syncshells, FontAwesomeIcon.PeopleGroup, "Syncshells");
+        if (_configService.Current.ShowCompactUiPerformanceTab)
+        {
+            DrawCollapsedSidebarButton(Menu.Performance, FontAwesomeIcon.ChartBar, "Performance");
+        }
+        DrawCollapsedSidebarSeparator();
+        if (_apiController.ServerState is ServerState.Connected)
+        {
+            DrawCollapsedSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
+        }
+        DrawCollapsedSidebarSeparator();
+        DrawCollapsedSidebarAction(FontAwesomeIcon.ChartBar, "Character Analysis",
+            () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
+        DrawCollapsedSidebarAction(FontAwesomeIcon.UserFriends, "Character Hub",
+            () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+        DrawCollapsedSidebarAction(FontAwesomeIcon.MapMarkedAlt, "Venues",
+            () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
+        DrawCollapsedSidebarAction(FontAwesomeIcon.Comments, "Chat [BETA]",
+            () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
+        DrawCollapsedSidebarAction(FontAwesomeIcon.Cog, "Settings",
+            () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
+        DrawCollapsedSidebarSeparator();
+
+        if (_apiController.ServerState is ServerState.Connected)
+        {
+            DrawCollapsedSidebarAction(FontAwesomeIcon.UserCircle, "Edit Profile",
+                () => Mediator.Publish(new UiToggleMessage(typeof(EditProfileUi))));
+        }
+
+        DrawCollapsedSidebarAction(FontAwesomeIcon.Book, "User Guide",
+            () => Util.OpenLink("https://docs.snowcloak-sync.com"));
+
         var availableSpace = ImGui.GetContentRegionAvail().Y;
         var toggleHeight = CollapseToggleRowHeight * ImGuiHelpers.GlobalScale;
         if (availableSpace > toggleHeight)
@@ -151,6 +202,67 @@ public partial class CompactUi
         }
 
         DrawSidebarCollapseToggle(collapsed: true);
+    }
+
+    private static void DrawCollapsedSidebarSeparator()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var min = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+        var y = min.Y + 4f * scale;
+        ImGui.GetWindowDrawList().AddLine(new Vector2(min.X + 3f * scale, y), new Vector2(min.X + width - 3f * scale, y),
+            Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle), 1f * scale);
+        ImGui.Dummy(new Vector2(1f, SidebarSeparatorHeight * scale));
+    }
+
+    private void DrawCollapsedSidebarButton(Menu menu, FontAwesomeIcon icon, string label)
+    {
+        if (DrawCollapsedSidebarIcon(icon, label, _selectedMenu == menu))
+        {
+            _selectedMenu = menu;
+        }
+    }
+
+    private static void DrawCollapsedSidebarAction(FontAwesomeIcon icon, string label, Action onClick)
+    {
+        if (DrawCollapsedSidebarIcon(icon, label, active: false))
+        {
+            onClick();
+        }
+    }
+
+    private static bool DrawCollapsedSidebarIcon(FontAwesomeIcon icon, string tooltip, bool active)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = ImGui.GetContentRegionAvail().X;
+        var height = CollapsedSidebarButtonHeight * scale;
+        var min = ImGui.GetCursorScreenPos();
+
+        ImGui.InvisibleButton($"##collapsed-sidebar-{tooltip}", new Vector2(width, height));
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        var hovered = ImGui.IsItemHovered();
+        var max = min + new Vector2(width, height);
+        var drawList = ImGui.GetWindowDrawList();
+
+        if (active)
+        {
+            drawList.AddRectFilled(min, max, Colour.Vector4ToColour(new Vector4(SnowcloakUi.AccentColor.X, SnowcloakUi.AccentColor.Y, SnowcloakUi.AccentColor.Z, 0.24f)), 3f * scale);
+            drawList.AddRectFilled(min, min + new Vector2(2f * scale, height), Colour.Vector4ToColour(SnowcloakUi.AccentColor), 0f);
+        }
+        else if (hovered)
+        {
+            drawList.AddRectFilled(min, max, Colour.Vector4ToColour(new Vector4(0.090f, 0.150f, 0.220f, 0.54f)), 3f * scale);
+        }
+
+        var iconText = icon.ToIconString();
+        ImGui.PushFont(UiBuilder.IconFont);
+        var iconSize = ImGui.CalcTextSize(iconText);
+        drawList.AddText(min + new Vector2((width - iconSize.X) * 0.5f, (height - iconSize.Y) * 0.5f),
+            Colour.Vector4ToColour(active ? Vector4.One : SnowcloakColours.CompactTextMuted), iconText);
+        ImGui.PopFont();
+
+        ElezenImgui.AttachTooltip(tooltip);
+        return clicked;
     }
 
     private void DrawSidebarCollapseToggle(bool collapsed)

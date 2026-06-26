@@ -181,7 +181,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
             }
         ];
 
-        SetScaledSizeConstraints(new Vector2(560, 700), new Vector2(1200, 2000));
+        SetScaledSizeConstraints(new Vector2(545, 640), new Vector2(1200, 2000));
         Size = new Vector2(860, 720);
         SizeCondition = ImGuiCond.FirstUseEver;
         

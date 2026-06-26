@@ -16,7 +16,6 @@ public static class FrostbrandPendingRequestsView
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(dispatcher);
 
-        FrostbrandPanelChrome.DrawSectionTitle(FontAwesomeIcon.UserPlus, "Pending pair requests");
         if (state.PendingRequestCount == 0)
         {
             DrawPendingEmptyState();
@@ -35,7 +34,7 @@ public static class FrostbrandPendingRequestsView
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 22));
 
-        DrawCenteredBigIcon(FontAwesomeIcon.UserPlus, SnowcloakColours.CompactTextMuted, 2.0f);
+        DrawCenteredBigIcon(FontAwesomeIcon.UserPlus, SnowcloakColours.CompactTextMuted, 1.6f);
         ImGuiHelpers.ScaledDummy(new Vector2(0, 12));
 
         DrawCenteredLine("No pending pair requests right now.", Vector4.One, startX, fullWidth);

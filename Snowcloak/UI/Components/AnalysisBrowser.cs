@@ -208,8 +208,9 @@ internal sealed class AnalysisBrowser
         var downloadSize = ElezenImgui.ByteToString(_cachedAnalysis.Files.Sum(f => f.CompressedSize));
         var triangles = ElezenImgui.TrisToString(totalTriangles);
 
-        var exceedsAutoPause = totalVramBytes > PerformanceBudgetPolicy.LegacyAutoBlockVramThresholdMiB * 1024L * 1024L
-            || totalTriangles > PerformanceBudgetPolicy.LegacyAutoBlockTrianglesThresholdThousands * 1000L;
+        var exceedsVramAutoPause = ExceedsLegacyVramThreshold(totalVramBytes);
+        var exceedsTrianglesAutoPause = ExceedsLegacyTrianglesThreshold(totalTriangles);
+        var exceedsAutoPause = exceedsVramAutoPause || exceedsTrianglesAutoPause;
 
         var cellSize = new Vector2(cellWidth, topHeight);
         DrawStatCell(new Vector2(tilesStart, origin.Y), cellSize, FontAwesomeIcon.FolderOpen, "Total files", totalFiles.ToString(CultureInfo.InvariantCulture), Vector4.One, false);
@@ -217,7 +218,7 @@ internal sealed class AnalysisBrowser
         DrawStatCell(new Vector2(tilesStart + cellWidth * 2f, origin.Y), cellSize, FontAwesomeIcon.Download, "Total size (download size)", downloadSize,
             needAnalysis ? ImGuiColors.DalamudYellow : Vector4.One, needAnalysis && !isAnalyzing);
         DrawStatCell(new Vector2(tilesStart + cellWidth * 3f, origin.Y), cellSize, FontAwesomeIcon.Cube, "Total modded triangles", triangles,
-            exceedsAutoPause ? ImGuiColors.DalamudOrange : Vector4.One, false);
+            exceedsTrianglesAutoPause ? ImGuiColors.DalamudOrange : Vector4.One, false);
 
         ImGui.SetCursorScreenPos(new Vector2(origin.X, origin.Y + topHeight));
 
@@ -439,7 +440,11 @@ internal sealed class AnalysisBrowser
                     DrawPanelTitle(string.Format(CultureInfo.InvariantCulture, "{0} overview", kindLabel));
 
                     var vramGroup = groupedFiles.SingleOrDefault(v => string.Equals(v.Key, "tex", StringComparison.Ordinal));
-                    var vram = vramGroup != null ? ElezenImgui.ByteToString(vramGroup.Sum(f => f.OriginalSize)) : "-";
+                    var vramBytes = vramGroup?.Sum(f => f.OriginalSize) ?? 0;
+                    var vram = vramGroup != null ? ElezenImgui.ByteToString(vramBytes) : "-";
+                    var triangleCount = kindData.Sum(f => f.Value.Triangles);
+                    var vramColor = ExceedsLegacyVramThreshold(vramBytes) ? ImGuiColors.DalamudOrange : (Vector4?)null;
+                    var triangleColor = ExceedsLegacyTrianglesThreshold(triangleCount) ? ImGuiColors.DalamudOrange : (Vector4?)null;
 
                     using (ImRaii.Group())
                     {
@@ -453,8 +458,8 @@ internal sealed class AnalysisBrowser
                     ImGui.SameLine(0f, 40f * scale);
                     using (ImRaii.Group())
                     {
-                        DrawStat(kindLabel + " VRAM usage", vram);
-                        DrawStat(kindLabel + " modded model triangles", ElezenImgui.TrisToString(kindData.Sum(f => f.Value.Triangles)));
+                        DrawStat(kindLabel + " VRAM usage", vram, null, vramColor);
+                        DrawStat(kindLabel + " modded model triangles", ElezenImgui.TrisToString(triangleCount), null, triangleColor);
                     }
                 }
             }
@@ -673,6 +678,16 @@ internal sealed class AnalysisBrowser
     {
         ImGui.TextColored(SnowcloakColours.OnlineBlue, title);
         ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
+    }
+
+    private static bool ExceedsLegacyVramThreshold(long vramBytes)
+    {
+        return vramBytes > PerformanceBudgetPolicy.LegacyAutoBlockVramThresholdMiB * 1024L * 1024L;
+    }
+
+    private static bool ExceedsLegacyTrianglesThreshold(long triangleCount)
+    {
+        return triangleCount > PerformanceBudgetPolicy.LegacyAutoBlockTrianglesThresholdThousands * 1000L;
     }
 
     private static void DrawStat(string label, string value, string? tooltip = null, Vector4? valueColor = null, bool warning = false)

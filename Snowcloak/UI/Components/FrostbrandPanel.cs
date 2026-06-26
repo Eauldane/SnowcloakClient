@@ -49,7 +49,6 @@ internal sealed class FrostbrandPanel
         using var itemSpacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing,
             new Vector2(ImGui.GetStyle().ItemSpacing.X, 7f * ImGuiHelpers.GlobalScale));
 
-        FrostbrandPanelChrome.DrawSectionTitle(FontAwesomeIcon.Snowflake, "Frostbrand Pairing");
         _enableFlow.Draw(state, _dispatcher);
 
         if (state.PairingEnabled != _wasPairingEnabled)

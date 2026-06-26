@@ -140,21 +140,19 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri), ct, httpCompletionOption, allowRetry: true).ConfigureAwait(false);
     }
 
-    public async Task<HttpResponseMessage> SendRequestAsync<T>(HttpMethod method, Uri uri, T content, CancellationToken ct) where T : class
+    public async Task<HttpResponseMessage> SendRequestAsync<T>(HttpMethod method, Uri uri, T content, CancellationToken ct,
+        HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead) where T : class
     {
-        // A caller-supplied ByteArrayContent is owned (and disposed) by the caller and cannot be
-        // rebuilt here, so it is sent once without retry. JSON content is recreated per attempt.
         if (content is ByteArrayContent byteContent)
         {
-            return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = byteContent }, ct, allowRetry: false).ConfigureAwait(false);
+            return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = byteContent }, ct, httpCompletionOption, allowRetry: false).ConfigureAwait(false);
         }
 
-        return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = JsonContent.Create(content) }, ct, allowRetry: true).ConfigureAwait(false);
+        return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = JsonContent.Create(content) }, ct, httpCompletionOption, allowRetry: true).ConfigureAwait(false);
     }
 
     public async Task<HttpResponseMessage> SendRequestStreamAsync(HttpMethod method, Uri uri, ProgressableStreamContent content, CancellationToken ct)
     {
-        // The stream is consumed/disposed on send and cannot be replayed, so this is a single attempt.
         return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = content }, ct, allowRetry: false).ConfigureAwait(false);
     }
 

@@ -26,6 +26,7 @@ public sealed class PerformanceSettingsPanel
     private const string PerfTabStatistics = "Statistics";
     private const string PerfTabNullification = "Mod Nullification";
     private const string PerfTabLists = "Lists";
+    private const float MiBPerGiB = 1024f;
 
     private readonly BlockListStore _blockListStore;
     private readonly CacheMonitor _cacheMonitor;
@@ -168,14 +169,14 @@ public sealed class PerformanceSettingsPanel
         ImGui.SameLine();
         using (ImRaii.PushColor(ImGuiCol.Text, currentVramColor))
         {
-            ImGui.TextUnformatted($"{totalVramBytes / 1024.0 / 1024.0 / 1024.0:0.00} GiB");
+            ImGui.TextUnformatted(FormatGiB(totalVramBytes));
         }
 
         if (gpuBudget != null)
         {
             ImGui.TextUnformatted("Detected local GPU VRAM:");
             ImGui.SameLine();
-            ImGui.TextUnformatted(ElezenImgui.ByteToString(gpuBudget.TotalBytes > 0 ? gpuBudget.TotalBytes : gpuBudget.BudgetBytes, true));
+            ImGui.TextUnformatted(FormatGiB(gpuBudget.TotalBytes > 0 ? gpuBudget.TotalBytes : gpuBudget.BudgetBytes));
             ElezenImgui.ColouredWrappedText($"Adapter: {gpuBudget.AdapterName} (Snowcloak defaults use 75% of total VRAM to leave headroom for the game and desktop)", ImGuiColors.DalamudGrey);
         }
         else
@@ -196,7 +197,7 @@ public sealed class PerformanceSettingsPanel
         ImGui.TextUnformatted(crowdPrioritySnapshot.ActiveMembers.ToString(CultureInfo.InvariantCulture));
         ImGui.TextUnformatted("Current shell-visible VRAM:");
         ImGui.SameLine();
-        ImGui.TextUnformatted(ElezenImgui.ByteToString(crowdPrioritySnapshot.ActiveVramBytes, true));
+        ImGui.TextUnformatted(FormatGiB(crowdPrioritySnapshot.ActiveVramBytes));
         ImGui.TextUnformatted("Current shell-visible triangles:");
         ImGui.SameLine();
         ImGui.TextUnformatted(SyncshellBudgetService.FormatTriangles(crowdPrioritySnapshot.ActiveTriangleCount));
@@ -233,13 +234,13 @@ public sealed class PerformanceSettingsPanel
             }
 
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Shell-visible VRAM threshold", ref crowdVramThreshold))
+            if (InputGiBThreshold("Shell-visible VRAM threshold", ref crowdVramThreshold))
             {
                 _playerPerformanceConfigService.Update(c => c.CrowdPriorityVRAMThresholdMiB = Math.Max(0, crowdVramThreshold));
                 recalculatePerformance = true;
             }
             ImGui.SameLine();
-            ImGui.Text("(MiB)");
+            ImGui.Text("(GiB)");
             ElezenImgui.DrawHelpText("Suggested default: 75% of your detected local GPU VRAM, leaving headroom for the game and desktop, with an 8 GiB fallback.");
 
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
@@ -282,15 +283,15 @@ public sealed class PerformanceSettingsPanel
             var vramAuto = _playerPerformanceConfigService.Current.VRAMSizeAutoPauseThresholdMiB;
             var trisAuto = _playerPerformanceConfigService.Current.TrisAutoPauseThresholdThousands;
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Auto Block VRAM threshold", ref vramAuto))
+            if (InputGiBThreshold("Auto Block VRAM threshold", ref vramAuto))
             {
                 _playerPerformanceConfigService.Update(c => c.VRAMSizeAutoPauseThresholdMiB = vramAuto);
                 _perfUnapplied = true;
             }
             ImGui.SameLine();
-            ImGui.Text("(MiB)");
+            ImGui.Text("(GiB)");
             ElezenImgui.DrawHelpText("When a player's individual VRAM load exceeds this amount, Snowcloak automatically blocks them." + ElezenImgui.TooltipSeparator
-                + "Suggested default: 500 MiB per player.");
+                + $"Suggested default: {FormatMiBAsGiB(500)} per player.");
 
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("Auto Block Triangle threshold", ref trisAuto))
@@ -426,12 +427,12 @@ public sealed class PerformanceSettingsPanel
             ImGui.TableHeadersRow();
 
             DrawStatisticRow("Visible synced players", visiblePairs.Count.ToString(CultureInfo.InvariantCulture));
-            DrawStatisticRow("Visible VRAM", ElezenImgui.ByteToString(currentVisibleVram, true));
+            DrawStatisticRow("Visible VRAM", FormatGiB(currentVisibleVram));
             DrawStatisticRow("Visible triangles", SyncshellBudgetService.FormatTriangles(currentVisibleTriangles));
             DrawStatisticRow("Cached files", cacheEntries.Count.ToString(CultureInfo.InvariantCulture));
-            DrawStatisticRow("Cache disk usage", ElezenImgui.ByteToString(cacheRawBytes, true));
-            DrawStatisticRow("Stored compressed size", ElezenImgui.ByteToString(cacheCompressedBytes, true));
-            DrawStatisticRow("Compression saving", ElezenImgui.ByteToString(compressionSavings, true));
+            DrawStatisticRow("Cache disk usage", FormatGiB(cacheRawBytes));
+            DrawStatisticRow("Stored compressed size", FormatGiB(cacheCompressedBytes));
+            DrawStatisticRow("Compression saving", FormatGiB(compressionSavings));
 
             ImGui.EndTable();
         }
@@ -449,10 +450,10 @@ public sealed class PerformanceSettingsPanel
         ImGui.TableSetupColumn("Session", ImGuiTableColumnFlags.WidthStretch, 0.33f);
         ImGui.TableHeadersRow();
 
-        DrawStatisticComparisonRow("Downloaded", ElezenImgui.ByteToString(snapshot.Lifetime.DownloadedBytes, true), ElezenImgui.ByteToString(snapshot.Session.DownloadedBytes, true));
-        DrawStatisticComparisonRow("Uploaded", ElezenImgui.ByteToString(snapshot.Lifetime.UploadedBytes, true), ElezenImgui.ByteToString(snapshot.Session.UploadedBytes, true));
-        DrawStatisticComparisonRow("Texture data viewed", ElezenImgui.ByteToString(snapshot.Lifetime.AppliedDataBytes, true), ElezenImgui.ByteToString(snapshot.Session.AppliedDataBytes, true));
-        DrawStatisticComparisonRow("Total VRAM consumed", ElezenImgui.ByteToString(snapshot.Lifetime.ViewedVramBytes, true), ElezenImgui.ByteToString(snapshot.Session.ViewedVramBytes, true));
+        DrawStatisticComparisonRow("Downloaded", FormatGiB(snapshot.Lifetime.DownloadedBytes), FormatGiB(snapshot.Session.DownloadedBytes));
+        DrawStatisticComparisonRow("Uploaded", FormatGiB(snapshot.Lifetime.UploadedBytes), FormatGiB(snapshot.Session.UploadedBytes));
+        DrawStatisticComparisonRow("Texture data viewed", FormatGiB(snapshot.Lifetime.AppliedDataBytes), FormatGiB(snapshot.Session.AppliedDataBytes));
+        DrawStatisticComparisonRow("Total VRAM consumed", FormatGiB(snapshot.Lifetime.ViewedVramBytes), FormatGiB(snapshot.Session.ViewedVramBytes));
         DrawStatisticComparisonRow("Triangles viewed", SyncshellBudgetService.FormatTriangles(snapshot.Lifetime.ViewedTriangles), SyncshellBudgetService.FormatTriangles(snapshot.Session.ViewedTriangles));
 
         ImGui.EndTable();
@@ -481,6 +482,28 @@ public sealed class PerformanceSettingsPanel
     private static long PositiveMetric(long? value)
     {
         return value is > 0 ? value.Value : 0;
+    }
+
+    private static bool InputGiBThreshold(string label, ref int thresholdMiB)
+    {
+        var thresholdGiB = thresholdMiB / MiBPerGiB;
+        if (!ImGui.InputFloat(label, ref thresholdGiB, 0.01f, 0.10f, "%.2f"))
+        {
+            return false;
+        }
+
+        thresholdMiB = Math.Max(0, (int)Math.Round(thresholdGiB * MiBPerGiB));
+        return true;
+    }
+
+    private static string FormatGiB(long bytes)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "{0:0.00} GiB", bytes / 1024d / 1024d / 1024d);
+    }
+
+    private static string FormatMiBAsGiB(int mib)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "{0:0.00} GiB", mib / MiBPerGiB);
     }
 
     private static long GetDisplayVramBytes(Pair pair)
