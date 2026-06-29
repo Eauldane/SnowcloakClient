@@ -55,6 +55,7 @@ internal sealed class GroupPanel
     private string? _publicSyncshellAliasToJoin;
     private readonly ConcurrentDictionary<string, GroupCommunityDto> _communityCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _communityLoading = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DrawGroupPair> _groupPairRowCache = new(StringComparer.Ordinal);
 
     public GroupPanel(SnowMediator mediator, ApiController apiController, DalamudUtilService dalamudUtilService, PairManager pairManager,
         UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, NotesStore notesStore, ShellConfigStore shellConfigStore,
@@ -579,13 +580,7 @@ internal sealed class GroupPanel
                     continue;
                 }
 
-                var drawPair = new DrawGroupPair(
-                    groupDto.GID + pair.UserData.UID, pair,
-                    ApiController, _mediator, groupDto,
-                    groupPairInfo,
-                    _uidDisplayHandler,
-                    _charaDataManager,
-                    _snowcloakConfig);
+                var drawPair = GetGroupPairRow(groupDto, pair, groupPairInfo);
 
                 bool pausedByYou;
                 bool pausedByOther;
@@ -652,6 +647,28 @@ internal sealed class GroupPanel
             ImGui.Separator();
         }
         ImGui.Unindent(20);
+    }
+
+    private DrawGroupPair GetGroupPairRow(GroupFullInfoDto groupDto, Pair pair, GroupPairFullInfoDto groupPairInfo)
+    {
+        var id = groupDto.GID + pair.UserData.UID;
+        if (!_groupPairRowCache.TryGetValue(id, out var row)
+            || !ReferenceEquals(row.Pair, pair)
+            || !ReferenceEquals(row.Group, groupDto)
+            || !ReferenceEquals(row.GroupPairInfo, groupPairInfo))
+        {
+            row = new DrawGroupPair(id, pair, ApiController, _mediator, groupDto, groupPairInfo,
+                _uidDisplayHandler, _charaDataManager, _snowcloakConfig);
+            _groupPairRowCache[id] = row;
+        }
+
+        return row;
+    }
+
+    private void PruneGroupPairRowCache(int activeEntryCount)
+    {
+        if (_groupPairRowCache.Count > activeEntryCount * 4 + 64)
+            _groupPairRowCache.Clear();
     }
 
     private void DrawGroupCommunity(GroupFullInfoDto groupDto)
@@ -1066,15 +1083,17 @@ internal sealed class GroupPanel
     private void DrawSyncshellList(float contentWidth, float ySize)
     {
         ImGui.BeginChild("list", new Vector2(contentWidth, ySize), border: false);
+        var groups = _pairManager.GroupPairs.OrderBy(g => g.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase).ToList();
         using (ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(ImGui.GetStyle().FramePadding.X, 7f * ImGuiHelpers.GlobalScale)))
         using (ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 2f * ImGuiHelpers.GlobalScale)))
         {
-            foreach (var entry in _pairManager.GroupPairs.OrderBy(g => g.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase).ToList())
+            foreach (var entry in groups)
             {
                 using (ImRaii.PushId(entry.Key.Group.GID)) DrawSyncshell(entry.Key, entry.Value);
             }
         }
         ImGui.EndChild();
+        PruneGroupPairRowCache(groups.Sum(g => g.Value.Count));
     }
 
 }

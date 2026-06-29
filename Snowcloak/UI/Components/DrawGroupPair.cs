@@ -28,6 +28,8 @@ public class DrawGroupPair : DrawPairBase
     private readonly CharaDataManager _charaDataManager;
     private readonly SnowcloakConfigService _configService;
     public long VRAMUsage { get; set; }
+    public GroupFullInfoDto Group => _group;
+    public GroupPairFullInfoDto GroupPairInfo => _fullInfoDto;
 
     public DrawGroupPair(string id, Pair entry, ApiController apiController,
         SnowMediator snowMediator, GroupFullInfoDto group, GroupPairFullInfoDto fullInfoDto,
