@@ -19,7 +19,7 @@ public partial class SyncshellAdminUI
             _selectedTab = SyncshellAdminTab.Settings;
         }
 
-        if (_selectedTab == SyncshellAdminTab.Owner && !_isOwner)
+        if (_selectedTab == SyncshellAdminTab.Owner && !IsOwner)
         {
             _selectedTab = SyncshellAdminTab.Settings;
         }
@@ -57,7 +57,7 @@ public partial class SyncshellAdminUI
         DrawSidebarTab(SyncshellAdminTab.Permissions, FontAwesomeIcon.Wrench, "Permissions");
         DrawSidebarTab(SyncshellAdminTab.Audit, FontAwesomeIcon.History, "Audit History");
 
-        if (_isOwner)
+        if (IsOwner)
         {
             ModernSidebar.DrawSeparator();
             DrawSidebarTab(SyncshellAdminTab.Owner, FontAwesomeIcon.Crown, "Owner Settings");

@@ -20,7 +20,7 @@ public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null,
 public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
 public record OpenReportPopupMessage(Pair PairToReport, string Ident, ProfileVisibility Visibility, long Revision) : SameThreadMessage;
 public record OpenBanUserPopupMessage(Pair PairToBan, GroupFullInfoDto GroupFullInfoDto) : SameThreadMessage;
-public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : MessageBase;
+public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : SameThreadMessage;
 public record OpenSyncshellEventsWindow(GroupFullInfoDto GroupInfo) : MessageBase;
 public record OpenPermissionWindow(Pair Pair) : MessageBase;
 public record OpenPairAnalysisWindow(Pair Pair) : MessageBase;

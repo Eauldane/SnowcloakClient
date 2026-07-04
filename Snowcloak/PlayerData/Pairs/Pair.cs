@@ -161,7 +161,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
         LastReportedTriangles = data.ReportedTriangles;
         if (LastReceivedCharacterData != null)
         {
-            _pairAppearanceCache.Store(UserData.UID, LastReceivedCharacterData, LastReceivedDataVersion);
+            _pairAppearanceCache.Store(UserData.UID, Ident, LastReceivedCharacterData, LastReceivedDataVersion);
         }
 
         ClearAutoPaused(AutoPauseReason.Vram);
@@ -251,12 +251,29 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
         {
             _creationSemaphore.Wait();
 
-            if (CachedPlayer != null) return;
+            var currentIdent = _onlineUserIdentDto?.Ident ?? string.Empty;
+            var incomingIdent = dto?.Ident ?? currentIdent;
+            var identChanged = dto != null && !string.Equals(currentIdent, incomingIdent, StringComparison.Ordinal);
+
+            if (identChanged)
+            {
+                ClearReceivedCharacterState();
+                var player = CachedPlayer;
+                CachedPlayer = null;
+                player?.Dispose();
+                if (player != null)
+                    _cachedPlayerReadySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            if (CachedPlayer != null)
+            {
+                if (dto != null)
+                    _onlineUserIdentDto = dto;
+                return;
+            }
 
             if (dto == null && _onlineUserIdentDto == null)
             {
-                CachedPlayer?.Dispose();
-                CachedPlayer = null;
                 return;
             }
             if (dto != null)
@@ -264,11 +281,10 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
                 _onlineUserIdentDto = dto;
             }
 
-            CachedPlayer?.Dispose();
             CachedPlayer = _cachedPlayerFactory.Create(this);
             _cachedPlayerReadySignal.TrySetResult();
 
-            if (LastReceivedCharacterData == null && _pairAppearanceCache.TryGet(UserData.UID, out var cachedAppearance))
+            if (LastReceivedCharacterData == null && _pairAppearanceCache.TryGet(UserData.UID, Ident, out var cachedAppearance))
             {
                 LastReceivedCharacterData = cachedAppearance.CharacterData;
                 LastReceivedDataVersion = cachedAppearance.DataVersion;
@@ -292,6 +308,20 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
         {
             Mediator.Publish(new RequestPairDataMessage(UserData));
         }
+    }
+
+    private void ClearReceivedCharacterState()
+    {
+        LastReceivedCharacterData = null;
+        LastReceivedDataVersion = 0;
+        LastReportedApproximateVRAMBytes = null;
+        LastReportedTriangles = null;
+        LastAppliedApproximateVRAMBytes = -1;
+        LastAppliedDataTris = -1;
+        LastPushedDataHash = null;
+        LastApplicationReceipt = null;
+        _lastFullDataRequestTick = 0;
+        ClearAutoPaused();
     }
 
     public string? GetNote()

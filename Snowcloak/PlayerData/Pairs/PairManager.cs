@@ -234,13 +234,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         Mediator.Publish(new ClearProfileDataMessage(dto.User));
 
-        if (pair.HasCachedPlayer)
-        {
-            InvalidateProjections();
-            return;
-        }
+        var hadCachedPlayer = pair.HasCachedPlayer;
 
-        if (sendNotif && _configurationService.Current.ShowOnlineNotifications
+        if (!hadCachedPlayer && sendNotif && _configurationService.Current.ShowOnlineNotifications
             && (_configurationService.Current.ShowOnlineNotificationsOnlyForIndividualPairs && pair.UserPair != null
             || !_configurationService.Current.ShowOnlineNotificationsOnlyForIndividualPairs)
             && (_configurationService.Current.ShowOnlineNotificationsOnlyForNamedPairs && !string.IsNullOrEmpty(pair.GetNote())

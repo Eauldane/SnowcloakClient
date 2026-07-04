@@ -14,10 +14,11 @@ public sealed class PairAppearanceCacheService : StateDocument<PairAppearanceCac
 
     public override string FileName => ConfigName;
 
-    public bool TryGet(string uid, out PairAppearanceCacheEntry entry)
+    public bool TryGet(string uid, string ident, out PairAppearanceCacheEntry entry)
     {
         entry = null!;
-        if (string.IsNullOrWhiteSpace(uid) || !Current.Entries.TryGetValue(uid, out var cached))
+        var key = CacheKey(uid, ident);
+        if (key == null || !Current.Entries.TryGetValue(key, out var cached))
         {
             return false;
         }
@@ -31,21 +32,33 @@ public sealed class PairAppearanceCacheService : StateDocument<PairAppearanceCac
         return true;
     }
 
-    public void Store(string uid, CharacterData data, long dataVersion)
+    public void Store(string uid, string ident, CharacterData data, long dataVersion)
     {
-        if (string.IsNullOrWhiteSpace(uid))
+        var key = CacheKey(uid, ident);
+        if (key == null)
         {
             return;
         }
 
         Update(config =>
         {
-            config.Entries[uid] = new PairAppearanceCacheEntry
+            config.Entries[key] = new PairAppearanceCacheEntry
             {
                 CharacterData = data.Clone(),
                 DataVersion = dataVersion,
                 UpdatedUtc = DateTime.UtcNow,
             };
+            config.Entries.Remove(uid);
         });
+    }
+
+    private static string? CacheKey(string uid, string ident)
+    {
+        if (string.IsNullOrWhiteSpace(uid) || string.IsNullOrWhiteSpace(ident))
+        {
+            return null;
+        }
+
+        return uid + "|" + ident;
     }
 }

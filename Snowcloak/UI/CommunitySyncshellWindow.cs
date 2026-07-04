@@ -111,10 +111,10 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
             }).Result;
             _directoryStatus = _directoryResults.Total == 0 ? "No community syncshells found." : string.Empty;
         }
-        catch (Exception ex)
+        catch (AggregateException ex)
         {
             _directoryResults = new GroupDirectoryListResponseDto([], 0);
-            _directoryStatus = "Unable to load community syncshells: " + ex.Message;
+            _directoryStatus = "Unable to load community syncshells: " + ex.GetBaseException().Message;
         }
     }
 
@@ -219,7 +219,6 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
     private void DrawDirectoryEntry(GroupDirectoryEntryDto entry)
     {
         var alreadyJoined = _pairManager.Groups.Keys.Any(g => GroupDataComparer.Instance.Equals(g, entry.Group));
-        var canJoin = entry.JoinPolicy == GroupDirectoryJoinPolicy.Open && !alreadyJoined;
         var title = entry.Group.AliasOrGID;
 
         using var id = ImRaii.PushId("directory-" + entry.Group.GID);
@@ -233,18 +232,7 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
             ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "{0} members", entry.MemberCountBucket));
         }
 
-        if (canJoin)
-        {
-            ImGui.SameLine();
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Join listed Syncshell"))
-            {
-                var joined = _apiController.GroupDirectoryJoin(new GroupDto(entry.Group)).Result;
-                _directoryStatus = joined
-                    ? string.Format(CultureInfo.CurrentCulture, "Joined {0}.", title)
-                    : string.Format(CultureInfo.CurrentCulture, "Could not join {0}.", title);
-                RefreshDirectoryResults();
-            }
-        }
+        DrawDirectoryJoinAction(entry, title, alreadyJoined);
 
         var locationText = _dalamudUtilService.GetWorldName(entry.MainWorldId) ?? entry.MainRegion;
         if (!string.IsNullOrEmpty(locationText))
@@ -285,5 +273,56 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
         }
 
         ImGui.Separator();
+    }
+
+    private void DrawDirectoryJoinAction(GroupDirectoryEntryDto entry, string title, bool alreadyJoined)
+    {
+        ImGui.SameLine();
+
+        if (alreadyJoined)
+        {
+            using (ImRaii.Disabled())
+            {
+                ElezenImgui.ShowIconButton(FontAwesomeIcon.CheckCircle, "Joined");
+            }
+            ElezenImgui.AttachTooltip("You are already in this Syncshell.");
+            return;
+        }
+
+        if (entry.JoinPolicy == GroupDirectoryJoinPolicy.Open)
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Join listed Syncshell"))
+            {
+                TryJoinDirectoryEntry(entry, title);
+            }
+            ElezenImgui.AttachTooltip("Join this open Syncshell.");
+            return;
+        }
+
+        var icon = entry.JoinPolicy == GroupDirectoryJoinPolicy.Request ? FontAwesomeIcon.Envelope : FontAwesomeIcon.Lock;
+        var label = entry.JoinPolicy == GroupDirectoryJoinPolicy.Request ? "Request access" : "Invite only";
+        using (ImRaii.Disabled())
+        {
+            ElezenImgui.ShowIconButton(icon, label);
+        }
+        ElezenImgui.AttachTooltip(entry.JoinPolicy == GroupDirectoryJoinPolicy.Request
+            ? "This listing requires an access request."
+            : "This listing requires an invite or password from the owner.");
+    }
+
+    private void TryJoinDirectoryEntry(GroupDirectoryEntryDto entry, string title)
+    {
+        try
+        {
+            var joined = _apiController.GroupDirectoryJoin(new GroupDto(entry.Group)).Result;
+            _directoryStatus = joined
+                ? string.Format(CultureInfo.CurrentCulture, "Joined {0}.", title)
+                : string.Format(CultureInfo.CurrentCulture, "Could not join {0}.", title);
+            RefreshDirectoryResults();
+        }
+        catch (AggregateException ex)
+        {
+            _directoryStatus = string.Format(CultureInfo.CurrentCulture, "Could not join {0}: {1}", title, ex.GetBaseException().Message);
+        }
     }
 }

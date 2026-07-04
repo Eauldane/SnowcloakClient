@@ -27,13 +27,12 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     private const int AuditPageSize = 50;
     private readonly ApiController _apiController;
     private readonly SnowcloakConfigService _configService;
-    private readonly bool _isModerator;
-    private readonly bool _isOwner;
     private readonly AsyncOp<GroupAliasResponseDto> _aliasChangeOperation = new();
     private readonly AsyncOp<GroupAuditPageDto> _auditLogOperation = new();
     private readonly AsyncOp<List<string>> _bulkInviteOperation = new();
     private readonly AsyncOp _groupPermissionOperation = new();
     private readonly AsyncOp<bool> _memberLabelSaveOperation = new();
+    private readonly AsyncOp _ownershipTransferOperation = new();
     private readonly List<string> _oneTimeInvites = [];
     private readonly PairManager _pairManager;
     private readonly AsyncOp<bool> _passwordChangeOperation = new();
@@ -48,6 +47,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     private int _auditSkip;
     private int _auditTotalCount;
     private int _multiInvites;
+    private bool _auditRequested;
     private string _aliasChangeMessage = string.Empty;
     private bool _aliasChangeIsError;
     private string _newPassword;
@@ -56,6 +56,11 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     private List<string> _memberLabelDraft = [];
     private string _memberLabelError = string.Empty;
     private bool _memberLabelEditorPopupPendingOpen;
+    private string _ownershipTransferMessage = string.Empty;
+    private string _ownershipTransferTarget = string.Empty;
+    private string _ownershipTransferConfirmationText = string.Empty;
+    private GroupPairFullInfoDto? _ownershipTransferPendingTarget;
+    private bool _ownershipTransferIsError;
     private string _passwordChangeMessage = string.Empty;
     private bool _passwordChangeIsError;
     private bool _showMemberLabelEditor;
@@ -91,17 +96,18 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
         _syncshellBudgetPanel = new(syncshellBudgetService);
         _communityManagementPanel = new(apiController, dalamudUtilService);
         _memberManagementPanel = new(apiController, mediator, pairManager);
-        _isOwner = string.Equals(GroupFullInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal);
-        _isModerator = GroupFullInfo.GroupUserInfo.IsModerator();
         _newPassword = string.Empty;
         _syncshellAlias = groupFullInfo.Group.Alias ?? string.Empty;
         _multiInvites = 30;
         IsOpen = true;
-        RequestAuditLogPage(0);
-        SetScaledSizeConstraints(new Vector2(700, 500), new Vector2(700, 2000));
+        SetScaledSizeConstraints(new Vector2(950, 500), new Vector2(980, 2000));
     }
 
     public GroupFullInfoDto GroupFullInfo { get; private set; }
+
+    private bool IsModerator => GroupFullInfo.GroupUserInfo.IsModerator();
+
+    private bool IsOwner => string.Equals(GroupFullInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal);
 
     private static string BuildWindowTitle(GroupFullInfoDto groupFullInfo)
     {
@@ -111,13 +117,24 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     
     protected override void DrawInternal()
     {
-        if (!_isModerator && !_isOwner) return;
+        if (!_pairManager.Groups.TryGetValue(GroupFullInfo.Group, out var groupInfo))
+        {
+            IsOpen = false;
+            return;
+        }
+
+        GroupFullInfo = groupInfo;
+        if (!IsModerator && !IsOwner)
+        {
+            IsOpen = false;
+            return;
+        }
+
         ConsumeAuditLogTask();
         ConsumeAliasChangeTask();
         ConsumeInviteTasks();
+        ConsumeOwnershipTransferTask();
         ConsumePasswordChangeTask();
-
-        GroupFullInfo = _pairManager.Groups[GroupFullInfo.Group];
 
         using var id = ImRaii.PushId("syncshell_admin_" + GroupFullInfo.GID);
 
@@ -161,7 +178,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
                 DrawInvitesTab();
                 break;
             case SyncshellAdminTab.Members:
-                _memberManagementPanel.DrawMembers(GroupFullInfo, _isOwner, _isModerator, OpenMemberLabelEditor);
+                _memberManagementPanel.DrawMembers(GroupFullInfo, IsOwner, IsModerator, OpenMemberLabelEditor);
                 break;
             case SyncshellAdminTab.Cleanup:
                 _memberManagementPanel.DrawCleanup(GroupFullInfo);
@@ -300,6 +317,11 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
 
     private void DrawOwnerSettingsTab()
     {
+        DrawOwnershipTransfer();
+        ImGuiHelpers.ScaledDummy(2f);
+        ImGui.Separator();
+        ImGuiHelpers.ScaledDummy(2f);
+
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted("New Password");
         var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
@@ -337,6 +359,147 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
             _ = _apiController.GroupDelete(new(GroupFullInfo.Group));
         }
         ElezenImgui.AttachTooltip("Hold CTRL and Shift and click to delete this Syncshell." + Environment.NewLine + "WARNING: this action is irreversible.");
+    }
+
+    private void DrawOwnershipTransfer()
+    {
+        var members = GetOwnershipTransferTargets();
+        var selectedMember = ResolveOwnershipTransferTarget(members, out var transferError);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Transfer ownership");
+        ImGui.SameLine();
+        var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X;
+        var buttonSize = ElezenImgui.GetIconButtonTextSize(FontAwesomeIcon.Crown, "Review Transfer");
+        var textSize = ImGui.CalcTextSize("Transfer ownership").X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        ImGui.SetNextItemWidth(Math.Max(200f * ImGuiHelpers.GlobalScale, availableWidth - buttonSize - textSize - spacing * 2));
+        using (ImRaii.Disabled(members.Count == 0 || _ownershipTransferOperation.IsRunning))
+        {
+            ImGui.InputTextWithHint("##ownershiptransfer", "Member UID or alias", ref _ownershipTransferTarget, 64);
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(selectedMember == null || _ownershipTransferOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Crown, "Review Transfer") && selectedMember != null)
+            {
+                _ownershipTransferMessage = string.Empty;
+                _ownershipTransferIsError = false;
+                _ownershipTransferPendingTarget = selectedMember;
+                _ownershipTransferConfirmationText = string.Empty;
+                ImGui.OpenPopup("Confirm Ownership Transfer");
+            }
+        }
+        ElezenImgui.AttachTooltip(selectedMember == null
+            ? "Enter an exact member UID or alias."
+            : string.Format(CultureInfo.CurrentCulture, "Review ownership transfer to {0}.", selectedMember.UserAliasOrUID));
+
+        if (!string.IsNullOrWhiteSpace(transferError))
+        {
+            ElezenImgui.ColouredWrappedText(transferError, ImGuiColors.DalamudYellow);
+        }
+        else if (selectedMember != null)
+        {
+            ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.CurrentCulture, "Target: {0} ({1})", selectedMember.UserAliasOrUID, selectedMember.UID), ImGuiColors.HealerGreen);
+        }
+
+        DrawOperationStatus(_ownershipTransferOperation, "Transferring ownership...");
+        if (!string.IsNullOrWhiteSpace(_ownershipTransferMessage))
+        {
+            ElezenImgui.ColouredWrappedText(_ownershipTransferMessage,
+                _ownershipTransferIsError ? ImGuiColors.DalamudYellow : ImGuiColors.HealerGreen);
+        }
+
+        DrawOwnershipTransferConfirmationModal();
+    }
+
+    private List<GroupPairFullInfoDto> GetOwnershipTransferTargets()
+    {
+        if (!_pairManager.GroupPairs.TryGetValue(GroupFullInfo, out var pairs))
+        {
+            return [];
+        }
+
+        return pairs
+            .Select(pair => pair.GroupPair.TryGetValue(GroupFullInfo, out var memberInfo) ? memberInfo : null)
+            .Where(memberInfo => memberInfo != null
+                && !string.Equals(memberInfo.UID, GroupFullInfo.OwnerUID, StringComparison.Ordinal))
+            .OrderBy(memberInfo => memberInfo!.UserAliasOrUID, StringComparer.OrdinalIgnoreCase)
+            .Select(memberInfo => memberInfo!)
+            .ToList();
+    }
+
+    private GroupPairFullInfoDto? ResolveOwnershipTransferTarget(IReadOnlyList<GroupPairFullInfoDto> members, out string? error)
+    {
+        error = null;
+        var target = _ownershipTransferTarget.Trim();
+        if (string.IsNullOrEmpty(target))
+        {
+            return null;
+        }
+
+        var uidMatch = members.FirstOrDefault(member => string.Equals(member.UID, target, StringComparison.OrdinalIgnoreCase));
+        if (uidMatch != null)
+        {
+            return uidMatch;
+        }
+
+        var aliasMatches = members
+            .Where(member => !string.IsNullOrWhiteSpace(member.UserAlias)
+                && string.Equals(member.UserAlias, target, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (aliasMatches.Count == 1)
+        {
+            return aliasMatches[0];
+        }
+
+        error = aliasMatches.Count > 1
+            ? "Multiple members match that alias. Use the member UID."
+            : "No syncshell member matches that UID or alias.";
+        return null;
+    }
+
+    private void DrawOwnershipTransferConfirmationModal()
+    {
+        var target = _ownershipTransferPendingTarget;
+        var popupOpen = true;
+        using var modal = ImRaii.PopupModal("Confirm Ownership Transfer", ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize);
+        if (!modal)
+        {
+            return;
+        }
+
+        if (target == null)
+        {
+            ImGui.CloseCurrentPopup();
+            return;
+        }
+
+        ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.CurrentCulture, "Transfer ownership of {0} to {1}?", GroupFullInfo.GroupAliasOrGID, target.UserAliasOrUID), ImGuiColors.DalamudYellow);
+        ImGui.SetNextItemWidth(320f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##confirmownershiptransfer", "Type target UID to confirm", ref _ownershipTransferConfirmationText, 20);
+
+        var confirmed = string.Equals(_ownershipTransferConfirmationText.Trim(), target.UID, StringComparison.Ordinal);
+        using (ImRaii.Disabled(!confirmed || _ownershipTransferOperation.IsRunning))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Crown, "Confirm Transfer"))
+            {
+                var confirmedTarget = target;
+                _ownershipTransferMessage = string.Empty;
+                _ownershipTransferIsError = false;
+                _ = _ownershipTransferOperation.Run(() => _apiController.GroupChangeOwnership(new GroupPairDto(GroupFullInfo.Group, confirmedTarget.User)));
+                ImGui.CloseCurrentPopup();
+            }
+        }
+
+        ImGui.SameLine();
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Times, "Cancel"))
+        {
+            _ownershipTransferPendingTarget = null;
+            _ownershipTransferConfirmationText = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
     }
 
     public override void OnClose()
@@ -469,6 +632,30 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
         _passwordChangeOperation.Reset();
     }
 
+    private void ConsumeOwnershipTransferTask()
+    {
+        if (!_ownershipTransferOperation.IsCompleted)
+        {
+            return;
+        }
+
+        if (_ownershipTransferOperation.Faulted)
+        {
+            _ownershipTransferMessage = _ownershipTransferOperation.Error ?? "Failed to transfer ownership.";
+            _ownershipTransferIsError = true;
+        }
+        else
+        {
+            _ownershipTransferMessage = "Ownership transfer requested.";
+            _ownershipTransferIsError = false;
+            _ownershipTransferTarget = string.Empty;
+        }
+
+        _ownershipTransferPendingTarget = null;
+        _ownershipTransferConfirmationText = string.Empty;
+        _ownershipTransferOperation.Reset();
+    }
+
     private void ConsumeAuditLogTask()
     {
         if (!_auditLogOperation.IsCompleted)
@@ -511,6 +698,11 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
 
     private void DrawAuditHistory()
     {
+        if (!_auditRequested)
+        {
+            RequestAuditLogPage(0);
+        }
+
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Retweet, "Refresh Audit Log"))
         {
             RequestAuditLogPage(_auditSkip);
@@ -688,6 +880,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
 
     private void RequestAuditLogPage(int skip)
     {
+        _auditRequested = true;
         _auditSkip = Math.Max(0, skip);
         _ = _auditLogOperation.Run(() => _apiController.GroupGetAuditLog(new GroupAuditQueryDto(GroupFullInfo.Group, _auditSkip, AuditPageSize)
         {

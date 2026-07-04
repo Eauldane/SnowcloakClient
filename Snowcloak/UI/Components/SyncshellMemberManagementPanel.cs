@@ -53,7 +53,7 @@ internal sealed class SyncshellMemberManagementPanel
 
         ImGui.TableSetupColumn("Alias/UID/Note", ImGuiTableColumnFlags.None, 3);
         ImGui.TableSetupColumn("Online/Name", ImGuiTableColumnFlags.None, 2);
-        ImGui.TableSetupColumn("Roles", ImGuiTableColumnFlags.None, 2);
+        ImGui.TableSetupColumn("Roles", ImGuiTableColumnFlags.None, 1);
         ImGui.TableSetupColumn("Flags", ImGuiTableColumnFlags.None, 1);
         ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.None, 3);
         ImGui.TableHeadersRow();
