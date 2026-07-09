@@ -5,6 +5,7 @@ using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
+using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.User;
 
 namespace Snowcloak.WebAPI.SignalR;
@@ -37,7 +38,7 @@ internal static class PairCallbacks
     {
         hub.On<UserDto>(nameof(ApiController.Client_UserSendOffline), api.Client_UserSendOffline);
         hub.On<UserPairDto>(nameof(ApiController.Client_UserAddClientPair), api.Client_UserAddClientPair);
-        hub.On<OnlineUserCharaDataDto>(nameof(ApiController.Client_UserReceiveCharacterData), api.Client_UserReceiveCharacterData);
+        hub.On<ManifestNotificationDto>(nameof(ApiController.Client_UserReceiveManifest), api.Client_UserReceiveManifest);
         hub.On<PairApplicationReceiptDto>(nameof(ApiController.Client_UserReceiveApplicationReceipt), api.Client_UserReceiveApplicationReceipt);
         hub.On<UserDto>(nameof(ApiController.Client_UserRemoveClientPair), api.Client_UserRemoveClientPair);
         hub.On<OnlineUserIdentDto>(nameof(ApiController.Client_UserSendOnline), api.Client_UserSendOnline);

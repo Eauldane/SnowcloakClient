@@ -80,7 +80,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         Mediator.Subscribe<CyclePauseMessage>(this, (msg) => _ = CyclePause(msg.UserData));
         Mediator.Subscribe<CensusUpdateMessage>(this, (msg) => _lastCensus = msg);
         Mediator.Subscribe<PauseMessage>(this, (msg) => _ = Pause(msg.UserData));
-        Mediator.Subscribe<RequestPairDataMessage>(this, (msg) => _ = _backgroundTasks.Run(() => UserRequestData(msg.UserData), nameof(UserRequestData)));
+        Mediator.Subscribe<RequestPairDataMessage>(this, (msg) => _ = _backgroundTasks.Run(() => RequestPairManifest(msg.UserData), nameof(RequestPairManifest)));
         Mediator.Subscribe<PairApplicationCompletedMessage>(this, (msg) => _ = _backgroundTasks.Run(() => SendApplicationReceipt(msg), nameof(SendApplicationReceipt)));
 
         ServerState = ServerState.Offline;

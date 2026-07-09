@@ -45,8 +45,6 @@ public partial class ApiController
 
     public void OnUserChatMsg(Action<UserChatMsgDto> chatMsgDto) => RegisterCallback(nameof(Client_UserChatMsg), chatMsgDto);
 
-    public void OnUserReceiveCharacterData(Action<OnlineUserCharaDataDto> act) => RegisterCallback(nameof(Client_UserReceiveCharacterData), act);
-
     public void OnUserReceiveApplicationReceipt(Action<PairApplicationReceiptDto> act) => RegisterCallback(nameof(Client_UserReceiveApplicationReceipt), act);
 
     public void OnUserReceiveUploadStatus(Action<UserDto> act) => RegisterCallback(nameof(Client_UserReceiveUploadStatus), act);

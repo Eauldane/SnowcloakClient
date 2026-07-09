@@ -594,7 +594,9 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await _apiController.UserGetPairsInRange(visiblePlayerIdents).ConfigureAwait(false);
+            var pairsInRange = await _apiController.UserGetPairsInRange(visiblePlayerIdents).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await _apiController.ResolveManifestsForVisiblePairs(pairsInRange).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

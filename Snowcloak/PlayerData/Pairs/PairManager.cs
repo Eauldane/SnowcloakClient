@@ -254,7 +254,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         InvalidateProjections();
     }
 
-    public void ReceiveCharaData(OnlineUserCharaDataDto dto)
+    public void ReceiveCharaData(OnlineUserCharaDataDto dto, string? manifestHash = null)
     {
         if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
@@ -263,7 +263,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         }
 
         Mediator.Publish(new EventMessage(new Event(pair.UserData, nameof(PairManager), EventSeverity.Informational, "Received Character Data")));
-        pair.ApplyData(dto);
+        pair.ApplyData(dto, manifestHash);
     }
 
     public void RemoveGroup(GroupData data)

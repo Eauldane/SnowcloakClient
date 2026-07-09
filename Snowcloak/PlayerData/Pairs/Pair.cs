@@ -97,6 +97,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     public long? LastReportedTriangles { get; private set; }
     public long? LastReportedApproximateVRAMBytes { get; private set; }
     public long LastReceivedDataVersion { get; private set; }
+    public string? LastReceivedManifestHash { get; private set; }
     public string? LastPushedDataHash { get; private set; }
     private PairApplicationReceiptDto? LastApplicationReceipt { get; set; }
     public string? AutoPauseTooltip => _holdLedger.AutoPauseTooltip;
@@ -124,35 +125,14 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     }
 
 
-    public void ApplyData(OnlineUserCharaDataDto data)
+    public void ApplyData(OnlineUserCharaDataDto data, string? manifestHash = null)
     {
         var scope = _applicationFlight.Begin();
-        if (data.Delta != null)
-        {
-            if (!LastReceivedCharacterData.TryApplyDelta(data.Delta, LastReceivedDataVersion, out var reconstructedData))
-            {
-                scope.Dispose();
-                var sinceLastRequest = Environment.TickCount64 - _lastFullDataRequestTick;
-                if (_lastFullDataRequestTick != 0 && sinceLastRequest < FullDataRequestCooldownTicks)
-                {
-                    _logger.LogDebug("Received delta for {uid} without base version {baseVersion}; full data already requested {ms}ms ago, suppressing", data.User.UID, data.Delta.BaseVersion, sinceLastRequest);
-                    return;
-                }
-
-                _lastFullDataRequestTick = Environment.TickCount64;
-                _logger.LogDebug("Received delta for {uid} without base version {baseVersion}; requesting full data", data.User.UID, data.Delta.BaseVersion);
-                Mediator.Publish(new RequestPairDataMessage(data.User));
-                return;
-            }
-
-            LastReceivedCharacterData = reconstructedData;
-            LastReceivedDataVersion = data.Delta.Version;
-        }
-        else
-        {
-            LastReceivedCharacterData = data.CharaData;
-            LastReceivedDataVersion = data.DataVersion;
-        }
+        // X17: appearances arrive as fully-resolved manifests (reconstructed into CharacterData);
+        // there is no server-side delta stream any more.
+        LastReceivedCharacterData = data.CharaData;
+        LastReceivedDataVersion = data.DataVersion;
+        LastReceivedManifestHash = manifestHash;
 
         // We received and accepted data for this pair, so any prior full-data request was satisfied.
         _lastFullDataRequestTick = 0;
@@ -314,6 +294,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     {
         LastReceivedCharacterData = null;
         LastReceivedDataVersion = 0;
+        LastReceivedManifestHash = null;
         LastReportedApproximateVRAMBytes = null;
         LastReportedTriangles = null;
         LastAppliedApproximateVRAMBytes = -1;

@@ -121,28 +121,6 @@ public partial class ApiController
     }
     
     
-    public Task UserPushData(UserCharaDataMessageDto dto) => TryPushData(dto);
-
-    private async Task<bool> TryPushData(UserCharaDataMessageDto dto)
-    {
-        try
-        {
-            await _snowHub!.InvokeAsync(nameof(UserPushData), dto).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to Push character data");
-            return false;
-        }
-    }
-
-    public async Task UserRequestData(UserData user)
-    {
-        if (!IsConnected) return;
-        await _snowHub!.InvokeAsync(nameof(UserRequestData), user).ConfigureAwait(false);
-    }
-
     public async Task UserSendApplicationReceipt(PairApplicationReceiptRequestDto dto)
     {
         if (!IsConnected) return;
@@ -280,9 +258,6 @@ public partial class ApiController
             Logger.LogDebug("Chara data contained: {NewLine} {Data}", Environment.NewLine, sb.ToString());
         }
 
-        if (await TryPushData(new(visibleCharacters, character)).ConfigureAwait(false))
-        {
-            Mediator.Publish(new LocalCharacterDataPushedMessage(visibleCharacters, character.DataHash.Value));
-        }
+        await PushManifestInternal(character, visibleCharacters).ConfigureAwait(false);
     }
 }
