@@ -227,6 +227,8 @@ public partial class CompactUi
             ServerState.Reconnecting => string.IsNullOrWhiteSpace(_apiController.AuthFailureMessage)
                 ? "Connection to server interrupted, attempting to reconnect to the server."
                 : _apiController.AuthFailureMessage,
+            ServerState.Degraded => "Connection degraded; changes are temporarily paused.",
+            ServerState.Resuming => "Reconnecting...",
             ServerState.Disconnected => "You are currently disconnected from the sync server.",
             ServerState.Disconnecting => "Disconnecting from the server",
             ServerState.Unauthorized => string.Format(CultureInfo.InvariantCulture, "Server Response: {0}", _apiController.AuthFailureMessage),
@@ -247,6 +249,8 @@ public partial class CompactUi
         {
             ServerState.Connecting => ImGuiColors.DalamudYellow,
             ServerState.Reconnecting => ImGuiColors.DalamudRed,
+            ServerState.Degraded => ImGuiColors.DalamudYellow,
+            ServerState.Resuming => ImGuiColors.DalamudYellow,
             ServerState.Connected => Colour.HexToVector4OrNull(_apiController.DisplayColour) ?? SnowcloakColours.OnlineBlue,
             ServerState.Disconnected => ImGuiColors.DalamudYellow,
             ServerState.Disconnecting => ImGuiColors.DalamudYellow,
@@ -275,6 +279,8 @@ public partial class CompactUi
         return _apiController.ServerState switch
         {
             ServerState.Reconnecting => "Reconnecting",
+            ServerState.Degraded => "Connection interrupted",
+            ServerState.Resuming => "Restoring session",
             ServerState.Connecting => "Connecting",
             ServerState.Disconnected => "Disconnected",
             ServerState.Disconnecting => "Disconnecting",

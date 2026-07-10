@@ -165,6 +165,70 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         InvalidateProjections();
     }
 
+    internal void ReconcileServerState(IReadOnlyCollection<UserPairDto> userPairs,
+        IReadOnlyCollection<GroupFullInfoDto> groups,
+        IReadOnlyCollection<GroupPairFullInfoDto> groupPairs,
+        IReadOnlyCollection<OnlineUserIdentDto> onlineUsers)
+    {
+        var desiredGroups = groups.Select(group => group.Group.GID).ToHashSet(StringComparer.Ordinal);
+        foreach (var group in _allGroups.Keys.Where(group => !desiredGroups.Contains(group.GID)).ToList())
+        {
+            RemoveGroup(group);
+        }
+
+        foreach (var group in groups)
+        {
+            AddGroup(group);
+        }
+
+        var desiredDirect = userPairs.Select(pair => pair.User.UID).ToHashSet(StringComparer.Ordinal);
+        foreach (var pair in _allClientPairs.Values.Where(pair => pair.UserPair != null && !desiredDirect.Contains(pair.UserData.UID)).ToList())
+        {
+            RemoveUserPair(new UserDto(pair.UserData));
+        }
+
+        foreach (var pair in userPairs)
+        {
+            AddUserPair(pair, addToLastAddedUser: false);
+        }
+
+        var desiredGroupPairs = groupPairs
+            .Select(pair => (pair.Group.GID, pair.User.UID))
+            .ToHashSet();
+        foreach (var pair in _allClientPairs.Values.ToList())
+        {
+            foreach (var groupPair in pair.GroupPair.Values
+                         .Where(entry => !desiredGroupPairs.Contains((entry.Group.GID, entry.User.UID)))
+                         .ToList())
+            {
+                RemoveGroupPair(new GroupPairDto(groupPair.Group, groupPair.User));
+            }
+        }
+
+        foreach (var pair in groupPairs)
+        {
+            AddGroupPair(pair);
+        }
+
+        ReconcileOnlineState(onlineUsers);
+    }
+
+    internal void ReconcileOnlineState(IReadOnlyCollection<OnlineUserIdentDto> onlineUsers)
+    {
+        var online = onlineUsers.ToDictionary(entry => entry.User.UID, StringComparer.Ordinal);
+        foreach (var pair in _allClientPairs.Values.ToList())
+        {
+            if (online.TryGetValue(pair.UserData.UID, out var dto))
+            {
+                MarkPairOnline(dto, sendNotif: false);
+            }
+            else if (pair.HasCachedPlayer)
+            {
+                MarkPairOffline(pair.UserData);
+            }
+        }
+    }
+
     public List<Pair> GetOnlineUserPairs() => _allClientPairs.Where(p => !string.IsNullOrEmpty(p.Value.GetPlayerNameHash())).Select(p => p.Value).ToList();
 
     public int GetVisibleUserCount() => _allClientPairs.Count(p => p.Value.IsVisible);

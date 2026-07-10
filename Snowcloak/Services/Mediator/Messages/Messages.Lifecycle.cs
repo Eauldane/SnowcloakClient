@@ -24,6 +24,8 @@ public record FileServerInfoReceivedMessage(ConnectionDto Connection) : MessageB
 public record ServerNewsMessage(string News) : MessageBase;
 
 public record DisconnectedMessage : SameThreadMessage;
+public record ConnectionLostMessage : SameThreadMessage;
+public record SessionResumedMessage(bool UsedFullResync) : MessageBase;
 
 public record HubReconnectingMessage(Exception? Exception) : SameThreadMessage;
 public record HubReconnectedMessage(string? Arg) : SameThreadMessage;

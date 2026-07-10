@@ -38,6 +38,10 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         {
             Reset();
         });
+        Mediator.Subscribe<ConnectionLostMessage>(this, (msg) =>
+        {
+            Reset();
+        });
     }
 
     public bool IsUploading

@@ -3,6 +3,7 @@ using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.SignalR;
+using Snowcloak.API.Protocol;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
@@ -52,6 +53,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly ShellConfigStore _shellConfigStore;
     private readonly TokenProvider _tokenProvider;
     private readonly SingleFlightCts _systemInfoPollFlight = new();
+    private readonly SingleFlightCts _sessionGraceFlight = new();
+    private readonly SessionResumeState _sessionResumeState = new();
     private CancellationToken _systemInfoPollToken = CancellationToken.None;
     private ConnectionContext _connectionContext = ConnectionContext.Empty;
     private bool _doNotNotifyOnNextInfo;
@@ -173,7 +176,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             return;
         }
 
-        await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+        await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
 
         Logger.LogInformation("Recreating Connection");
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Informational,
@@ -184,7 +187,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         {
             AuthFailureMessage = string.Empty;
 
-            await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+            await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
             ServerState = ServerState.Connecting;
             _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.Authenticating);
 
@@ -266,8 +269,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 #endif
                 }
 
-                await LoadIninitialPairs().ConfigureAwait(false);
-                await LoadOnlinePairs().ConfigureAwait(false);
+                var resumed = await TryResumeSessionAsync(connectionDto).ConfigureAwait(false);
+                await ReconcileConnectionState(resumed).ConfigureAwait(false);
+                Mediator.Publish(new SessionResumedMessage(!resumed));
                 Mediator.Publish(new ConnectedMessage(connectionDto));
             }
             catch (OperationCanceledException ex)
@@ -306,7 +310,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             catch (InvalidOperationException ex)
             {
                 Logger.LogWarning(ex, "InvalidOperationException on connection");
-                await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+                await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
                 return;
             }
             catch (Exception ex)
@@ -484,48 +488,11 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         StartSystemInfoPolling();
     }
 
-    private async Task LoadIninitialPairs()
-    {
-        foreach (var userPair in await UserGetPairedClients().ConfigureAwait(false))
-        {
-            Logger.LogDebug("Individual Pair: {userPair}", userPair);
-            _pairManager.AddUserPair(userPair, addToLastAddedUser: false);
-        }
-        foreach (var entry in await GroupsGetAll().ConfigureAwait(false))
-        {
-            Logger.LogDebug("Group: {entry}", entry);
-            _pairManager.AddGroup(entry);
-        }
-
-        var groups = _pairManager.GroupPairs.Keys.ToList();
-        var groupUsers = await Task.WhenAll(groups.Select(async group =>
-            await GroupsGetUsersInGroup(group).ConfigureAwait(false))).ConfigureAwait(false);
-
-        foreach (var users in groupUsers)
-        {
-            foreach (var user in users)
-            {
-                Logger.LogDebug("Group Pair: {user}", user);
-                _pairManager.AddGroupPair(user);
-            }
-        }
-    }
-
-    private async Task LoadOnlinePairs()
-    {
-        foreach (var entry in await UserGetOnlinePairs().ConfigureAwait(false))
-        {
-            Logger.LogDebug("Pair online: {pair}", entry);
-            _pairManager.MarkPairOnline(entry, sendNotif: false);
-        }
-    }
-
     private void SnowHubOnClosed(Exception? arg)
     {
         _connectionLifecycle.StopHealthLoop();
         StopSystemInfoPolling();
-        Mediator.Publish(new DisconnectedMessage());
-        ServerState = ServerState.Offline;
+        MarkConnectionLost();
         if (arg != null)
         {
             Logger.LogWarning(arg, "Connection closed");
@@ -534,6 +501,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         {
             Logger.LogInformation("Connection closed");
         }
+        _ = _backgroundTasks.Run(CreateConnections, nameof(CreateConnections));
     }
 
     private async Task SnowHubOnReconnected()
@@ -554,14 +522,16 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             }
             ServerState = ServerState.Connected;
             TriggerSystemInfoRefresh();
-            await LoadIninitialPairs().ConfigureAwait(false);
-            await LoadOnlinePairs().ConfigureAwait(false);
+            var resumed = await TryResumeSessionAsync(connectionDto).ConfigureAwait(false);
+            await ReconcileConnectionState(resumed).ConfigureAwait(false);
+            Mediator.Publish(new SessionResumedMessage(!resumed));
             Mediator.Publish(new ConnectedMessage(connectionDto));
         }
         catch (Exception ex)
         {
             Logger.LogCritical(ex, "Failure to obtain data after reconnection");
-            await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+            MarkConnectionLost();
+            await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
         }
     }
 
@@ -570,21 +540,37 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _doNotNotifyOnNextInfo = true;
         _connectionLifecycle.StopHealthLoop();
         StopSystemInfoPolling();
-        ServerState = ServerState.Reconnecting;
+        MarkConnectionLost();
         Logger.LogWarning(arg, "Connection closed... Reconnecting");
-        Mediator.Publish(new DisconnectedMessage());
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Warning,
             $"Connection interrupted, reconnecting to {_serverManager.CurrentServer.ServerName}")));
 
     }
 
-    private async Task StopConnection(ServerState state)
+    private async Task StopConnection(ServerState state, bool teardownSession = true)
     {
         var hadHub = _snowHub is not null;
-        await _connectionLifecycle.StopAsync(state, _serverManager.CurrentServer.ServerName, StopSystemInfoPolling).ConfigureAwait(false);
+        if (teardownSession && hadHub)
+        {
+            try
+            {
+                await SessionEnd().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Session end notification failed");
+            }
+        }
+
+        await _connectionLifecycle.StopAsync(state, _serverManager.CurrentServer.ServerName, StopSystemInfoPolling, teardownSession).ConfigureAwait(false);
         if (hadHub)
         {
             _connectionContext = ConnectionContext.Empty;
+        }
+        if (teardownSession)
+        {
+            _sessionGraceFlight.Cancel();
+            _sessionResumeState.Reset();
         }
     }
 
@@ -595,7 +581,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
         try
         {
-            await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+            MarkConnectionLost();
+            await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
 
             _connectionLifecycle.StopHealthLoop();
 
@@ -606,8 +593,61 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failure during ForceReconnect, disconnecting");
-            await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
+            await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
         }
+    }
+
+    private async Task ReconcileConnectionState(bool resumed)
+    {
+        var online = await UserGetOnlinePairs().ConfigureAwait(false);
+        if (resumed)
+        {
+            _pairManager.ReconcileOnlineState(online);
+        }
+        else
+        {
+            var userPairs = await UserGetPairedClients().ConfigureAwait(false);
+            var groups = await GroupsGetAll().ConfigureAwait(false);
+            var groupUsers = await Task.WhenAll(groups.Select(GroupsGetUsersInGroup)).ConfigureAwait(false);
+            _pairManager.ReconcileServerState(userPairs, groups, groupUsers.SelectMany(users => users).ToList(), online);
+        }
+
+        var visible = _pairManager.GetVisibleUsers()
+            .Select(user => new OnlineUserIdentDto(user, string.Empty))
+            .ToList();
+        await ResolveManifestsForVisiblePairs(visible).ConfigureAwait(false);
+        _sessionGraceFlight.Cancel();
+    }
+
+    private void MarkConnectionLost()
+    {
+        if (ServerState is ServerState.Degraded or ServerState.Resuming)
+        {
+            return;
+        }
+
+        _sessionResumeState.BeginBuffering();
+        var graceScope = _sessionGraceFlight.Begin();
+        var supportsResume = _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ResumableSessions) == true;
+        var graceSeconds = supportsResume ? Math.Max(0, _connectionContext.ServerInfo.SessionGraceSeconds) : 120;
+        _ = _backgroundTasks.Run(async () =>
+        {
+            using (graceScope)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(graceSeconds), graceScope.Token).ConfigureAwait(false);
+                    _sessionResumeState.Reset();
+                    Mediator.Publish(new DisconnectedMessage());
+                }
+                catch (OperationCanceledException) when (graceScope.Token.IsCancellationRequested)
+                {
+                    Logger.LogDebug("Session grace cancelled after connection recovery");
+                }
+            }
+        }, nameof(MarkConnectionLost));
+        ServerState = ServerState.Degraded;
+        Mediator.Publish(new ConnectionLostMessage());
     }
 
     private void CancelBackgroundWork()
@@ -616,12 +656,14 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _connectionLifecycle.CancelConnectionToken();
         _connectionLifecycle.StopHealthLoop();
         _systemInfoPollFlight.Cancel();
+        _sessionGraceFlight.Cancel();
     }
 
     private void DisposeOwnedResources()
     {
         _connectionLifecycle.Dispose();
         _systemInfoPollFlight.Dispose();
+        _sessionGraceFlight.Dispose();
     }
 }
 #pragma warning restore MA0040

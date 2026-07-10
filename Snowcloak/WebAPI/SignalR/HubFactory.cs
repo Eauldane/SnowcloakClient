@@ -154,6 +154,8 @@ public class HubFactory : MediatorSubscriberBase
             {
                 a.ClearProviders().AddProvider(_loggingProvider);
                 a.SetMinimumLevel(LogLevel.Information);
+                a.AddFilter("Microsoft.AspNetCore.SignalR.Client.HubConnection", LogLevel.Critical);
+                a.AddFilter("Microsoft.AspNetCore.Http.Connections.Client.HttpConnection", LogLevel.Critical);
             })
             .Build();
 

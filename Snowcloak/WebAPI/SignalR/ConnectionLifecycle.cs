@@ -13,6 +13,9 @@ internal enum ConnectionLifecyclePhase
     Authenticating,
     Connecting,
     SyncingState,
+    Degraded,
+    Resuming,
+    Resynced,
     Connected,
     Unauthorized,
     VersionMismatch,
@@ -102,6 +105,8 @@ internal sealed class ConnectionLifecycle : IDisposable
             ServerState.RateLimited => ConnectionLifecyclePhase.RateLimited,
             ServerState.Connecting => Phase is ConnectionLifecyclePhase.Authenticating or ConnectionLifecyclePhase.SyncingState ? Phase : ConnectionLifecyclePhase.Connecting,
             ServerState.Reconnecting => ConnectionLifecyclePhase.Connecting,
+            ServerState.Degraded => ConnectionLifecyclePhase.Degraded,
+            ServerState.Resuming => ConnectionLifecyclePhase.Resuming,
             _ => ConnectionLifecyclePhase.Disconnected
         };
     }
@@ -134,7 +139,7 @@ internal sealed class ConnectionLifecycle : IDisposable
         _healthCheckFlight.Cancel();
     }
 
-    public async Task StopAsync(ServerState state, string serverName, Action stopSystemInfoPolling)
+    public async Task StopAsync(ServerState state, string serverName, Action stopSystemInfoPolling, bool publishDisconnected)
     {
         MoveTo(ServerState.Disconnecting);
 
@@ -149,7 +154,10 @@ internal sealed class ConnectionLifecycle : IDisposable
             HooksRegistered = false;
             StopHealthLoop();
             stopSystemInfoPolling();
-            _mediator.Publish(new DisconnectedMessage());
+            if (publishDisconnected)
+            {
+                _mediator.Publish(new DisconnectedMessage());
+            }
             Hub = null;
         }
 

@@ -223,9 +223,10 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
             DrawAnnouncementBanners();
             using (ImRaii.PushId("header")) DrawUIDHeader();
 
-            if (_apiController.ServerState is ServerState.Connected)
+            if (_apiController.ServerState is ServerState.Connected or ServerState.Degraded or ServerState.Resuming)
             {
                 ImGui.Separator();
+                using var disabledDuringRecovery = ImRaii.Disabled(_apiController.ServerState is ServerState.Degraded or ServerState.Resuming);
 
                 switch (_selectedMenu)
                 {

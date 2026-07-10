@@ -217,6 +217,6 @@ public partial class ApiController
 
     private void CheckConnection()
     {
-        if (ServerState is not (ServerState.Connected or ServerState.Connecting or ServerState.Reconnecting)) throw new InvalidDataException("Not connected");
+        if (ServerState is not ServerState.Connected) throw new InvalidDataException("Not connected");
     }
 }

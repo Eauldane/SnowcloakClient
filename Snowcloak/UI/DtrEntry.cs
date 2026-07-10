@@ -73,7 +73,15 @@ public sealed class DtrEntry : DtrEntryBase
         string text;
         string tooltip;
         ElezenStrings.Colour colors;
-        if (_apiController.IsConnected)
+        if (_apiController.ServerState is Snowcloak.WebAPI.SignalR.Utils.ServerState.Degraded or Snowcloak.WebAPI.SignalR.Utils.ServerState.Resuming)
+        {
+            text = RenderDtrStyle(_configService.Current.DtrStyle, "\uE04C");
+            tooltip = _apiController.ServerState is Snowcloak.WebAPI.SignalR.Utils.ServerState.Resuming
+                ? "Snowcloak: Restoring interrupted session"
+                : "Snowcloak: Connection interrupted; applied appearances are frozen";
+            colors = _configService.Current.DtrColorsNotConnected;
+        }
+        else if (_apiController.IsConnected)
         {
             var pairCount = _pairManager.GetVisibleUserCount();
 

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.SignalR.Client;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto;
@@ -7,6 +7,7 @@ using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Session;
 
 namespace Snowcloak.WebAPI.SignalR;
 
@@ -19,6 +20,12 @@ internal static class CallbackRouter
         GroupCallbacks.Register(hub, api);
         ChatCallbacks.Register(hub, api);
         GposeCallbacks.Register(hub, api);
+    }
+
+    public static void RegisterSession<T>(HubConnection hub, string method, ApiController api, Func<T, Task> handler)
+        where T : ISequencedSessionEvent
+    {
+        hub.On<T>(method, payload => api.RouteSessionEvent(payload, handler));
     }
 }
 
@@ -36,17 +43,17 @@ internal static class PairCallbacks
 {
     public static void Register(HubConnection hub, ApiController api)
     {
-        hub.On<UserDto>(nameof(ApiController.Client_UserSendOffline), api.Client_UserSendOffline);
-        hub.On<UserPairDto>(nameof(ApiController.Client_UserAddClientPair), api.Client_UserAddClientPair);
-        hub.On<ManifestNotificationDto>(nameof(ApiController.Client_UserReceiveManifest), api.Client_UserReceiveManifest);
-        hub.On<PairApplicationReceiptDto>(nameof(ApiController.Client_UserReceiveApplicationReceipt), api.Client_UserReceiveApplicationReceipt);
-        hub.On<UserDto>(nameof(ApiController.Client_UserRemoveClientPair), api.Client_UserRemoveClientPair);
-        hub.On<OnlineUserIdentDto>(nameof(ApiController.Client_UserSendOnline), api.Client_UserSendOnline);
-        hub.On<UserPermissionsDto>(nameof(ApiController.Client_UserUpdateOtherPairPermissions), api.Client_UserUpdateOtherPairPermissions);
-        hub.On<UserPermissionsDto>(nameof(ApiController.Client_UserUpdateSelfPairPermissions), api.Client_UserUpdateSelfPairPermissions);
+        CallbackRouter.RegisterSession<UserDto>(hub, nameof(ApiController.Client_UserSendOffline), api, api.Client_UserSendOffline);
+        CallbackRouter.RegisterSession<UserPairDto>(hub, nameof(ApiController.Client_UserAddClientPair), api, api.Client_UserAddClientPair);
+        CallbackRouter.RegisterSession<ManifestNotificationDto>(hub, nameof(ApiController.Client_UserReceiveManifest), api, api.Client_UserReceiveManifest);
+        CallbackRouter.RegisterSession<PairApplicationReceiptDto>(hub, nameof(ApiController.Client_UserReceiveApplicationReceipt), api, api.Client_UserReceiveApplicationReceipt);
+        CallbackRouter.RegisterSession<UserDto>(hub, nameof(ApiController.Client_UserRemoveClientPair), api, api.Client_UserRemoveClientPair);
+        CallbackRouter.RegisterSession<OnlineUserIdentDto>(hub, nameof(ApiController.Client_UserSendOnline), api, api.Client_UserSendOnline);
+        CallbackRouter.RegisterSession<UserPermissionsDto>(hub, nameof(ApiController.Client_UserUpdateOtherPairPermissions), api, api.Client_UserUpdateOtherPairPermissions);
+        CallbackRouter.RegisterSession<UserPermissionsDto>(hub, nameof(ApiController.Client_UserUpdateSelfPairPermissions), api, api.Client_UserUpdateSelfPairPermissions);
         hub.On<UserDto>(nameof(ApiController.Client_UserReceiveUploadStatus), api.Client_UserReceiveUploadStatus);
-        hub.On<UserDto>(nameof(ApiController.Client_UserUpdateProfile), api.Client_UserUpdateProfile);
-        hub.On<CharacterProfileChangedDto>(nameof(ApiController.Client_CharacterProfileChanged), api.Client_CharacterProfileChanged);
+        CallbackRouter.RegisterSession<UserDto>(hub, nameof(ApiController.Client_UserUpdateProfile), api, api.Client_UserUpdateProfile);
+        CallbackRouter.RegisterSession<CharacterProfileChangedDto>(hub, nameof(ApiController.Client_CharacterProfileChanged), api, api.Client_CharacterProfileChanged);
         hub.On<List<PairingAvailabilityDto>>(nameof(ApiController.Client_UserPairingAvailability), api.Client_UserPairingAvailability);
         hub.On<PairingRequestDto>(nameof(ApiController.Client_UserPairingRequest), api.Client_UserPairingRequest);
         hub.On<PairingAvailabilityResumeRequestDto>(nameof(ApiController.Client_RequestPairingAvailabilitySubscription), api.Client_RequestPairingAvailabilitySubscription);
@@ -58,15 +65,15 @@ internal static class GroupCallbacks
 {
     public static void Register(HubConnection hub, ApiController api)
     {
-        hub.On<GroupPermissionDto>(nameof(ApiController.Client_GroupChangePermissions), api.Client_GroupChangePermissions);
-        hub.On<GroupDto>(nameof(ApiController.Client_GroupDelete), api.Client_GroupDelete);
-        hub.On<GroupMemberLabelsDto>(nameof(ApiController.Client_GroupPairChangeLabels), api.Client_GroupPairChangeLabels);
-        hub.On<GroupPairUserInfoDto>(nameof(ApiController.Client_GroupPairChangeUserInfo), api.Client_GroupPairChangeUserInfo);
-        hub.On<GroupPairFullInfoDto>(nameof(ApiController.Client_GroupPairJoined), api.Client_GroupPairJoined);
-        hub.On<GroupPairDto>(nameof(ApiController.Client_GroupPairLeft), api.Client_GroupPairLeft);
-        hub.On<GroupFullInfoDto>(nameof(ApiController.Client_GroupSendFullInfo), api.Client_GroupSendFullInfo);
-        hub.On<GroupInfoDto>(nameof(ApiController.Client_GroupSendInfo), api.Client_GroupSendInfo);
-        hub.On<GroupPairUserPermissionDto>(nameof(ApiController.Client_GroupPairChangePermissions), api.Client_GroupPairChangePermissions);
+        CallbackRouter.RegisterSession<GroupPermissionDto>(hub, nameof(ApiController.Client_GroupChangePermissions), api, api.Client_GroupChangePermissions);
+        CallbackRouter.RegisterSession<GroupDto>(hub, nameof(ApiController.Client_GroupDelete), api, api.Client_GroupDelete);
+        CallbackRouter.RegisterSession<GroupMemberLabelsDto>(hub, nameof(ApiController.Client_GroupPairChangeLabels), api, api.Client_GroupPairChangeLabels);
+        CallbackRouter.RegisterSession<GroupPairUserInfoDto>(hub, nameof(ApiController.Client_GroupPairChangeUserInfo), api, api.Client_GroupPairChangeUserInfo);
+        CallbackRouter.RegisterSession<GroupPairFullInfoDto>(hub, nameof(ApiController.Client_GroupPairJoined), api, api.Client_GroupPairJoined);
+        CallbackRouter.RegisterSession<GroupPairDto>(hub, nameof(ApiController.Client_GroupPairLeft), api, api.Client_GroupPairLeft);
+        CallbackRouter.RegisterSession<GroupFullInfoDto>(hub, nameof(ApiController.Client_GroupSendFullInfo), api, api.Client_GroupSendFullInfo);
+        CallbackRouter.RegisterSession<GroupInfoDto>(hub, nameof(ApiController.Client_GroupSendInfo), api, api.Client_GroupSendInfo);
+        CallbackRouter.RegisterSession<GroupPairUserPermissionDto>(hub, nameof(ApiController.Client_GroupPairChangePermissions), api, api.Client_GroupPairChangePermissions);
     }
 }
 
@@ -76,10 +83,10 @@ internal static class ChatCallbacks
     {
         hub.On<UserChatMsgDto>(nameof(ApiController.Client_UserChatMsg), api.Client_UserChatMsg);
         hub.On<GroupChatMsgDto>(nameof(ApiController.Client_GroupChatMsg), api.Client_GroupChatMsg);
-        hub.On<GroupChatMemberStateDto>(nameof(ApiController.Client_GroupChatMemberState), api.Client_GroupChatMemberState);
+        CallbackRouter.RegisterSession<GroupChatMemberStateDto>(hub, nameof(ApiController.Client_GroupChatMemberState), api, api.Client_GroupChatMemberState);
         hub.On<ChannelChatMsgDto>(nameof(ApiController.Client_ChannelChatMsg), api.Client_ChannelChatMsg);
-        hub.On<ChannelMemberJoinedDto>(nameof(ApiController.Client_ChannelMemberJoined), api.Client_ChannelMemberJoined);
-        hub.On<ChannelMemberLeftDto>(nameof(ApiController.Client_ChannelMemberLeft), api.Client_ChannelMemberLeft);
+        CallbackRouter.RegisterSession<ChannelMemberJoinedDto>(hub, nameof(ApiController.Client_ChannelMemberJoined), api, api.Client_ChannelMemberJoined);
+        CallbackRouter.RegisterSession<ChannelMemberLeftDto>(hub, nameof(ApiController.Client_ChannelMemberLeft), api, api.Client_ChannelMemberLeft);
     }
 }
 
