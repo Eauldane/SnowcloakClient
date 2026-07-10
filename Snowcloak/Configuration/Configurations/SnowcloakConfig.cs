@@ -62,6 +62,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ShowUploading { get; set; } = true;
     public bool ShowUploadingBigText { get; set; } = true;
     public bool ShowVisibleUsersSeparately { get; set; } = true;
+    public bool ShowVisibleSyncshellUsersSection { get; set; }
     public bool ShowSyncshellBudgetDashboard { get; set; } = false;
     public bool ShowCompactUiPerformanceTab { get; set; } = false;
     public bool CompactUiSidebarCollapsed { get; set; } = false;

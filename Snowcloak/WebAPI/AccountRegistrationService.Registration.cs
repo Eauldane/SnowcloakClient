@@ -27,13 +27,13 @@ public sealed partial class AccountRegistrationService
         using var startResponse = await _httpClient.PostAsJsonAsync(startUri, startPayload, token).ConfigureAwait(false);
         if (!startResponse.IsSuccessStatusCode)
         {
-            return new RegisterReplyDto { Success = false, ErrorMessage = await ReadErrorAsync(startResponse, token).ConfigureAwait(false) };
+            return new RegisterReplyDto { Success = false, ErrorMessage = "XIVAuth is deprecated. " + await ReadErrorAsync(startResponse, token).ConfigureAwait(false) };
         }
 
         var start = await startResponse.Content.ReadFromJsonAsync<XivAuthRegisterStartReplyDto>(token).ConfigureAwait(false);
         if (start == null || string.IsNullOrWhiteSpace(start.SessionId) || string.IsNullOrWhiteSpace(start.AuthorizationUrl))
         {
-            return new RegisterReplyDto { Success = false, ErrorMessage = "Malformed registration response." };
+            return new RegisterReplyDto { Success = false, ErrorMessage = "XIVAuth is deprecated. Malformed registration response." };
         }
 
         Util.OpenLink(start.AuthorizationUrl);
@@ -46,7 +46,7 @@ public sealed partial class AccountRegistrationService
             using var pollResponse = await _httpClient.GetAsync(pollUri, token).ConfigureAwait(false);
             if (!pollResponse.IsSuccessStatusCode)
             {
-                return new RegisterReplyDto { Success = false, ErrorMessage = $"Registration polling failed ({(int)pollResponse.StatusCode})." };
+                return new RegisterReplyDto { Success = false, ErrorMessage = $"XIVAuth is deprecated. Registration polling failed ({(int)pollResponse.StatusCode})." };
             }
 
             var poll = await pollResponse.Content.ReadFromJsonAsync<XivAuthRegisterPollReplyDto>(token).ConfigureAwait(false) ?? new XivAuthRegisterPollReplyDto();
@@ -64,7 +64,9 @@ public sealed partial class AccountRegistrationService
             return new RegisterReplyDto
             {
                 Success = false,
-                ErrorMessage = string.IsNullOrWhiteSpace(poll.ErrorMessage) ? "XIVAuth registration failed. Please try again." : poll.ErrorMessage
+                ErrorMessage = string.IsNullOrWhiteSpace(poll.ErrorMessage)
+                    ? "XIVAuth is deprecated. Registration failed. Please try again."
+                    : "XIVAuth is deprecated. " + poll.ErrorMessage
             };
         }
 
@@ -72,7 +74,7 @@ public sealed partial class AccountRegistrationService
         {
             Success = false,
             ErrorMessage =
-                "Timed out waiting for authorisation. Please try again, and complete the process within 10 minutes."
+                "XIVAuth is deprecated. Timed out waiting for authorisation. Please try again, and complete the process within 10 minutes."
         };
     }
 

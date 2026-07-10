@@ -1087,6 +1087,11 @@ internal sealed class GroupPanel
         using (ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(ImGui.GetStyle().FramePadding.X, 7f * ImGuiHelpers.GlobalScale)))
         using (ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 2f * ImGuiHelpers.GlobalScale)))
         {
+            if (_snowcloakConfig.Current.ShowVisibleSyncshellUsersSection)
+            {
+                using (ImRaii.PushId("visible-syncshell-users")) DrawVisibleSyncshellUsers();
+            }
+
             foreach (var entry in groups)
             {
                 using (ImRaii.PushId(entry.Key.Group.GID)) DrawSyncshell(entry.Key, entry.Value);
@@ -1094,6 +1099,37 @@ internal sealed class GroupPanel
         }
         ImGui.EndChild();
         PruneGroupPairRowCache(groups.Sum(g => g.Value.Count));
+    }
+
+    private void DrawVisibleSyncshellUsers()
+    {
+        var pairs = _pairManager.GetVisiblePairs()
+            .Where(pair => !pair.GroupPair.IsEmpty
+                && !string.Equals(pair.UserData.UID, ApiController.UID, StringComparison.Ordinal));
+
+        pairs = _snowcloakConfig.Current.SortSyncshellsByVRAM
+            ? pairs.OrderByDescending(pair => pair.LastAppliedApproximateVRAMBytes)
+                .ThenBy(pair => pair.UserData.AliasOrUID, StringComparer.OrdinalIgnoreCase)
+            : pairs.OrderBy(pair => pair.GetPairSortKey(), StringComparer.OrdinalIgnoreCase);
+
+        var rows = pairs.SelectMany(pair => pair.GroupPair
+                .OrderBy(entry => entry.Key.Group.AliasOrGID, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Key.Group.GID, StringComparer.Ordinal)
+                .Take(1)
+                .Select(membership => GetGroupPairRow(membership.Key, pair, membership.Value)))
+            .ToList();
+
+        ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Visible Syncshell Users ({0})", rows.Count));
+        ImGui.Separator();
+        if (rows.Count == 0)
+        {
+            ElezenImgui.ColouredText("No syncshell users are currently visible.", ImGuiColors.DalamudGrey);
+        }
+        else
+        {
+            UidDisplayHandler.RenderPairList(rows);
+        }
+        ImGui.Separator();
     }
 
 }
