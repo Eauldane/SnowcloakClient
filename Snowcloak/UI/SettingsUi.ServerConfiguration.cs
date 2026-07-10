@@ -218,8 +218,8 @@ public partial class SettingsUi
             var xivAuthPrompt = selectedServer.AccountLinked
                 ? "Your current character is not linked to a working account key. Create and assign a new account UID to receive a server-generated key."
                 : invalidSecretKey
-                    ? "Your current character's secret key appears to be invalid. Sign in with a Snowcloak account below to restore account keys, log in with XIVAuth to replace and assign a working key automatically, or create a standalone key."
-                    : "Your current character is not linked to a secret key. Sign in with a Snowcloak account below to restore account keys, log in with XIVAuth to add and assign one automatically, or create a standalone key.";
+                    ? "Your current character's secret key appears to be invalid. Sign in with a Snowcloak account below to restore account keys, use XIVAuth to replace and assign a working key automatically, or create a standalone key."
+                    : "Your current character is not linked to a secret key. Sign in with a Snowcloak account below to restore account keys, use XIVAuth to add and assign one automatically, or create a standalone key.";
             ElezenImgui.ColouredWrappedText(xivAuthPrompt, ImGuiColors.DalamudYellow);
 
             if (selectedServer.AccountLinked && selectedServer == _serverConfigurationManager.CurrentServer)
@@ -230,7 +230,7 @@ public partial class SettingsUi
             {
                 using (ImRaii.Disabled(_characterKeyAssignmentFlow.IsRunning))
                 {
-                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth"))
+                    if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (deprecated)"))
                     {
                         _characterKeyAssignmentFlow.Begin(selectedServer, playerName, playerWorldId, removeInvalidSecretKey,
                             invalidSecretKeyIdx, _registerService.XIVAuth,

@@ -133,6 +133,7 @@ public sealed partial class InterfaceSettingsPanel
     {
         var showCharacterNames = _configService.Current.ShowCharacterNames;
         var showVisibleSeparate = _configService.Current.ShowVisibleUsersSeparately;
+        var showVisibleSyncshellUsersSection = _configService.Current.ShowVisibleSyncshellUsersSection;
         var showSyncshellBudgetDashboard = _configService.Current.ShowSyncshellBudgetDashboard;
         var showCompactUiPerformanceTab = _configService.Current.ShowCompactUiPerformanceTab;
         var sortSyncshellByVRAM = _configService.Current.SortSyncshellsByVRAM;
@@ -174,6 +175,12 @@ public sealed partial class InterfaceSettingsPanel
             _configService.Update(c => c.ShowVisibleUsersSeparately = showVisibleSeparate);
         }
         ElezenImgui.DrawHelpText("This will show all currently visible users in a special 'Visible' group in the main UI.");
+
+        if (ImGui.Checkbox("Show visible syncshell users section", ref showVisibleSyncshellUsersSection))
+        {
+            _configService.Update(c => c.ShowVisibleSyncshellUsersSection = showVisibleSyncshellUsersSection);
+        }
+        ElezenImgui.DrawHelpText("Shows one combined list of all visible syncshell users in the syncshell panel.");
 
         if (ImGui.Checkbox("Sort visible syncshell users by VRAM usage", ref sortSyncshellByVRAM))
         {
