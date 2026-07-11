@@ -159,7 +159,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     private async Task<HttpResponseMessage> SendRequestInternalAsync(Func<HttpRequestMessage> requestFactory,
         CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead, bool allowRetry = true)
     {
-        var token = await _tokenProvider.GetToken().ConfigureAwait(false);
+        var token = await _tokenProvider.GetFilesToken(ct ?? CancellationToken.None).ConfigureAwait(false);
 
         var attempt = 0;
         while (true)

@@ -22,7 +22,7 @@ public sealed partial class AccountRegistrationService
 
     private async Task<HttpRequestMessage> CreateAuthorizedRequest(HttpMethod method, Uri uri, CancellationToken token)
     {
-        var jwt = await _tokenProvider.GetOrUpdateToken(token).ConfigureAwait(false);
+        var jwt = await _tokenProvider.GetAuthToken(token).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(jwt))
         {
             throw new InvalidOperationException("No authentication token available.");
@@ -73,10 +73,11 @@ public sealed partial class AccountRegistrationService
             }
 
             var payload = await response.Content.ReadFromJsonAsync<AuthReplyDto>(cancellationToken: token).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(payload?.Token)
-                && IsExpectedAccountToken(payload.Token, _serverManager.CurrentServer.UserAccountId))
+            var authToken = string.IsNullOrWhiteSpace(payload?.AccessTokens.AuthToken) ? payload?.Token : payload.AccessTokens.AuthToken;
+            if (!string.IsNullOrWhiteSpace(authToken)
+                && IsExpectedAccountToken(authToken, _serverManager.CurrentServer.UserAccountId))
             {
-                return payload.Token;
+                return authToken;
             }
         }
 

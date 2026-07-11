@@ -63,7 +63,7 @@ public class HubFactory : MediatorSubscriberBase
 
     private async Task<HubConnectionConfig> ResolveHubConfig()
     {
-        var stapledWellKnown = _tokenProvider.GetStapledWellKnown(_serverConfigurationManager.CurrentApiUrl);
+        var stapledWellKnown = _tokenProvider.GetStapledWellKnown(new Uri(_serverConfigurationManager.CurrentApiUrl));
 
         HubConnectionConfig defaultConfig;
 

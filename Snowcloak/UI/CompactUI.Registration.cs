@@ -53,14 +53,6 @@ public partial class CompactUi
             }
             else
             {
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (deprecated)"))
-                {
-                    BeginCharacterRegistration(
-                        _registerService.XIVAuth,
-                        "Account registered through XIVAuth. Welcome to Snowcloak!",
-                        "XIVAuth registration failed");
-                }
-
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone key"))
                 {
                     BeginCharacterRegistration(

@@ -146,12 +146,6 @@ public partial class IntroUi
 
         ImGui.Separator();
         ImGui.BeginDisabled(_standaloneKeyFlow.IsRunning || _accountFlow.IsRunning || _standaloneKeyFlow.Succeeded || _secretKey.Length > 0);
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Log in with XIVAuth (deprecated)"))
-        {
-            _standaloneKeyFlow.Begin(_registerService.XIVAuth, "Account registered. Welcome to Snowcloak!",
-                reply => _secretKey = reply.SecretKey ?? "", "XIVAuth registration failed");
-        }
-        ImGui.SameLine();
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Create standalone secret key"))
         {
             _standaloneKeyFlow.Begin(_registerService.RegisterAccount,
@@ -206,7 +200,6 @@ public partial class IntroUi
         {
             ElezenImgui.WrappedText("The preferred option is you manage your keys yourself. This option gives you full and complete control.");
             ElezenImgui.WrappedText("Failing that, Snowcloak accounts will generate fresh keys for your linked characters if you need it. You choose a username and password, and Snowcloak handles the rest. Passwords are hashed using state-of-the-art Argon2id algorithms. If in doubt, use a password manager to generate a random username and password.");
-            ElezenImgui.WrappedText("XIVAuth remains available for compatibility, but its login method is deprecated.");
         }
 
         _accountFlow.Draw(new PasswordAccountFlowOptions

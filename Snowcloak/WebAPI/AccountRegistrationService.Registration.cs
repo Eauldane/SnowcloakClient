@@ -1,4 +1,3 @@
-using Dalamud.Utility;
 using Snowcloak.API.Dto.Account;
 using Snowcloak.API.Routes;
 using Snowcloak.Utils;
@@ -8,76 +7,6 @@ namespace Snowcloak.WebAPI;
 
 public sealed partial class AccountRegistrationService
 {
-    public async Task<RegisterReplyDto> XIVAuth(CancellationToken token)
-    {
-        var secretKey = GenerateSecretKey();
-        var hashedSecretKey = secretKey.GetHash256();
-        var playerName = await _dalamudUtilService.GetPlayerNameAsync().ConfigureAwait(false);
-        var worldId = (ushort)await _dalamudUtilService.GetHomeWorldIdAsync().ConfigureAwait(false);
-        var worldName = _dalamudUtilService.WorldData[worldId];
-
-        var startUri = new Uri(GetApiBaseUri(), XivAuthRegisterStartRoute);
-        var startPayload = new XivAuthRegisterStartRequestDto
-        {
-            HashedSecretKey = hashedSecretKey,
-            CharacterName = playerName,
-            HomeWorld = worldName
-        };
-
-        using var startResponse = await _httpClient.PostAsJsonAsync(startUri, startPayload, token).ConfigureAwait(false);
-        if (!startResponse.IsSuccessStatusCode)
-        {
-            return new RegisterReplyDto { Success = false, ErrorMessage = "XIVAuth is deprecated. " + await ReadErrorAsync(startResponse, token).ConfigureAwait(false) };
-        }
-
-        var start = await startResponse.Content.ReadFromJsonAsync<XivAuthRegisterStartReplyDto>(token).ConfigureAwait(false);
-        if (start == null || string.IsNullOrWhiteSpace(start.SessionId) || string.IsNullOrWhiteSpace(start.AuthorizationUrl))
-        {
-            return new RegisterReplyDto { Success = false, ErrorMessage = "XIVAuth is deprecated. Malformed registration response." };
-        }
-
-        Util.OpenLink(start.AuthorizationUrl);
-        var expiry = start.ExpiresAtUtc > DateTimeOffset.UtcNow ? start.ExpiresAtUtc : DateTimeOffset.UtcNow.AddMinutes(10);
-        var pollUri = new Uri(GetApiBaseUri(), XivAuthRegisterPollRoutePrefix + start.SessionId);
-
-        while (DateTimeOffset.UtcNow < expiry)
-        {
-            token.ThrowIfCancellationRequested();
-            using var pollResponse = await _httpClient.GetAsync(pollUri, token).ConfigureAwait(false);
-            if (!pollResponse.IsSuccessStatusCode)
-            {
-                return new RegisterReplyDto { Success = false, ErrorMessage = $"XIVAuth is deprecated. Registration polling failed ({(int)pollResponse.StatusCode})." };
-            }
-
-            var poll = await pollResponse.Content.ReadFromJsonAsync<XivAuthRegisterPollReplyDto>(token).ConfigureAwait(false) ?? new XivAuthRegisterPollReplyDto();
-            if (poll.Status.Equals("pending", StringComparison.OrdinalIgnoreCase))
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
-                continue;
-            }
-
-            if (poll.Status.Equals("completed", StringComparison.OrdinalIgnoreCase))
-            {
-                return new RegisterReplyDto { Success = true, ErrorMessage = string.Empty, UID = poll.Uid, SecretKey = secretKey };
-            }
-
-            return new RegisterReplyDto
-            {
-                Success = false,
-                ErrorMessage = string.IsNullOrWhiteSpace(poll.ErrorMessage)
-                    ? "XIVAuth is deprecated. Registration failed. Please try again."
-                    : "XIVAuth is deprecated. " + poll.ErrorMessage
-            };
-        }
-
-        return new RegisterReplyDto
-        {
-            Success = false,
-            ErrorMessage =
-                "XIVAuth is deprecated. Timed out waiting for authorisation. Please try again, and complete the process within 10 minutes."
-        };
-    }
-
     public async Task<RegisterReplyDto> RegisterAccount(CancellationToken token)
     {
         var secretKey = GenerateSecretKey();

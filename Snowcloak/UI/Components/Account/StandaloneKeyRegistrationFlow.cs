@@ -7,12 +7,6 @@ using Snowcloak.API.Dto.Account;
 
 namespace Snowcloak.UI.Components.Account;
 
-/// <summary>
-/// Wraps a single "register and obtain a secret key" call (XIVAuth or a standalone key) over
-/// <see cref="AsyncOp{T}"/>. The surface decides what to do with the resulting reply via the
-/// <c>onSuccess</c> callback (populate the onboarding key field, or add the key to a server).
-/// Replaces the duplicated <c>_registration*</c> window fields (P30).
-/// </summary>
 public sealed class StandaloneKeyRegistrationFlow
 {
     private readonly ILogger _logger;

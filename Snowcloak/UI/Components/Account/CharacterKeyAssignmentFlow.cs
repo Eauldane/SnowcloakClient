@@ -11,11 +11,6 @@ using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components.Account;
 
-/// <summary>
-/// Registers a fresh secret key (XIVAuth or standalone) and assigns it to the current character,
-/// optionally replacing an invalid key. Used by the Settings secret-key tab (P30). Encapsulates the
-/// in-flight state and the key-assignment bookkeeping that previously lived as SettingsUi fields.
-/// </summary>
 public sealed class CharacterKeyAssignmentFlow
 {
     private readonly ILogger _logger;

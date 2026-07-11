@@ -48,13 +48,14 @@ public sealed partial class AccountRegistrationService
             };
         }
 
-        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, account.Token).ConfigureAwait(false);
+        var accountToken = string.IsNullOrWhiteSpace(account.AccessTokens.AuthToken) ? account.Token : account.AccessTokens.AuthToken;
+        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, accountToken).ConfigureAwait(false);
         if (linkedCount != localKeysToLink.Length)
         {
             return CreateLocalKeyLinkFailure(localKeysToLink.Length, linkedCount);
         }
 
-        var accountKeys = await GetAccountKeys(token, account.Token).ConfigureAwait(false);
+        var accountKeys = await GetAccountKeys(token, accountToken).ConfigureAwait(false);
         if (accountKeys == null || !accountKeys.Success)
         {
             return CreateAccountKeyDownloadFailure();
@@ -106,13 +107,14 @@ public sealed partial class AccountRegistrationService
             };
         }
 
-        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, account.Token).ConfigureAwait(false);
+        var accountToken = string.IsNullOrWhiteSpace(account.AccessTokens.AuthToken) ? account.Token : account.AccessTokens.AuthToken;
+        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, accountToken).ConfigureAwait(false);
         if (linkedCount != localKeysToLink.Length)
         {
             return CreateLocalKeyLinkFailure(localKeysToLink.Length, linkedCount);
         }
 
-        var accountKeys = await GetAccountKeys(token, account.Token).ConfigureAwait(false);
+        var accountKeys = await GetAccountKeys(token, accountToken).ConfigureAwait(false);
         if (accountKeys == null || !accountKeys.Success)
         {
             return CreateAccountKeyDownloadFailure();
