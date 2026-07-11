@@ -229,6 +229,16 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
                 var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
                 _connectionContext = ConnectionContext.From(connectionDto);
+
+                if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
+                {
+                    Mediator.Publish(new NotificationMessage("Client incompatible",
+                        "This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
+                        NotificationType.Error));
+                    await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
+                    return;
+                }
+
                 _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
                 Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
 
@@ -238,15 +248,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 TriggerSystemInfoRefresh();
 
                 var currentClientVer = Assembly.GetExecutingAssembly().GetName().Version!;
- 
-                if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
-                {
-                    Mediator.Publish(new NotificationMessage("Client incompatible",
-                        "This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
-                        NotificationType.Error));
-                    await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
-                    return;
-                }
 
                 if (connectionDto.CurrentClientVersion > currentClientVer)
                 {
