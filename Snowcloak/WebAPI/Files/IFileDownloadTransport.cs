@@ -2,7 +2,22 @@ using Snowcloak.WebAPI.Files.Models;
 
 namespace Snowcloak.WebAPI.Files;
 
-public sealed record DownloadGroupRequest(Uri DownloadUri, IReadOnlyList<string> Hashes, string? DownloadType);
+public sealed record DownloadFileRequest(Uri DownloadUri);
+
+public sealed class FileGrantRejectedException : HttpRequestException
+{
+    public FileGrantRejectedException()
+    {
+    }
+
+    public FileGrantRejectedException(string message) : base(message)
+    {
+    }
+
+    public FileGrantRejectedException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+}
 
 public sealed class DownloadResponse : IAsyncDisposable
 {
@@ -27,5 +42,5 @@ public sealed class DownloadResponse : IAsyncDisposable
 
 public interface IFileDownloadTransport
 {
-    Task<DownloadResponse> OpenAsync(DownloadGroupRequest request, Action<DownloadStatus>? onPhase, CancellationToken ct);
+    Task<DownloadResponse> OpenAsync(DownloadFileRequest request, Action<DownloadStatus>? onPhase, CancellationToken ct);
 }

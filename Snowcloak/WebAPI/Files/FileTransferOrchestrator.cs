@@ -17,8 +17,11 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     private static readonly TimeSpan UntrackedRequestTimeout = TimeSpan.FromSeconds(100);
     
     private const int MaxTransientAttempts = 4;
+    private const int MaxRateLimitAttempts = 4;
     private static readonly TimeSpan TransientRetryBaseDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan TransientRetryMaxDelay = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan RateLimitRetryFallback = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan RateLimitRetryMaximum = TimeSpan.FromMinutes(1);
     private static readonly HashSet<HttpStatusCode> TransientStatusCodes =
     [
         HttpStatusCode.RequestTimeout,      // 408
@@ -28,18 +31,27 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     ];
 
     private readonly HttpClient _httpClient;
+    private readonly SocketsHttpHandler _httpHandler;
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly TokenProvider _tokenProvider;
     private readonly DownloadSlotGate _downloadSlots;
     private readonly Lock _forbiddenLock = new();
     private readonly List<ForbiddenTransfer> _forbiddenTransfers = [];
+    private readonly HashSet<string> _allowedFileDownloadHosts = new(StringComparer.OrdinalIgnoreCase);
 
     public FileTransferOrchestrator(ILogger<FileTransferOrchestrator> logger, SnowcloakConfigService snowcloakConfig,
         SnowMediator mediator, TokenProvider tokenProvider) : base(logger, mediator)
     {
+        ArgumentNullException.ThrowIfNull(snowcloakConfig);
         _snowcloakConfig = snowcloakConfig;
         _tokenProvider = tokenProvider;
-        _httpClient = new HttpClient(new SocketsHttpHandler { ConnectTimeout = ConnectTimeout })
+        _httpHandler = new SocketsHttpHandler
+        {
+            ConnectTimeout = ConnectTimeout,
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.All,
+        };
+        _httpClient = new HttpClient(_httpHandler, false)
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
@@ -51,21 +63,38 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         Mediator.Subscribe<FileServerInfoReceivedMessage>(this, (msg) =>
         {
             FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
+            SetAllowedDownloadHosts(msg.Connection.ServerInfo.AllowedFileDownloadHosts);
         });
 
         Mediator.Subscribe<ConnectedMessage>(this, (msg) =>
         {
             FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
+            SetAllowedDownloadHosts(msg.Connection.ServerInfo.AllowedFileDownloadHosts);
         });
 
         Mediator.Subscribe<DisconnectedMessage>(this, (msg) =>
         {
             FilesCdnUri = null;
+            lock (_allowedFileDownloadHosts)
+            {
+                _allowedFileDownloadHosts.Clear();
+            }
         });
     }
 
     public Uri? FilesCdnUri { private set; get; }
     public bool IsInitialized => FilesCdnUri != null;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _httpClient.Dispose();
+            _httpHandler.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 
     public string PreferredDownloadTypeQueryValue()
     {
@@ -127,8 +156,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         var dividedLimit = limit / activeSlots;
         if (dividedLimit < 0)
         {
-            Logger.LogWarning("Calculated Bandwidth Limit is negative, returning Infinity: {value}, active slots: {slots}, " +
-                "DownloadSpeedLimit is {limit}, configured slots: {configured}", dividedLimit, activeSlots, limit, _downloadSlots.Limit);
+            LogInvalidDownloadLimit(Logger, dividedLimit, activeSlots, limit, _downloadSlots.Limit);
             return long.MaxValue;
         }
         return Math.Clamp(dividedLimit, 1, long.MaxValue);
@@ -156,6 +184,71 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = content }, ct, allowRetry: false).ConfigureAwait(false);
     }
 
+    public async Task<HttpResponseMessage> SendFileDownloadRequestAsync(Uri uri, CancellationToken ct)
+    {
+        for (var redirects = 0; redirects <= 3; redirects++)
+        {
+            EnsureAllowedDownloadUri(uri);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (response.StatusCode is not (HttpStatusCode.MovedPermanently or HttpStatusCode.Redirect
+                or HttpStatusCode.RedirectMethod or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect))
+            {
+                return response;
+            }
+
+            var location = response.Headers.Location;
+            response.Dispose();
+            if (location == null)
+            {
+                throw new HttpRequestException("File download redirect did not include a destination.");
+            }
+
+            uri = location.IsAbsoluteUri ? location : new Uri(uri, location);
+        }
+
+        throw new HttpRequestException("File download exceeded the redirect limit.");
+    }
+
+    private void SetAllowedDownloadHosts(IEnumerable<string> configuredHosts)
+    {
+        lock (_allowedFileDownloadHosts)
+        {
+            _allowedFileDownloadHosts.Clear();
+            if (FilesCdnUri != null)
+            {
+                _allowedFileDownloadHosts.Add(FilesCdnUri.IdnHost);
+            }
+
+            foreach (var configuredHost in configuredHosts)
+            {
+                if (Uri.TryCreate(configuredHost, UriKind.Absolute, out var uri))
+                {
+                    _allowedFileDownloadHosts.Add(uri.IdnHost);
+                }
+                else if (!string.IsNullOrWhiteSpace(configuredHost))
+                {
+                    _allowedFileDownloadHosts.Add(configuredHost.Trim());
+                }
+            }
+        }
+    }
+
+    private void EnsureAllowedDownloadUri(Uri uri)
+    {
+        var baseUri = FilesCdnUri ?? throw new InvalidOperationException("File transfer service is not initialised.");
+        var schemeAllowed = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(baseUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
+        lock (_allowedFileDownloadHosts)
+        {
+            if (!schemeAllowed || !_allowedFileDownloadHosts.Contains(uri.IdnHost))
+            {
+                throw new InvalidOperationException($"The server returned an unapproved file download address: {uri.Host}");
+            }
+        }
+    }
+
     private async Task<HttpResponseMessage> SendRequestInternalAsync(Func<HttpRequestMessage> requestFactory,
         CancellationToken? ct = null, HttpCompletionOption httpCompletionOption = HttpCompletionOption.ResponseContentRead, bool allowRetry = true)
     {
@@ -168,14 +261,15 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             using var requestMessage = requestFactory();
             requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            if (requestMessage.Content != null && requestMessage.Content is not StreamContent && requestMessage.Content is not ByteArrayContent)
+            if (Logger.IsEnabled(LogLevel.Debug)
+                && requestMessage.Content != null && requestMessage.Content is not StreamContent && requestMessage.Content is not ByteArrayContent)
             {
                 var content = await ((JsonContent)requestMessage.Content).ReadAsStringAsync().ConfigureAwait(false);
-                Logger.LogDebug("Sending {method} to {uri} (Content: {content})", requestMessage.Method, requestMessage.RequestUri, content);
+                LogSendingRequestWithContent(Logger, requestMessage.Method, requestMessage.RequestUri, content);
             }
-            else
+            else if (Logger.IsEnabled(LogLevel.Debug))
             {
-                Logger.LogDebug("Sending {method} to {uri}", requestMessage.Method, requestMessage.RequestUri);
+                LogSendingRequest(Logger, requestMessage.Method, requestMessage.RequestUri);
             }
 
             using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
@@ -184,6 +278,15 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             try
             {
                 var response = await _httpClient.SendAsync(requestMessage, httpCompletionOption, requestToken).ConfigureAwait(false);
+
+                if (allowRetry && attempt < MaxRateLimitAttempts && response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    var delay = GetRateLimitRetryDelay(response.Headers.RetryAfter);
+                    LogRateLimitRetry(Logger, requestMessage.RequestUri, attempt, delay);
+                    response.Dispose();
+                    await Task.Delay(delay, requestToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 if (allowRetry && attempt < MaxTransientAttempts && TransientStatusCodes.Contains(response.StatusCode))
                 {
@@ -211,7 +314,8 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
                 if (allowRetry && attempt < MaxTransientAttempts)
                 {
                     var delay = GetTransientRetryDelay(null, attempt);
-                    LogTransientRetry(Logger, requestMessage.RequestUri, (int)(ex.StatusCode ?? 0), attempt, delay);
+                    LogTransientRetry(Logger, requestMessage.RequestUri,
+                        ex.StatusCode is { } statusCode ? (int)statusCode : 0, attempt, delay);
                     await Task.Delay(delay, requestToken).ConfigureAwait(false);
                     continue;
                 }
@@ -231,6 +335,22 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         return backoff < TransientRetryMaxDelay ? backoff : TransientRetryMaxDelay;
     }
 
+    private static TimeSpan GetRateLimitRetryDelay(RetryConditionHeaderValue? retryAfter)
+    {
+        var delay = retryAfter?.Delta;
+        if (delay == null && retryAfter?.Date is { } retryAt)
+        {
+            delay = retryAt - DateTimeOffset.UtcNow;
+        }
+
+        if (delay == null || delay <= TimeSpan.Zero)
+        {
+            return RateLimitRetryFallback;
+        }
+
+        return delay < RateLimitRetryMaximum ? delay.Value : RateLimitRetryMaximum;
+    }
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Request to {Uri} was cancelled")]
     private static partial void LogRequestCancelled(ILogger logger, Exception ex, Uri? uri);
 
@@ -239,4 +359,16 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Transient error {StatusCode} from {Uri} (attempt {Attempt}); retrying after {Delay}")]
     private static partial void LogTransientRetry(ILogger logger, Uri? uri, int statusCode, int attempt, TimeSpan delay);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Rate limited by {Uri} (attempt {Attempt}); retrying after {Delay}")]
+    private static partial void LogRateLimitRetry(ILogger logger, Uri? uri, int attempt, TimeSpan delay);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Calculated bandwidth limit is negative, returning infinity: {Value}, active slots: {Slots}, download speed limit: {Limit}, configured slots: {Configured}")]
+    private static partial void LogInvalidDownloadLimit(ILogger logger, long value, int slots, long limit, int configured);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Sending {Method} to {Uri} (Content: {Content})")]
+    private static partial void LogSendingRequestWithContent(ILogger logger, HttpMethod method, Uri? uri, string content);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Sending {Method} to {Uri}")]
+    private static partial void LogSendingRequest(ILogger logger, HttpMethod method, Uri? uri);
 }

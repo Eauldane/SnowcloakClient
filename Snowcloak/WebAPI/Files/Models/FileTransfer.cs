@@ -4,7 +4,7 @@ namespace Snowcloak.WebAPI.Files.Models;
 
 public abstract class FileTransfer
 {
-    protected readonly ITransferFileDto TransferDto;
+    protected ITransferFileDto TransferDto { get; set; }
 
     protected FileTransfer(ITransferFileDto transferDto)
     {
@@ -18,7 +18,7 @@ public abstract class FileTransfer
     public bool IsInTransfer => Transferred != Total && Transferred > 0;
     public bool IsTransferred => Transferred == Total;
     public abstract long Total { get; set; }
-    public long Transferred { get; set; } = 0;
+    public long Transferred { get; set; }
 
     public override string ToString()
     {

@@ -142,7 +142,7 @@ public sealed class DownloadStatusStore
         {
             lock (_gate)
             {
-                _transferredFiles = _totalFiles;
+                _transferredFiles = Math.Min(_totalFiles, _transferredFiles + 1);
             }
         }
 

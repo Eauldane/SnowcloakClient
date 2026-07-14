@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Snowcloak.API.Routes;
 using Snowcloak.WebAPI.Files.Models;
 using System.Globalization;
 using System.Net;
@@ -20,14 +19,15 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         _orchestrator = orchestrator;
     }
 
-    public async Task<DownloadResponse> OpenAsync(DownloadGroupRequest request, Action<DownloadStatus>? onPhase, CancellationToken ct)
+    public async Task<DownloadResponse> OpenAsync(DownloadFileRequest request, Action<DownloadStatus>? onPhase, CancellationToken ct)
     {
-        var requestUrl = SnowFiles.CacheGetFullPath(request.DownloadUri, request.DownloadType);
+        ArgumentNullException.ThrowIfNull(request);
+        var requestUrl = request.DownloadUri;
 
         while (true)
         {
             onPhase?.Invoke(DownloadStatus.WaitingForQueue);
-            var response = await _orchestrator.SendRequestAsync(HttpMethod.Get, requestUrl, request.Hashes, ct, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            var response = await _orchestrator.SendFileDownloadRequestAsync(requestUrl, ct).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 var retryAfter = response.Headers.RetryAfter?.Delta ?? RetryAfterFallback;
@@ -35,6 +35,12 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
                 response.Dispose();
                 await Task.Delay(retryAfter, ct).ConfigureAwait(false);
                 continue;
+            }
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                response.Dispose();
+                throw new FileGrantRejectedException();
             }
 
             response.EnsureSuccessStatusCode();

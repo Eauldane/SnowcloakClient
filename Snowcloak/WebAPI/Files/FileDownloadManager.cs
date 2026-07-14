@@ -1,10 +1,8 @@
+using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Routes;
-using Microsoft.Extensions.Logging;
 using Snowcloak.CacheFile;
-using Snowcloak.Core.Files;
-using Snowcloak.Core.IO;
 using Snowcloak.FileCache;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
@@ -20,7 +18,6 @@ namespace Snowcloak.WebAPI.Files;
 public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBase
 {
     private const int DownloadBufferSize = 256 * 1024;
-
     private readonly FileCacheManager _fileDbManager;
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly IFileDownloadTransport _transport;
@@ -39,11 +36,15 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         _fileDbManager = fileCacheManager;
         _usageStatisticsService = usageStatisticsService;
 
-        Mediator.Subscribe<DownloadLimitChangedMessage>(this, (msg) =>
+        Mediator.Subscribe<DownloadLimitChangedMessage>(this, _ =>
         {
-            if (_activeDownloadStreams.IsEmpty) return;
+            if (_activeDownloadStreams.IsEmpty)
+            {
+                return;
+            }
+
             var newLimit = _orchestrator.DownloadLimitPerSlot();
-            Logger.LogTrace("Setting new Download Speed Limit to {newLimit}", newLimit);
+            LogDownloadLimitChanged(Logger, newLimit);
             foreach (var stream in _activeDownloadStreams.Keys)
             {
                 stream.BandwidthLimit = newLimit;
@@ -53,36 +54,36 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
 
     public bool IsHashForbidden(string hash) => _orchestrator.IsForbidden(hash);
 
-    public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct)
+    public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler,
+        IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct)
     {
-        Logger.LogDebug("Download start: {id}", gameObjectHandler.Name);
+        ArgumentNullException.ThrowIfNull(gameObjectHandler);
+        ArgumentNullException.ThrowIfNull(fileReplacement);
+        LogDownloadStart(Logger, gameObjectHandler.Name);
+        var fileInfo = await FilesGetSizes(fileReplacement.Select(file => file.Hash)
+            .Distinct(StringComparer.Ordinal).ToList(), ct).ConfigureAwait(false);
 
-        List<DownloadFileDto> downloadFileInfoFromService =
-        [
-            .. await FilesGetSizes(fileReplacement.Select(f => f.Hash).Distinct(StringComparer.Ordinal).ToList(), ct).ConfigureAwait(false),
-        ];
-
-        Logger.LogDebug("Files with size 0 or less: {files}", string.Join(", ", downloadFileInfoFromService.Where(f => f.Size <= 0).Select(f => f.Hash)));
-
-        foreach (var dto in downloadFileInfoFromService.Where(c => c.IsForbidden))
+        foreach (var dto in fileInfo.Where(file => file.IsForbidden))
         {
             _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(dto.Hash, dto.ForbiddenBy, ForbiddenTransferKind.Download));
         }
 
-        _currentDownloads = downloadFileInfoFromService.Distinct()
-            .Select(d => new DownloadFileTransfer(d))
-            .Where(d => d.CanBeTransferred)
+        _currentDownloads = fileInfo.Distinct()
+            .Select(dto => new DownloadFileTransfer(dto))
+            .Where(transfer => transfer.CanBeTransferred)
             .ToList();
-
         return _currentDownloads;
     }
 
-    public async Task DownloadFiles(GameObjectHandler gameObject, List<FileReplacementData> fileReplacementDto, CancellationToken ct, string? uid = null)
+    public async Task DownloadFiles(GameObjectHandler gameObject, IReadOnlyCollection<FileReplacementData> fileReplacementDto,
+        CancellationToken ct, string? uid = null)
     {
+        ArgumentNullException.ThrowIfNull(gameObject);
+        ArgumentNullException.ThrowIfNull(fileReplacementDto);
         Mediator.Publish(new HaltScanMessage(nameof(DownloadFiles)));
         try
         {
-            await DownloadFilesInternal(gameObject, fileReplacementDto, ct, uid).ConfigureAwait(false);
+            await DownloadFilesInternal(gameObject, fileReplacementDto, uid, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -98,9 +99,9 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             {
                 stream.Dispose();
             }
-            catch (Exception ex)
+            catch (IOException ex)
             {
-                Logger.LogTrace(ex, "Error disposing active download stream");
+                LogDisposeError(Logger, ex);
             }
         }
 
@@ -108,48 +109,35 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         base.Dispose(disposing);
     }
 
-    private async Task DownloadFilesInternal(GameObjectHandler gameObjectHandler, List<FileReplacementData> fileReplacement, CancellationToken ct, string? uid)
+    private async Task DownloadFilesInternal(GameObjectHandler gameObjectHandler, IReadOnlyCollection<FileReplacementData> replacements,
+        string? uid, CancellationToken ct)
     {
-        var downloadType = _orchestrator.PreferredDownloadTypeQueryValue();
-        var downloadGroups = _currentDownloads
-            .GroupBy(f => f.DownloadUri.Host + ":" + f.DownloadUri.Port, StringComparer.Ordinal)
-            .ToList();
-
-        var expectedExtensionByHash = fileReplacement
+        var expectedExtensionByHash = replacements
             .GroupBy(replacement => replacement.Hash, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First().GamePaths[0].Split(".")[^1], StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(group => group.Key, group => group.First().GamePaths[0].Split('.')[^1], StringComparer.OrdinalIgnoreCase);
+        var downloadGroups = _currentDownloads.GroupBy(GetDownloadGroupKey, StringComparer.Ordinal).ToList();
 
         using var download = _statusStore.Begin(gameObjectHandler, uid);
-        var groupHandles = new Dictionary<string, DownloadStatusStore.DownloadGroupHandle>(StringComparer.Ordinal);
-        foreach (var group in downloadGroups)
-        {
-            groupHandles[group.Key] = download.AddGroup(group.Key,
-                totalBytes: group.Sum(c => BlockFileFormat.EntryLength(c.Hash, c.Total)),
-                totalFiles: 1);
-        }
+        var groupHandles = downloadGroups.ToDictionary(group => group.Key,
+            group => download.AddGroup(group.Key, group.Sum(transfer => transfer.Total), group.Count()),
+            StringComparer.Ordinal);
 
-        await Parallel.ForEachAsync(downloadGroups, new ParallelOptions
+        await Parallel.ForEachAsync(_currentDownloads, new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Max(1, downloadGroups.Count),
+            MaxDegreeOfParallelism = Math.Max(1, _currentDownloads.Count),
             CancellationToken = ct,
-        },
-        async (fileGroup, token) =>
+        }, async (transfer, token) =>
         {
-            var groupHandle = groupHandles[fileGroup.Key];
-            var transfers = fileGroup.ToList();
-            var request = new DownloadGroupRequest(transfers[0].DownloadUri, transfers.Select(t => t.Hash).ToList(), downloadType);
-            var blockFile = _fileDbManager.GetTemporaryCacheFilePath(Guid.NewGuid().ToString("N"), "blk");
-
+            var groupHandle = groupHandles[GetDownloadGroupKey(transfer)];
+            var tempPath = _fileDbManager.GetTemporaryCacheFilePath(Guid.NewGuid().ToString("N"), "scf");
             try
             {
                 groupHandle.SetStatus(DownloadStatus.WaitingForSlot);
                 await _orchestrator.WaitForDownloadSlotAsync(token).ConfigureAwait(false);
                 try
                 {
-                    await DownloadGroupToBlockFileAsync(request, groupHandle, blockFile, token).ConfigureAwait(false);
-                    var downloadedBytes = GetFileLength(blockFile);
-                    await ExtractBlockFileAsync(blockFile, groupHandle, expectedExtensionByHash, token).ConfigureAwait(false);
-                    _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
+                    await DownloadAndExtractAsync(transfer, expectedExtensionByHash[transfer.Hash], groupHandle, tempPath, token)
+                        .ConfigureAwait(false);
                 }
                 finally
                 {
@@ -158,77 +146,106 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             }
             catch (OperationCanceledException)
             {
-                Logger.LogDebug("Download cancelled for {id} on {server}", gameObjectHandler.Name, fileGroup.Key);
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or UnauthorizedAccessException)
             {
-                Logger.LogError(ex, "Error during download of {id} on {server}", gameObjectHandler.Name, fileGroup.Key);
+                LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
             }
             finally
             {
-                TryDeleteFile(blockFile);
+                TryDeleteFile(tempPath);
             }
         }).ConfigureAwait(false);
 
-        Logger.LogDebug("Download end: {id}", gameObjectHandler.Name);
+        LogDownloadEnd(Logger, gameObjectHandler.Name);
     }
 
-    private static long GetFileLength(string path)
+    private async Task DownloadAndExtractAsync(DownloadFileTransfer transfer, string expectedExtension,
+        DownloadStatusStore.DownloadGroupHandle groupHandle, string tempPath, CancellationToken ct)
     {
-        var fileInfo = new FileInfo(path);
-        return fileInfo.Exists ? fileInfo.Length : 0;
-    }
-
-    private async Task DownloadGroupToBlockFileAsync(DownloadGroupRequest request, DownloadStatusStore.DownloadGroupHandle groupHandle, string blockFile, CancellationToken ct)
-    {
-        var download = await _transport.OpenAsync(request, groupHandle.SetStatus, ct).ConfigureAwait(false);
-        await using (download.ConfigureAwait(false))
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            if (download.ReportedTotalBytes is long reportedTotal)
+            try
             {
-                groupHandle.SetTotalBytes(reportedTotal);
-            }
+                var downloadedBytes = await DownloadToFileAsync(transfer.DownloadUri, groupHandle, tempPath, ct).ConfigureAwait(false);
+                groupHandle.SetStatus(DownloadStatus.Decompressing);
+                var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await using (input.ConfigureAwait(false))
+                {
+                    var extractedPath = await ExtractScfToCacheAsync(input, transfer.Hash, expectedExtension, ct).ConfigureAwait(false);
+                    LogExtracted(Logger, transfer.Hash, downloadedBytes, extractedPath);
+                    PersistFileToStorage(transfer.Hash, extractedPath, downloadedBytes);
+                }
 
-            var directory = Path.GetDirectoryName(blockFile);
+                _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
+                groupHandle.MarkFileTransferred();
+                return;
+            }
+            catch (FileGrantRejectedException) when (attempt == 0)
+            {
+                var refreshed = (await FilesGetSizes([transfer.Hash], ct).ConfigureAwait(false)).SingleOrDefault();
+                if (refreshed == null || !refreshed.FileExists || refreshed.IsForbidden || refreshed.Size <= 0)
+                {
+                    throw;
+                }
+
+                transfer.Refresh(refreshed);
+            }
+        }
+    }
+
+    private async Task<long> DownloadToFileAsync(Uri downloadUri, DownloadStatusStore.DownloadGroupHandle groupHandle,
+        string tempPath, CancellationToken ct)
+    {
+        var response = await _transport.OpenAsync(new DownloadFileRequest(downloadUri), groupHandle.SetStatus, ct).ConfigureAwait(false);
+        await using (response.ConfigureAwait(false))
+        {
+            var directory = Path.GetDirectoryName(tempPath);
             if (!string.IsNullOrEmpty(directory))
             {
                 Directory.CreateDirectory(directory);
             }
 
-            var fileStream = File.Create(blockFile);
-            await using (fileStream.ConfigureAwait(false))
+            var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using (output.ConfigureAwait(false))
             {
                 var limit = _orchestrator.DownloadLimitPerSlot();
-                LogStartingDownload(Logger, limit, blockFile);
-
-                var throttledStream = new ThrottledStream(download.Stream, limit);
-                _activeDownloadStreams.TryAdd(throttledStream, 0);
+                LogStartingDownload(Logger, limit, tempPath);
+                var throttled = new ThrottledStream(response.Stream, limit);
+                _activeDownloadStreams.TryAdd(throttled, 0);
                 try
                 {
-                    await CopyToBlockFileAsync(throttledStream, fileStream, groupHandle, ct).ConfigureAwait(false);
+                    return await CopyToFileAsync(throttled, output, groupHandle, ct).ConfigureAwait(false);
                 }
                 finally
                 {
-                    _activeDownloadStreams.TryRemove(throttledStream, out _);
-                    await throttledStream.DisposeAsync().ConfigureAwait(false);
+                    _activeDownloadStreams.TryRemove(throttled, out _);
+                    await throttled.DisposeAsync().ConfigureAwait(false);
                 }
             }
         }
     }
 
-    private static async Task CopyToBlockFileAsync(Stream source, Stream destination, DownloadStatusStore.DownloadGroupHandle groupHandle, CancellationToken ct)
+    private static async Task<long> CopyToFileAsync(Stream source, Stream destination,
+        DownloadStatusStore.DownloadGroupHandle groupHandle, CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(DownloadBufferSize);
+        long total = 0;
         try
         {
             int bytesRead;
             while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, DownloadBufferSize), ct).ConfigureAwait(false)) > 0)
             {
-                ct.ThrowIfCancellationRequested();
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
                 groupHandle.AddBytes(bytesRead);
+                total += bytesRead;
             }
+
+            await destination.FlushAsync(ct).ConfigureAwait(false);
+            return total;
         }
         finally
         {
@@ -236,82 +253,10 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         }
     }
 
-    private async Task ExtractBlockFileAsync(string blockFile, DownloadStatusStore.DownloadGroupHandle groupHandle,
-        IReadOnlyDictionary<string, string> expectedExtensionByHash, CancellationToken ct)
+    private async Task<string> ExtractScfToCacheAsync(Stream scfStream, string expectedHash, string expectedExtension,
+        CancellationToken ct)
     {
-        groupHandle.SetStatus(DownloadStatus.Decompressing);
-        groupHandle.MarkFileTransferred();
-
-        List<BlockFileEntry> entries;
-        var fileBlockStream = File.OpenRead(blockFile);
-        await using (fileBlockStream.ConfigureAwait(false))
-        {
-            entries = [.. BlockFileFormat.ReadEntries(fileBlockStream)];
-        }
-
-        foreach (var entry in entries)
-        {
-            if (!expectedExtensionByHash.ContainsKey(entry.Hash))
-            {
-                throw new InvalidDataException($"Missing expected extension metadata for {entry.Hash}.");
-            }
-        }
-
-        var threadCount = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
-        await Parallel.ForEachAsync(entries, new ParallelOptions
-        {
-            MaxDegreeOfParallelism = threadCount,
-            CancellationToken = ct,
-        },
-        async (entry, token) => await ExtractBlockEntryAsync(blockFile, entry, expectedExtensionByHash[entry.Hash], token).ConfigureAwait(false)).ConfigureAwait(false);
-    }
-
-    private async Task ExtractBlockEntryAsync(string blockFile, BlockFileEntry entry, string expectedExtension, CancellationToken ct)
-    {
-        try
-        {
-            var chunkStream = new FileStream(blockFile, new FileStreamOptions
-            {
-                BufferSize = 80000,
-                Mode = FileMode.Open,
-                Access = FileAccess.Read,
-            });
-            await using (chunkStream.ConfigureAwait(false))
-            {
-                chunkStream.Position = entry.DataOffset;
-                using var limitedStream = new LimitedStream(chunkStream, entry.Length)
-                {
-                    DisposeUnderlying = false
-                };
-
-                var startPosition = chunkStream.Position;
-                var extractedPath = await ExtractScfChunkToCacheAsync(limitedStream, entry.Hash, expectedExtension, ct).ConfigureAwait(false);
-                if (chunkStream.Position - startPosition != entry.Length)
-                {
-                    throw new EndOfStreamException();
-                }
-
-                LogExtracted(Logger, entry.Hash, entry.Length, extractedPath);
-                PersistFileToStorage(entry.Hash, extractedPath, entry.Length);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (EndOfStreamException)
-        {
-            Logger.LogWarning("Failure to extract file {fileHash}, stream ended prematurely", entry.Hash);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Error during decompression of {hash}", entry.Hash);
-        }
-    }
-
-    private async Task<string> ExtractScfChunkToCacheAsync(Stream scfStream, string expectedHash, string expectedExtension, CancellationToken ct)
-    {
-        var chunkStart = scfStream.Position;
+        var start = scfStream.Position;
         var header = ScfFile.ReadHeader(scfStream);
         if (!string.Equals(header.Hash, expectedHash, StringComparison.OrdinalIgnoreCase))
         {
@@ -324,25 +269,18 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             LogExtractedExtensionMismatch(Logger, actualExtension, expectedExtension, expectedHash);
         }
 
-        scfStream.Position = chunkStart;
-
+        scfStream.Position = start;
         var tempPath = _fileDbManager.GetTemporaryCacheFilePath(expectedHash + "-" + Guid.NewGuid().ToString("N"), "tmp");
-        var tempDirectory = Path.GetDirectoryName(tempPath);
-        if (!string.IsNullOrEmpty(tempDirectory))
+        var directory = Path.GetDirectoryName(tempPath);
+        if (!string.IsNullOrEmpty(directory))
         {
-            Directory.CreateDirectory(tempDirectory);
+            Directory.CreateDirectory(directory);
         }
 
         try
         {
-            var output = new FileStream(tempPath, new FileStreamOptions
-            {
-                Access = FileAccess.Write,
-                BufferSize = 128 * 1024,
-                Mode = FileMode.CreateNew,
-                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
-                Share = FileShare.None
-            });
+            var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
             await using (output.ConfigureAwait(false))
             {
                 var extractedHash = await ScfFile.ExtractSCFToStream(scfStream, output, ct).ConfigureAwait(false);
@@ -361,7 +299,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 Directory.CreateDirectory(finalDirectory);
             }
 
-            File.Move(tempPath, finalPath, overwrite: true);
+            File.Move(tempPath, finalPath, true);
             return finalPath;
         }
         catch
@@ -373,8 +311,12 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
 
     private async Task<List<DownloadFileDto>> FilesGetSizes(List<string> hashes, CancellationToken ct)
     {
-        if (!_orchestrator.IsInitialized) throw new InvalidOperationException("FileTransferManager is not initialized");
-        using var response = await _orchestrator.SendRequestAsync(HttpMethod.Get,
+        if (!_orchestrator.IsInitialized)
+        {
+            throw new InvalidOperationException("FileTransferManager is not initialised");
+        }
+
+        using var response = await _orchestrator.SendRequestAsync(HttpMethod.Post,
             SnowFiles.ServerFilesGetSizesFullPath(_orchestrator.FilesCdnUri!, _orchestrator.PreferredDownloadTypeQueryValue()),
             hashes, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
@@ -391,9 +333,9 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 entry.CompressedSize = compressedSize;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
         {
-            Logger.LogWarning(ex, "Error creating cache entry");
+            LogCacheEntryError(Logger, ex);
         }
     }
 
@@ -406,11 +348,14 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 File.Delete(path);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Logger.LogDebug(ex, "Could not delete temporary download file {path}", path);
+            LogTemporaryDeleteError(Logger, ex, path);
         }
     }
+
+    private static string GetDownloadGroupKey(DownloadFileTransfer transfer) =>
+        transfer.DownloadUri.Host + ":" + transfer.DownloadUri.Port;
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Starting download with a speed limit of {limit} to {tempPath}")]
     private static partial void LogStartingDownload(ILogger logger, long limit, string tempPath);
@@ -420,4 +365,25 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Extracted {file}:{length} => {dest}")]
     private static partial void LogExtracted(ILogger logger, string file, long length, string dest);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Setting new download speed limit to {Limit}")]
+    private static partial void LogDownloadLimitChanged(ILogger logger, long limit);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Download start: {Id}")]
+    private static partial void LogDownloadStart(ILogger logger, string id);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error downloading {Hash} for {Id}")]
+    private static partial void LogDownloadError(ILogger logger, Exception exception, string hash, string id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Download end: {Id}")]
+    private static partial void LogDownloadEnd(ILogger logger, string id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error creating cache entry")]
+    private static partial void LogCacheEntryError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not delete temporary download file {Path}")]
+    private static partial void LogTemporaryDeleteError(ILogger logger, Exception exception, string path);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Error disposing active download stream")]
+    private static partial void LogDisposeError(ILogger logger, Exception exception);
 }
