@@ -497,12 +497,12 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
             if (kind == ProfileImageKind.Header)
             {
                 _session.HeaderImageHash = reply.Hash;
-                SetStatus("Header image added to the draft.");
+                SetStatus($"Header image added to the draft. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}.");
             }
             else
             {
                 _session.ProfileImageHash = reply.Hash;
-                SetStatus("Portrait added to the draft.");
+                SetStatus($"Portrait added to the draft. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}.");
             }
 
             MarkDirty();
@@ -635,8 +635,13 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private static string FormatMegapixels(int pixels)
         => (pixels / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture);
 
-    private static string FormatMebibytes(int bytes)
+    private static string FormatMebibytes(long bytes)
         => (bytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private static string FormatImageQuota(long usageBytes, long quotaBytes)
+        => quotaBytes > 0
+            ? $"{FormatMebibytes(usageBytes)} of {FormatMebibytes(quotaBytes)} MiB"
+            : $"{FormatMebibytes(usageBytes)} MiB used";
 
     protected override void Dispose(bool disposing)
     {

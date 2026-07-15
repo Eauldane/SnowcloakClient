@@ -990,7 +990,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase, IStaticWindow
             _bannerFileHash = reply.Hash;
             _bannerWidth = reply.Width;
             _bannerHeight = reply.Height;
-            _statusMessage = "Banner uploaded. Remember to save the ad.";
+            _statusMessage = $"Banner uploaded. Account image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}. Remember to save the ad.";
             _statusIsError = false;
         }
         catch (ImageUploadException ex)
@@ -1169,7 +1169,8 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase, IStaticWindow
                 return;
             }
 
-            _statusMessage = response.WasUpdate ? "Ad updated successfully." : "Ad created successfully.";
+            var action = response.WasUpdate ? "Ad updated successfully." : "Ad created successfully.";
+            _statusMessage = $"{action} Venue image storage: {FormatImageQuota(response.VenueImageUsageBytes, response.VenueImageQuotaBytes)}.";
             _statusIsError = false;
 
             await RefreshOwnedAsync().ConfigureAwait(false);
@@ -1484,4 +1485,12 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase, IStaticWindow
         var trimmed = value.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
+
+    private static string FormatMebibytes(long bytes)
+        => (bytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private static string FormatImageQuota(long usageBytes, long quotaBytes)
+        => quotaBytes > 0
+            ? $"{FormatMebibytes(usageBytes)} of {FormatMebibytes(quotaBytes)} MiB"
+            : $"{FormatMebibytes(usageBytes)} MiB used";
 }
