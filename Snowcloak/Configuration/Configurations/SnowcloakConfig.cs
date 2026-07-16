@@ -75,15 +75,15 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int Version { get; set; } = 1;
     public NotificationLocation WarningNotification { get; set; } = NotificationLocation.Both;
 
-    public bool DisableChat { get; set; } = false;
-    public int ChatColor { get; set; } = 0; // 0 means "use plugin default"
-    public int ChatLogKind { get; set; } = 1; // XivChatType.Debug
-    public bool ExtraChatAPI { get; set; } = false;
-    public bool ExtraChatTags { get; set; } = false;
-    public bool DisableServerNewsInChat { get; set; } = false;
     public bool ApplyVanityColoursToGameChat { get; set; } = true;
-    public ChatWindow.ChatSoundOption SnowChatDirectSound { get; set; } = ChatWindow.ChatSoundOption.None;
-    public ChatWindow.ChatSoundOption SnowChatGroupSound { get; set; } = ChatWindow.ChatSoundOption.None;
+    public bool ChatEnabled { get; set; } = true;
+    public bool ChatShowInGameLog { get; set; } = true;
+    public bool ChatEnableDtrEntry { get; set; }
+    public bool ChatToastDirectMessages { get; set; } = true;
+    public bool ChatToastMentions { get; set; } = true;
+    public bool ChatSoundsEnabled { get; set; } = true;
+    public bool AutoMuteNewSyncshellChats { get; set; }
+    public ChatSoundOption DefaultChatSound { get; set; } = ChatSoundOption.Sound1;
 
     public bool MareAPI { get; set; } = true;
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;

@@ -1,12 +1,12 @@
 using MessagePack;
 using Microsoft.AspNetCore.SignalR.Client;
-using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.Session;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Protocol;
+using Snowcloak.API.Dto.Chat;
 using Snowcloak.WebAPI.SignalR;
 using ConnectionServerState = Snowcloak.WebAPI.SignalR.Utils.ServerState;
 
@@ -92,10 +92,9 @@ public partial class ApiController
             SessionEventKind.GroupPairChangePermissions => Client_GroupPairChangePermissions(Deserialize<GroupPairUserPermissionDto>(entry)),
             SessionEventKind.GroupPairChangeLabels => Client_GroupPairChangeLabels(Deserialize<GroupMemberLabelsDto>(entry)),
             SessionEventKind.GroupPairChangeUserInfo => Client_GroupPairChangeUserInfo(Deserialize<GroupPairUserInfoDto>(entry)),
-            SessionEventKind.ChannelMemberJoined => Client_ChannelMemberJoined(Deserialize<ChannelMemberJoinedDto>(entry)),
-            SessionEventKind.ChannelMemberLeft => Client_ChannelMemberLeft(Deserialize<ChannelMemberLeftDto>(entry)),
-            SessionEventKind.GroupChatMemberState => Client_GroupChatMemberState(Deserialize<GroupChatMemberStateDto>(entry)),
             SessionEventKind.UserReceiveApplicationReceipt => Client_UserReceiveApplicationReceipt(Deserialize<PairApplicationReceiptDto>(entry)),
+            SessionEventKind.RoomMemberJoined => Client_RoomMemberJoined(Deserialize<RoomMemberJoinedDto>(entry)),
+            SessionEventKind.RoomMemberLeft => Client_RoomMemberLeft(Deserialize<RoomMemberLeftDto>(entry)),
             _ => Task.CompletedTask,
         };
     }

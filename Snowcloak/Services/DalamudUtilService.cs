@@ -1,6 +1,5 @@
 ﻿using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
-using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility;
 using ElezenTools.Data;
@@ -9,7 +8,6 @@ using ElezenTools.Services;
 using Snowcloak.API.Dto.CharaData;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
 using System.Numerics;
 using ElezenMapData = ElezenTools.Data.Classes.MapData;
@@ -22,9 +20,7 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
 {
     private readonly IClientState _clientState;
     private readonly IDataManager _gameData;
-    private readonly IChatGui _chatGui;
     private readonly IToastGui _toastGui;
-    private readonly SnowcloakConfigService _configService;
     private readonly ILogger<DalamudUtilService> _logger;
     private readonly ObjectTableCache _objectTableCache;
     private readonly GposeService _gposeService;
@@ -33,15 +29,12 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     private readonly Dalamud.Game.ClientLanguage _dataLanguage = Dalamud.Game.ClientLanguage.English;
     private IReadOnlyDictionary<ushort, string>? _worldNameCache;
     private List<(ushort Id, string Name, string Region)>? _worldCatalogCache;
-    private string _lastDisplayedServerNews = string.Empty;
 
     public DalamudUtilService(
         ILogger<DalamudUtilService> logger,
         IClientState clientState,
         IDataManager gameData,
-        IChatGui chatGui,
         IToastGui toastGui,
-        SnowcloakConfigService configService,
         SnowMediator mediator,
         ObjectTableCache objectTableCache,
         GposeService gposeService,
@@ -52,9 +45,7 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
         _logger = logger;
         _clientState = clientState;
         _gameData = gameData;
-        _chatGui = chatGui;
         _toastGui = toastGui;
-        _configService = configService;
         Mediator = mediator;
         _objectTableCache = objectTableCache;
         _gposeService = gposeService;
@@ -75,15 +66,6 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
                 }
             });
         });
-        mediator.Subscribe<ConnectedMessage>(this, message =>
-        {
-            if (!string.IsNullOrWhiteSpace(message.Connection.News))
-            {
-                PrintServerNewsToChat(message.Connection.News);
-            }
-        });
-        mediator.Subscribe<ServerNewsMessage>(this, message => PrintServerNewsToChat(message.News));
-        mediator.Subscribe<DalamudLogoutMessage>(this, _ => _lastDisplayedServerNews = string.Empty);
     }
 
     public bool IsWine { get; }
@@ -287,32 +269,6 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     public Task<IPlayerCharacter?> GetTargetPlayerCharacterAsync() => _playerInteraction.GetTargetPlayerCharacterAsync();
 
     public IEnumerable<IPlayerCharacter> GetPartyPlayerCharacters() => _playerInteraction.GetPartyPlayerCharacters();
-
-    private void PrintServerNewsToChat(string news)
-    {
-        if (_configService.Current.DisableServerNewsInChat)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(news))
-        {
-            return;
-        }
-
-        var normalizedNews = news.Trim();
-        if (string.Equals(_lastDisplayedServerNews, normalizedNews, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _lastDisplayedServerNews = normalizedNews;
-        _chatGui.Print(new XivChatEntry
-        {
-            Message = "[Snowcloak News] " + normalizedNews,
-            Type = XivChatType.SystemMessage
-        });
-    }
 
     [LoggerMessage(EventId = 0, Level = LogLevel.Information, Message = "Starting DalamudUtilService")]
     private static partial void LogStarting(ILogger logger);

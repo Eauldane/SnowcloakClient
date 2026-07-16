@@ -1,2100 +1,1387 @@
-﻿using Dalamud.Bindings.ImGui;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
-using Dalamud.Interface.Windowing;
-using Dalamud.Plugin.Services;
 using ElezenTools.UI;
-using FFXIVClientStructs.FFXIV.Component.GUI;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using NAudio.Wave;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
-using Snowcloak.API.Dto.Chat;
+using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
-using Snowcloak.API.Dto.User;
+using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
-using Snowcloak.Configuration;
-using Snowcloak.Configuration.Models;
-using Snowcloak.Core.Display;
 using Snowcloak.Services;
+using Snowcloak.Services.Chat;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
-using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
-using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Snowcloak.UI;
 
-public class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
+public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 {
-    public enum ChatSoundOption
-    {
-        None = 0,
-        FrostChime = 1,
-        BrightPing = 2,
-        TwinBell = 3,
-        GameSoundEffect1 = 100,
-        GameSoundEffect2,
-        GameSoundEffect3,
-        GameSoundEffect4,
-        GameSoundEffect5,
-        GameSoundEffect6,
-        GameSoundEffect7,
-        GameSoundEffect8,
-        GameSoundEffect9,
-        GameSoundEffect10,
-        GameSoundEffect11,
-        GameSoundEffect12,
-        GameSoundEffect13,
-        GameSoundEffect14,
-        GameSoundEffect15,
-        GameSoundEffect16
-    }
-
-    private enum ChannelKind
-    {
-        Syncshell,
-        Standard,
-        Direct
-    }
-
-    [StructLayout(LayoutKind.Auto)]
-    private readonly record struct ChatChannelKey(ChannelKind Kind, string Id);
-
-    private sealed record ChatLine(DateTime Timestamp, string SenderUid, string Sender, string Message, Vector4? SenderColor, Vector4? SenderGlowColor);
-    [StructLayout(LayoutKind.Auto)]
-    private readonly record struct ToneStep(double Frequency, int DurationMs, double Volume, int SilenceAfterMs = 0);
-
-    private readonly ApiController _apiController;
-    private readonly ChatService _chatService;
-    private readonly DalamudUtilService _dalamudUtil;
-    private readonly IFramework _framework;
-    private readonly IGameGui _gameGui;
-    private readonly SnowcloakConfigService _configService;
+    private readonly BackgroundTaskTracker _backgroundTasks;
+    private readonly ChatClientService _chatService;
+    private readonly ChatConversationView _conversationView;
+    private readonly UiFontService _fontService;
     private readonly PairManager _pairManager;
+    private readonly ChatIdentityResolver _identityResolver;
+    private readonly ApiController _apiController;
     private readonly NotesStore _notesStore;
-    private readonly ShellConfigStore _shellConfigStore;
-    private readonly Dictionary<ChatChannelKey, List<ChatLine>> _channelLogs = [];
-    private readonly List<ChatChannelData> _standardChannels = [];
-    private readonly Dictionary<string, ChatChannelData> _standardChannelLookup = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _joinedStandardChannels = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<ChannelMemberDto>> _standardChannelMembers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Dictionary<string, UserData>> _syncshellChatMembers = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _joinedSyncshellChats = new(StringComparer.Ordinal);
-    private ChatChannelKey? _selectedChannel;
-    private readonly HashSet<string> _pinnedDirectChannels = new(StringComparer.Ordinal);
-    private string _pendingMessage = string.Empty;
-    private bool _autoScroll = true;
-    private readonly HashSet<ChatChannelKey> _unreadChannels = [];
-    private readonly HashSet<string> _loadedDirectHistory = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _loadedSyncshellHistory = new(StringComparer.Ordinal);
-    private string _standardChannelTopicDraft = string.Empty;
-    private bool _isEditingStandardChannelTopic;
-    private readonly Lock _messageSoundLock = new();
-    private WaveOutEvent? _messageSoundOutput;
+    private readonly ConcurrentQueue<Action> _uiUpdates = new();
+    private bool _sidebarCollapsed;
+    private float _sidebarWidth = ModernSidebar.ExpandedWidth - 15f;
+    private bool _showMembers = true;
+    private bool _openRoomBrowser;
+    private bool _closeRoomBrowser;
+    private bool _showRoomCreation;
+    private string _roomSearch = string.Empty;
+    private string _roomName = string.Empty;
+    private string _roomTopic = string.Empty;
+    private bool _privateRoom;
+    private string _roomStatus = string.Empty;
+    private bool _creatingRoom;
+    private string? _noteUid;
+    private string _noteDraft = string.Empty;
+    private bool _openNoteEditor;
 
-    private const string ChatLogAddonName = "ChatLog";
-    private const int FirstGameSoundEffectOptionValue = (int)ChatSoundOption.GameSoundEffect1;
-    private const int LastGameSoundEffectOptionValue = (int)ChatSoundOption.GameSoundEffect16;
-    private const int MessageSoundSampleRate = 44100;
-    private static readonly WaveFormat MessageSoundWaveFormat = new(MessageSoundSampleRate, 16, 1);
-    private static readonly Dictionary<ChatSoundOption, byte[]> MessageSoundBuffers = new()
+    public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ChatClientService chatService,
+        ImGuiChatRenderer renderer, UiFontService fontService, PairManager pairManager, ChatIdentityResolver identityResolver,
+        ApiController apiController, NotesStore notesStore,
+        PerformanceCollectorService performanceCollectorService)
+        : base(logger, mediator, "Snowcloak Chat###SnowcloakChat", performanceCollectorService)
     {
-        [ChatSoundOption.FrostChime] = CreateToneBuffer(
-            new ToneStep(880, 70, 0.18, 18),
-            new ToneStep(1174, 120, 0.16)),
-        [ChatSoundOption.TwinBell] = CreateToneBuffer(
-            new ToneStep(1046, 65, 0.18, 42),
-            new ToneStep(1318, 130, 0.15)),
-    };
-
-    public static IReadOnlyList<ChatSoundOption> AvailableChatSoundOptions { get; } =
-    [
-        ChatSoundOption.None,
-        ChatSoundOption.GameSoundEffect1,
-        ChatSoundOption.GameSoundEffect2,
-        ChatSoundOption.GameSoundEffect3,
-        ChatSoundOption.GameSoundEffect4,
-        ChatSoundOption.GameSoundEffect5,
-        ChatSoundOption.GameSoundEffect6,
-        ChatSoundOption.GameSoundEffect7,
-        ChatSoundOption.GameSoundEffect8,
-        ChatSoundOption.GameSoundEffect9,
-        ChatSoundOption.GameSoundEffect10,
-        ChatSoundOption.GameSoundEffect11,
-        ChatSoundOption.GameSoundEffect12,
-        ChatSoundOption.GameSoundEffect13,
-        ChatSoundOption.GameSoundEffect14,
-        ChatSoundOption.GameSoundEffect15,
-        ChatSoundOption.GameSoundEffect16,
-        ChatSoundOption.FrostChime,
-        ChatSoundOption.TwinBell,
-    ];
-
-    public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ApiController apiController,
-        PairManager pairManager, NotesStore notesStore, ShellConfigStore shellConfigStore, PerformanceCollectorService performanceCollectorService,
-        ChatService chatService, DalamudUtilService dalamudUtil, SnowcloakConfigService configService, IFramework framework, IGameGui gameGui)
-        : base(logger, mediator, "Snowcloak Chat###SnowcloakChatWindow", performanceCollectorService)
-    {
-        _apiController = apiController;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
         _chatService = chatService;
-        _dalamudUtil = dalamudUtil;
-        _framework = framework;
-        _gameGui = gameGui;
-        _configService = configService;
+        _conversationView = new ChatConversationView(logger, chatService, renderer, mediator);
+        _fontService = fontService;
         _pairManager = pairManager;
+        _identityResolver = identityResolver;
+        _apiController = apiController;
         _notesStore = notesStore;
-        _shellConfigStore = shellConfigStore;
-
-        SetScaledSizeConstraints(new Vector2(700, 400), new Vector2(1400, 1200));
-
-        Mediator.Subscribe<GroupChatMsgMessage>(this, message => AddGroupMessage(message));
-        Mediator.Subscribe<UserChatMsgMessage>(this, message => AddDirectMessage(message.ChatMsg));
-        Mediator.Subscribe<ChannelChatMsgMessage>(this, message => AddStandardChannelMessage(message));
-        Mediator.Subscribe<ChannelMemberJoinedMessage>(this, message => HandleStandardChannelMemberJoined(message.Member));
-        Mediator.Subscribe<ChannelMemberLeftMessage>(this, message => HandleStandardChannelMemberLeft(message.Member));
-        Mediator.Subscribe<GroupChatMemberStateMessage>(this, message => HandleSyncshellChatMemberState(message.MemberState));
-        Mediator.Subscribe<ClearProfileDataMessage>(this, message => HandleUserProfileUpdate(message.UserData));
-        Mediator.Subscribe<ConnectedMessage>(this, _message =>
-        {
-            _ = RefreshStandardChannels();
-            _ = AutoJoinStandardChannels();
-            _ = AutoJoinSyncshellChats();
-        });
-        Mediator.Subscribe<DisconnectedMessage>(this, message =>
-        {
-            ResetChatState();
-        });
-        Mediator.Subscribe<StandardChannelMembershipChangedMessage>(this, message => OnStandardChannelMembershipChanged(message));
-
-        LoadSavedStandardChannels();
+        SetScaledSizeConstraints(new Vector2(720, 440), new Vector2(1800, 1800));
+        Size = new Vector2(1040, 680);
+        SizeCondition = ImGuiCond.FirstUseEver;
     }
 
     protected override void DrawInternal()
     {
-        DrawChatLayout();
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
+        SnowcloakUi.AccentColor = ElezenColours.SnowcloakBlue;
+        while (_uiUpdates.TryDequeue(out var update))
         {
-            WaveOutEvent? activeOutput;
-            lock (_messageSoundLock)
-            {
-                activeOutput = _messageSoundOutput;
-                _messageSoundOutput = null;
-            }
-
-            activeOutput?.Stop();
+            update();
         }
 
-        base.Dispose(disposing);
-    }
-
-    public static string GetChatSoundOptionLabel(ChatSoundOption option)
-    {
-        if (TryGetGameSoundEffectId(option, out var soundEffectId))
+        var snapshot = _chatService.Store.Snapshot;
+        var selected = snapshot.ActiveConversation;
+        if (selected == null || snapshot.Conversations.All(conversation => conversation.Key != selected))
         {
-            return $"Game Sound Effect {soundEffectId}";
+            selected = snapshot.Conversations.Count == 0 ? null : snapshot.Conversations[0].Key;
+            Select(selected);
         }
 
-        return option switch
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - ImGuiHelpers.GlobalScale
+            + ImGui.GetStyle().ItemSpacing.Y);
+        DrawConversationSidebar(snapshot);
+        if (!_sidebarCollapsed)
         {
-            ChatSoundOption.None => "None",
-            ChatSoundOption.FrostChime => "Frost Chime",
-            ChatSoundOption.BrightPing => "Bright Ping (Legacy)",
-            ChatSoundOption.TwinBell => "Twin Bell",
-            _ => option.ToString()
-        };
-    }
-
-    public static IReadOnlyList<ChatSoundOption> GetAvailableChatSoundOptions(ChatSoundOption currentOption)
-    {
-        if (AvailableChatSoundOptions.Contains(currentOption))
-        {
-            return AvailableChatSoundOptions;
-        }
-
-        var options = AvailableChatSoundOptions.ToList();
-        options.Add(currentOption);
-        return options;
-    }
-
-    private void DrawChatLayout()
-    {
-        var inputHeight = ImGui.GetFrameHeightWithSpacing() * 2.2f;
-        using var _ = ImRaii.Child("ChatLayout", new Vector2(-1, -1), false);
-
-        DrawChatColumns(inputHeight);
-        DrawChatInput();
-    }
-
-    private void DrawChatColumns(float inputHeight)
-    {
-        using var _ = ImRaii.Child("ChatColumns", new Vector2(-1, -inputHeight), false);
-        var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var listWidth = 190f * ImGuiHelpers.GlobalScale;
-        var memberWidth = 200f * ImGuiHelpers.GlobalScale;
-        var centerWidth = ImGui.GetContentRegionAvail().X - listWidth - memberWidth - spacing * 2f;
-        if (centerWidth < 220f * ImGuiHelpers.GlobalScale)
-        {
-            memberWidth = 160f * ImGuiHelpers.GlobalScale;
-            centerWidth = ImGui.GetContentRegionAvail().X - listWidth - memberWidth - spacing * 2f;
-        }
-
-        DrawChannelList(listWidth);
-        ImGui.SameLine();
-        DrawChatCenter(centerWidth);
-        ImGui.SameLine();
-        DrawMemberList(memberWidth);
-    }
-
-    private void DrawChatCenter(float width)
-    {
-        using var _ = ImRaii.Child("ChatCenter", new Vector2(width, -1), false);
-        DrawChannelHeader();
-        DrawChatLog();
-    }
-
-    private void DrawChannelList(float width)
-    {
-        using var _ = ImRaii.Child("ChannelList", new Vector2(width, -1), true);
-        ImGui.TextUnformatted("Channels");
-        ImGui.Separator();
-
-        var buttonAreaHeight = ImGui.GetFrameHeight() * 2 + ImGui.GetStyle().ItemSpacing.Y;
-        var listHeight = Math.Max(0f, ImGui.GetContentRegionAvail().Y - buttonAreaHeight - ImGui.GetStyle().ItemSpacing.Y);
-
-        using (var list = ImRaii.Child("ChannelListContent", new Vector2(-1, listHeight), false))
-        {
-            if (list.Success)
-            {
-                DrawStandardChannelSection();
-                ImGui.Separator();
-                DrawChannelSection("Syncshells", ChannelKind.Syncshell, GetSyncshellChannels());
-                ImGui.Separator();
-                DrawChannelSection("Direct Messages", ChannelKind.Direct, GetDirectChannels());
-            }
-        }
-
-        ImGui.Separator();
-        DrawStandardChannelButtons();
-    }
-
-    private void DrawStandardChannelSection()
-    {
-        using (var header = ImRaii.TreeNode("Standard Channels"))
-        {
-            if (header.Success)
-            {
-                var channels = GetJoinedStandardChannels();
-                if (channels.Count == 0)
-                {
-                    ElezenImgui.ColouredWrappedText("No joined standard channels.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-                }
-                else
-                {
-                    foreach (var channel in channels)
-                    {
-                        var key = new ChatChannelKey(ChannelKind.Standard, channel.Id);
-                        var displayName = GetChannelDisplayName(ChannelKind.Standard, channel.Id, channel.Name);
-                        var isSelected = _selectedChannel.HasValue && _selectedChannel.Value.Equals(key);
-                        var unread = _unreadChannels.Contains(key);
-                        using var unreadStyle = ImRaii.PushColor(ImGuiCol.Text, GetUnreadChannelColor(), unread);
-
-                        if (ImGui.Selectable(displayName, isSelected))
-                        {
-                            SetSelectedChannel(key);
-                        }
-                    }
-                }
-            }
-        }
-
-        var joinedChannels = GetJoinedStandardChannels();
-        if (_selectedChannel == null && joinedChannels.Count > 0)
-        {
-            var first = joinedChannels[0];
-            SetSelectedChannel(new ChatChannelKey(ChannelKind.Standard, first.Id));
-        }
-    }
-
-    private void DrawStandardChannelButtons()
-    {
-        var buttonWidth = ImGui.GetContentRegionAvail().X;
-        if (ImGui.Button("Browse Channels", new Vector2(buttonWidth, 0)))
-        {
-            Mediator.Publish(new UiToggleMessage(typeof(StandardChannelDirectoryWindow)));
-        }
-
-        if (ImGui.Button("Create Channel", new Vector2(buttonWidth, 0)))
-        {
-            Mediator.Publish(new UiToggleMessage(typeof(StandardChannelCreateWindow)));
-        }
-    }
-
-    private void DrawChannelSection(string label, ChannelKind kind, List<(string Id, string Name)> channels)
-    {
-        using (var header = ImRaii.TreeNode(label))
-        {
-            if (!header.Success) return;
-            foreach (var channel in channels)
-            {
-                var key = new ChatChannelKey(kind, channel.Id);
-                var displayName = GetChannelDisplayName(kind, channel.Id, channel.Name);
-                var isSelected = _selectedChannel.HasValue && _selectedChannel.Value.Equals(key);
-                var unread = _unreadChannels.Contains(key);
-                using var unreadStyle = ImRaii.PushColor(ImGuiCol.Text, GetUnreadChannelColor(), unread);
-
-                if (ImGui.Selectable(displayName, isSelected))
-                {
-                    SetSelectedChannel(key);
-                }
-            }
-        }
-
-        if (_selectedChannel == null && channels.Count > 0)
-        {
-            var first = channels[0];
-            SetSelectedChannel(new ChatChannelKey(kind, first.Id));
-        }
-    }
-
-    private void DrawChatLog()
-    {
-        using var _ = ImRaii.Child("ChatLog", new Vector2(-1, -1), true, ImGuiWindowFlags.HorizontalScrollbar);
-        if (_selectedChannel == null)
-        {
-            ElezenImgui.ColouredWrappedText("Select a channel to start chatting.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        var key = _selectedChannel.Value;
-        if (!_channelLogs.TryGetValue(key, out var log))
-        {
-            log = [];
-        }
-
-        if (key.Kind == ChannelKind.Standard)
-        {
-            DrawStandardChannelLogHint(key);
-        }
-
-        var shouldScroll = _autoScroll && ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 10f;
-
-        ImGui.PushTextWrapPos(0f);
-        foreach (var entry in log)
-        {
-            var timestamp = entry.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture);
-            ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "[{0}] ", timestamp));
             ImGui.SameLine(0f, 0f);
-            ElezenImgui.ColouredText(entry.Sender, entry.SenderColor, entry.SenderGlowColor);
-
-            ImGui.SameLine(0f, 0f);
-            ImGui.TextUnformatted(": ");
-            ImGui.SameLine(0f, 0f);
-            ImGui.TextWrapped(entry.Message);
-        }
-        ImGui.PopTextWrapPos();
-
-        if (shouldScroll)
-        {
-            ImGui.SetScrollHereY(1.0f);
-        }
-    }
-
-    private void DrawChannelHeader()
-    {
-        if (_selectedChannel == null)
-        {
-            ImGui.TextUnformatted("No channel selected");
-            ImGui.Separator();
-            return;
-        }
-
-        var key = _selectedChannel.Value;
-        var displayName = GetChannelDisplayName(key.Kind, key.Id, GetChannelDisplayLabel(key));
-        ImGui.TextUnformatted(displayName);
-
-        if (key.Kind == ChannelKind.Standard)
-        {
-            var channel = GetStandardChannel(key.Id);
-            var topic = channel?.Topic ?? "No topic set.";
-            ImGui.TextUnformatted("Topic");
-            if (CanEditStandardChannelTopic(key.Id))
-            {
-                ImGui.SameLine();
-                if (ImGui.SmallButton(_isEditingStandardChannelTopic ? "Cancel" : "Edit Topic"))
-                {
-                    _isEditingStandardChannelTopic = !_isEditingStandardChannelTopic;
-                }
-            }
-
-            ElezenImgui.ColouredWrappedText(topic, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-
-            if (_isEditingStandardChannelTopic)
-            {
-                ImGui.SetNextItemWidth(-1);
-                ImGui.InputTextWithHint("##StandardChannelTopicEdit", "Update topic", ref _standardChannelTopicDraft, 200);
-                using (ImRaii.Disabled(!_apiController.IsConnected))
-                {
-                if (ImGui.Button("Update Topic") && channel != null)
-                {
-                    _ = UpdateStandardChannelTopic(channel, _standardChannelTopicDraft);
-                }
-                }
-            }
-
-            if (channel != null)
-            {
-                var joined = _joinedStandardChannels.Contains(channel.ChannelId);
-                using (ImRaii.Disabled(!_apiController.IsConnected))
-                {
-                    if (!joined)
-                    {
-                        if (ImGui.Button("Join Channel"))
-                        {
-                            _ = JoinStandardChannel(channel);
-                        }
-                    }
-                    else
-                    {
-                        if (ImGui.Button("Leave Channel"))
-                        {
-                            _ = LeaveStandardChannel(channel);
-                        }
-
-                        ImGui.SameLine();
-                        if (ImGui.Button("Refresh Members"))
-                        {
-                            _ = RefreshStandardChannelMembers(channel.ChannelId);
-                        }
-                    }
-                }
-            }
-        }
-        else if (key.Kind == ChannelKind.Syncshell)
-        {
-            var shellConfig = _shellConfigStore.GetShellConfigForGid(key.Id);
-            using (ImRaii.Disabled(!_apiController.IsConnected))
-            {
-                if (shellConfig.Enabled)
-                {
-                    if (ImGui.Button("Leave Chat"))
-                    {
-                        shellConfig.Enabled = false;
-                        _shellConfigStore.SaveShellConfigForGid(key.Id, shellConfig);
-                        _joinedSyncshellChats.Remove(key.Id);
-                        _syncshellChatMembers.Remove(key.Id);
-                        _loadedSyncshellHistory.Remove(key.Id);
-                        var group = GetGroupData(key.Id);
-                        if (group != null)
-                        {
-                            _ = _apiController.GroupChatLeave(new GroupDto(group));
-                        }
-                        _selectedChannel = null;
-                    }
-                }
-                else
-                {
-                    if (ImGui.Button("Join Chat"))
-                    {
-                        shellConfig.Enabled = true;
-                        _shellConfigStore.SaveShellConfigForGid(key.Id, shellConfig);
-                        _joinedSyncshellChats.Add(key.Id);
-                        var group = GetGroupData(key.Id);
-                        if (group != null)
-                        {
-                            _ = _apiController.GroupChatJoin(new GroupDto(group));
-                            _ = RefreshSyncshellChatMembers(group.GID);
-                        }
-                    }
-                }
-            }
-        }
-
-        ImGui.Separator();
-    }
-
-    private void DrawMemberList(float width)
-    {
-        using var _ = ImRaii.Child("MemberList", new Vector2(width, -1), true);
-        ImGui.TextUnformatted("Members");
-        ImGui.Separator();
-
-        if (_selectedChannel == null)
-        {
-            ElezenImgui.ColouredWrappedText("No channel selected.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        var key = _selectedChannel.Value;
-        if (key.Kind == ChannelKind.Syncshell)
-        {
-            DrawSyncshellMembers(key);
-        }
-        else if (key.Kind == ChannelKind.Standard)
-        {
-            DrawStandardChannelDetails(key);
+            DrawSidebarResizeHandle();
+            ImGui.SameLine(0f, 4f * ImGuiHelpers.GlobalScale);
         }
         else
         {
-            DrawDirectMembers(key);
+            ImGui.SameLine(0f, 8f * ImGuiHelpers.GlobalScale);
         }
+        DrawConversationArea(snapshot, selected);
+        if (_openRoomBrowser)
+        {
+            _openRoomBrowser = false;
+            _showRoomCreation = false;
+            ImGui.OpenPopup("Rooms browser");
+        }
+        DrawRoomBrowser();
+        DrawNoteEditor();
     }
 
-    private void DrawSyncshellMembers(ChatChannelKey key)
+    private void DrawConversationSidebar(ChatStoreSnapshot snapshot)
     {
-        var groupInfo = GetGroupInfo(key.Id);
-        if (groupInfo == null)
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = (_sidebarCollapsed ? 38f : _sidebarWidth) * scale;
+        var padding = _sidebarCollapsed ? new Vector2(4f, 12f) : new Vector2(14f, 12f);
+        using var childBg = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
+        using var childPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, padding * scale);
+        using var sidebar = ImRaii.Child("chat-conversations", new Vector2(width, -1), false);
+        using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 4f * scale));
+
+        var index = 1;
+        foreach (var kind in Enum.GetValues<ConversationKind>())
         {
-            ElezenImgui.ColouredWrappedText("Unknown syncshell.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        if (!_syncshellChatMembers.TryGetValue(key.Id, out var members) || members.Count == 0)
-        {
-            var message = _joinedSyncshellChats.Contains(key.Id)
-                ? "No chat members loaded."
-                : "Join this chat to view members.";
-            ElezenImgui.ColouredWrappedText(message, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        foreach (var entry in members.Values
-                     .GroupBy(user => user.UID, StringComparer.Ordinal)
-                     .Select(group => group.First())
-                     .Select(user => (User: user, Rank: GetSyncshellChatMemberRank(groupInfo, user)))
-                     .OrderByDescending(member => member.Rank)
-                     .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))
-        {
-            var prefix = GetRolePrefix(groupInfo, entry.User);
-            var label = prefix + GetUserDisplayName(entry.User);
-            var decoration = ResolveChatUserDecoration(entry.User);
-            var (foreground, glow) = PairDisplayDecorationMapper.ToVectorColours(decoration);
-            ElezenImgui.ColouredText(label, foreground, glow);
-        }
-    }
-
-    private void DrawDirectMembers(ChatChannelKey key)
-    {
-        var userData = GetUserData(key.Id);
-        if (userData != null)
-        {
-            var decoration = ResolveChatUserDecoration(userData);
-            var (foreground, glow) = PairDisplayDecorationMapper.ToVectorColours(decoration);
-            ElezenImgui.ColouredText(GetUserDisplayName(userData), foreground, glow);
-        }
-
-        if (!string.IsNullOrWhiteSpace(_apiController.UID))
-        {
-            var self = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
-            var selfName = GetUserDisplayName(self);
-            var decoration = ResolveSelfChatDecoration();
-            var (selfColor, selfGlowColor) = PairDisplayDecorationMapper.ToVectorColours(decoration);
-            ImGui.TextDisabled("You (");
-            ImGui.SameLine(0f, 0f);
-            ElezenImgui.ColouredText(selfName, selfColor, selfGlowColor);
-
-            ImGui.SameLine(0f, 0f);
-            ImGui.TextDisabled(")");
-        }
-    }
-
-    private PairDisplayDecoration? ResolveChatUserDecoration(UserData userData)
-    {
-        var options = PairDisplayDecorationMapper.CreateOptions(
-            _configService.Current,
-            inRestrictedContent: false,
-            usePairColours: false,
-            usePairingHighlights: false);
-        return PairDisplayDecorationPolicy.Resolve(options, PairDisplayDecorationMapper.CreateUserDataSubject(userData));
-    }
-
-    private PairDisplayDecoration? ResolveSelfChatDecoration()
-    {
-        var options = PairDisplayDecorationMapper.CreateOptions(
-            _configService.Current,
-            inRestrictedContent: false,
-            usePairColours: false,
-            usePairingHighlights: false);
-        return PairDisplayDecorationPolicy.Resolve(
-            options,
-            PairDisplayDecorationMapper.CreateSelfSubject(_apiController.DisplayColour, _apiController.DisplayGlowColour));
-    }
-
-    private void DrawChatInput()
-    {
-        var canSend = _selectedChannel != null
-                      && !_configService.Current.DisableChat
-                      && _apiController.IsConnected
-                      && (_selectedChannel.Value.Kind != ChannelKind.Standard || _joinedStandardChannels.Contains(_selectedChannel.Value.Id));
-        using var disabled = ImRaii.Disabled(!canSend);
-
-        var inputWidth = ImGui.GetContentRegionAvail().X - (70f * ImGuiHelpers.GlobalScale);
-        ImGui.SetNextItemWidth(inputWidth);
-        var send = ImGui.InputTextWithHint("##ChatInput", "Type a message...", ref _pendingMessage, 500, ImGuiInputTextFlags.EnterReturnsTrue);
-        ImGui.SameLine();
-        if ((ImGui.Button("Send", new Vector2(60f * ImGuiHelpers.GlobalScale, 0)) || send) && _selectedChannel != null)
-        {
-            _ = SendMessageAsync(_selectedChannel.Value, _pendingMessage);
-        }
-
-        ImGui.SameLine();
-        ImGui.Checkbox("Auto-scroll", ref _autoScroll);
-    }
-
-    private ChatMessage BuildOutgoingChatMessage(string message)
-    {
-        var senderName = _dalamudUtil.GetPlayerName();
-        var senderHomeWorld = _dalamudUtil.GetHomeWorldId();
-        return new ChatMessage
-        {
-            SenderName = senderName,
-            SenderHomeWorldId = senderHomeWorld,
-            PayloadContent = Encoding.UTF8.GetBytes(message)
-        };
-    }
-
-    private async Task SendMessageAsync(ChatChannelKey channel, string message)
-    {
-        if (_configService.Current.DisableChat) return;
-        if (string.IsNullOrWhiteSpace(message)) return;
-
-        var originalMessage = message;
-        var trimmed = message.Trim();
-        var chatMessage = BuildOutgoingChatMessage(trimmed);
-
-        try
-        {
-            if (channel.Kind == ChannelKind.Syncshell)
-            {
-                var group = GetGroupData(channel.Id);
-                if (group == null) return;
-                await _apiController.GroupChatSendMsg(new GroupDto(group), chatMessage).ConfigureAwait(false);
-                _chatService.PrintLocalGroupChat(group, chatMessage.PayloadContent);
-            }
-            else if (channel.Kind == ChannelKind.Standard)
-            {
-                if (!_joinedStandardChannels.Contains(channel.Id)) return;
-                var standardChannel = GetStandardChannel(channel.Id);
-                if (standardChannel == null) return;
-                await _apiController.ChannelChatSendMsg(new ChannelDto(standardChannel), chatMessage).ConfigureAwait(false);
-            }
-            else
-            {
-                var userData = GetUserData(channel.Id);
-                if (userData == null) return;
-                await _apiController.UserChatSendMsg(new UserDto(userData), chatMessage).ConfigureAwait(false);
-                _chatService.PrintLocalUserChat(chatMessage.PayloadContent);
-                _pinnedDirectChannels.Add(channel.Id);
-            }
-
-            AddLocalMessage(channel, trimmed);
-            if (string.Equals(_pendingMessage, originalMessage, StringComparison.Ordinal))
-            {
-                _pendingMessage = string.Empty;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send chat message for {ChannelKind}:{ChannelId}", channel.Kind, channel.Id);
-            Mediator.Publish(new NotificationMessage(
-                "Chat send failed",
-                $"Could not send message: {ex.Message}",
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
-        }
-    }
-
-    private void AddLocalMessage(ChatChannelKey channel, string message)
-    {
-        var selfUser = new UserData(_apiController.UID, _apiController.VanityId, _apiController.DisplayColour, _apiController.DisplayGlowColour);
-        var displayName = FormatSenderName(channel, selfUser);
-        AppendMessage(channel, selfUser.UID, displayName, message, DateTime.Now, markUnread: false,
-            senderColor: Colour.HexToVector4OrNull(_apiController.DisplayColour),
-            senderGlowColor: Colour.HexToVector4OrNull(_apiController.DisplayGlowColour));
-    }
-
-    private void AddGroupMessage(GroupChatMsgMessage message)
-    {
-        if (_configService.Current.DisableChat) return;
-
-        var shellConfig = _shellConfigStore.GetShellConfigForGid(message.GroupInfo.GID);
-        if (!shellConfig.Enabled)
-        {
-            return;
-        }
-
-        var channel = new ChatChannelKey(ChannelKind.Syncshell, message.GroupInfo.GID);
-        var text = DecodeMessage(message.ChatMsg.PayloadContent);
-        var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
-        var isSelf = string.Equals(message.ChatMsg.Sender.UID, _apiController.UID, StringComparison.Ordinal);
-        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: !isSelf,
-            senderColor: senderColors.Foreground,
-            senderGlowColor: senderColors.Glow);
-        if (!isSelf)
-        {
-            PlayMessageSound(_configService.Current.SnowChatGroupSound);
-        }
-    }
-
-    private void AddDirectMessage(SignedChatMessage message)
-    {
-        if (_configService.Current.DisableChat) return;
-
-        var channel = new ChatChannelKey(ChannelKind.Direct, message.Sender.UID);
-        var text = DecodeMessage(message.PayloadContent);
-        var displayName = FormatSenderName(channel, message.Sender);
-        var senderColors = ResolveSenderColors(channel, message.Sender);
-        var isSelf = string.Equals(message.Sender.UID, _apiController.UID, StringComparison.Ordinal);
-        AppendMessage(channel, message.Sender.UID, displayName, text, ResolveTimestamp(message.Timestamp), markUnread: !isSelf,
-            senderColor: senderColors.Foreground,
-            senderGlowColor: senderColors.Glow);
-        _pinnedDirectChannels.Add(channel.Id);
-        if (!isSelf)
-        {
-            PlayMessageSound(_configService.Current.SnowChatDirectSound);
-        }
-
-    }
-
-    private void AddStandardChannelMessage(ChannelChatMsgMessage message)
-    {
-        if (_configService.Current.DisableChat) return;
-
-        var channelData = message.ChannelInfo.Channel;
-        TrackStandardChannel(channelData);
-        if (!_standardChannelMembers.ContainsKey(channelData.ChannelId))
-        {
-            _ = RefreshStandardChannelMembers(channelData.ChannelId);
-        }
-        var channel = new ChatChannelKey(ChannelKind.Standard, channelData.ChannelId);
-        var text = DecodeMessage(message.ChatMsg.PayloadContent);
-        var displayName = FormatSenderName(channel, message.ChatMsg.Sender);
-        var senderColors = ResolveSenderColors(channel, message.ChatMsg.Sender);
-        var isSelf = string.Equals(message.ChatMsg.Sender.UID, _apiController.UID, StringComparison.Ordinal);
-        AppendMessage(channel, message.ChatMsg.Sender.UID, displayName, text, ResolveTimestamp(message.ChatMsg.Timestamp), markUnread: !isSelf,
-            senderColor: senderColors.Foreground,
-            senderGlowColor: senderColors.Glow);
-        if (!isSelf)
-        {
-            PlayMessageSound(_configService.Current.SnowChatGroupSound);
-        }
-    }
-
-    private void HandleStandardChannelMemberJoined(ChannelMemberJoinedDto member)
-    {
-        TrackStandardChannel(member.Channel);
-        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
-        if (isSelf && !_joinedStandardChannels.Contains(member.Channel.ChannelId))
-        {
-            Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, true));
-        }
-        if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
-        {
-            var existing = members.FindIndex(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
-            if (existing >= 0)
-            {
-                members[existing] = new ChannelMemberDto(member.Channel, member.User, member.Roles);
-            }
-            else
-            {
-                members.Add(new ChannelMemberDto(member.Channel, member.User, member.Roles));
-            }
-        }
-        else if (_joinedStandardChannels.Contains(member.Channel.ChannelId))
-        {
-            _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
-        }
-    }
-
-    private void HandleStandardChannelMemberLeft(ChannelMemberLeftDto member)
-    {
-        TrackStandardChannel(member.Channel);
-        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
-        if (isSelf && _joinedStandardChannels.Contains(member.Channel.ChannelId))
-        {
-            Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, false));
-        }
-        if (_standardChannelMembers.TryGetValue(member.Channel.ChannelId, out var members))
-        {
-            members.RemoveAll(entry => string.Equals(entry.User.UID, member.User.UID, StringComparison.Ordinal));
-        }
-        else if (_joinedStandardChannels.Contains(member.Channel.ChannelId))
-        {
-            _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
-        }
-    }
-
-    private void HandleSyncshellChatMemberState(GroupChatMemberStateDto memberState)
-    {
-        var gid = memberState.Group.GID;
-        var isSelf = string.Equals(memberState.User.UID, _apiController.UID, StringComparison.Ordinal);
-        if (isSelf)
-        {
-            if (memberState.IsJoined)
-            {
-                var groupInfo = GetGroupInfo(gid);
-                if (!_shellConfigStore.HasShellConfigForGid(gid)
-                    && (groupInfo == null || !string.Equals(groupInfo.OwnerUID, _apiController.UID, StringComparison.Ordinal)))
-                {
-                    var shellConfig = _shellConfigStore.GetShellConfigForGid(gid);
-                    shellConfig.Enabled = false;
-                    _shellConfigStore.SaveShellConfigForGid(gid, shellConfig);
-                }
-
-                var config = _shellConfigStore.GetShellConfigForGid(gid);
-                if (!config.Enabled)
-                {
-                    _joinedSyncshellChats.Remove(gid);
-                    _syncshellChatMembers.Remove(gid);
-                    _loadedSyncshellHistory.Remove(gid);
-                    _ = _apiController.GroupChatLeave(memberState.Group);
-                    return;
-                }
-
-                _joinedSyncshellChats.Add(gid);
-                _ = LoadSyncshellHistory(gid);
-            }
-            else
-            {
-                _joinedSyncshellChats.Remove(gid);
-                _syncshellChatMembers.Remove(gid);
-                _loadedSyncshellHistory.Remove(gid);
-            }
-        }
-
-        if (!_joinedSyncshellChats.Contains(gid))
-        {
-            return;
-        }
-
-        if (!_syncshellChatMembers.TryGetValue(gid, out var members))
-        {
-            members = new Dictionary<string, UserData>(StringComparer.Ordinal);
-            _syncshellChatMembers[gid] = members;
-        }
-
-        if (memberState.IsJoined)
-        {
-            members[memberState.User.UID] = memberState.User;
-        }
-        else
-        {
-            members.Remove(memberState.User.UID);
-        }
-    }
-
-    private void AppendMessage(ChatChannelKey channel, string senderUid, string sender, string message, DateTime timestamp, bool markUnread,
-        Vector4? senderColor = null, Vector4? senderGlowColor = null)
-    {
-        if (!_channelLogs.TryGetValue(channel, out var log))
-        {
-            log = [];
-            _channelLogs[channel] = log;
-        }
-
-        log.Add(new ChatLine(timestamp, senderUid, sender, message, senderColor, senderGlowColor));
-        if (markUnread && (!_selectedChannel.HasValue || !_selectedChannel.Value.Equals(channel)))
-        {
-            _unreadChannels.Add(channel);
-        }
-
-        if (_selectedChannel == null)
-        {
-            _selectedChannel = channel;
-        }
-    }
-
-    private void PlayMessageSound(ChatSoundOption option)
-    {
-        if (option == ChatSoundOption.None) return;
-
-        if (TryGetGameSoundEffectId(option, out var soundEffectId))
-        {
-            _ = _framework.RunOnFrameworkThread(() =>
-            {
-                try
-                {
-                    if (!TryPlayGameSoundEffect(soundEffectId))
-                    {
-                        _logger.LogDebug("ChatLog addon was unavailable for SnowChat sound effect {SoundEffectId}", soundEffectId);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to play SnowChat game sound effect {SoundEffectId}", soundEffectId);
-                }
-            });
-            return;
-        }
-
-        if (!MessageSoundBuffers.TryGetValue(option, out var buffer)) return;
-
-        var memoryStream = new MemoryStream(buffer, writable: false);
-        var sourceStream = new RawSourceWaveStream(memoryStream, MessageSoundWaveFormat);
-        var output = new WaveOutEvent();
-
-        try
-        {
-            output.Init(sourceStream);
-            output.PlaybackStopped += (_, _) => DisposeMessageSound(output, sourceStream, memoryStream);
-
-            WaveOutEvent? previousOutput;
-            lock (_messageSoundLock)
-            {
-                previousOutput = _messageSoundOutput;
-                _messageSoundOutput = output;
-            }
-
-            previousOutput?.Stop();
-            output.Play();
-        }
-        catch (Exception ex)
-        {
-            output.Dispose();
-            sourceStream.Dispose();
-            memoryStream.Dispose();
-            _logger.LogWarning(ex, "Failed to play SnowChat sound {SoundOption}", option);
-        }
-    }
-
-    private unsafe bool TryPlayGameSoundEffect(int soundEffectId)
-    {
-        var addon = TryGetChatLogAddon();
-        if (addon == null)
-        {
-            return false;
-        }
-
-        addon->PlaySoundEffect(soundEffectId);
-        return true;
-    }
-
-    private unsafe AtkUnitBase* TryGetChatLogAddon()
-    {
-        var addon = _gameGui.GetAddonByName<AtkUnitBase>(ChatLogAddonName);
-        if (addon != null)
-        {
-            return addon;
-        }
-
-        return _gameGui.GetAddonByName<AtkUnitBase>(ChatLogAddonName, 1);
-    }
-
-    private void DisposeMessageSound(WaveOutEvent output, WaveStream sourceStream, MemoryStream memoryStream)
-    {
-        lock (_messageSoundLock)
-        {
-            if (ReferenceEquals(_messageSoundOutput, output))
-            {
-                _messageSoundOutput = null;
-            }
-        }
-
-        output.Dispose();
-        sourceStream.Dispose();
-        memoryStream.Dispose();
-    }
-
-    private static byte[] CreateToneBuffer(params ToneStep[] steps)
-    {
-        var totalSamples = steps.Sum(step => MessageSoundSampleRate * (step.DurationMs + step.SilenceAfterMs) / 1000);
-        var buffer = new byte[totalSamples * sizeof(short)];
-        var sampleIndex = 0;
-
-        foreach (var step in steps)
-        {
-            var toneSamples = MessageSoundSampleRate * step.DurationMs / 1000;
-            var fadeSamples = Math.Min(toneSamples / 4, MessageSoundSampleRate / 200);
-
-            for (var i = 0; i < toneSamples; i++)
-            {
-                var envelope = 1.0;
-                if (fadeSamples > 0)
-                {
-                    if (i < fadeSamples)
-                    {
-                        envelope = i / (double)fadeSamples;
-                    }
-                    else if (i >= toneSamples - fadeSamples)
-                    {
-                        envelope = (toneSamples - i - 1) / (double)fadeSamples;
-                    }
-                }
-
-                var sampleValue = Math.Sin(2 * Math.PI * step.Frequency * i / MessageSoundSampleRate) * step.Volume * Math.Max(0, envelope);
-                var clampedSample = (short)Math.Clamp(sampleValue * short.MaxValue, short.MinValue, short.MaxValue);
-                BinaryPrimitives.WriteInt16LittleEndian(buffer.AsSpan(sampleIndex * sizeof(short), sizeof(short)), clampedSample);
-                sampleIndex++;
-            }
-
-            sampleIndex += MessageSoundSampleRate * step.SilenceAfterMs / 1000;
-        }
-
-        return buffer;
-    }
-
-    private static bool TryGetGameSoundEffectId(ChatSoundOption option, out int soundEffectId)
-    {
-        var optionValue = (int)option;
-        if (optionValue >= FirstGameSoundEffectOptionValue && optionValue <= LastGameSoundEffectOptionValue)
-        {
-            soundEffectId = optionValue - FirstGameSoundEffectOptionValue + 1;
-            return true;
-        }
-
-        soundEffectId = 0;
-        return false;
-    }
-
-    private static string DecodeMessage(byte[] payload)
-    {
-        if (payload.Length == 0) return string.Empty;
-        return Encoding.UTF8.GetString(payload);
-    }
-
-    private static DateTime ResolveTimestamp(long timestamp)
-    {
-        if (timestamp <= 0)
-        {
-            return DateTime.Now;
-        }
-
-        return DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime;
-    }
-
-    private string GetUserDisplayName(UserData user)
-    {
-        var note = _notesStore.GetNoteForUid(user.UID);
-        if (!string.IsNullOrWhiteSpace(note)) return note;
-        if (!string.IsNullOrWhiteSpace(user.Alias)) return user.Alias!;
-        return user.UID;
-    }
-
-    private void HandleUserProfileUpdate(UserData? updatedUser)
-    {
-        if (updatedUser == null || string.IsNullOrWhiteSpace(updatedUser.UID))
-        {
-            return;
-        }
-
-        var uid = updatedUser.UID;
-        foreach (var channelMembers in _standardChannelMembers.Values)
-        {
-            for (int i = 0; i < channelMembers.Count; i++)
-            {
-                if (!string.Equals(channelMembers[i].User.UID, uid, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                channelMembers[i] = new ChannelMemberDto(channelMembers[i].Channel, updatedUser, channelMembers[i].Roles);
-            }
-        }
-
-        foreach (var syncshellMembers in _syncshellChatMembers.Values)
-        {
-            if (syncshellMembers.ContainsKey(uid))
-            {
-                syncshellMembers[uid] = updatedUser;
-            }
-        }
-
-        RefreshCachedSenderColours(updatedUser);
-    }
-
-    private (Vector4? Foreground, Vector4? Glow) ResolveSenderColors(ChatChannelKey channel, UserData sender)
-    {
-        if (string.Equals(sender.UID, _apiController.UID, StringComparison.Ordinal))
-        {
-            return (Colour.HexToVector4OrNull(_apiController.DisplayColour), Colour.HexToVector4OrNull(_apiController.DisplayGlowColour));
-        }
-
-        var pairUserData = _pairManager.GetPairByUID(sender.UID)?.UserData;
-        if (pairUserData != null)
-        {
-            var pairColor = Colour.HexToVector4OrNull(pairUserData.DisplayColour);
-            var pairGlowColor = Colour.HexToVector4OrNull(pairUserData.DisplayGlowColour);
-            if (pairColor.HasValue || pairGlowColor.HasValue)
-            {
-                return (pairColor, pairGlowColor);
-            }
-        }
-
-        var senderColor = Colour.HexToVector4OrNull(sender.DisplayColour);
-        var senderGlowColor = Colour.HexToVector4OrNull(sender.DisplayGlowColour);
-        if (senderColor.HasValue || senderGlowColor.HasValue)
-        {
-            return (senderColor, senderGlowColor);
-        }
-
-        if (channel.Kind == ChannelKind.Standard
-            && _standardChannelMembers.TryGetValue(channel.Id, out var standardMembers))
-        {
-            var standardMember = standardMembers.FirstOrDefault(entry => string.Equals(entry.User.UID, sender.UID, StringComparison.Ordinal));
-            var standardColor = Colour.HexToVector4OrNull(standardMember?.User.DisplayColour);
-            var standardGlowColor = Colour.HexToVector4OrNull(standardMember?.User.DisplayGlowColour);
-            if (standardColor.HasValue || standardGlowColor.HasValue)
-            {
-                return (standardColor, standardGlowColor);
-            }
-        }
-
-        if (channel.Kind == ChannelKind.Syncshell
-            && _syncshellChatMembers.TryGetValue(channel.Id, out var syncshellMembers)
-            && syncshellMembers.TryGetValue(sender.UID, out var syncshellMember))
-        {
-            var syncshellColor = Colour.HexToVector4OrNull(syncshellMember.DisplayColour);
-            var syncshellGlowColor = Colour.HexToVector4OrNull(syncshellMember.DisplayGlowColour);
-            if (syncshellColor.HasValue || syncshellGlowColor.HasValue)
-            {
-                return (syncshellColor, syncshellGlowColor);
-            }
-        }
-
-        return (null, null);
-    }
-
-    private void RefreshCachedSenderColours(UserData updatedUser)
-    {
-        foreach (var (channel, log) in _channelLogs)
-        {
-            if (log.Count == 0)
+            var conversations = snapshot.Conversations.Where(conversation => conversation.Key.Kind == kind).ToArray();
+            if (conversations.Length == 0)
             {
                 continue;
             }
 
-            var displayName = FormatSenderName(channel, updatedUser);
-            var colors = ResolveSenderColors(channel, updatedUser);
-            for (int i = 0; i < log.Count; i++)
+            DrawConversationSectionHeader(kind);
+            foreach (var conversation in conversations)
             {
-                var uidMatches = string.Equals(log[i].SenderUid, updatedUser.UID, StringComparison.Ordinal);
-                var fallbackSenderMatches = string.IsNullOrWhiteSpace(log[i].SenderUid)
-                    && string.Equals(log[i].Sender, displayName, StringComparison.Ordinal);
-                if (!uidMatches && !fallbackSenderMatches)
-                {
-                    continue;
-                }
+                DrawConversationRow(conversation, index, snapshot.ActiveConversation == conversation.Key);
+                index++;
+            }
 
-                log[i] = log[i] with { Sender = displayName, SenderColor = colors.Foreground, SenderGlowColor = colors.Glow };
+            if (!_sidebarCollapsed)
+            {
+                DrawSidebarSeparator();
             }
         }
+
+        DrawSidebarAction(FontAwesomeIcon.Search, "Browse Rooms", () =>
+        {
+            _openRoomBrowser = true;
+            Queue(_chatService.RefreshAsync(), nameof(ChatClientService.RefreshAsync));
+        });
+
+        var footerHeight = (_sidebarCollapsed ? 34f : 128f) * scale;
+        var available = ImGui.GetContentRegionAvail().Y;
+        if (available > footerHeight)
+        {
+            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + available - footerHeight);
+        }
+
+        DrawSidebarAction(_sidebarCollapsed ? FontAwesomeIcon.ChevronRight : FontAwesomeIcon.ChevronLeft,
+            _sidebarCollapsed ? "Expand" : "Collapse", () => _sidebarCollapsed = !_sidebarCollapsed);
+        if (_sidebarCollapsed)
+        {
+            return;
+        }
+
+        var unread = snapshot.TotalUnread;
+        ImGuiHelpers.ScaledDummy(3);
+        DrawCentredSidebarText(unread == 0
+            ? "No Unread"
+            : string.Format(CultureInfo.InvariantCulture, "{0} Unread", unread),
+            unread == 0 ? SnowcloakColours.CompactTextMuted : SnowcloakColours.OnlineBlue);
+        ImGuiHelpers.ScaledDummy(4);
+        DrawChatSettingsButton();
     }
 
-    private static void DrawSelectableWithOptionalColor(string label, Vector4? color)
+    private void DrawSidebarResizeHandle()
     {
-        if (color.HasValue)
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = 4f * scale;
+        var height = ImGui.GetContentRegionAvail().Y;
+        var min = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton("##chat-sidebar-resize", new Vector2(width, height));
+        var active = ImGui.IsItemActive();
+        var hovered = ImGui.IsItemHovered();
+        if (active)
         {
-            ImGui.PushStyleColor(ImGuiCol.Text, color.Value);
-            ImGui.Selectable(label);
-            ImGui.PopStyleColor();
+            _sidebarWidth = Math.Clamp(_sidebarWidth + ImGui.GetIO().MouseDelta.X / scale, 140f, 300f);
         }
-        else
+        if (active || hovered)
         {
-            ImGui.Selectable(label);
+            ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEw);
+        }
+
+        var colour = active || hovered ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactBorderSubtle;
+        ImGui.GetWindowDrawList().AddLine(
+            new Vector2(min.X + width * 0.5f, min.Y),
+            new Vector2(min.X + width * 0.5f, min.Y + height),
+            Colour.Vector4ToColour(colour), scale);
+    }
+
+    public override void OnClose()
+    {
+        _chatService.Store.SetActive(null);
+        base.OnClose();
+    }
+
+    private void DrawConversationArea(ChatStoreSnapshot snapshot, ConversationKey? selected)
+    {
+        using var childBg = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactBg);
+        using var contentPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding,
+            new Vector2(14f, 10f) * ImGuiHelpers.GlobalScale);
+        using var content = ImRaii.Child("chat-content", new Vector2(-1, -1), false);
+
+        if (!selected.HasValue)
+        {
+            DrawEmptyConversationState();
+            return;
+        }
+
+        var conversation = snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == selected.Value);
+        if (conversation == null)
+        {
+            DrawEmptyConversationState();
+            return;
+        }
+
+        var hasMemberList = conversation.Key.Kind is ConversationKind.Syncshell or ConversationKind.Room;
+        var drawMembers = hasMemberList && _showMembers;
+        var scale = ImGuiHelpers.GlobalScale;
+        var memberWidth = 214f * scale;
+        var gap = 8f * scale;
+        var centreWidth = drawMembers ? -memberWidth - gap : -1f;
+
+        using (var centre = ImRaii.Child("chat-centre", new Vector2(centreWidth, -1), false))
+        {
+            DrawConversationHeader(conversation, hasMemberList);
+            _conversationView.Draw(conversation.Key, showHeader: false);
+        }
+
+        if (drawMembers)
+        {
+            ImGui.SameLine(0f, gap);
+            using var membersBg = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
+            using var membersPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 10f) * scale);
+            using var members = ImRaii.Child("chat-members", new Vector2(memberWidth, -1), false);
+            DrawMembers(conversation.Key);
         }
     }
 
-    private string FormatSenderName(ChatChannelKey channel, UserData user)
+    private void DrawConversationSectionHeader(ConversationKind kind)
     {
-        var prefix = channel.Kind switch
+        if (_sidebarCollapsed)
         {
-            ChannelKind.Syncshell => GetRolePrefix(GetGroupInfo(channel.Id), user),
-            ChannelKind.Standard => GetStandardChannelRolePrefix(channel.Id, user.UID),
-            _ => string.Empty
+            return;
+        }
+
+        var label = kind switch
+        {
+            ConversationKind.Direct => "Direct Chats",
+            ConversationKind.Syncshell => "Syncshells",
+            ConversationKind.Room => "Rooms",
+            _ => kind.ToString(),
         };
-        return prefix + GetUserDisplayName(user);
+        var icon = GetConversationIcon(kind);
+        using var colour = ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted);
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.TextUnformatted(icon.ToIconString());
+        ImGui.PopFont();
+        ImGui.SameLine();
+        ImGui.TextUnformatted(label);
+        ImGuiHelpers.ScaledDummy(2);
     }
 
-    private string GetRolePrefix(GroupFullInfoDto? groupInfo, UserData user)
+    private void DrawConversationRow(ConversationSnapshot conversation, int index, bool active)
     {
-        if (groupInfo == null) return string.Empty;
-        if (string.Equals(groupInfo.Owner.UID, user.UID, StringComparison.Ordinal)) return "~";
-        var pair = _pairManager.GetPairByUID(user.UID);
-        if (pair != null && IsModerator(pair, groupInfo)) return "@";
-        return string.Empty;
-    }
-
-    private string GetStandardChannelRolePrefix(string channelId, string uid)
-    {
-        var roles = GetStandardChannelMemberRoles(channelId, uid);
-        return GetChannelRolePrefix(roles);
-    }
-
-    private static string GetChannelRolePrefix(ChannelUserRole roles)
-    {
-        if (roles.HasFlag(ChannelUserRole.Owner)) return "~";
-        if (roles.HasFlag(ChannelUserRole.Admin)) return "&";
-        if (roles.HasFlag(ChannelUserRole.Operator)) return "@";
-        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return "%";
-        if (roles.HasFlag(ChannelUserRole.Voice)) return "+";
-        return string.Empty;
-    }
-
-    private static int GetChannelRoleRank(ChannelUserRole roles)
-    {
-        if (roles.HasFlag(ChannelUserRole.Owner)) return 5;
-        if (roles.HasFlag(ChannelUserRole.Admin)) return 4;
-        if (roles.HasFlag(ChannelUserRole.Operator)) return 3;
-        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return 2;
-        if (roles.HasFlag(ChannelUserRole.Voice)) return 1;
-        return 0;
-    }
-
-    private ChannelUserRole GetStandardChannelMemberRoles(string channelId, string uid)
-    {
-        if (!_standardChannelMembers.TryGetValue(channelId, out var members))
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = ImGui.GetContentRegionAvail().X;
+        var height = 38f * scale;
+        var min = ImGui.GetCursorScreenPos();
+        var id = $"conversation-{conversation.Key}";
+        ImGui.InvisibleButton($"##{id}", new Vector2(width, height));
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        var hovered = ImGui.IsItemHovered();
+        if (hovered)
         {
-            return ChannelUserRole.None;
+            var tooltip = string.Format(CultureInfo.InvariantCulture, "{0}\n/snow {1} <message>{2}",
+                conversation.Title, index, conversation.Muted ? "\nMuted" : string.Empty);
+            ImGui.SetTooltip(tooltip);
         }
 
-        var member = members.FirstOrDefault(entry => string.Equals(entry.User.UID, uid, StringComparison.Ordinal));
-        return member?.Roles ?? ChannelUserRole.None;
-    }
-
-    private ChannelUserRole GetStandardChannelSelfRoles(string channelId)
-    {
-        if (string.IsNullOrWhiteSpace(_apiController.UID))
+        DrawConversationContextMenu(conversation);
+        if (clicked)
         {
-            return ChannelUserRole.None;
+            Select(conversation.Key);
         }
 
-        return GetStandardChannelMemberRoles(channelId, _apiController.UID);
-    }
-
-    private bool CanEditStandardChannelTopic(string channelId)
-    {
-        var roles = GetStandardChannelSelfRoles(channelId);
-        return GetChannelRoleRank(roles) >= GetChannelRoleRank(ChannelUserRole.Operator);
-    }
-
-    private static bool IsModerator(Pair pair, GroupFullInfoDto groupInfo)
-    {
-        if (pair.GroupPair.TryGetValue(groupInfo, out var groupPairInfo))
+        var max = min + new Vector2(width, height);
+        var drawList = ImGui.GetWindowDrawList();
+        if (active)
         {
-            return groupPairInfo.GroupPairStatusInfo.HasFlag(API.Data.Enum.GroupUserInfo.IsModerator);
+            var accent = ModernTheme.Palette.Accent;
+            var left = Colour.Vector4ToColour(Colour.WithAlpha(accent, 0.34f));
+            var right = Colour.Vector4ToColour(Colour.WithAlpha(accent, 0.06f));
+            drawList.AddRectFilledMultiColor(min, max, left, right, right, left);
+            drawList.AddRectFilled(min + new Vector2(0f, 6f * scale),
+                new Vector2(min.X + 3f * scale, max.Y - 6f * scale), Colour.Vector4ToColour(accent));
+        }
+        else if (hovered)
+        {
+            drawList.AddRectFilled(min, max, Colour.Vector4ToColour(new Vector4(0.090f, 0.150f, 0.220f, 0.54f)), 3f * scale);
         }
 
-        return false;
-    }
+        var display = ResolveConversationDisplay(conversation);
+        var iconText = display.Icon.ToIconString();
+        ImGui.PushFont(UiBuilder.IconFont);
+        var iconSize = ImGui.CalcTextSize(iconText);
+        var iconX = _sidebarCollapsed ? min.X + (width - iconSize.X) * 0.5f : min.X + 9f * scale;
+        drawList.AddText(new Vector2(iconX, min.Y + (height - iconSize.Y) * 0.5f),
+            Colour.Vector4ToColour(display.Colour ?? SnowcloakColours.CompactTextMuted), iconText);
+        ImGui.PopFont();
 
-    private GroupFullInfoDto? GetGroupInfo(string gid)
-    {
-        return _pairManager.GroupPairs.Keys.FirstOrDefault(group => string.Equals(group.GID, gid, StringComparison.Ordinal));
-    }
-
-    private GroupData? GetGroupData(string gid)
-    {
-        var groupInfo = GetGroupInfo(gid);
-        return groupInfo?.Group;
-    }
-
-    private UserData? GetUserData(string uid)
-    {
-        return _pairManager.GetPairByUID(uid)?.UserData ?? new UserData(uid);
-    }
-
-    private List<(string Id, string Name)> GetSyncshellChannels()
-    {
-        return _pairManager.GroupPairs.Keys
-            .Where(group => _shellConfigStore.GetShellConfigForGid(group.GID).Enabled)
-            .Select(group => (group.GID, GetChannelName(group.Group)))
-            .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private List<(string Id, string Name)> GetJoinedStandardChannels()
-    {
-        return _standardChannels
-            .Where(channel => _joinedStandardChannels.Contains(channel.ChannelId))
-            .Select(channel => (channel.ChannelId, channel.Name))
-            .OrderBy(channel => channel.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private List<(string Id, string Name)> GetDirectChannels()
-    {
-        return _pairManager.DirectPairs
-            .Where(pair => pair.IsOnline || _pinnedDirectChannels.Contains(pair.UserData.UID))
-            .Select(pair => (pair.UserData.UID, GetUserDisplayName(pair.UserData)))
-            .OrderBy(channel => channel.Item2, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private string GetChannelDisplayLabel(ChatChannelKey key)
-    {
-        if (key.Kind == ChannelKind.Syncshell)
+        if (_sidebarCollapsed)
         {
-            var group = GetGroupData(key.Id);
-            return group != null ? GetChannelName(group) : key.Id;
-        }
-
-        if (key.Kind == ChannelKind.Standard)
-        {
-            return GetStandardChannel(key.Id)?.Name ?? key.Id;
-        }
-
-        return GetUserDisplayName(new UserData(key.Id));
-    }
-
-    private string GetChannelName(GroupData group)
-    {
-        var note = _notesStore.GetNoteForGid(group.GID);
-        if (!string.IsNullOrWhiteSpace(note)) return note;
-        if (!string.IsNullOrWhiteSpace(group.Alias)) return group.Alias!;
-        return group.GID;
-    }
-
-    private string GetChannelDisplayName(ChannelKind kind, string id, string name)
-    {
-        if (kind == ChannelKind.Syncshell)
-        {
-            return string.Format(CultureInfo.InvariantCulture, "# {0}", name);
-        }
-
-        if (kind == ChannelKind.Standard)
-        {
-            var channel = GetStandardChannel(id);
-            var privateSuffix = channel?.IsPrivate == true ? " (private)" : string.Empty;
-            return string.Format(CultureInfo.InvariantCulture, "# {0}{1}", name, privateSuffix);
-        }
-
-        return name;
-    }
-
-    private ChatChannelData? GetStandardChannel(string id)
-    {
-        return _standardChannelLookup.TryGetValue(id, out var channel) ? channel : null;
-    }
-
-    private void SetSelectedChannel(ChatChannelKey key)
-    {
-        _selectedChannel = key;
-        _unreadChannels.Remove(key);
-
-        if (key.Kind == ChannelKind.Standard)
-        {
-            var channel = GetStandardChannel(key.Id);
-            _standardChannelTopicDraft = channel?.Topic ?? string.Empty;
-            _isEditingStandardChannelTopic = false;
-            if (_joinedStandardChannels.Contains(key.Id))
+            if (conversation.Unread > 0)
             {
-                _ = RefreshStandardChannelMembers(key.Id);
+                drawList.AddCircleFilled(new Vector2(max.X - 4f * scale, min.Y + 5f * scale), 3f * scale,
+                    Colour.Vector4ToColour(SnowcloakColours.OnlineBlue));
             }
-        }
-
-        if (key.Kind == ChannelKind.Direct)
-        {
-            _ = LoadDirectHistory(key.Id);
-        }
-        else if (key.Kind == ChannelKind.Syncshell)
-        {
-            _ = LoadSyncshellHistory(key.Id);
-        }
-    }
-
-    private void DrawStandardChannelDetails(ChatChannelKey key)
-    {
-        var channel = GetStandardChannel(key.Id);
-        if (channel == null)
-        {
-            ElezenImgui.ColouredWrappedText("Unknown channel.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
             return;
         }
 
-        ImGui.TextUnformatted(channel.Name);
-        ElezenImgui.ColouredWrappedText(channel.IsPrivate ? "Private channel" : "Public channel", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-
-        if (!_joinedStandardChannels.Contains(channel.ChannelId))
-        {
-            ImGui.Separator();
-            ElezenImgui.ColouredWrappedText("Join this channel to view members.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        ImGui.Separator();
-        DrawStandardChannelMembers(channel.ChannelId);
+        var cursor = ImGui.GetCursorPos();
+        var textX = min.X + 32f * scale;
+        var rightLabel = conversation.Unread > 0
+            ? string.Format(CultureInfo.InvariantCulture, "{0} · {1}", index, conversation.Unread)
+            : index.ToString(CultureInfo.InvariantCulture);
+        var rightSize = ImGui.CalcTextSize(rightLabel);
+        var rightX = max.X - rightSize.X - 7f * scale;
+        ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(rightX - 5f * scale, max.Y), true);
+        ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - ImGui.GetTextLineHeight()) * 0.5f));
+        ElezenImgui.ColouredText(display.Title, display.Colour, display.Glow);
+        ImGui.PopClipRect();
+        ImGui.SetCursorPos(cursor);
+        drawList.AddText(new Vector2(rightX, min.Y + (height - rightSize.Y) * 0.5f),
+            Colour.Vector4ToColour(conversation.Unread > 0 ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactTextMuted),
+            rightLabel);
     }
 
-    private void DrawStandardChannelMembers(string channelId)
+    private void DrawConversationContextMenu(ConversationSnapshot conversation)
     {
-        if (!_standardChannelMembers.TryGetValue(channelId, out var members) || members.Count == 0)
-        {
-            ElezenImgui.ColouredWrappedText("No members loaded.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-            return;
-        }
-
-        var selfRoles = GetStandardChannelSelfRoles(channelId);
-        var selfRank = GetChannelRoleRank(selfRoles);
-
-        foreach (var member in members
-                     .GroupBy(member => member.User.UID, StringComparer.Ordinal)
-                     .Select(group => group.OrderByDescending(entry => GetChannelRoleRank(entry.Roles)).First())
-                     .OrderByDescending(member => GetChannelRoleRank(member.Roles))
-                     .ThenBy(member => GetUserDisplayName(member.User), StringComparer.OrdinalIgnoreCase))
-        {
-            var label = GetChannelRolePrefix(member.Roles) + GetUserDisplayName(member.User);
-            ImGui.PushID(member.User.UID);
-            DrawSelectableWithOptionalColor(label, Colour.HexToVector4OrNull(member.User.DisplayColour));
-            DrawStandardChannelMemberContextMenu(channelId, member, selfRoles, selfRank);
-            ImGui.PopID();
-        }
-    }
-
-    private void DrawStandardChannelMemberContextMenu(string channelId, ChannelMemberDto member, ChannelUserRole selfRoles, int selfRank)
-    {
-        if (!ImGui.BeginPopupContextItem("##StandardChannelMemberMenu"))
+        if (!ImGui.BeginPopupContextItem($"conversation-menu-{conversation.Key}"))
         {
             return;
         }
 
-        var isSelf = string.Equals(member.User.UID, _apiController.UID, StringComparison.Ordinal);
-        var memberRank = GetChannelRoleRank(member.Roles);
-        var canKick = selfRank >= GetChannelRoleRank(ChannelUserRole.HalfOperator);
-        var canBan = selfRank >= GetChannelRoleRank(ChannelUserRole.Operator);
-        var canAssignRoles = selfRank >= GetChannelRoleRank(ChannelUserRole.Admin);
-        var canModerateTarget = !isSelf && selfRank > memberRank;
-        var hasActions = false;
-
-        if (canModerateTarget && (canKick || canBan))
+        if (ImGui.MenuItem(conversation.Muted ? "Unmute" : "Mute"))
         {
-            if (canKick && ImGui.MenuItem("Kick"))
-            {
-                _ = KickStandardChannelMember(channelId, member.User);
-            }
-
-            if (canBan && ImGui.MenuItem("Ban"))
-            {
-                _ = BanStandardChannelMember(channelId, member.User);
-            }
-
-            hasActions = true;
+            _chatService.SetMuted(conversation.Key, !conversation.Muted);
         }
 
-        if (canAssignRoles && canModerateTarget)
+        if (ImGui.MenuItem("Open pop-out"))
         {
-            if (ImGui.BeginMenu("Roles"))
-            {
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.None, selfRoles);
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Voice, selfRoles);
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.HalfOperator, selfRoles);
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Operator, selfRoles);
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Admin, selfRoles);
-                DrawStandardChannelRoleOption(channelId, member, ChannelUserRole.Owner, selfRoles);
-                ImGui.EndMenu();
-            }
-
-            hasActions = true;
-        }
-
-        if (!hasActions)
-        {
-            ElezenImgui.ColouredWrappedText("No actions available.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+            Mediator.Publish(new OpenChatPopoutMessage(conversation.Key));
         }
 
         ImGui.EndPopup();
     }
 
-    private static ChannelUserRole NormalizeChannelRole(ChannelUserRole roles)
+    private void DrawConversationHeader(ConversationSnapshot conversation, bool hasMemberList)
     {
-        if (roles.HasFlag(ChannelUserRole.Owner)) return ChannelUserRole.Owner;
-        if (roles.HasFlag(ChannelUserRole.Admin)) return ChannelUserRole.Admin;
-        if (roles.HasFlag(ChannelUserRole.Operator)) return ChannelUserRole.Operator;
-        if (roles.HasFlag(ChannelUserRole.HalfOperator)) return ChannelUserRole.HalfOperator;
-        if (roles.HasFlag(ChannelUserRole.Voice)) return ChannelUserRole.Voice;
-        return ChannelUserRole.None;
-    }
-
-    private static bool CanAssignRole(ChannelUserRole actorRoles, ChannelUserRole desiredRole)
-    {
-        var actor = NormalizeChannelRole(actorRoles);
-        if (desiredRole == ChannelUserRole.Owner || desiredRole == ChannelUserRole.Admin)
+        var display = ResolveConversationDisplay(conversation);
+        var headerStart = ImGui.GetCursorPos();
+        ImGuiHelpers.ScaledDummy(6);
+        using (_fontService.UidFont.Push())
         {
-            return actor == ChannelUserRole.Owner;
+            var titleSize = ImGui.CalcTextSize(display.Title);
+            ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - titleSize.X) * 0.5f);
+            ElezenImgui.ColouredText(display.Title, display.Colour ?? SnowcloakColours.OnlineBlue, display.Glow);
         }
 
-        if (desiredRole == ChannelUserRole.Operator || desiredRole == ChannelUserRole.HalfOperator || desiredRole == ChannelUserRole.Voice || desiredRole == ChannelUserRole.None)
+        var subtitle = GetConversationSubtitle(conversation);
+        var subtitleSize = ImGui.CalcTextSize(subtitle);
+        ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - subtitleSize.X) * 0.5f);
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, subtitle);
+        if (conversation.Key.Kind == ConversationKind.Room)
         {
-            return actor == ChannelUserRole.Owner || actor == ChannelUserRole.Admin;
-        }
-
-        return false;
-    }
-
-    private static string GetRoleLabel(ChannelUserRole role)
-    {
-        return role == ChannelUserRole.None ? "None" : role.ToString();
-    }
-
-    private void DrawStandardChannelRoleOption(string channelId, ChannelMemberDto member, ChannelUserRole role, ChannelUserRole selfRoles)
-    {
-        if (!CanAssignRole(selfRoles, role))
-        {
-            return;
-        }
-
-        var currentRole = NormalizeChannelRole(member.Roles);
-        var isSelected = currentRole == role;
-        if (ImGui.MenuItem(GetRoleLabel(role), string.Empty, isSelected) && !isSelected)
-        {
-            _ = UpdateStandardChannelRole(channelId, member.User, role);
-        }
-
-        if (role == ChannelUserRole.Owner && !isSelected && ImGui.IsItemHovered())
-        {
-            ElezenImgui.AttachTooltip("Warning: assigning Owner will transfer channel ownership.");
-        }
-    }
-
-    private void DrawStandardChannelLogHint(ChatChannelKey key)
-    {
-        if (!_joinedStandardChannels.Contains(key.Id))
-        {
-            ElezenImgui.ColouredWrappedText("Join this channel to receive messages.", ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        }
-    }
-
-    private void AppendHistoryMessage(ChatChannelKey channel, SignedChatMessage message)
-    {
-        var displayName = FormatSenderName(channel, message.Sender);
-        var text = DecodeMessage(message.PayloadContent);
-        var timestamp = ResolveTimestamp(message.Timestamp);
-        var senderColor = ResolveSenderColors(channel, message.Sender);
-
-        if (_channelLogs.TryGetValue(channel, out var existing)
-            && existing.Any(entry =>
-                entry.Timestamp == timestamp
-                && string.Equals(entry.Sender, displayName, StringComparison.Ordinal)
-                && string.Equals(entry.Message, text, StringComparison.Ordinal)))
-        {
-            return;
-        }
-
-        AppendMessage(channel, message.Sender.UID, displayName, text, timestamp, markUnread: false, senderColor: senderColor.Foreground, senderGlowColor: senderColor.Glow);
-    }
-
-    private async Task LoadDirectHistory(string uid)
-    {
-        if (_configService.Current.DisableChat) return;
-        if (!_apiController.IsConnected) return;
-        if (_apiController.ServerInfo.ChatHistoryReplayDays <= 0) return;
-        if (!_loadedDirectHistory.Add(uid)) return;
-
-        try
-        {
-            var user = GetUserData(uid);
-            if (user == null) return;
-
-            var history = await _apiController.UserChatGetHistory(new UserDto(user)).ConfigureAwait(false);
-            var channel = new ChatChannelKey(ChannelKind.Direct, uid);
-            foreach (var message in history)
+            var room = _chatService.ListRooms().FirstOrDefault(candidate =>
+                string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(room?.Topic))
             {
-                AppendHistoryMessage(channel, message);
-            }
-
-            if (history.Count > 0)
-            {
-                _pinnedDirectChannels.Add(uid);
+                var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X
+                    - 190f * ImGuiHelpers.GlobalScale;
+                var topic = TrimToWidth(room.Topic, Math.Max(120f * ImGuiHelpers.GlobalScale, availableWidth));
+                var topicSize = ImGui.CalcTextSize(topic);
+                ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - topicSize.X) * 0.5f);
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, topic);
             }
         }
-        catch (Exception ex)
-        {
-            _loadedDirectHistory.Remove(uid);
-            _logger.LogWarning(ex, "Failed to load direct chat history for {Uid}", uid);
-        }
-    }
+        var headerEnd = ImGui.GetCursorPos();
 
-    private async Task LoadSyncshellHistory(string gid)
-    {
-        if (_configService.Current.DisableChat) return;
-        if (!_apiController.IsConnected) return;
-        if (_apiController.ServerInfo.ChatHistoryReplayDays <= 0) return;
-        if (!_loadedSyncshellHistory.Add(gid)) return;
+        var buttonSize = new Vector2(34f, 30f) * ImGuiHelpers.GlobalScale;
+        var actionCount = 2 + (conversation.Key.Kind == ConversationKind.Direct || hasMemberList ? 1 : 0);
+        var actionsWidth = actionCount * buttonSize.X + Math.Max(0, actionCount - 1) * ImGui.GetStyle().ItemSpacing.X;
+        var actionX = ImGui.GetWindowContentRegionMax().X - actionsWidth;
+        var actionY = headerStart.Y + ((headerEnd.Y - headerStart.Y) - buttonSize.Y) * 0.5f;
+        ImGui.SetCursorPos(new Vector2(actionX, actionY));
 
-        var group = GetGroupData(gid);
-        if (group == null)
+        if (conversation.Key.Kind == ConversationKind.Direct)
         {
-            _loadedSyncshellHistory.Remove(gid);
-            return;
-        }
-
-        try
-        {
-            var history = await _apiController.GroupChatGetHistory(new GroupDto(group)).ConfigureAwait(false);
-            var channel = new ChatChannelKey(ChannelKind.Syncshell, gid);
-            foreach (var message in history)
+            var pair = _pairManager.GetPairByUID(conversation.Key.Id);
+            using (ImRaii.Disabled(pair == null))
             {
-                AppendHistoryMessage(channel, message);
-            }
-        }
-        catch (Exception ex)
-        {
-            _loadedSyncshellHistory.Remove(gid);
-            _logger.LogWarning(ex, "Failed to load syncshell chat history for {Gid}", gid);
-        }
-    }
-
-    private async Task AutoJoinSyncshellChats()
-    {
-        if (!_apiController.IsConnected) return;
-
-        foreach (var group in _pairManager.GroupPairs.Keys)
-        {
-          var shellConfig = _shellConfigStore.GetShellConfigForGid(group.GID);
-            if (!shellConfig.Enabled)
-            {
-                continue;
-            }
-
-            try
-            {
-                await _apiController.GroupChatJoin(new GroupDto(group.Group)).ConfigureAwait(false);
-                await RefreshSyncshellChatMembers(group.GID).ConfigureAwait(false);
-                await LoadSyncshellHistory(group.GID).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to auto-join syncshell chat {Gid}", group.GID);
-            }
-        }
-    }
-
-    private async Task RefreshSyncshellChatMembers(string gid)
-    {
-        if (!_apiController.IsConnected) return;
-
-        var group = GetGroupData(gid);
-        if (group == null)
-        {
-            return;
-        }
-
-        try
-        {
-            var members = await _apiController.GroupChatGetMembers(new GroupDto(group)).ConfigureAwait(false);
-            var memberMap = new Dictionary<string, UserData>(StringComparer.Ordinal);
-            foreach (var member in members)
-            {
-                if (!member.IsJoined)
+                if (DrawCompactIconButton(FontAwesomeIcon.UserCircle, buttonSize, "chat-profile"))
                 {
-                    continue;
+                    Mediator.Publish(new ProfileOpenStandaloneMessage(pair!.UserData, pair, FallbackName: pair.PlayerName));
                 }
-
-                memberMap[member.User.UID] = member.User;
             }
-
-            if (memberMap.Count == 0)
-            {
-                _syncshellChatMembers.Remove(gid);
-            }
-            else
-            {
-                _syncshellChatMembers[gid] = memberMap;
-            }
-
-            if (memberMap.ContainsKey(_apiController.UID))
-            {
-                _joinedSyncshellChats.Add(gid);
-            }
-            else
-            {
-                _joinedSyncshellChats.Remove(gid);
-                _loadedSyncshellHistory.Remove(gid);
-            }
+            ElezenImgui.AttachTooltip("Open profile");
+            ImGui.SameLine();
         }
-        catch (Exception ex)
+        else if (hasMemberList)
         {
-            _logger.LogWarning(ex, "Failed to refresh syncshell chat members for {Gid}", gid);
+            if (DrawCompactIconButton(FontAwesomeIcon.PeopleGroup, buttonSize, "chat-members-toggle"))
+            {
+                _showMembers = !_showMembers;
+            }
+            ElezenImgui.AttachTooltip(_showMembers ? "Hide member list" : "Show member list");
+            ImGui.SameLine();
+        }
+
+        var muteIcon = conversation.Muted ? FontAwesomeIcon.BellSlash : FontAwesomeIcon.Bell;
+        if (DrawCompactIconButton(muteIcon, buttonSize, "chat-mute"))
+        {
+            _chatService.SetMuted(conversation.Key, !conversation.Muted);
+        }
+        ElezenImgui.AttachTooltip(conversation.Muted ? "Unmute conversation" : "Mute conversation");
+        ImGui.SameLine();
+
+        if (DrawCompactIconButton(FontAwesomeIcon.ExternalLinkAlt, buttonSize, "chat-popout"))
+        {
+            Mediator.Publish(new OpenChatPopoutMessage(conversation.Key));
+        }
+        ElezenImgui.AttachTooltip("Open conversation in a separate window");
+        ImGui.SetCursorPos(headerEnd);
+        ImGuiHelpers.ScaledDummy(7);
+        ImGui.Separator();
+        ImGuiHelpers.ScaledDummy(4);
+    }
+
+    private static string TrimToWidth(string text, float maxWidth)
+    {
+        if (ImGui.CalcTextSize(text).X <= maxWidth)
+        {
+            return text;
+        }
+
+        const string ellipsis = "…";
+        var length = text.Length;
+        while (length > 0 && ImGui.CalcTextSize(text.AsSpan(0, length).ToString() + ellipsis).X > maxWidth)
+        {
+            length--;
+        }
+        return text.AsSpan(0, length).ToString() + ellipsis;
+    }
+
+    private (string Title, Vector4? Colour, Vector4? Glow, FontAwesomeIcon Icon) ResolveConversationDisplay(
+        ConversationSnapshot conversation)
+    {
+        if (conversation.Key.Kind == ConversationKind.Direct)
+        {
+            var display = _identityResolver.Resolve(conversation.Key.Id);
+            return (display?.Name ?? conversation.Title, display?.Colour, display?.Glow, FontAwesomeIcon.User);
+        }
+
+        if (conversation.Key.Kind == ConversationKind.Syncshell)
+        {
+            var group = _pairManager.Groups.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.GID, conversation.Key.Id, StringComparison.Ordinal));
+            return (group?.GroupAliasOrGID ?? conversation.Title,
+                group == null ? null : Colour.HexToVector4OrNull(group.Group.DisplayColour),
+                null,
+                FontAwesomeIcon.PeopleGroup);
+        }
+
+        return (conversation.Title, SnowcloakColours.OnlineBlue, null, FontAwesomeIcon.Comments);
+    }
+
+    private string GetConversationSubtitle(ConversationSnapshot conversation)
+    {
+        var parts = new List<string>();
+        switch (conversation.Key.Kind)
+        {
+            case ConversationKind.Direct:
+                parts.Add("Direct Pair");
+                parts.Add(_pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true ? "Online" : "Offline");
+                break;
+            case ConversationKind.Syncshell:
+                parts.Add("Syncshell");
+                parts.Add(FormatMemberCount(conversation.Members.Count));
+                break;
+            case ConversationKind.Room:
+                var room = _chatService.ListRooms().FirstOrDefault(candidate =>
+                    string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
+                parts.Add(room?.IsPrivate == true ? "Private Room" : "Room");
+                parts.Add(FormatMemberCount(conversation.Members.Count));
+                break;
+        }
+
+        if (conversation.Muted)
+        {
+            parts.Add("Muted");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private static string FormatMemberCount(int count)
+        => string.Format(CultureInfo.InvariantCulture, "{0} {1}", count, count == 1 ? "Member" : "Members");
+
+    private static FontAwesomeIcon GetConversationIcon(ConversationKind kind)
+        => kind switch
+        {
+            ConversationKind.Direct => FontAwesomeIcon.User,
+            ConversationKind.Syncshell => FontAwesomeIcon.PeopleGroup,
+            ConversationKind.Room => FontAwesomeIcon.Comments,
+            _ => FontAwesomeIcon.Comment,
+        };
+
+    private void DrawSidebarAction(FontAwesomeIcon icon, string label, Action action)
+    {
+        if (!_sidebarCollapsed)
+        {
+            if (ModernSidebar.DrawRow(icon, label, active: false))
+            {
+                action();
+            }
+            return;
+        }
+
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = ImGui.GetContentRegionAvail().X;
+        var height = 28f * scale;
+        var min = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton($"##chat-sidebar-{label}", new Vector2(width, height));
+        var hovered = ImGui.IsItemHovered();
+        if (hovered)
+        {
+            ImGui.SetTooltip(label);
+        }
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+        {
+            action();
+        }
+
+        if (hovered)
+        {
+            ImGui.GetWindowDrawList().AddRectFilled(min, min + new Vector2(width, height),
+                Colour.Vector4ToColour(new Vector4(0.090f, 0.150f, 0.220f, 0.54f)), 3f * scale);
+        }
+
+        var iconText = icon.ToIconString();
+        ImGui.PushFont(UiBuilder.IconFont);
+        var iconSize = ImGui.CalcTextSize(iconText);
+        ImGui.GetWindowDrawList().AddText(min + new Vector2((width - iconSize.X) * 0.5f, (height - iconSize.Y) * 0.5f),
+            Colour.Vector4ToColour(SnowcloakColours.CompactTextMuted), iconText);
+        ImGui.PopFont();
+    }
+
+    private static void DrawSidebarSeparator()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var start = ImGui.GetCursorScreenPos() + new Vector2(6f, 4f) * scale;
+        var end = start with { X = start.X + ImGui.GetContentRegionAvail().X - 12f * scale };
+        ImGui.GetWindowDrawList().AddLine(start, end, Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle), scale);
+        ImGui.Dummy(new Vector2(1f, 9f * scale));
+    }
+
+    private static void DrawCentredSidebarText(string text, Vector4 colour)
+    {
+        var min = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+        var textSize = ImGui.CalcTextSize(text);
+        ImGui.Dummy(new Vector2(1f, textSize.Y));
+        ImGui.GetWindowDrawList().AddText(new Vector2(min.X + (width - textSize.X) * 0.5f, min.Y),
+            Colour.Vector4ToColour(colour), text);
+    }
+
+    private void DrawChatSettingsButton()
+    {
+        var baseColour = new Vector4(0.060f, 0.105f, 0.155f, 0.82f);
+        var hoverColour = new Vector4(0.120f, 0.190f, 0.285f, 0.92f);
+        using var buttonColour = ImRaii.PushColor(ImGuiCol.Button, baseColour);
+        using var buttonHoverColour = ImRaii.PushColor(ImGuiCol.ButtonHovered, hoverColour);
+        using var buttonActiveColour = ImRaii.PushColor(ImGuiCol.ButtonActive, hoverColour);
+        using var borderColour = ImRaii.PushColor(ImGuiCol.Border, SnowcloakColours.OnlineBlue);
+        using var borderSize = ImRaii.PushStyle(ImGuiStyleVar.FrameBorderSize, ImGuiHelpers.GlobalScale);
+        if (ImGui.Button("Chat Settings", new Vector2(-1f, 38f * ImGuiHelpers.GlobalScale)))
+        {
+            Mediator.Publish(new OpenChatSettingsMessage());
         }
     }
 
-    private void ClearSyncshellChatMembers()
+    private void DrawEmptyConversationState()
     {
-        _syncshellChatMembers.Clear();
-        _joinedSyncshellChats.Clear();
-        _loadedSyncshellHistory.Clear();
+        var label = "No conversations yet";
+        var textSize = ImGui.CalcTextSize(label);
+        var available = ImGui.GetContentRegionAvail();
+        ImGui.SetCursorPos(new Vector2(
+            ImGui.GetCursorPosX() + Math.Max(0f, (available.X - textSize.X) * 0.5f),
+            ImGui.GetCursorPosY() + Math.Max(0f, (available.Y - ImGui.GetFrameHeightWithSpacing() * 2f) * 0.5f)));
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, label);
+        var buttonWidth = 140f * ImGuiHelpers.GlobalScale;
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - buttonWidth) * 0.5f));
+        if (ImGui.Button("Browse Rooms", new Vector2(buttonWidth, 0f)))
+        {
+            _openRoomBrowser = true;
+            Queue(_chatService.RefreshAsync(), nameof(ChatClientService.RefreshAsync));
+        }
     }
 
-    private int GetSyncshellChatMemberRank(GroupFullInfoDto? groupInfo, UserData user)
+    private static bool DrawCompactIconButton(FontAwesomeIcon icon, Vector2 size, string id)
     {
-        if (groupInfo == null)
+        var min = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton($"##compact-chat-icon-{id}", size);
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        var hovered = ImGui.IsItemHovered();
+        var max = min + size;
+        var scale = ImGuiHelpers.GlobalScale;
+        var drawList = ImGui.GetWindowDrawList();
+        var background = hovered
+            ? new Vector4(0.120f, 0.190f, 0.285f, 0.92f)
+            : new Vector4(0.060f, 0.105f, 0.155f, 0.82f);
+        var border = hovered ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactBorderSubtle;
+        drawList.AddRectFilled(min, max, Colour.Vector4ToColour(background), 5f * scale);
+        drawList.AddRect(min, max, Colour.Vector4ToColour(border), 5f * scale, ImDrawFlags.None, scale);
+
+        var iconText = icon.ToIconString();
+        ImGui.PushFont(UiBuilder.IconFont);
+        var iconSize = ImGui.CalcTextSize(iconText);
+        drawList.AddText(min + (size - iconSize) * 0.5f, Colour.Vector4ToColour(Vector4.One), iconText);
+        ImGui.PopFont();
+        return clicked;
+    }
+
+    private void DrawMembers(ConversationKey key)
+    {
+        if (key.Kind == ConversationKind.Syncshell)
         {
-            return 1;
+            var group = _pairManager.Groups.Values.FirstOrDefault(candidate => string.Equals(candidate.GID, key.Id, StringComparison.Ordinal));
+            if (group == null || !_pairManager.GroupPairs.TryGetValue(group, out var pairs))
+            {
+                ModernSection.Header(FontAwesomeIcon.PeopleGroup, "Members (0)");
+                return;
+            }
+
+            ModernSection.Header(FontAwesomeIcon.PeopleGroup,
+                string.Format(CultureInfo.InvariantCulture, "Members ({0})", pairs.Count + 1));
+            ImGuiHelpers.ScaledDummy(4);
+            var conversation = _chatService.Store.Snapshot.Conversations
+                .FirstOrDefault(candidate => candidate.Key == key);
+            var roles = conversation?.Members;
+            var labels = conversation?.MemberLabels;
+            var syncshellActorRole = roles?.GetValueOrDefault(_identityResolver.SelfUid) ?? RoomRole.Member;
+            var self = new UserData(_identityResolver.SelfUid, _apiController.VanityId,
+                _apiController.DisplayColour, _apiController.DisplayGlowColour);
+            DrawMemberName(self, syncshellActorRole, labels?.GetValueOrDefault(self.UID), null, syncshellActorRole,
+                online: true, group);
+            foreach (var member in pairs
+                         .Select(pair => (Pair: pair, Role: roles?.GetValueOrDefault(pair.UserData.UID) ?? RoomRole.Member))
+                         .OrderByDescending(member => member.Role)
+                         .ThenByDescending(member => member.Pair.IsOnline)
+                         .ThenBy(member => _identityResolver.Resolve(member.Pair.UserData).Name, StringComparer.OrdinalIgnoreCase))
+            {
+                DrawMemberName(member.Pair.UserData, member.Role, labels?.GetValueOrDefault(member.Pair.UserData.UID),
+                    null, syncshellActorRole, member.Pair.IsOnline, group);
+            }
+
+            return;
         }
 
-        if (groupInfo.Owner != null && string.Equals(groupInfo.Owner.UID, user.UID, StringComparison.Ordinal))
+        var roomData = _chatService.ListRooms().FirstOrDefault(room => string.Equals(room.RoomId, key.Id, StringComparison.Ordinal));
+        if (roomData == null)
         {
-            return 3;
+            ModernSection.Header(FontAwesomeIcon.PeopleGroup, "Members (0)");
+            return;
+        }
+
+        var members = _chatService.GetRoomMembers(key.Id);
+        ModernSection.Header(FontAwesomeIcon.PeopleGroup,
+            string.Format(CultureInfo.InvariantCulture, "Members ({0})", members.Count));
+        var actorRole = members.FirstOrDefault(member => string.Equals(member.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal))?.Role
+                        ?? RoomRole.Member;
+        DrawRoomControls(roomData, actorRole);
+        foreach (var member in members)
+        {
+            DrawMemberName(member.User, member.Role, null, roomData, actorRole, online: true, null);
+        }
+    }
+
+    private void DrawRoomControls(RoomData room, RoomRole actorRole)
+    {
+        if (!string.IsNullOrWhiteSpace(room.Topic))
+        {
+            ImGuiHelpers.ScaledDummy(4);
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Topic");
+            ImGui.TextWrapped(room.Topic);
+        }
+
+        if (actorRole >= RoomRole.Moderator)
+        {
+            ImGuiHelpers.ScaledDummy(4);
+            if (ImGui.Button("Room administration", new Vector2(-1f, 0f)))
+            {
+                Mediator.Publish(new OpenRoomAdministrationMessage(room.RoomId));
+            }
+        }
+
+        ImGuiHelpers.ScaledDummy(4);
+        if (ImGui.Button("Leave room", new Vector2(-1f, 0f)))
+        {
+            Queue(_chatService.LeaveRoomAsync(room), nameof(ChatClientService.LeaveRoomAsync));
+        }
+
+        ImGuiHelpers.ScaledDummy(4);
+        ImGui.Separator();
+        ImGuiHelpers.ScaledDummy(4);
+    }
+
+    private void DrawMemberName(UserData user, RoomRole role, IReadOnlyList<string>? memberLabels, RoomData? room,
+        RoomRole actorRole, bool online, GroupFullInfoDto? syncshell)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = ImGui.GetContentRegionAvail().X;
+        var height = 32f * scale;
+        var min = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton($"##member-{user.UID}", new Vector2(width, height));
+        var hovered = ImGui.IsItemHovered();
+        if (hovered)
+        {
+            ImGui.GetWindowDrawList().AddRectFilled(min, min + new Vector2(width, height),
+                Colour.Vector4ToColour(new Vector4(0.090f, 0.150f, 0.220f, 0.54f)), 3f * scale);
+        }
+
+        DrawMemberContextMenu(user, role, room, actorRole, syncshell);
+        var drawList = ImGui.GetWindowDrawList();
+        var badgeX = min.X + 7f * scale;
+        var hasPermissionBadge = role != RoomRole.Member;
+        if (role != RoomRole.Member)
+        {
+            DrawMemberBadge(drawList, min, height, scale, ref badgeX,
+                role == RoomRole.Owner ? FontAwesomeIcon.Crown : FontAwesomeIcon.UserShield,
+                SnowcloakColours.OnlineBlue);
+        }
+
+        var hasMemberLabel = SyncshellMemberLabelUi.TryGetPresenceOverride(memberLabels, out var labelIcon,
+            out var labelColour, out var labelTooltip);
+        if (hasMemberLabel)
+        {
+            DrawMemberBadge(drawList, min, height, scale, ref badgeX, labelIcon, labelColour);
+        }
+
+        if (!hasPermissionBadge && !hasMemberLabel)
+        {
+            DrawMemberBadge(drawList, min, height, scale, ref badgeX, FontAwesomeIcon.User,
+                SnowcloakColours.CompactTextMuted);
+        }
+
+        var display = _identityResolver.Resolve(user.UID) ?? _identityResolver.Resolve(user);
+        var cursor = ImGui.GetCursorPos();
+        var textX = badgeX + 1f * scale;
+        ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(min.X + width - 16f * scale, min.Y + height), true);
+        ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - ImGui.GetTextLineHeight()) * 0.5f));
+        ElezenImgui.ColouredText(display.Name, display.Colour, display.Glow);
+        ImGui.PopClipRect();
+        ImGui.SetCursorPos(cursor);
+
+        var statusColour = online ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactOffline;
+        drawList.AddCircleFilled(new Vector2(min.X + width - 7f * scale, min.Y + height * 0.5f), 3f * scale,
+            Colour.Vector4ToColour(statusColour));
+        if (hovered)
+        {
+            var tooltip = display.Name;
+            if (role != RoomRole.Member)
+            {
+                tooltip += $"\n{role}";
+            }
+            if (hasMemberLabel)
+            {
+                tooltip += $"\n{labelTooltip}";
+            }
+            ImGui.SetTooltip(tooltip);
+        }
+    }
+
+    private static void DrawMemberBadge(ImDrawListPtr drawList, Vector2 min, float height, float scale,
+        ref float badgeX, FontAwesomeIcon icon, Vector4 colour)
+    {
+        var iconText = icon.ToIconString();
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            var iconSize = ImGui.CalcTextSize(iconText);
+            drawList.AddText(new Vector2(badgeX, min.Y + (height - iconSize.Y) * 0.5f),
+                Colour.Vector4ToColour(colour), iconText);
+            badgeX += iconSize.X + 6f * scale;
+        }
+    }
+
+    private void DrawMemberContextMenu(UserData user, RoomRole role, RoomData? room, RoomRole actorRole,
+        GroupFullInfoDto? syncshell)
+    {
+        if (!ImGui.BeginPopupContextItem($"member-actions-{user.UID}"))
+        {
+            return;
         }
 
         var pair = _pairManager.GetPairByUID(user.UID);
-        if (pair != null && IsModerator(pair, groupInfo))
+        if (pair != null && ImGui.MenuItem("Open profile"))
         {
-            return 2;
+            Mediator.Publish(new ProfileOpenStandaloneMessage(user, pair));
         }
 
-        return 1;
-    }
-
-    private async Task RefreshStandardChannels()
-    {
-        if (!_apiController.IsConnected) return;
-
-        try
+        if (ImGui.MenuItem("Edit note"))
         {
-            var channels = await _apiController.ChannelList().ConfigureAwait(false);
-            _standardChannels.Clear();
-            _standardChannelLookup.Clear();
+            _noteUid = user.UID;
+            _noteDraft = _notesStore.GetNoteForUid(user.UID) ?? string.Empty;
+            _openNoteEditor = true;
+        }
 
-            foreach (var channel in channels.Select(dto => dto.Channel).Where(channel => channel.Type == ChannelType.Standard))
+        if (pair?.UserPair != null)
+        {
+            if (ImGui.MenuItem("Change permissions"))
             {
-                _standardChannels.Add(channel);
-                _standardChannelLookup[channel.ChannelId] = channel;
-            }
-            MergeSavedStandardChannels();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to refresh standard channels.");
-        }
-    }
-
-    private void ClearStandardChannels()
-    {
-        _standardChannels.Clear();
-        _standardChannelLookup.Clear();
-        _standardChannelMembers.Clear();
-        LoadSavedStandardChannels();
-    }
-
-    private void LoadSavedStandardChannels()
-    {
-        _joinedStandardChannels.Clear();
-        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
-        {
-            _joinedStandardChannels.Add(channel.ChannelId);
-            if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
-            {
-                _standardChannels.Add(channel);
-                _standardChannelLookup[channel.ChannelId] = channel;
-            }
-        }
-    }
-
-    private void MergeSavedStandardChannels()
-    {
-        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
-        {
-            if (!_standardChannelLookup.ContainsKey(channel.ChannelId))
-            {
-                _standardChannels.Add(channel);
-                _standardChannelLookup[channel.ChannelId] = channel;
-            }
-        }
-
-        _joinedStandardChannels.Clear();
-        foreach (var channel in _shellConfigStore.GetJoinedStandardChannels())
-        {
-            _joinedStandardChannels.Add(channel.ChannelId);
-        }
-    }
-
-    private void TrackStandardChannel(ChatChannelData channel)
-    {
-        _standardChannels.RemoveAll(existing => string.Equals(existing.ChannelId, channel.ChannelId, StringComparison.Ordinal));
-        _standardChannels.Add(channel);
-        _standardChannelLookup[channel.ChannelId] = channel;
-    }
-
-    private void UpdateJoinedStandardChannel(ChatChannelData channel, bool isJoined)
-    {
-        if (isJoined)
-        {
-            _joinedStandardChannels.Add(channel.ChannelId);
-            _shellConfigStore.UpsertJoinedStandardChannel(channel);
-        }
-        else
-        {
-            _joinedStandardChannels.Remove(channel.ChannelId);
-            _shellConfigStore.RemoveJoinedStandardChannel(channel.ChannelId);
-        }
-    }
-
-    private void OnStandardChannelMembershipChanged(StandardChannelMembershipChangedMessage message)
-    {
-        if (message.IsJoined)
-        {
-            TrackStandardChannel(message.Channel);
-            UpdateJoinedStandardChannel(message.Channel, true);
-        }
-        else
-        {
-            UpdateJoinedStandardChannel(message.Channel, false);
-            _standardChannelMembers.Remove(message.Channel.ChannelId);
-        }
-    }
-
-    private async Task AutoJoinStandardChannels()
-    {
-        if (!_apiController.IsConnected) return;
-
-        // Iterate a snapshot so membership updates can safely mutate persisted channel state.
-        var channelsToJoin = _shellConfigStore.GetJoinedStandardChannels().ToList();
-        foreach (var channel in channelsToJoin)
-        {
-            await JoinStandardChannel(channel).ConfigureAwait(false);
-        }
-    }
-
-    private async Task RefreshStandardChannelMembers(string channelId)
-    {
-        if (!_apiController.IsConnected) return;
-
-        var channel = GetStandardChannel(channelId);
-        if (channel == null) return;
-
-        try
-        {
-            var members = await _apiController.ChannelGetMembers(new ChannelDto(channel)).ConfigureAwait(false);
-            _standardChannelMembers[channelId] = members;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to refresh standard channel members.");
-        }
-    }
-
-    private async Task KickStandardChannelMember(string channelId, UserData user)
-    {
-        if (!_apiController.IsConnected) return;
-
-        var channel = GetStandardChannel(channelId);
-        if (channel == null) return;
-
-        try
-        {
-            await _apiController.ChannelKick(new ChannelKickDto(channel, user)).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to kick channel member.");
-            Mediator.Publish(new NotificationMessage(
-                "Kick failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
-        }
-    }
-
-    private async Task BanStandardChannelMember(string channelId, UserData user)
-    {
-        if (!_apiController.IsConnected) return;
-
-        var channel = GetStandardChannel(channelId);
-        if (channel == null) return;
-
-        try
-        {
-            await _apiController.ChannelBan(new ChannelBanDto(channel, user, 0)).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to ban channel member.");
-            Mediator.Publish(new NotificationMessage(
-                "Ban failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
-        }
-    }
-
-    private async Task UpdateStandardChannelRole(string channelId, UserData user, ChannelUserRole roles)
-    {
-        if (!_apiController.IsConnected) return;
-
-        var channel = GetStandardChannel(channelId);
-        if (channel == null) return;
-
-        try
-        {
-            await _apiController.ChannelSetRole(new ChannelRoleUpdateDto(channel, user, roles)).ConfigureAwait(false);
-            await RefreshStandardChannelMembers(channelId).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to update channel member role.");
-            Mediator.Publish(new NotificationMessage(
-                "Role update failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
-        }
-    }
-
-    private async Task JoinStandardChannel(ChatChannelData channel)
-    {
-        if (!_apiController.IsConnected) return;
-
-        try
-        {
-            var member = await _apiController.ChannelJoin(new ChannelDto(channel)).ConfigureAwait(false);
-            if (member != null)
-            {
-                TrackStandardChannel(member.Channel);
-                _ = RefreshStandardChannelMembers(member.Channel.ChannelId);
-                Mediator.Publish(new StandardChannelMembershipChangedMessage(member.Channel, true));
-                return;
+                Mediator.Publish(new OpenPermissionWindow(pair));
             }
 
-            if (MaybeRemoveJoinedStandardChannel(channel))
+            if (ImGui.MenuItem(pair.IsPaused ? "Resume pairing" : "Pause pairing"))
             {
-                NotifyStandardChannelJoinFailure(channel, "You may no longer have access to this channel.");
+                Mediator.Publish(new CyclePauseMessage(pair.UserData));
             }
         }
-        catch (Exception ex)
+        else if (!string.Equals(user.UID, _identityResolver.SelfUid, StringComparison.Ordinal)
+                 && ImGui.MenuItem("Add pair"))
         {
-            if (IsPermanentChannelJoinFailure(ex))
+            Queue(_apiController.UserAddPair(new(new(user.UID))), nameof(ApiController.UserAddPair));
+        }
+
+        if (syncshell != null && pair != null
+            && !string.Equals(user.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
+        {
+            var actorIsOwner = string.Equals(syncshell.OwnerUID, _identityResolver.SelfUid, StringComparison.Ordinal);
+            var actorIsModerator = syncshell.GroupUserInfo.IsModerator();
+            var targetIsOwner = string.Equals(syncshell.OwnerUID, user.UID, StringComparison.Ordinal);
+            var targetInfo = pair.GroupPair.TryGetValue(syncshell, out var membership)
+                ? membership.GroupPairStatusInfo
+                : GroupUserInfo.None;
+            var targetIsModerator = targetInfo.IsModerator();
+            var canModerate = !targetIsOwner && (actorIsOwner || (actorIsModerator && !targetIsModerator));
+
+            if (actorIsOwner && !targetIsOwner)
             {
-                _logger.LogWarning(ex, "Standard channel join failed permanently.");
-                if (MaybeRemoveJoinedStandardChannel(channel))
+                ImGui.Separator();
+                if (ImGui.MenuItem(targetIsModerator ? "Remove moderator" : "Make moderator"))
                 {
-                    NotifyStandardChannelJoinFailure(channel, "This channel may no longer exist.");
+                    targetInfo.SetModerator(!targetIsModerator);
+                    Queue(_apiController.GroupSetUserInfo(new GroupPairUserInfoDto(syncshell.Group, user, targetInfo)),
+                        nameof(ApiController.GroupSetUserInfo));
                 }
-                return;
             }
-            _logger.LogWarning(ex, "Failed to join standard channel.");
-            Mediator.Publish(new NotificationMessage(
-                "Channel join failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
+
+            if (canModerate)
+            {
+                var controlHeld = ElezenImgui.CtrlPressed();
+                if (ImGui.MenuItem("Remove from syncshell", "Hold CTRL", false, controlHeld))
+                {
+                    Queue(_apiController.GroupRemoveUser(new GroupPairDto(syncshell.Group, user)),
+                        nameof(ApiController.GroupRemoveUser));
+                }
+
+                if (ImGui.MenuItem("Ban from syncshell", "Hold CTRL", false, controlHeld))
+                {
+                    Mediator.Publish(new OpenBanUserPopupMessage(pair, syncshell));
+                }
+            }
         }
-    }
 
-    private bool MaybeRemoveJoinedStandardChannel(ChatChannelData channel)
-    {
-        if (!_joinedStandardChannels.Contains(channel.ChannelId)) return false;
-        Mediator.Publish(new StandardChannelMembershipChangedMessage(channel, false));
-        return true;
-    }
-
-    private void NotifyStandardChannelJoinFailure(ChatChannelData channel, string reason)
-    {
-        var channelName = string.IsNullOrWhiteSpace(channel.Name) ? channel.ChannelId : channel.Name;
-        Mediator.Publish(new NotificationMessage(
-            "Channel join failed",
-            $"Could not rejoin '{channelName}'. {reason} It was removed from your joined channels list.",
-            NotificationType.Warning,
-            TimeSpan.FromSeconds(7.5)));
-    }
-
-    private static bool IsPermanentChannelJoinFailure(Exception ex)
-    {
-        foreach (var message in EnumerateExceptionMessages(ex))
+        if (room != null && actorRole >= RoomRole.Moderator
+            && role < actorRole && !string.Equals(user.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
         {
-            if (message.Contains("Invalid channel payload", StringComparison.OrdinalIgnoreCase))
+            if (actorRole == RoomRole.Owner && ImGui.BeginMenu("Set role"))
             {
-                return true;
+                foreach (var targetRole in Enum.GetValues<RoomRole>())
+                {
+                    var label = targetRole == RoomRole.Owner ? "Transfer ownership" : targetRole.ToString();
+                    if (ImGui.MenuItem(label, string.Empty, role == targetRole))
+                    {
+                        Queue(_chatService.SetRoleAsync(room, user, targetRole), nameof(ChatClientService.SetRoleAsync));
+                    }
+                }
+
+                ImGui.EndMenu();
             }
 
-            // Handle known and variant server texts for deleted/missing channels.
-            if (message.Contains("Channel not found", StringComparison.OrdinalIgnoreCase)
-                || (message.Contains("channel", StringComparison.OrdinalIgnoreCase)
-                    && message.Contains("not found", StringComparison.OrdinalIgnoreCase)))
+            if (ImGui.MenuItem("Kick"))
             {
-                return true;
+                Queue(_chatService.KickAsync(room, user), nameof(ChatClientService.KickAsync));
+            }
+
+            if (ImGui.MenuItem("Ban"))
+            {
+                Queue(_chatService.BanAsync(room, user), nameof(ChatClientService.BanAsync));
             }
         }
 
-        return false;
-    }
-
-    private static IEnumerable<string> EnumerateExceptionMessages(Exception ex)
-    {
-        for (var current = ex; current != null; current = current.InnerException)
+        if (syncshell != null && actorRole >= RoomRole.Moderator)
         {
-            if (!string.IsNullOrWhiteSpace(current.Message))
+            ImGui.Separator();
+            if (ImGui.MenuItem("Open syncshell admin"))
             {
-                yield return current.Message;
+                Mediator.Publish(new OpenSyncshellAdminPanel(syncshell));
+            }
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawNoteEditor()
+    {
+        if (_openNoteEditor)
+        {
+            _openNoteEditor = false;
+            ImGui.OpenPopup("Edit member note");
+        }
+
+        if (!ImGui.BeginPopupModal("Edit member note", ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
+        ImGui.InputText("Note", ref _noteDraft, 255);
+        if (ImGui.Button("Save") && _noteUid != null)
+        {
+            _notesStore.SetNoteForUid(_noteUid, _noteDraft);
+            _noteUid = null;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            _noteUid = null;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawRoomBrowser()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var viewport = ImGui.GetMainViewport();
+        var desiredSize = Vector2.Min(new Vector2(700f, 460f) * scale, viewport.WorkSize - new Vector2(32f, 48f) * scale);
+        ImGui.SetNextWindowSize(desiredSize, ImGuiCond.Appearing);
+        using var popupBackground = ImRaii.PushColor(ImGuiCol.PopupBg, SnowcloakColours.CompactBg);
+        using var popupPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        if (!ImGui.BeginPopupModal("Rooms browser"))
+        {
+            return;
+        }
+
+        if (_closeRoomBrowser)
+        {
+            _closeRoomBrowser = false;
+            ImGui.CloseCurrentPopup();
+            ImGui.EndPopup();
+            return;
+        }
+
+        DrawRoomBrowserHeader();
+
+        var contentPadding = 18f * scale;
+        ImGui.SetCursorPos(ImGui.GetCursorPos() + new Vector2(contentPadding));
+        var available = ImGui.GetContentRegionAvail() - new Vector2(contentPadding, contentPadding);
+        using (var contentBackground = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactBg))
+        using (var content = ImRaii.Child("room-browser-content", new Vector2(available.X, available.Y), false))
+        {
+            if (_showRoomCreation)
+            {
+                DrawRoomCreationPanel();
+            }
+            else
+            {
+                DrawRoomDirectory();
+            }
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawRoomBrowserHeader()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        using var headerBackground = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
+        using var headerPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(18f, 10f) * scale);
+        using var header = ImRaii.Child("room-browser-header", new Vector2(-1f, 52f * scale), false,
+            ImGuiWindowFlags.AlwaysUseWindowPadding | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, FontAwesomeIcon.Comments.ToIconString());
+        }
+
+        ImGui.SameLine(0f, 10f * scale);
+        var titleX = ImGui.GetCursorPosX();
+        ImGui.TextUnformatted(_showRoomCreation ? "Create a room" : "Room directory");
+        ImGui.SetCursorPosX(titleX);
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted,
+            _showRoomCreation ? "Set up a permanent room" : "Find public rooms and rooms shared with you");
+
+        var closeSize = new Vector2(28f) * scale;
+        ImGui.SetCursorPos(new Vector2(ImGui.GetWindowContentRegionMax().X - closeSize.X, 14f * scale));
+        if (DrawCompactIconButton(FontAwesomeIcon.Times, closeSize, "room-browser-close"))
+        {
+            ImGui.CloseCurrentPopup();
+        }
+    }
+
+    private void DrawRoomCreationPanel()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var formWidth = Math.Min(480f * scale, ImGui.GetContentRegionAvail().X);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (ImGui.GetContentRegionAvail().X - formWidth) * 0.5f));
+        using var panelBackground = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
+        using var panelPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(18f, 16f) * scale);
+        using var panel = ImRaii.Child("room-create-panel", new Vector2(formWidth, -1f), true);
+
+        DrawRoomBrowserSectionTitle(FontAwesomeIcon.PlusCircle, "Room details");
+        ImGuiHelpers.ScaledDummy(10f);
+
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "NAME");
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##new-room-name", "Room name", ref _roomName, 40);
+        var roomNameValid = IsRoomNameValid(_roomName);
+        var roomNameColour = string.IsNullOrWhiteSpace(_roomName) || roomNameValid
+            ? SnowcloakColours.CompactTextMuted
+            : ImGuiColors.DalamudRed;
+        ElezenImgui.ColouredWrappedText(
+            roomNameValid || string.IsNullOrWhiteSpace(_roomName)
+                ? "1–40 characters: letters, numbers, underscores and hyphens."
+                : "Start with a letter or number and do not use spaces or other symbols.",
+            roomNameColour);
+        ImGuiHelpers.ScaledDummy(7f);
+
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "TOPIC");
+        ImGui.InputTextMultiline("##new-room-topic", ref _roomTopic, 200, new Vector2(-1f, 76f * scale));
+        ImGuiHelpers.ScaledDummy(10f);
+
+        ImGui.Checkbox("Private room", ref _privateRoom);
+        ElezenImgui.ColouredWrappedText(
+            _privateRoom ? "Only invited users can find and join." : "Visible to everyone in the room directory.",
+            SnowcloakColours.CompactTextMuted);
+
+        if (!string.IsNullOrWhiteSpace(_roomStatus))
+        {
+            ImGuiHelpers.ScaledDummy(8f);
+            ElezenImgui.ColouredWrappedText(_roomStatus,
+                _creatingRoom ? SnowcloakColours.OnlineBlue : ImGuiColors.DalamudRed);
+        }
+        ImGuiHelpers.ScaledDummy(14f);
+
+        var buttonHeight = 32f * scale;
+        var spacing = 8f * scale;
+        var buttonWidth = (ImGui.GetContentRegionAvail().X - spacing) * 0.5f;
+        if (DrawRoomBrowserButton(FontAwesomeIcon.ArrowLeft, "Back", "cancel-create-room",
+                new Vector2(buttonWidth, buttonHeight), false))
+        {
+            _showRoomCreation = false;
+            _roomStatus = string.Empty;
+        }
+        ImGui.SameLine(0f, spacing);
+        var canCreate = roomNameValid && !_creatingRoom;
+        if (DrawRoomBrowserButton(FontAwesomeIcon.Plus, "Create room", "create-room",
+                new Vector2(buttonWidth, buttonHeight), true, canCreate))
+        {
+            _creatingRoom = true;
+            _roomStatus = "Creating room...";
+            Queue(CreateRoomAsync(_roomName.Trim(), _roomTopic, _privateRoom), nameof(ChatClientService.CreateRoomAsync));
+        }
+    }
+
+    private static bool IsRoomNameValid(string value)
+    {
+        var name = value.Trim();
+        if (name.Length is < 1 or > 40 || !char.IsAsciiLetterOrDigit(name[0]))
+        {
+            return false;
+        }
+
+        return name.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
+    }
+
+    private void DrawRoomDirectory()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var spacing = 8f * scale;
+        var refreshSize = new Vector2(28f) * scale;
+        var createWidth = 116f * scale;
+        ImGui.SetNextItemWidth(Math.Max(120f * scale,
+            ImGui.GetContentRegionAvail().X - refreshSize.X - createWidth - spacing * 2f));
+        ImGui.InputTextWithHint("##room-search", "Search room names and topics", ref _roomSearch, 80);
+        ImGui.SameLine(0f, spacing);
+        if (DrawCompactIconButton(FontAwesomeIcon.SyncAlt, refreshSize, "room-browser-refresh"))
+        {
+            _roomStatus = "Refreshing rooms...";
+            Queue(RefreshRoomsAsync(), nameof(ChatClientService.RefreshAsync));
+        }
+        ElezenImgui.AttachTooltip("Refresh room directory");
+        ImGui.SameLine(0f, spacing);
+        if (DrawRoomBrowserButton(FontAwesomeIcon.Plus, "New room", "show-create-room",
+                new Vector2(createWidth, refreshSize.Y), true))
+        {
+            _showRoomCreation = true;
+            _roomStatus = string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_roomStatus))
+        {
+            ImGuiHelpers.ScaledDummy(4f);
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, _roomStatus);
+        }
+        ImGuiHelpers.ScaledDummy(8f);
+
+        using var list = ImRaii.Child("room-directory-list", new Vector2(-1f, -1f), false);
+        var rooms = _chatService.ListRooms()
+            .Where(room => string.IsNullOrWhiteSpace(_roomSearch)
+                           || room.Name.Contains(_roomSearch, StringComparison.OrdinalIgnoreCase)
+                           || (room.Topic?.Contains(_roomSearch, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToArray();
+        if (rooms.Length == 0)
+        {
+            DrawEmptyRoomDirectory(!string.IsNullOrWhiteSpace(_roomSearch));
+            return;
+        }
+
+        var counts = _chatService.SnapshotRoomCounts();
+        var joinedRooms = _chatService.Store.Snapshot.Conversations
+            .Where(conversation => conversation.Key.Kind == ConversationKind.Room)
+            .Select(conversation => conversation.Key.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var room in rooms)
+        {
+            DrawRoomDirectoryCard(room, counts.GetValueOrDefault(room.RoomId), joinedRooms.Contains(room.RoomId));
+            ImGuiHelpers.ScaledDummy(6f);
+        }
+    }
+
+    private static void DrawRoomBrowserSectionTitle(FontAwesomeIcon icon, string title)
+    {
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, icon.ToIconString());
+        }
+
+        ImGui.SameLine();
+        ImGui.TextUnformatted(title);
+    }
+
+    private void DrawRoomDirectoryCard(RoomData room, int memberCount, bool joined)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        using var id = ImRaii.PushId(room.RoomId);
+        using var cardBackground = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
+        using var cardBorder = ImRaii.PushColor(ImGuiCol.Border, SnowcloakColours.CompactBorderSubtle);
+        using var cardPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * scale);
+        using var card = ImRaii.Child("room-card", new Vector2(-1f, 76f * scale), true,
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+
+        var actionWidth = 86f * scale;
+        var textWidth = Math.Max(80f * scale, ImGui.GetContentRegionAvail().X - actionWidth - 14f * scale);
+        var roomIcon = room.IsPrivate ? FontAwesomeIcon.Lock : FontAwesomeIcon.DoorOpen;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            ImGui.TextColored(room.IsPrivate ? ImGuiColors.DalamudYellow : SnowcloakColours.OnlineBlue, roomIcon.ToIconString());
+        }
+
+        ImGui.SameLine();
+        var memberLabel = string.Format(CultureInfo.InvariantCulture, "{0} {1}", memberCount, memberCount == 1 ? "member" : "members");
+        var memberWidth = ImGui.CalcTextSize(memberLabel).X;
+        ImGui.TextUnformatted(TrimToWidth(room.Name, Math.Max(40f * scale, textWidth - memberWidth - 30f * scale)));
+        ImGui.SameLine();
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, memberLabel);
+
+        var topic = string.IsNullOrWhiteSpace(room.Topic) ? "No topic set" : room.Topic;
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, TrimToWidth(topic, textWidth));
+
+        ImGui.SetCursorPos(new Vector2(ImGui.GetWindowContentRegionMax().X - actionWidth, 22f * scale));
+        if (joined)
+        {
+            if (DrawRoomBrowserButton(FontAwesomeIcon.ArrowRight, "Open", "open-room", new Vector2(actionWidth, 30f * scale), false))
+            {
+                Select(new ConversationKey(ConversationKind.Room, room.RoomId));
+                _closeRoomBrowser = true;
+            }
+        }
+        else if (DrawRoomBrowserButton(FontAwesomeIcon.Plus, "Join", "join-room", new Vector2(actionWidth, 30f * scale), true))
+        {
+            _roomStatus = string.Format(CultureInfo.InvariantCulture, "Joining {0}...", room.Name);
+            Queue(JoinRoomAsync(room), nameof(ChatClientService.JoinRoomAsync));
+        }
+    }
+
+    private void DrawEmptyRoomDirectory(bool filtered)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var title = filtered ? "No matching rooms" : "No rooms yet";
+        var message = filtered ? "Try a different name or topic." : "Create the first room, or refresh to check again.";
+        var available = ImGui.GetContentRegionAvail();
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max(20f * scale, available.Y * 0.28f));
+        var icon = filtered ? FontAwesomeIcon.Search : FontAwesomeIcon.Comments;
+        var iconText = icon.ToIconString();
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            var iconSize = ImGui.CalcTextSize(iconText);
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - iconSize.X) * 0.5f));
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, iconText);
+        }
+
+        var titleSize = ImGui.CalcTextSize(title);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - titleSize.X) * 0.5f));
+        ImGui.TextUnformatted(title);
+        var messageSize = ImGui.CalcTextSize(message);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - messageSize.X) * 0.5f));
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, message);
+        ImGuiHelpers.ScaledDummy(10f);
+
+        var buttonWidth = 150f * scale;
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - buttonWidth) * 0.5f));
+        if (DrawRoomBrowserButton(filtered ? FontAwesomeIcon.Times : FontAwesomeIcon.Plus,
+                filtered ? "Clear search" : "Create a room", "empty-room-action",
+                new Vector2(buttonWidth, 30f * scale), !filtered))
+        {
+            if (filtered)
+            {
+                _roomSearch = string.Empty;
+            }
+            else
+            {
+                _showRoomCreation = true;
             }
         }
     }
 
-    private async Task LeaveStandardChannel(ChatChannelData channel)
+    private static bool DrawRoomBrowserButton(FontAwesomeIcon icon, string label, string id, Vector2 requestedSize,
+        bool primary, bool enabled = true)
     {
-        if (!_apiController.IsConnected) return;
+        var scale = ImGuiHelpers.GlobalScale;
+        var width = requestedSize.X < 0f ? ImGui.GetContentRegionAvail().X : requestedSize.X;
+        var size = new Vector2(width, requestedSize.Y);
+        var min = ImGui.GetCursorScreenPos();
+        using var disabled = ImRaii.Disabled(!enabled);
+        ImGui.InvisibleButton("##room-browser-button-" + id, size);
+        var clicked = enabled && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        var hovered = enabled && ImGui.IsItemHovered();
+        var active = enabled && ImGui.IsItemActive();
+        var background = !enabled
+            ? new Vector4(0.070f, 0.100f, 0.130f, 0.72f)
+            : primary
+                ? active
+                    ? new Vector4(0.230f, 0.480f, 0.760f, 1f)
+                    : hovered ? new Vector4(0.190f, 0.400f, 0.650f, 1f) : new Vector4(0.145f, 0.290f, 0.470f, 1f)
+                : hovered ? new Vector4(0.120f, 0.190f, 0.285f, 0.92f) : new Vector4(0.060f, 0.105f, 0.155f, 0.82f);
+        var border = hovered ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactBorderSubtle;
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(min, min + size, Colour.Vector4ToColour(background), 4f * scale);
+        drawList.AddRect(min, min + size, Colour.Vector4ToColour(border), 4f * scale, ImDrawFlags.None, scale);
 
+        var iconText = icon.ToIconString();
+        Vector2 iconSize;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            iconSize = ImGui.CalcTextSize(iconText);
+        }
+
+        var labelSize = ImGui.CalcTextSize(label);
+        var gap = 7f * scale;
+        var contentWidth = iconSize.X + gap + labelSize.X;
+        var iconPosition = min + new Vector2((size.X - contentWidth) * 0.5f, (size.Y - iconSize.Y) * 0.5f);
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            drawList.AddText(iconPosition, Colour.Vector4ToColour(enabled ? Vector4.One : SnowcloakColours.CompactTextMuted), iconText);
+        }
+
+        drawList.AddText(new Vector2(iconPosition.X + iconSize.X + gap, min.Y + (size.Y - labelSize.Y) * 0.5f),
+            Colour.Vector4ToColour(enabled ? Vector4.One : SnowcloakColours.CompactTextMuted), label);
+        return clicked;
+    }
+
+    private async Task RefreshRoomsAsync()
+    {
         try
         {
-            await _apiController.ChannelLeave(new ChannelDto(channel)).ConfigureAwait(false);
-            _standardChannelMembers.Remove(channel.ChannelId);
-            Mediator.Publish(new StandardChannelMembershipChangedMessage(channel, false));
+            await _chatService.RefreshAsync().ConfigureAwait(false);
+            _uiUpdates.Enqueue(() => _roomStatus = string.Empty);
         }
-        catch (Exception ex)
+        catch (HubException ex)
         {
-            _logger.LogWarning(ex, "Failed to leave standard channel.");
-            Mediator.Publish(new NotificationMessage(
-                "Leave failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
+            _uiUpdates.Enqueue(() => _roomStatus = ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _uiUpdates.Enqueue(() => _roomStatus = ex.Message);
         }
     }
 
-    private async Task UpdateStandardChannelTopic(ChatChannelData channel, string? topic)
+    private async Task CreateRoomAsync(string name, string topic, bool isPrivate)
     {
-        if (!_apiController.IsConnected) return;
-        if (!CanEditStandardChannelTopic(channel.ChannelId)) return;
-
         try
         {
-            var trimmedTopic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim();
-            await _apiController.ChannelSetTopic(new ChannelTopicUpdateDto(channel, trimmedTopic))
-                .ConfigureAwait(false);
-            channel.Topic = trimmedTopic;
-            TrackStandardChannel(channel);
-            if (_joinedStandardChannels.Contains(channel.ChannelId))
+            var room = await _chatService.CreateRoomAsync(name, topic, isPrivate).ConfigureAwait(false);
+            _uiUpdates.Enqueue(() =>
             {
-                _shellConfigStore.UpsertJoinedStandardChannel(channel);
-            }
-            _standardChannelTopicDraft = trimmedTopic ?? string.Empty;
-            _isEditingStandardChannelTopic = false;
+                _roomName = string.Empty;
+                _roomTopic = string.Empty;
+                _roomStatus = string.Empty;
+                _creatingRoom = false;
+                Select(new ConversationKey(ConversationKind.Room, room.RoomId));
+                _closeRoomBrowser = true;
+            });
         }
-        catch (Exception ex)
+        catch (HubException ex)
         {
-            _logger.LogWarning(ex, "Failed to update standard channel topic.");
-            Mediator.Publish(new NotificationMessage(
-                "Topic update failed",
-                ex.Message,
-                NotificationType.Warning,
-                TimeSpan.FromSeconds(6)));
+            _uiUpdates.Enqueue(() =>
+            {
+                _roomStatus = ex.Message;
+                _creatingRoom = false;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _uiUpdates.Enqueue(() =>
+            {
+                _roomStatus = ex.Message;
+                _creatingRoom = false;
+            });
         }
     }
-    
-    private void ResetChatState()
+
+    private async Task JoinRoomAsync(RoomData room)
     {
-        _channelLogs.Clear();
-        _selectedChannel = null;
-        _pendingMessage = string.Empty;
-        _standardChannelTopicDraft = string.Empty;
-        _isEditingStandardChannelTopic = false;
-        _pinnedDirectChannels.Clear();
-        _loadedDirectHistory.Clear();
-        _loadedSyncshellHistory.Clear();
-        ClearStandardChannels();
-        ClearSyncshellChatMembers();
+        try
+        {
+            var status = await _chatService.JoinRoomAsync(room).ConfigureAwait(false)
+                ? string.Empty
+                : "Unable to join this room.";
+            _uiUpdates.Enqueue(() =>
+            {
+                _roomStatus = status;
+                if (string.IsNullOrEmpty(status))
+                {
+                    Select(new ConversationKey(ConversationKind.Room, room.RoomId));
+                    _closeRoomBrowser = true;
+                }
+            });
+        }
+        catch (HubException ex)
+        {
+            _uiUpdates.Enqueue(() => _roomStatus = ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _uiUpdates.Enqueue(() => _roomStatus = ex.Message);
+        }
     }
 
-    private static Vector4 GetUnreadChannelColor()
+    private void Select(ConversationKey? key)
     {
-        return ImGui.GetStyle().Colors[(int)ImGuiCol.PlotHistogram];
+        _chatService.Store.SetActive(key);
+        if (key.HasValue)
+        {
+            Queue(_chatService.Store.EnsureHistory(key.Value), nameof(ChatStore.EnsureHistory));
+        }
     }
 
+    private void Queue(Task task, string operation)
+    {
+        _ = _backgroundTasks.Run(() => task, operation);
+    }
 }

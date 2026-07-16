@@ -2,9 +2,9 @@
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
-using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Chat;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
@@ -13,47 +13,40 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
-    private string? _lastPublishedNews;
+    public Task Client_UserChatMsg(UserChatMsgDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new UserChatMsgMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_GroupChatMsg(GroupChatMsgDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new GroupChatMsgMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_RoomChatMsg(RoomChatMsgDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RoomChatMsgMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_RoomMemberJoined(RoomMemberJoinedDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RoomMemberJoinedMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_RoomMemberLeft(RoomMemberLeftDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RoomMemberLeftMessage(dto)));
+        return Task.CompletedTask;
+    }
 
     public Task Client_GroupChangePermissions(GroupPermissionDto groupPermission)
     {
         Logger.LogTrace("Client_GroupChangePermissions: {perm}", groupPermission);
         ExecuteSafely(() => _pairManager.SetGroupPermissions(groupPermission));
-        return Task.CompletedTask;
-    }
-
-    public Task Client_GroupChatMsg(GroupChatMsgDto groupChatMsgDto)
-    {
-        Logger.LogDebug("Client_GroupChatMsg: {msg}", groupChatMsgDto.Message);
-        Mediator.Publish(new GroupChatMsgMessage(groupChatMsgDto.Group, groupChatMsgDto.Message));
-        return Task.CompletedTask;
-    }
-
-    public Task Client_GroupChatMemberState(GroupChatMemberStateDto dto)
-    {
-        Logger.LogDebug("Client_GroupChatMemberState: {dto}", dto);
-        Mediator.Publish(new GroupChatMemberStateMessage(dto));
-        return Task.CompletedTask;
-    }
-
-    public Task Client_ChannelChatMsg(ChannelChatMsgDto channelChatMsgDto)
-    {
-        Logger.LogDebug("Client_ChannelChatMsg: {msg}", channelChatMsgDto.Message);
-        Mediator.Publish(new ChannelChatMsgMessage(channelChatMsgDto.Channel, channelChatMsgDto.Message));
-        return Task.CompletedTask;
-    }
-
-    public Task Client_ChannelMemberJoined(ChannelMemberJoinedDto dto)
-    {
-        Logger.LogDebug("Client_ChannelMemberJoined: {member}", dto.User);
-        Mediator.Publish(new ChannelMemberJoinedMessage(dto));
-        return Task.CompletedTask;
-    }
-
-    public Task Client_ChannelMemberLeft(ChannelMemberLeftDto dto)
-    {
-        Logger.LogDebug("Client_ChannelMemberLeft: {member}", dto.User);
-        Mediator.Publish(new ChannelMemberLeftMessage(dto));
         return Task.CompletedTask;
     }
 
@@ -75,6 +68,7 @@ public partial class ApiController
         {
             if (string.Equals(labelsDto.UID, UID, StringComparison.Ordinal)) _pairManager.SetGroupMemberLabels(labelsDto);
             else _pairManager.SetGroupPairMemberLabels(labelsDto);
+            Mediator.Publish(new ChatMembershipChangedMessage());
         });
         return Task.CompletedTask;
     }
@@ -82,7 +76,11 @@ public partial class ApiController
     public Task Client_GroupDelete(GroupDto groupDto)
     {
         Logger.LogTrace("Client_GroupDelete: {dto}", groupDto);
-        ExecuteSafely(() => _pairManager.RemoveGroup(groupDto.Group));
+        ExecuteSafely(() =>
+        {
+            _pairManager.RemoveGroup(groupDto.Group);
+            Mediator.Publish(new ChatMembershipChangedMessage());
+        });
         return Task.CompletedTask;
     }
 
@@ -93,6 +91,7 @@ public partial class ApiController
         {
             if (string.Equals(userInfo.UID, UID, StringComparison.Ordinal)) _pairManager.SetGroupStatusInfo(userInfo);
             else _pairManager.SetGroupPairStatusInfo(userInfo);
+            Mediator.Publish(new ChatMembershipChangedMessage());
         });
         return Task.CompletedTask;
     }
@@ -103,22 +102,7 @@ public partial class ApiController
         ExecuteSafely(() =>
         {
             _pairManager.AddGroupPair(groupPairInfoDto);
-
-            if (string.Equals(groupPairInfoDto.User.UID, UID, StringComparison.Ordinal))
-            {
-                if (!_shellConfigStore.HasShellConfigForGid(groupPairInfoDto.Group.GID))
-                {
-                    var shellConfig = _shellConfigStore.GetShellConfigForGid(groupPairInfoDto.Group.GID);
-                    shellConfig.Enabled = false;
-                    _shellConfigStore.SaveShellConfigForGid(groupPairInfoDto.Group.GID, shellConfig);
-                }
-
-                var config = _shellConfigStore.GetShellConfigForGid(groupPairInfoDto.Group.GID);
-                if (!config.Enabled)
-                {
-                    _ = GroupChatLeave(new GroupDto(groupPairInfoDto.Group));
-                }
-            }
+            Mediator.Publish(new ChatMembershipChangedMessage());
         });
         return Task.CompletedTask;
     }
@@ -126,21 +110,33 @@ public partial class ApiController
     public Task Client_GroupPairLeft(GroupPairDto groupPairDto)
     {
         Logger.LogTrace("Client_GroupPairLeft: {dto}", groupPairDto);
-        ExecuteSafely(() => _pairManager.RemoveGroupPair(groupPairDto));
+        ExecuteSafely(() =>
+        {
+            _pairManager.RemoveGroupPair(groupPairDto);
+            Mediator.Publish(new ChatMembershipChangedMessage());
+        });
         return Task.CompletedTask;
     }
 
     public Task Client_GroupSendFullInfo(GroupFullInfoDto groupInfo)
     {
         Logger.LogTrace("Client_GroupSendFullInfo: {dto}", groupInfo);
-        ExecuteSafely(() => _pairManager.AddGroup(groupInfo));
+        ExecuteSafely(() =>
+        {
+            _pairManager.AddGroup(groupInfo);
+            Mediator.Publish(new ChatMembershipChangedMessage());
+        });
         return Task.CompletedTask;
     }
 
     public Task Client_GroupSendInfo(GroupInfoDto groupInfo)
     {
         Logger.LogTrace("Client_GroupSendInfo: {dto}", groupInfo);
-        ExecuteSafely(() => _pairManager.SetGroupInfo(groupInfo));
+        ExecuteSafely(() =>
+        {
+            _pairManager.SetGroupInfo(groupInfo);
+            Mediator.Publish(new ChatMembershipChangedMessage());
+        });
         return Task.CompletedTask;
     }
 
@@ -175,7 +171,6 @@ public partial class ApiController
         if (!string.IsNullOrEmpty(normalizedNews))
         {
             SystemInfoDto = SystemInfoDto with { News = normalizedNews };
-            PublishNewsIfChanged(normalizedNews);
         }
 
         return Task.CompletedTask;
@@ -184,25 +179,7 @@ public partial class ApiController
     public Task Client_UpdateSystemInfo(SystemInfoDto systemInfo)
     {
         SystemInfoDto = systemInfo;
-        PublishNewsIfChanged(systemInfo.News);
         return Task.CompletedTask;
-    }
-
-    private void PublishNewsIfChanged(string? news)
-    {
-        var normalizedNews = NormalizeNews(news);
-        if (string.IsNullOrEmpty(normalizedNews))
-        {
-            return;
-        }
-
-        if (string.Equals(_lastPublishedNews, normalizedNews, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _lastPublishedNews = normalizedNews;
-        Mediator.Publish(new ServerNewsMessage(normalizedNews));
     }
 
     private static string? NormalizeNews(string? news)
@@ -217,6 +194,7 @@ public partial class ApiController
         {
             _pairManager.SuppressNextNotePopupForUid(dto.User.UID);
             _pairManager.AddUserPair(dto, addToLastAddedUser: true);
+            Mediator.Publish(new ChatMembershipChangedMessage());
         });
         return Task.CompletedTask;
     }
@@ -252,14 +230,6 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
-    public Task Client_UserChatMsg(UserChatMsgDto chatMsgDto)
-    {
-        Logger.LogDebug("Client_UserChatMsg: {msg}", chatMsgDto.Message);
-        Mediator.Publish(new UserChatMsgMessage(chatMsgDto.Message));
-        return Task.CompletedTask;
-    }
-
-
     public Task Client_UserReceiveApplicationReceipt(PairApplicationReceiptDto dto)
     {
         Logger.LogTrace("Client_UserReceiveApplicationReceipt: {dto}", dto);
@@ -277,7 +247,11 @@ public partial class ApiController
     public Task Client_UserRemoveClientPair(UserDto dto)
     {
         Logger.LogDebug("Client_UserRemoveClientPair: {dto}", dto);
-        ExecuteSafely(() => _pairManager.RemoveUserPair(dto));
+        ExecuteSafely(() =>
+        {
+            _pairManager.RemoveUserPair(dto);
+            Mediator.Publish(new ChatMembershipChangedMessage());
+        });
         return Task.CompletedTask;
     }
 

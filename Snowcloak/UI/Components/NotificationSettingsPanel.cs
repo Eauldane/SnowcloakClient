@@ -89,13 +89,5 @@ public sealed class NotificationSettingsPanel
             ElezenImgui.DrawHelpText("Enabling this will only show online notifications (type: Info) for pairs where you have set an individual note.");
         }
 
-        ImGui.Separator();
-        _fontService.BigText("Server News");
-        var disableServerNewsInChat = _configService.Current.DisableServerNewsInChat;
-        if (ImGui.Checkbox("Disable server news posts in chat", ref disableServerNewsInChat))
-        {
-            _configService.Update(c => c.DisableServerNewsInChat = disableServerNewsInChat);
-        }
-        ElezenImgui.DrawHelpText("Stops Snowcloak server news announcements from being posted to in-game chat.");
     }
 }

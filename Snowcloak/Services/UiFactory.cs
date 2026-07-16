@@ -10,6 +10,8 @@ using Snowcloak.UI;
 using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
+using Snowcloak.Core.Chat;
+using Snowcloak.Services.Chat;
 
 namespace Snowcloak.Services;
 
@@ -30,13 +32,17 @@ public class UiFactory
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly SyncTroubleshootingService _syncTroubleshootingService;
     private readonly SyncshellBudgetService _syncshellBudgetService;
+    private readonly ChatClientService _chatService;
+    private readonly ChatIdentityResolver _chatIdentityResolver;
+    private readonly ImGuiChatRenderer _chatRenderer;
 
     public UiFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, ApiController apiController,
         SnowcloakConfigService configService,
         UiFontService fontService, BbCodeRenderService bbCodeRenderService, TextureService textureService, PairManager pairManager,
         DalamudUtilService dalamudUtilService, IpcManager ipcManager,
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, PerformanceCollectorService performanceCollectorService,
-        SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService)
+        SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService,
+        ChatClientService chatService, ChatIdentityResolver chatIdentityResolver, ImGuiChatRenderer chatRenderer)
     {
         _loggerFactory = loggerFactory;
         _snowMediator = snowMediator;
@@ -53,6 +59,9 @@ public class UiFactory
         _performanceCollectorService = performanceCollectorService;
         _syncTroubleshootingService = syncTroubleshootingService;
         _syncshellBudgetService = syncshellBudgetService;
+        _chatService = chatService;
+        _chatIdentityResolver = chatIdentityResolver;
+        _chatRenderer = chatRenderer;
     }
 
     public SyncshellAdminUI CreateSyncshellAdminUi(GroupFullInfoDto dto)
@@ -96,5 +105,17 @@ public class UiFactory
     {
         return new SyncTroubleshootingUi(_loggerFactory.CreateLogger<SyncTroubleshootingUi>(), pair,
             _snowMediator, _syncTroubleshootingService, _performanceCollectorService);
+    }
+
+    public ChatPopoutWindow CreateChatPopoutWindow(ConversationKey key)
+    {
+        return new ChatPopoutWindow(_loggerFactory.CreateLogger<ChatPopoutWindow>(), _snowMediator,
+            _chatService, _chatRenderer, _performanceCollectorService, key);
+    }
+
+    public RoomAdministrationWindow CreateRoomAdministrationWindow(string roomId)
+    {
+        return new RoomAdministrationWindow(_loggerFactory.CreateLogger<RoomAdministrationWindow>(), _snowMediator,
+            _chatService, _pairManager, _chatIdentityResolver, _performanceCollectorService, roomId);
     }
 }

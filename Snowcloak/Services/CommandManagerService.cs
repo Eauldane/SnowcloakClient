@@ -13,6 +13,9 @@ using Snowcloak.UI;
 using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Snowcloak.Services.Chat;
+using Snowcloak.Core.Chat;
 
 namespace Snowcloak.Services;
 
@@ -24,7 +27,6 @@ public sealed class CommandManagerService : IDisposable
     private const string _animSyncCommand = "/animsync";
     private const string _venueFinder = "/snowvenueplot";
     private const string _venueCommand = "/venue";
-    private const string _syncshellCommandPrefix = "/ss";
 
     private readonly ApiController _apiController;
     private readonly ICommandManager _commandManager;
@@ -32,7 +34,6 @@ public sealed class CommandManagerService : IDisposable
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly CacheMonitor _cacheMonitor;
-    private readonly ChatService _chatService;
     private readonly ServerRegistry _serverRegistry;
     private readonly IChatGui _chatGui;
     private readonly DalamudUtilService _dalamudUtilService;
@@ -40,12 +41,13 @@ public sealed class CommandManagerService : IDisposable
     private readonly VenueRegistrationService _venueRegistrationService;
     private readonly Dictionary<string, CommandVerb> _snowCommands = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _snowCommandOrder = [];
-    private readonly List<string> _syncshellCommands = [];
+    private readonly ChatClientService _chatService;
+    private readonly BackgroundTaskTracker _backgroundTasks;
 
-    public CommandManagerService(ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
-        ServerRegistry serverRegistry, CacheMonitor periodicFileScanner, ChatService chatService,
+    public CommandManagerService(ILogger<CommandManagerService> logger, ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
+        ServerRegistry serverRegistry, CacheMonitor periodicFileScanner,
         ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager,
-        VenueRegistrationService venueRegistrationService)
+        VenueRegistrationService venueRegistrationService, ChatClientService chatService)
     {
         _commandManager = commandManager;
         _chatGui = chatGui;
@@ -53,16 +55,16 @@ public sealed class CommandManagerService : IDisposable
         _performanceCollectorService = performanceCollectorService;
         _serverRegistry = serverRegistry;
         _cacheMonitor = periodicFileScanner;
-        _chatService = chatService;
         _apiController = apiController;
         _mediator = mediator;
         _snowcloakConfigService = snowcloakConfigService;
         _pairManager = pairManager;
         _venueRegistrationService = venueRegistrationService;
+        _chatService = chatService;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
 
         RegisterSnowCommands();
         RegisterDalamudCommands();
-        RegisterSyncshellCommands();
     }
 
     public void Dispose()
@@ -73,10 +75,6 @@ public sealed class CommandManagerService : IDisposable
         _commandManager.RemoveHandler(_animSyncCommand);
         _commandManager.RemoveHandler(_venueFinder);
         _commandManager.RemoveHandler(_venueCommand);
-        foreach (var syncshellCommand in _syncshellCommands)
-        {
-            _commandManager.RemoveHandler(syncshellCommand);
-        }
     }
 
     private void RegisterDalamudCommands()
@@ -145,8 +143,7 @@ public sealed class CommandManagerService : IDisposable
             return;
         }
 
-        _chatGui.PrintError($"[Snowcloak] Unknown command: {splitArgs[0]}");
-        ShowHelp([]);
+        SendChatMessage(splitArgs);
     }
 
     private void ToggleMainWindow()
@@ -155,6 +152,39 @@ public sealed class CommandManagerService : IDisposable
             _mediator.Publish(new UiToggleMessage(typeof(CompactUi)));
         else
             _mediator.Publish(new UiToggleMessage(typeof(IntroUi)));
+    }
+
+    private void SendChatMessage(string[] args)
+    {
+        if (!_chatService.CanSend)
+        {
+            _chatGui.PrintError("[Snowcloak] Chat is disabled or disconnected.");
+            return;
+        }
+
+        var snapshot = _chatService.Store.Snapshot;
+        ConversationKey? key;
+        var messageStart = 0;
+        if (int.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+        {
+            key = index > 0 && index <= snapshot.Conversations.Count
+                ? snapshot.Conversations[index - 1].Key
+                : null;
+            messageStart = 1;
+        }
+        else
+        {
+            key = snapshot.ActiveConversation;
+        }
+
+        if (!key.HasValue || messageStart >= args.Length)
+        {
+            _chatGui.PrintError("[Snowcloak] Select a chat conversation, or use /snow <number> <message>.");
+            return;
+        }
+
+        var text = string.Join(' ', args[messageStart..]);
+        _ = _backgroundTasks.Run(() => _chatService.Store.SendAsync(key.Value, text), nameof(SendChatMessage));
     }
 
     private void ToggleSync(string[] args)
@@ -304,37 +334,6 @@ public sealed class CommandManagerService : IDisposable
             Message = $"Housing plot identifier: {_dalamudUtilService.HousingString}",
             Type = XivChatType.SystemMessage
         });
-    }
-
-    private void RegisterSyncshellCommands()
-    {
-        for (var shellNumber = 1; shellNumber <= ChatService.SyncshellCommandMaxNumber; shellNumber++)
-        {
-            var commandName = $"{_syncshellCommandPrefix}{shellNumber}";
-            _syncshellCommands.Add(commandName);
-            _commandManager.AddHandler(commandName, new CommandInfo(OnSyncshellCommand)
-            {
-                ShowInHelp = false
-            });
-        }
-    }
-
-    private void OnSyncshellCommand(string command, string args)
-    {
-        if (string.IsNullOrWhiteSpace(args))
-        {
-            _chatGui.PrintError($"[Snowcloak] Usage: {command} <message>");
-            return;
-        }
-
-        if (!command.StartsWith(_syncshellCommandPrefix, StringComparison.OrdinalIgnoreCase)
-            || !int.TryParse(command.AsSpan(_syncshellCommandPrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var shellNumber))
-        {
-            _chatGui.PrintError($"[Snowcloak] Invalid syncshell command: {command}");
-            return;
-        }
-
-        _ = _chatService.SendSyncshellCommandAsync(shellNumber, args);
     }
 
     private static string[] SplitCommandArgs(string args)

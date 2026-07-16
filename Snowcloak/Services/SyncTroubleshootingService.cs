@@ -117,8 +117,8 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         localState.Add(string.Format(CultureInfo.InvariantCulture,
             "Snapshot: client-side only, generated {0:u}", DateTime.UtcNow));
         localState.Add(string.Format(CultureInfo.InvariantCulture,
-            "Presence: online={0}, visible={1}, chat-only={2}, player={3}",
-            YesNo(onlineForReport), YesNo(visibleForReport), YesNo(pair.IsChatOnly), visibleForReport ? pair.PlayerName ?? "-" : "-"));
+            "Presence: online={0}, visible={1}, player={2}",
+            YesNo(onlineForReport), YesNo(visibleForReport), visibleForReport ? pair.PlayerName ?? "-" : "-"));
         localState.Add(string.Format(CultureInfo.InvariantCulture,
             "Routing: direct-pair={0}, mutual-direct={1}, shared-syncshells={2}, active-syncshell-routes={3}",
             YesNo(hasDirectPair), YesNo(isMutualDirectPair), groupEntries.Count, activeGroupRoutes.Count));
@@ -282,12 +282,6 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
                 "This user is offline to your client right now.",
                 "They need to be online before you can see them."));
         }
-        else if (pair.IsChatOnly)
-        {
-            findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Warning,
-                "This user is online in chat-only mode.",
-                "Chat-only mode disables appearance sync."));
-        }
         else if (!visibleForReport)
         {
             findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
@@ -303,7 +297,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
                     "{0} {1}/{2}", download.Server, download.TransferredFiles, download.TotalFiles)))));
         }
 
-        if (pair.IsOnline && !pair.IsChatOnly && pair.LastReceivedCharacterData == null && !pair.IsApplicationBlocked && matchingForbiddenTransfers.Count == 0)
+        if (pair.IsOnline && pair.LastReceivedCharacterData == null && !pair.IsApplicationBlocked && matchingForbiddenTransfers.Count == 0)
         {
             findings.Add(new SyncTroubleshootingFinding(SyncTroubleshootingSeverity.Info,
                 "No character data has been received for this user yet.",

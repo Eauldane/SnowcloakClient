@@ -14,7 +14,6 @@ internal static class WebApiServiceRegistration
         collection.AddSingleton<ServerRegistry>();
         collection.AddSingleton<NotesStore>();
         collection.AddSingleton<TagStore>();
-        collection.AddSingleton<ShellConfigStore>();
         collection.AddSingleton<BlockListStore>();
         collection.AddSingleton<SecretKeyBackupService>();
         collection.AddSingleton<TokenProvider>();

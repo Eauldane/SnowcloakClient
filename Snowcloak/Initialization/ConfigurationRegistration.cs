@@ -18,8 +18,6 @@ internal static class ConfigurationRegistration
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<NotesConfigService>());
         collection.AddSingleton<ServerTagConfigService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<ServerTagConfigService>());
-        collection.AddSingleton<SyncshellConfigService>();
-        collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<SyncshellConfigService>());
         collection.AddSingleton<TransientConfigService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<TransientConfigService>());
         collection.AddSingleton<XivDataStorageService>();
@@ -38,6 +36,8 @@ internal static class ConfigurationRegistration
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<VenueStateConfigService>());
         collection.AddSingleton<RemoteConfigCacheService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<RemoteConfigCacheService>());
+        collection.AddSingleton<ChatPreferencesStore>();
+        collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<ChatPreferencesStore>());
         collection.AddSingleton<StateDocumentWarmup>();
 
         return collection;

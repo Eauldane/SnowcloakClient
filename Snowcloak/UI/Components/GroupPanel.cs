@@ -36,7 +36,6 @@ internal sealed class GroupPanel
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly SyncshellBudgetPanel _syncshellBudgetPanel;
     private readonly NotesStore _notesStore;
-    private readonly ShellConfigStore _shellConfigStore;
     private readonly CharaDataManager _charaDataManager;
     private readonly Dictionary<string, bool> _showGidForEntry = new(StringComparer.Ordinal);
     private readonly UidDisplayHandler _uidDisplayHandler;
@@ -48,7 +47,6 @@ internal sealed class GroupPanel
     private bool _showModalCreateGroup;
     private bool _showModalEnterPassword;
     private bool _showRegionJoinError;
-    private string? _pendingRegionalShellAlias;
     private string _syncShellPassword = string.Empty;
     private string _syncShellToJoin = string.Empty;
     private bool _showPublicSyncshellWarning;
@@ -58,7 +56,7 @@ internal sealed class GroupPanel
     private readonly Dictionary<string, DrawGroupPair> _groupPairRowCache = new(StringComparer.Ordinal);
 
     public GroupPanel(SnowMediator mediator, ApiController apiController, DalamudUtilService dalamudUtilService, PairManager pairManager,
-        UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, NotesStore notesStore, ShellConfigStore shellConfigStore,
+        UidDisplayHandler uidDisplayHandler, SnowcloakConfigService snowcloakConfig, NotesStore notesStore,
         CharaDataManager charaDataManager, SyncshellBudgetService syncshellBudgetService)
     {
         _mediator = mediator;
@@ -69,7 +67,6 @@ internal sealed class GroupPanel
         _snowcloakConfig = snowcloakConfig;
         _syncshellBudgetPanel = new(syncshellBudgetService);
         _notesStore = notesStore;
-        _shellConfigStore = shellConfigStore;
         _charaDataManager = charaDataManager;
     }
 
@@ -77,7 +74,6 @@ internal sealed class GroupPanel
 
     public float DrawSyncshells(float contentWidth)
     {
-        HandlePendingRegionalShell();
         using (ImRaii.PushId("addsyncshell")) DrawAddSyncshell();
         using (ImRaii.PushId("communitybrowse")) DrawCommunityBrowseButton();
 
@@ -341,65 +337,12 @@ internal sealed class GroupPanel
         }
     }
 
-    private void HandlePendingRegionalShell()
-    {
-        if (string.IsNullOrEmpty(_pendingRegionalShellAlias)) return;
-
-        var hasRegionShell = _pairManager.Groups.Any(g =>
-            string.Equals(g.Key.GID, _pendingRegionalShellAlias, StringComparison.Ordinal) ||
-            string.Equals(g.Value.Group.Alias, _pendingRegionalShellAlias, StringComparison.Ordinal));
-
-        if (!hasRegionShell) return;
-
-        DisableRegionalSyncshellEffects(_pendingRegionalShellAlias);
-        _pendingRegionalShellAlias = null;
-    }
-
-    private bool DisableRegionalSyncshellEffects(string regionShell)
-    {
-        var matchingGroup = _pairManager.Groups.FirstOrDefault(g =>
-            string.Equals(g.Key.GID, regionShell, StringComparison.Ordinal) ||
-            string.Equals(g.Value.Group.Alias, regionShell, StringComparison.Ordinal));
-
-        string resolvedGid;
-        bool resolved;
-        if (matchingGroup.Key is not null)
-        {
-            resolved = true;
-            resolvedGid = matchingGroup.Key.GID;
-        }
-        else
-        {
-            resolved = false;
-            resolvedGid = regionShell;
-        }
-
-        DisableRegionalShellChat(resolvedGid);
-
-        if (!string.Equals(resolvedGid, regionShell, StringComparison.Ordinal))
-        {
-            DisableRegionalShellChat(regionShell);
-        }
-
-        return resolved;
-    }
-
     private void JoinRegionalSyncshell(string regionShell)
     {
         _showRegionJoinError = false;
         var joined = ApiController.GroupJoin(new(new GroupData(regionShell), "ByTheseGlyphsOurSyncshellGuarded")).Result;
         if (joined)
         {
-            var resolved = DisableRegionalSyncshellEffects(regionShell);
-            if (!resolved)
-            {
-                _pendingRegionalShellAlias = regionShell;
-            }
-            else
-            {
-                _pendingRegionalShellAlias = null;
-            }
-
             _syncShellToJoin = string.Empty;
         }
         else
@@ -407,16 +350,6 @@ internal sealed class GroupPanel
             _showRegionJoinError = true;
         }
     }        
-    
-    private void DisableRegionalShellChat(string gid)
-    {
-        var shellConfig = _shellConfigStore.GetShellConfigForGid(gid);
-        if (shellConfig.Enabled)
-        {
-            shellConfig.Enabled = false;
-            _shellConfigStore.SaveShellConfigForGid(gid, shellConfig);
-        }
-    }
     
     private void DrawSyncshell(GroupFullInfoDto groupDto, List<Pair> pairsInGroup)
     {
@@ -471,15 +404,6 @@ internal sealed class GroupPanel
 
         if (!string.Equals(_editGroupEntry, groupDto.GID, StringComparison.Ordinal))
         {
-            var shellConfig = _shellConfigStore.GetShellConfigForGid(groupDto.GID);
-            if (!_snowcloakConfig.Current.DisableChat && shellConfig.Enabled)
-            {
-                ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted($"[{shellConfig.ShellNumber}]");
-                ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "Chat command prefix: /ss{0}", shellConfig.ShellNumber));
-                ImGui.SameLine();
-            }
-
             var community = GetCommunity(groupDto);
             var (_, buttonsStartX) = GetSyncShellButtonsLayout(groupDto);
           
@@ -854,7 +778,6 @@ internal sealed class GroupPanel
     {
         var infoIcon = FontAwesomeIcon.InfoCircle;
 
-        var shellConfig = _shellConfigStore.GetShellConfigForGid(groupDto.GID);
         bool invitesEnabled = !groupDto.GroupPermissions.IsDisableInvites();
         var soundsDisabled = groupDto.GroupPermissions.IsDisableSounds();
         var animDisabled = groupDto.GroupPermissions.IsDisableAnimations();
@@ -1004,26 +927,6 @@ internal sealed class GroupPanel
             }
             ElezenImgui.AttachTooltip("Open upcoming and active events for this Syncshell.");
 
-            var chatText = shellConfig.Enabled ? "Leave chat" : "Join chat";
-            using (ImRaii.Disabled(!ApiController.IsConnected))
-            {
-                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Comments, chatText))
-                {
-                    ImGui.CloseCurrentPopup();
-                    shellConfig.Enabled = !shellConfig.Enabled;
-                    _shellConfigStore.SaveShellConfigForGid(groupDto.GID, shellConfig);
-
-                    if (shellConfig.Enabled)
-                    {
-                        _ = ApiController.GroupChatJoin(new GroupDto(groupDto.Group));
-                    }
-                    else
-                    {
-                        _ = ApiController.GroupChatLeave(new GroupDto(groupDto.Group));
-                    }
-                }
-            }
-            ElezenImgui.AttachTooltip("Toggle whether this syncshell appears in your chat window and receives chat messages.");
             
             var soundsText = userSoundsDisabled ? "Enable sound sync" : "Disable sound sync";
             if (ElezenImgui.ShowIconButton(userSoundsIcon, soundsText))

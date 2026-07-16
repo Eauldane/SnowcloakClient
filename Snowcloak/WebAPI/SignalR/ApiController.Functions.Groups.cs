@@ -1,5 +1,4 @@
 ﻿using Snowcloak.API.Data;
-using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Microsoft.AspNetCore.SignalR.Client;
 using Snowcloak.Configuration.Models;
@@ -44,36 +43,6 @@ public partial class ApiController
     {
         CheckConnection();
         return await _snowHub!.InvokeAsync<bool>(nameof(GroupChangePassword), groupPassword).ConfigureAwait(false);
-    }
-
-    public async Task GroupChatSendMsg(GroupDto group, ChatMessage message)
-    {
-        CheckConnection();
-        await _snowHub!.SendAsync(nameof(GroupChatSendMsg), group, message).ConfigureAwait(false);
-    }
-
-    public Task<List<SignedChatMessage>> GroupChatGetHistory(GroupDto group)
-    {
-        CheckConnection();
-        return _snowHub!.InvokeAsync<List<SignedChatMessage>>(nameof(GroupChatGetHistory), group);
-    }
-
-    public Task<List<GroupChatMemberStateDto>> GroupChatJoin(GroupDto group)
-    {
-        CheckConnection();
-        return _snowHub!.InvokeAsync<List<GroupChatMemberStateDto>>(nameof(GroupChatJoin), group);
-    }
-
-    public Task GroupChatLeave(GroupDto group)
-    {
-        CheckConnection();
-        return _snowHub!.InvokeAsync(nameof(GroupChatLeave), group);
-    }
-
-    public Task<List<GroupChatMemberStateDto>> GroupChatGetMembers(GroupDto group)
-    {
-        CheckConnection();
-        return _snowHub!.InvokeAsync<List<GroupChatMemberStateDto>>(nameof(GroupChatGetMembers), group);
     }
 
     public async Task GroupClear(GroupDto group)

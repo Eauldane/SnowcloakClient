@@ -31,8 +31,9 @@ internal static class UiServiceRegistration
         collection.AddScoped<UiService>();
         collection.AddScoped<CommandManagerService>();
         collection.AddScoped<BbCodeRenderService>();
-        collection.AddScoped<AdvancedSettingsPanel>();
+        collection.AddScoped<ImGuiChatRenderer>();
         collection.AddScoped<ChatSettingsPanel>();
+        collection.AddScoped<AdvancedSettingsPanel>();
         collection.AddScoped<GeneralSettingsPanel>();
         collection.AddScoped<InterfaceSettingsPanel>();
         collection.AddScoped<NotificationSettingsPanel>();
@@ -41,7 +42,7 @@ internal static class UiServiceRegistration
         collection.AddScoped<ServiceSelectionPanel>();
         collection.AddScoped<StorageSettingsPanel>();
         collection.AddScoped<TransferSettingsPanel>();
-        collection.AddScoped<ChatService>();
+        collection.AddScoped<GameChatVanityColourService>();
         collection.AddScoped<PairDisplayDecorationService>();
 
 

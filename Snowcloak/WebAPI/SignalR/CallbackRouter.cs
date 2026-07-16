@@ -3,11 +3,11 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
-using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Session;
+using Snowcloak.API.Dto.Chat;
 
 namespace Snowcloak.WebAPI.SignalR;
 
@@ -26,6 +26,18 @@ internal static class CallbackRouter
         where T : ISequencedSessionEvent
     {
         hub.On<T>(method, payload => api.RouteSessionEvent(payload, handler));
+    }
+}
+
+internal static class ChatCallbacks
+{
+    public static void Register(HubConnection hub, ApiController api)
+    {
+        hub.On<UserChatMsgDto>(nameof(ApiController.Client_UserChatMsg), api.Client_UserChatMsg);
+        hub.On<GroupChatMsgDto>(nameof(ApiController.Client_GroupChatMsg), api.Client_GroupChatMsg);
+        hub.On<RoomChatMsgDto>(nameof(ApiController.Client_RoomChatMsg), api.Client_RoomChatMsg);
+        CallbackRouter.RegisterSession<RoomMemberJoinedDto>(hub, nameof(ApiController.Client_RoomMemberJoined), api, api.Client_RoomMemberJoined);
+        CallbackRouter.RegisterSession<RoomMemberLeftDto>(hub, nameof(ApiController.Client_RoomMemberLeft), api, api.Client_RoomMemberLeft);
     }
 }
 
@@ -74,19 +86,6 @@ internal static class GroupCallbacks
         CallbackRouter.RegisterSession<GroupFullInfoDto>(hub, nameof(ApiController.Client_GroupSendFullInfo), api, api.Client_GroupSendFullInfo);
         CallbackRouter.RegisterSession<GroupInfoDto>(hub, nameof(ApiController.Client_GroupSendInfo), api, api.Client_GroupSendInfo);
         CallbackRouter.RegisterSession<GroupPairUserPermissionDto>(hub, nameof(ApiController.Client_GroupPairChangePermissions), api, api.Client_GroupPairChangePermissions);
-    }
-}
-
-internal static class ChatCallbacks
-{
-    public static void Register(HubConnection hub, ApiController api)
-    {
-        hub.On<UserChatMsgDto>(nameof(ApiController.Client_UserChatMsg), api.Client_UserChatMsg);
-        hub.On<GroupChatMsgDto>(nameof(ApiController.Client_GroupChatMsg), api.Client_GroupChatMsg);
-        CallbackRouter.RegisterSession<GroupChatMemberStateDto>(hub, nameof(ApiController.Client_GroupChatMemberState), api, api.Client_GroupChatMemberState);
-        hub.On<ChannelChatMsgDto>(nameof(ApiController.Client_ChannelChatMsg), api.Client_ChannelChatMsg);
-        CallbackRouter.RegisterSession<ChannelMemberJoinedDto>(hub, nameof(ApiController.Client_ChannelMemberJoined), api, api.Client_ChannelMemberJoined);
-        CallbackRouter.RegisterSession<ChannelMemberLeftDto>(hub, nameof(ApiController.Client_ChannelMemberLeft), api, api.Client_ChannelMemberLeft);
     }
 }
 

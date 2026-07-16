@@ -12,5 +12,5 @@ public class ServerStorage
     public Dictionary<int, SecretKey> SecretKeys { get; set; } = [];
     public string ServerName { get; set; } = string.Empty;
     public string ServerUri { get; set; } = string.Empty;
-    public List<ChatChannelData> JoinedChannels { get; set; } = [];
+    public HashSet<string> JoinedRooms { get; set; } = new(StringComparer.Ordinal);
 }

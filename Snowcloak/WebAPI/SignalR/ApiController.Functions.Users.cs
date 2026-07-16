@@ -36,18 +36,6 @@ public partial class ApiController
         await _snowHub!.SendAsync(nameof(UserAddPair), user).ConfigureAwait(false);
     }
 
-    public async Task UserChatSendMsg(UserDto user, ChatMessage message)
-    {
-        CheckConnection();
-        await _snowHub!.SendAsync(nameof(UserChatSendMsg), user, message).ConfigureAwait(false);
-    }
-
-    public async Task<List<SignedChatMessage>> UserChatGetHistory(UserDto user)
-    {
-        CheckConnection();
-        return await _snowHub!.InvokeAsync<List<SignedChatMessage>>(nameof(UserChatGetHistory), user).ConfigureAwait(false);
-    }
-
     public async Task UserDelete()
     {
         CheckConnection();

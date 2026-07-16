@@ -11,6 +11,8 @@ using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ModNullification;
 using Snowcloak.Services.Performance;
+using Snowcloak.Core.Chat;
+using Snowcloak.Services.Chat;
 
 namespace Snowcloak.Initialization;
 
@@ -58,6 +60,16 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<TextureShrinkService>();
         collection.AddSingleton<SnowProfileManager>();
         collection.AddSingleton<CharacterProfileBackupService>();
+        collection.AddSingleton<ChatRoomRegistry>();
+        collection.AddSingleton<ChatIdentityResolver>();
+        collection.AddSingleton<IChatIdentityResolver>(sp => sp.GetRequiredService<ChatIdentityResolver>());
+        collection.AddSingleton<ChatTransport>();
+        collection.AddSingleton<IChatTransport>(sp => sp.GetRequiredService<ChatTransport>());
+        collection.AddSingleton<ChatStore>();
+        collection.AddSingleton<ChatClientService>();
+        collection.AddSingleton<GameChatLogRenderer>();
+        collection.AddSingleton<ChatNotifier>();
+        collection.AddSingleton<ChatSoundPlayer>();
 
         return collection;
     }

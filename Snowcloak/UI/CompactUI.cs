@@ -29,6 +29,7 @@ using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.WebAPI.Files.Models;
 using Snowcloak.WebAPI.SignalR.Utils;
+using Snowcloak.Services.Chat;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
@@ -104,15 +105,16 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
     private string? _patreonLoginFeedback;
     private PatreonLoginFeedbackLevel _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
     private readonly HashSet<Guid> _dismissedAnnouncementIds = new();
+    private readonly ChatNotifier _chatNotifier;
     private readonly Dictionary<string, object> _selectedComboItems = new(StringComparer.Ordinal);
 
     public CompactUi(ILogger<CompactUi> logger, UiFontService fontService,
         SnowcloakConfigService configService, ApiController apiController, PairManager pairManager, PairRequestService pairRequestService,
-        PairDisplayDecorationService guiHookService, ServerRegistry serverManager, NotesStore notesStore, TagStore tagStore, ShellConfigStore shellConfigStore, SnowMediator mediator, FileUploadManager fileTransferManager, DownloadStatusStore statusStore, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
+        PairDisplayDecorationService guiHookService, ServerRegistry serverManager, NotesStore notesStore, TagStore tagStore, SnowMediator mediator, FileUploadManager fileTransferManager, DownloadStatusStore statusStore, UidDisplayHandler uidDisplayHandler, CharaDataManager charaDataManager,
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, SyncshellBudgetService syncshellBudgetService,
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PairingFilterConfigService pairingFilterConfigService,
-        DalamudUtilService dalamudUtilService)
+        DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _fontService = fontService;
@@ -129,6 +131,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;
         _dalamudUtilService = dalamudUtilService;
+        _chatNotifier = chatNotifier;
         _tagHandler = new TagHandler(tagStore);
         _availabilityDispatcher = new AvailabilityDispatcher(logger, _pairRequestService, _dalamudUtilService, mediator);
         _frostbrandPanel = new FrostbrandPanel(_configService, pairingFilterConfigService, _fontService,
@@ -139,7 +142,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _characterKeyFlow = new StandaloneKeyRegistrationFlow(logger);
         _accountUidFlow = new AccountUidGenerationFlow(logger, _registerService, _apiController);
 
-        _groupPanel = new(mediator, _apiController, _dalamudUtilService, _pairManager, uidDisplayHandler, _configService, _notesStore, shellConfigStore, _charaDataManager, syncshellBudgetService);
+        _groupPanel = new(mediator, _apiController, _dalamudUtilService, _pairManager, uidDisplayHandler, _configService, _notesStore, _charaDataManager, syncshellBudgetService);
         _selectGroupForPairUi = new(_tagHandler, uidDisplayHandler);
         _selectPairsForGroupUi = new(_tagHandler, uidDisplayHandler);
         _pairGroupsUi = new(configService, _tagHandler, apiController, _selectPairsForGroupUi);

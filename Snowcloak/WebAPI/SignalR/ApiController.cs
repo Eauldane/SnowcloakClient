@@ -50,7 +50,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
     private readonly ServerRegistry _serverManager;
-    private readonly ShellConfigStore _shellConfigStore;
     private readonly TokenProvider _tokenProvider;
     private readonly SingleFlightCts _systemInfoPollFlight = new();
     private readonly SingleFlightCts _sessionGraceFlight = new();
@@ -63,7 +62,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private HubConnection? _snowHub => _connectionLifecycle.Hub;
 
     public ApiController(ILogger<ApiController> logger, HubFactory hubFactory, DalamudUtilService dalamudUtil,
-        PairManager pairManager, PairRequestService pairRequestService, ServerRegistry serverManager, ShellConfigStore shellConfigStore, SnowMediator mediator,
+        PairManager pairManager, PairRequestService pairRequestService, ServerRegistry serverManager, SnowMediator mediator,
         TokenProvider tokenProvider) : base(logger, mediator)
     {
         _backgroundTasks = new BackgroundTaskTracker(logger);
@@ -72,7 +71,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
-        _shellConfigStore = shellConfigStore;
         _tokenProvider = tokenProvider;
 
         Mediator.Subscribe<DalamudLoginMessage>(this, (_) => DalamudUtilOnLogIn());
@@ -239,7 +237,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                     return;
                 }
 
-                _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
                 Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
 
                 await CheckClientHealth().ConfigureAwait(false);
@@ -514,7 +511,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
             var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
             _connectionContext = ConnectionContext.From(connectionDto);
-            _lastPublishedNews = string.IsNullOrWhiteSpace(connectionDto.News) ? null : connectionDto.News.Trim();
             Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
             if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
             {

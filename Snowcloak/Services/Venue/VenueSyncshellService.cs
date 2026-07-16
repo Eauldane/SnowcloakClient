@@ -10,7 +10,6 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Pairs;
 using ElezenTools.Housing;
 using Snowcloak.Services.Mediator;
-using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System.Linq;
 using System.Threading;
@@ -27,7 +26,6 @@ public sealed partial class VenueSyncshellService : DisposableMediatorSubscriber
     private readonly SnowcloakConfigService _configService;
     private readonly VenueStateConfigService _venueStateConfig;
     private readonly PairManager _pairManager;
-    private readonly ShellConfigStore _shellConfigStore;
     private readonly Dictionary<string, AutoJoinedVenue> _autoJoinedVenues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _pendingRemovalTokens = new(StringComparer.Ordinal);
     private readonly Lock _syncRoot = new();
@@ -35,14 +33,12 @@ public sealed partial class VenueSyncshellService : DisposableMediatorSubscriber
     private VenueJoinPhase _joinPhase = VenueJoinPhase.Idle;
 
     public VenueSyncshellService(ILogger<VenueSyncshellService> logger, SnowMediator mediator, ApiController apiController,
-        SnowcloakConfigService configService, VenueStateConfigService venueStateConfig, PairManager pairManager,
-        ShellConfigStore shellConfigStore) : base(logger, mediator)
+        SnowcloakConfigService configService, VenueStateConfigService venueStateConfig, PairManager pairManager) : base(logger, mediator)
     {
         _apiController = apiController;
         _configService = configService;
         _venueStateConfig = venueStateConfig;
         _pairManager = pairManager;
-        _shellConfigStore = shellConfigStore;
 
         Mediator.Subscribe<HousingPlotEnteredMessage>(this, msg => _ = HandleHousingPlotEntered(msg.Location));
         Mediator.Subscribe<HousingPlotLeftMessage>(this, msg => HandleHousingPlotLeft(msg.Location));
@@ -98,7 +94,6 @@ public sealed partial class VenueSyncshellService : DisposableMediatorSubscriber
             {
                 LogVenueSyncshellJoined(Logger, joinGroupId, prompt.Venue.VenueName);
                 await ApplyInitialPermissionsAsync(prompt, initialPermissions).ConfigureAwait(false);
-                DisableAutoJoinedSyncshellChat(joinGroupId);
                 var autoJoinedVenue = new AutoJoinedVenue(prompt.Venue.JoinInfo.Group, prompt.Location);
                 CancelPendingRemoval(joinGroupId, clearPersistedDeadline: true);
                 lock (_syncRoot)
@@ -133,18 +128,6 @@ public sealed partial class VenueSyncshellService : DisposableMediatorSubscriber
             if (_activePrompt?.PromptId == promptId)
                 _joinPhase = VenueJoinPhase.Prompted;
         }
-    }
-
-    private void DisableAutoJoinedSyncshellChat(string joinGroupId)
-    {
-        if (_shellConfigStore.HasShellConfigForGid(joinGroupId))
-        {
-            return;
-        }
-
-        var shellConfig = _shellConfigStore.GetShellConfigForGid(joinGroupId);
-        shellConfig.Enabled = false;
-        _shellConfigStore.SaveShellConfigForGid(joinGroupId, shellConfig);
     }
 
     private async Task ApplyInitialPermissionsAsync(VenueSyncshellPrompt prompt, GroupUserPermissions initialPermissions)

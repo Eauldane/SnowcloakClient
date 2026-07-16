@@ -28,13 +28,13 @@ public partial class SettingsUi
             DrawSidebarTab(SettingsTab.General, FontAwesomeIcon.UserCog, "General");
             DrawSidebarTab(SettingsTab.Interface, FontAwesomeIcon.Palette, "Interface");
             DrawSidebarTab(SettingsTab.Notifications, FontAwesomeIcon.Bell, "Notifications");
+            DrawSidebarTab(SettingsTab.Chat, FontAwesomeIcon.Comments, "Chat");
             ModernSidebar.DrawSeparator();
             DrawSidebarTab(SettingsTab.Performance, FontAwesomeIcon.TachometerAlt, "Performance");
             DrawSidebarTab(SettingsTab.Storage, FontAwesomeIcon.Database, "Storage");
             DrawSidebarTab(SettingsTab.Transfers, FontAwesomeIcon.SyncAlt, "Transfers");
             ModernSidebar.DrawSeparator();
             DrawSidebarTab(SettingsTab.Service, FontAwesomeIcon.Server, "Service Settings");
-            DrawSidebarTab(SettingsTab.Chat, FontAwesomeIcon.Comments, "Chat");
             ModernSidebar.DrawSeparator();
             DrawSidebarTab(SettingsTab.Advanced, FontAwesomeIcon.Wrench, "Advanced");
 

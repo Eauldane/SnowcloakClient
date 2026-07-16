@@ -27,6 +27,7 @@ internal static class PlayerDataServiceRegistration
         collection.AddSingleton<PlayerPerformanceService>();
         collection.AddSingleton<DtrEntry>();
         collection.AddSingleton<PairingAvailabilityDtrEntry>();
+        collection.AddSingleton<ChatDtrEntry>();
 
         // created once the player is present
         collection.AddScoped<CacheMonitor>();

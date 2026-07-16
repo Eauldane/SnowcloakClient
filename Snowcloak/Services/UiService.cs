@@ -67,6 +67,14 @@ public sealed class UiService : DisposableMediatorSubscriberBase
             (msg, ui) => msg.Pair == ui.Pair,
             msg => _uiFactory.CreateSyncTroubleshootingUi(msg.Pair));
 
+        RegisterDynamicWindow<OpenChatPopoutMessage, ChatPopoutWindow>(
+            (msg, ui) => msg.Key == ui.Key,
+            msg => _uiFactory.CreateChatPopoutWindow(msg.Key));
+
+        RegisterDynamicWindow<OpenRoomAdministrationMessage, RoomAdministrationWindow>(
+            (msg, ui) => string.Equals(msg.RoomId, ui.RoomId, StringComparison.Ordinal),
+            msg => _uiFactory.CreateRoomAdministrationWindow(msg.RoomId));
+
         Mediator.Subscribe<RemoveWindowMessage>(this, (msg) =>
         {
             _windowSystem.RemoveWindow(msg.Window);

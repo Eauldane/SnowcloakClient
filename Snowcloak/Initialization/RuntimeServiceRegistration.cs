@@ -23,7 +23,7 @@ internal static class RuntimeServiceRegistration
             [
                 typeof(CacheCreationService),
                 typeof(TransientResourceManager),
-                typeof(ChatService),
+                typeof(GameChatVanityColourService),
                 typeof(PairDisplayDecorationService),
             ],
         });

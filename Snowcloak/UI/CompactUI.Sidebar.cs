@@ -81,6 +81,14 @@ public partial class CompactUi
             ? string.Format(CultureInfo.InvariantCulture, "{0} ({1})", label, pending)
             : label;
     }
+
+    private string GetChatSidebarLabel()
+    {
+        var unread = _chatNotifier.TotalUnread;
+        return unread > 0
+            ? string.Format(CultureInfo.InvariantCulture, "Chat ({0})", unread)
+            : "Chat";
+    }
     private void DrawSidebar()
     {
         bool collapsed = _configService.Current.CompactUiSidebarCollapsed;
@@ -106,6 +114,8 @@ public partial class CompactUi
             // Buttons with state change
             DrawSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
             DrawSidebarButton(Menu.Syncshells, FontAwesomeIcon.PeopleGroup, "Syncshells");
+            DrawSidebarAction(FontAwesomeIcon.Comments, GetChatSidebarLabel(),
+                () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
             if (_configService.Current.ShowCompactUiPerformanceTab)
             {
                 DrawSidebarButton(Menu.Performance, FontAwesomeIcon.ChartBar, "Performance");
@@ -124,8 +134,6 @@ public partial class CompactUi
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
             DrawSidebarAction(FontAwesomeIcon.MapMarkedAlt, "Venues",
                 () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
-            DrawSidebarAction(FontAwesomeIcon.Comments, "Chat [BETA]",
-                () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
             DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
                 () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
             DrawSidebarSeparator();
@@ -163,6 +171,8 @@ public partial class CompactUi
 
         DrawCollapsedSidebarButton(Menu.IndividualPairs, FontAwesomeIcon.User, "Direct Pairs");
         DrawCollapsedSidebarButton(Menu.Syncshells, FontAwesomeIcon.PeopleGroup, "Syncshells");
+        DrawCollapsedSidebarAction(FontAwesomeIcon.Comments, GetChatSidebarLabel(),
+            () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
         if (_configService.Current.ShowCompactUiPerformanceTab)
         {
             DrawCollapsedSidebarButton(Menu.Performance, FontAwesomeIcon.ChartBar, "Performance");
@@ -179,8 +189,6 @@ public partial class CompactUi
             () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
         DrawCollapsedSidebarAction(FontAwesomeIcon.MapMarkedAlt, "Venues",
             () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
-        DrawCollapsedSidebarAction(FontAwesomeIcon.Comments, "Chat [BETA]",
-            () => Mediator.Publish(new UiToggleMessage(typeof(ChatWindow))));
         DrawCollapsedSidebarAction(FontAwesomeIcon.Cog, "Settings",
             () => Mediator.Publish(new UiToggleMessage(typeof(SettingsUi))));
         DrawCollapsedSidebarSeparator();

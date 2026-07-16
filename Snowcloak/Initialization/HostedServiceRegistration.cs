@@ -8,6 +8,7 @@ using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Venue;
 using Snowcloak.UI;
+using Snowcloak.Services.Chat;
 
 namespace Snowcloak.Initialization;
 
@@ -35,6 +36,9 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<VenueSyncshellService>());
         collection.AddHostedService(p => p.GetRequiredService<VenueRegistrationService>());
         collection.AddHostedService(p => p.GetRequiredService<VenueReminderService>());
+        collection.AddHostedService(p => p.GetRequiredService<ChatClientService>());
+        collection.AddHostedService(p => p.GetRequiredService<ChatNotifier>());
+        collection.AddHostedService(p => p.GetRequiredService<ChatDtrEntry>());
 
         return collection;
     }

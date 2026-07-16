@@ -3,7 +3,6 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.CharaData;
-using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
 
@@ -12,12 +11,6 @@ namespace Snowcloak.WebAPI;
 public partial class ApiController
 {
     public void OnGroupChangePermissions(Action<GroupPermissionDto> act) => RegisterCallback(nameof(Client_GroupChangePermissions), act);
-
-    public void OnGroupChatMsg(Action<GroupChatMsgDto> groupChatMsgDto) => RegisterCallback(nameof(Client_GroupChatMsg), groupChatMsgDto);
-
-    public void OnGroupChatMemberState(Action<GroupChatMemberStateDto> act) => RegisterCallback(nameof(Client_GroupChatMemberState), act);
-
-    public void OnChannelChatMsg(Action<ChannelChatMsgDto> act) => RegisterCallback(nameof(Client_ChannelChatMsg), act);
 
     public void OnGroupPairChangePermissions(Action<GroupPairUserPermissionDto> act) => RegisterCallback(nameof(Client_GroupPairChangePermissions), act);
 
@@ -42,8 +35,6 @@ public partial class ApiController
     public void OnUpdateSystemInfo(Action<SystemInfoDto> act) => RegisterCallback(nameof(Client_UpdateSystemInfo), act);
 
     public void OnUserAddClientPair(Action<UserPairDto> act) => RegisterCallback(nameof(Client_UserAddClientPair), act);
-
-    public void OnUserChatMsg(Action<UserChatMsgDto> chatMsgDto) => RegisterCallback(nameof(Client_UserChatMsg), chatMsgDto);
 
     public void OnUserReceiveApplicationReceipt(Action<PairApplicationReceiptDto> act) => RegisterCallback(nameof(Client_UserReceiveApplicationReceipt), act);
 

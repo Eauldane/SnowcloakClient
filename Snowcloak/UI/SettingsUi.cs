@@ -29,11 +29,11 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         General,
         Interface,
         Notifications,
+        Chat,
         Performance,
         Storage,
         Transfers,
         Service,
-        Chat,
         Advanced
     }
 
@@ -43,13 +43,11 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly AccountRegistrationService _registerService;
     private readonly ServerRegistry _serverConfigurationManager;
-    private readonly SecretKeyBackupService _secretKeyBackupService;
-    private readonly FileDialogManager _fileDialogManager;
     private readonly AdvancedSettingsPanel _advancedSettingsPanel;
-    private readonly ChatSettingsPanel _chatSettingsPanel;
     private readonly GeneralSettingsPanel _generalSettingsPanel;
     private readonly InterfaceSettingsPanel _interfaceSettingsPanel;
     private readonly NotificationSettingsPanel _notificationSettingsPanel;
+    private readonly ChatSettingsPanel _chatSettingsPanel;
     private readonly PerformanceSettingsPanel _performanceSettingsPanel;
     private readonly PluginAvailabilityPanel _pluginAvailabilityPanel;
     private readonly ServiceSelectionPanel _serviceSelectionPanel;
@@ -68,9 +66,9 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly StandaloneKeyRegistrationFlow _standaloneKeyFlow;
 
     public SettingsUi(ILogger<SettingsUi> logger,
-        UiFontService fontService, AdvancedSettingsPanel advancedSettingsPanel, ChatSettingsPanel chatSettingsPanel,
+        UiFontService fontService, AdvancedSettingsPanel advancedSettingsPanel,
         GeneralSettingsPanel generalSettingsPanel, InterfaceSettingsPanel interfaceSettingsPanel,
-        NotificationSettingsPanel notificationSettingsPanel, PerformanceSettingsPanel performanceSettingsPanel,
+        NotificationSettingsPanel notificationSettingsPanel, ChatSettingsPanel chatSettingsPanel, PerformanceSettingsPanel performanceSettingsPanel,
         PluginAvailabilityPanel pluginAvailabilityPanel, StorageSettingsPanel storageSettingsPanel,
         ServiceSelectionPanel serviceSelectionPanel, TransferSettingsPanel transferSettingsPanel,
         TransferOverlayUiState transferOverlayState, FileDialogManager fileDialogManager,
@@ -82,23 +80,21 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         : base(logger, mediator, "Snowcloak Settings", performanceCollector)
     {
         _serverConfigurationManager = serverConfigurationManager;
-        _secretKeyBackupService = secretKeyBackupService;
         _apiController = apiController;
         _dalamudUtilService = dalamudUtilService;
         _registerService = registerService;
         _fontService = fontService;
         _advancedSettingsPanel = advancedSettingsPanel;
-        _chatSettingsPanel = chatSettingsPanel;
         _generalSettingsPanel = generalSettingsPanel;
         _interfaceSettingsPanel = interfaceSettingsPanel;
         _notificationSettingsPanel = notificationSettingsPanel;
+        _chatSettingsPanel = chatSettingsPanel;
         _performanceSettingsPanel = performanceSettingsPanel;
         _pluginAvailabilityPanel = pluginAvailabilityPanel;
         _storageSettingsPanel = storageSettingsPanel;
         _serviceSelectionPanel = serviceSelectionPanel;
         _transferSettingsPanel = transferSettingsPanel;
         _transferOverlayState = transferOverlayState;
-        _fileDialogManager = fileDialogManager;
         _secretKeyBackupFlow = new SecretKeyBackupFlow(logger, secretKeyBackupService, fileDialogManager);
         _characterKeyAssignmentFlow = new CharacterKeyAssignmentFlow(logger, serverConfigurationManager, apiController);
         _accountUidGenerationFlow = new AccountUidGenerationFlow(logger, registerService, apiController);
@@ -112,16 +108,21 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         SizeCondition = ImGuiCond.FirstUseEver;
 
         Mediator.Subscribe<OpenSettingsUiMessage>(this, (_) => Toggle());
+        Mediator.Subscribe<OpenChatSettingsMessage>(this, (_) =>
+        {
+            _selectedTab = SettingsTab.Chat;
+            IsOpen = true;
+        });
         Mediator.Subscribe<SwitchToIntroUiMessage>(this, (_) => IsOpen = false);
         Mediator.Subscribe<CutsceneStartMessage>(this, (_) => GposeStart());
         Mediator.Subscribe<CutsceneEndMessage>(this, (_) => GposeEnd());
         Mediator.Subscribe<CharacterDataCreatedMessage>(this, (msg) => LastCreatedCharacterData = msg.CharacterData);
     }
-    
+
 
     private CharacterData? LastCreatedCharacterData { get; set; }
     private ApiController ApiController => _apiController;
-    
+
     protected override void DrawInternal()
     {
         SnowcloakUi.AccentColor = ElezenColours.SnowcloakBlue;
@@ -161,6 +162,9 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
                 case SettingsTab.Notifications:
                     _notificationSettingsPanel.Draw();
                     break;
+                case SettingsTab.Chat:
+                    _chatSettingsPanel.Draw();
+                    break;
                 case SettingsTab.Performance:
                     _performanceSettingsPanel.Draw();
                     break;
@@ -175,9 +179,6 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
                     {
                         DrawServerConfiguration();
                     }
-                    break;
-                case SettingsTab.Chat:
-                    _chatSettingsPanel.Draw();
                     break;
                 case SettingsTab.Advanced:
                     _advancedSettingsPanel.Draw(LastCreatedCharacterData);
