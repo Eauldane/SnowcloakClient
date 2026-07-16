@@ -8,7 +8,9 @@ namespace Snowcloak.Core.Appearance;
 
 public static class AppearanceManifestCodec
 {
+    private const int MaxExtensionSectionBytes = 136 * 1024;
     private static readonly MessagePackSerializerOptions Options = MessagePackSerializerOptions.Standard;
+    private static readonly MessagePackSerializerOptions UntrustedOptions = Options.WithSecurity(MessagePackSecurity.UntrustedData);
 
     public static AppearanceManifest ToManifest(CharacterData data)
     {
@@ -65,6 +67,18 @@ public static class AppearanceManifestCodec
             sections.Add(BuildSection(ManifestSectionId.PetNames, Encoding.UTF8.GetBytes(data.PetNamesData), allowCompression: true));
         }
 
+        if (data.ExtensionData.Count > 0)
+        {
+            var extensionData = new ExtensionDataSection
+            {
+                Entries = data.ExtensionData
+                    .OrderBy(static entry => entry.Key, StringComparer.Ordinal)
+                    .Select(static entry => new ExtensionDataEntry { Key = entry.Key, Data = entry.Value })
+                    .ToArray(),
+            };
+            sections.Add(BuildSection(ManifestSectionId.ExtensionData, Serialize(extensionData), allowCompression: true));
+        }
+
         sections.Sort(static (a, b) => a.SectionId.CompareTo(b.SectionId));
         return new AppearanceManifest { FormatVersion = 1, Sections = sections.ToArray() };
     }
@@ -115,6 +129,9 @@ public static class AppearanceManifestCodec
                     break;
                 case ManifestSectionId.PetNames:
                     data.PetNamesData = Encoding.UTF8.GetString(payload);
+                    break;
+                case ManifestSectionId.ExtensionData:
+                    data.ExtensionData = ReadExtensionEntries(payload);
                     break;
                 default:
                     break;
@@ -244,13 +261,34 @@ public static class AppearanceManifestCodec
 
     private static byte[] RawPayload(ManifestSection section)
     {
-        return section.Encoding == SectionEncoding.Deflate ? ManifestCompression.Inflate(section.Payload) : section.Payload;
+        if (section.SectionId == ManifestSectionId.ExtensionData)
+        {
+            if (section.Encoding == SectionEncoding.Deflate)
+            {
+                return ManifestCompression.Inflate(section.Payload, MaxExtensionSectionBytes);
+            }
+
+            if (section.Payload.Length > MaxExtensionSectionBytes)
+            {
+                throw new InvalidDataException("Extension data section exceeds its size limit.");
+            }
+        }
+
+        return section.Encoding == SectionEncoding.Deflate
+            ? ManifestCompression.Inflate(section.Payload)
+            : section.Payload;
     }
 
     private static byte[] Serialize<T>(T value)
     {
         return MessagePackSerializer.Serialize(value, Options);
     }
+
+    private static Dictionary<string, string> ReadExtensionEntries(byte[] payload)
+        => MessagePackSerializer.Deserialize<ExtensionDataSection>(payload, UntrustedOptions).Entries
+            .Where(static entry => !string.IsNullOrEmpty(entry.Key))
+            .GroupBy(static entry => entry.Key, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last().Data, StringComparer.Ordinal);
 
     private static T Deserialize<T>(byte[] bytes)
     {

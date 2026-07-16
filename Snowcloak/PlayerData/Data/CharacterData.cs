@@ -13,6 +13,7 @@ public class CharacterData
     public string ManipulationString { get; set; } = string.Empty;
     public string MoodlesData { get; set; } = string.Empty;
     public string PetNamesData { get; set; } = string.Empty;
+    public Dictionary<string, string> ExtensionData { get; } = new(StringComparer.Ordinal);
 
     public void SetFragment(ObjectKind kind, CharacterDataFragment? fragment)
     {
@@ -69,7 +70,8 @@ public class CharacterData
             CustomizePlusData = CustomizePlusScale.ToDictionary(d => d.Key, d => d.Value),
             HonorificData = HonorificData,
             MoodlesData = MoodlesData,
-            PetNamesData = PetNamesData
+            PetNamesData = PetNamesData,
+            ExtensionData = ExtensionData.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal)
         };
     }
 }

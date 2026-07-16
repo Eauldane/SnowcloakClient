@@ -15,6 +15,8 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool AcceptedAgreement { get; set; } = false;
     public string CacheFolder { get; set; } = string.Empty;
     public bool DisableOptionalPluginWarnings { get; set; } = false;
+    public Dictionary<string, int> IpcPluginPermissions { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> IpcPluginPermissionRequests { get; set; } = new(StringComparer.Ordinal);
     public bool EnableDebugFeatures { get; set; } = false;
     public bool EnableDtrEntry { get; set; } = true;
     public int DtrStyle { get; set; } = 0;

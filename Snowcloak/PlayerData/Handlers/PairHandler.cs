@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using ElezenTools.Core.Async;
 using Snowcloak.FileCache;
 using Snowcloak.Interop.Ipc;
+using Snowcloak.Ipc;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Factories;
@@ -182,12 +183,13 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     public Pair Pair { get; private init; }
     public PairAnalyzer PairAnalyzer { get; private init; }
     public nint PlayerCharacter => _charaHandler?.Address ?? nint.Zero;
+    public ushort? ObjectIndex => _charaHandler?.ObjectIndex;
     public unsafe uint PlayerCharacterId => (_charaHandler?.Address ?? nint.Zero) == nint.Zero
         ? uint.MaxValue
         : ((FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)_charaHandler!.Address)->EntityId;
     public string? PlayerName { get; internal set; }
     public string PlayerNameHash => Pair.Ident;
-    
+
     internal GameObjectHandler? CharaHandler { get => _charaHandler; set => _charaHandler = value; }
     public Guid PenumbraCollection { get => _penumbraCollection; set => _penumbraCollection = value; }
     internal Guid Deferred { get => _deferred; set => _deferred = value; }
@@ -197,7 +199,11 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     internal Guid ApplicationId { get => _applicationId; set => _applicationId = value; }
     internal CharacterReverter Reverter => _reverter;
 
-    public void UndoApplication(Guid applicationId = default) => _reverter.UndoApplication(applicationId);
+    public void UndoApplication(Guid applicationId = default)
+    {
+        _reverter.UndoApplication(applicationId);
+        Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Idle));
+    }
 
     public void ApplyCharacterData(Guid applicationBase, CharacterData characterData, bool forceApplyCustomization = false, PairFilterContext? filter = null)
     {
@@ -216,6 +222,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             LogReceivedInCombat(Logger);
             _dataReceivedInDowntime = new(applicationBase, characterData, forceApplyCustomization);
             SetUploading(isUploading: false);
+            Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Blocked, "Application is deferred during combat or performance."));
             return;
         }
 
@@ -229,6 +236,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             // character reaches a valid/ready state, instead of bouncing the visibility service.
             _deferred = applicationBase;
             _applyAttemptedWhileReady = false;
+            Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Waiting, "Waiting for the character to become ready."));
             return;
         }
 
@@ -238,7 +246,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         SetUploading(isUploading: false);
 
         _playerPerformanceService.CheckReportedThresholds(this, Pair.LastReportedTriangles, Pair.LastReportedApproximateVRAMBytes);
-        
+
         if (Pair.IsDownloadBlocked)
         {
             var reasons = string.Join(", ", Pair.HoldDownloadReasons);
@@ -246,19 +254,25 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
                 $"Not applying character data: {reasons}")));
             LogNotApplyingDueToHold(Logger, reasons);
             CacheDataForDeferredApplication(characterData);
+            Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Blocked, reasons));
             return;
         }
 
         LogApplyingData(Logger, this, forceApplyCustomization, _appliedState.ForceApplyMods);
         LogHashForData(Logger, characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? "NODATA");
 
-        if (string.Equals(characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? string.Empty, StringComparison.Ordinal) && !forceApplyCustomization) return;
+        if (string.Equals(characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? string.Empty, StringComparison.Ordinal) && !forceApplyCustomization)
+        {
+            Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Applied));
+            return;
+        }
 
         if (_dalamudUtil.IsInCutscene || _dalamudUtil.IsInGpose || !_ipcManager.Penumbra.APIAvailable || !_ipcManager.Glamourer.APIAvailable)
         {
             Mediator.Publish(new EventMessage(new Event(PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Warning,
                 "Cannot apply character data: you are in GPose, a Cutscene or Penumbra/Glamourer is not available")));
             LogApplyUnavailable(Logger, this);
+            Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Blocked, "Application is unavailable in the current game or plugin state."));
             return;
         }
 
@@ -436,7 +450,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         GC.SuppressFinalize(this);
     }
 
-  
+
     private async Task DisposeCoreAsync(bool synchronous)
     {
         BeginDisposal();

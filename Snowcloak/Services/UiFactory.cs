@@ -28,6 +28,7 @@ public class UiFactory
     private readonly ImageTransferService _imageTransferService;
     private readonly UiFontService _fontService;
     private readonly PairManager _pairManager;
+    private readonly PairRequestService _pairRequestService;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly SyncTroubleshootingService _syncTroubleshootingService;
@@ -38,7 +39,7 @@ public class UiFactory
 
     public UiFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, ApiController apiController,
         SnowcloakConfigService configService,
-        UiFontService fontService, BbCodeRenderService bbCodeRenderService, TextureService textureService, PairManager pairManager,
+        UiFontService fontService, BbCodeRenderService bbCodeRenderService, TextureService textureService, PairManager pairManager, PairRequestService pairRequestService,
         DalamudUtilService dalamudUtilService, IpcManager ipcManager,
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, PerformanceCollectorService performanceCollectorService,
         SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService,
@@ -55,6 +56,7 @@ public class UiFactory
         _textureService = textureService;
         _imageTransferService = imageTransferService;
         _pairManager = pairManager;
+        _pairRequestService = pairRequestService;
         _snowProfileManager = snowProfileManager;
         _performanceCollectorService = performanceCollectorService;
         _syncTroubleshootingService = syncTroubleshootingService;
@@ -117,5 +119,11 @@ public class UiFactory
     {
         return new RoomAdministrationWindow(_loggerFactory.CreateLogger<RoomAdministrationWindow>(), _snowMediator,
             _chatService, _pairManager, _chatIdentityResolver, _performanceCollectorService, roomId);
+    }
+
+    public PairRequestConfirmationWindow CreatePairRequestConfirmationWindow(string ident, string characterName, string pluginName)
+    {
+        return new PairRequestConfirmationWindow(_loggerFactory.CreateLogger<PairRequestConfirmationWindow>(), _snowMediator,
+            _pairRequestService, _performanceCollectorService, ident, characterName, pluginName);
     }
 }

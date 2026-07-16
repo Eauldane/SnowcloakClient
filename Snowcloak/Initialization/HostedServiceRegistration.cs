@@ -33,6 +33,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<EventAggregator>());
         collection.AddHostedService(p => p.GetRequiredService<SnowPlugin>());
         collection.AddHostedService(p => p.GetRequiredService<IpcProvider>());
+        collection.AddHostedService(p => p.GetRequiredService<PublicIpcProvider>());
         collection.AddHostedService(p => p.GetRequiredService<VenueSyncshellService>());
         collection.AddHostedService(p => p.GetRequiredService<VenueRegistrationService>());
         collection.AddHostedService(p => p.GetRequiredService<VenueReminderService>());

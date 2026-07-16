@@ -237,6 +237,8 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     
     public List<Pair> GetVisiblePairs() => _allClientPairs.Values.Where(p => p.IsVisible).ToList();
 
+    public IReadOnlyList<Pair> GetPairsSnapshot() => _allClientPairs.Values.ToArray();
+
     public PanicModeResult TogglePanicMode()
     {
         return SetPanicMode(!_panicModeEnabled);
@@ -283,6 +285,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         {
             Mediator.Publish(new ClearProfileDataMessage(pair.UserData));
             pair.MarkOffline();
+            Mediator.Publish(new PairOnlineStateChangedMessage(pair.UserData.UID, false));
         }
 
         InvalidateProjections();
@@ -314,6 +317,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         }
 
         pair.CreateCachedPlayer(dto);
+        Mediator.Publish(new PairOnlineStateChangedMessage(pair.UserData.UID, true));
 
         InvalidateProjections();
     }
@@ -328,6 +332,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         Mediator.Publish(new EventMessage(new Event(pair.UserData, nameof(PairManager), EventSeverity.Informational, "Received Character Data")));
         pair.ApplyData(dto, manifestHash);
+        Mediator.Publish(new PairDataReceivedMessage(pair.UserData.UID, dto.CharaData));
     }
 
     public void RemoveGroup(GroupData data)

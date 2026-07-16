@@ -24,6 +24,8 @@ public record MoodlesMessage(IntPtr Address) : MessageBase;
 public record HonorificReadyMessage : MessageBase;
 public record IpcStatusChangedMessage(IpcStatus Status) : MessageBase;
 public record OptionalIpcAvailabilityChangedMessage(string IpcName, bool IsAvailable) : MessageBase;
+public record ExtensionDataChangedMessage(string PluginKey) : KeyedMessage(PluginKey);
+public record ProfileCacheUpdatedMessage(string Ident) : KeyedMessage(Ident);
 public record PenumbraStartRedrawMessage(IntPtr Address) : MessageBase;
 public record PenumbraEndRedrawMessage(IntPtr Address) : MessageBase;
 public record PenumbraDirectoryChangedMessage(string? ModDirectory) : MessageBase;

@@ -39,6 +39,7 @@ internal static class IpcServiceRegistration
         collection.AddSingleton<IpcManager>();
         collection.AddSingleton<RedrawManager>();
         collection.AddSingleton<IpcProvider>();
+        collection.AddSingleton<PublicIpcProvider>();
 
         return collection;
     }

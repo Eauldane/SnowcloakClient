@@ -118,6 +118,9 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
     public CharacterProfileSummaryDto? GetSummary(string ident)
         => _summaries.TryGetValue(ident, out var summary) ? summary : null;
 
+    public SnowProfileData? GetCachedProfile(string ident, ProfileVisibility visibility = ProfileVisibility.Public)
+        => TryGetCachedProfile(new ProfileRequestKey(ident, visibility), out var profile) ? profile : null;
+
     public async Task<CharacterProfileSummaryDto?> RefreshSummaryAsync(string ident)
     {
         if (string.IsNullOrWhiteSpace(ident))
@@ -229,6 +232,11 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
             document);
         _profiles[key] = profile;
         _profileErrorTimes.TryRemove(key, out _);
+        if (profile.Visibility == ProfileVisibility.Public && profile.Revision > 0 && !profile.Disabled)
+        {
+            UpdateSummary(ToSummary(profile));
+        }
+        Mediator.Publish(new ProfileCacheUpdatedMessage(profile.Ident));
         return profile;
     }
 

@@ -123,12 +123,7 @@ public sealed class SnowMediator : IHostedService, IDisposable
 
     private void ExecuteMessage(MessageBase message)
     {
-        if (!_subscribers.TryGetValue((message.GetType(), message.SubscriberKey), out var set))
-            return;
-
-        // Lock-free read of an immutable, priority-ordered snapshot. A concurrent
-        // subscribe/unsubscribe swaps in a new array, leaving this one untouched.
-        var snapshot = set.Snapshot;
+        var snapshot = GetSubscriptions(message);
         if (snapshot.Length == 0)
             return;
 
@@ -165,10 +160,7 @@ public sealed class SnowMediator : IHostedService, IDisposable
     
     private async Task ExecuteMessageAsync(MessageBase message)
     {
-        if (!_subscribers.TryGetValue((message.GetType(), message.SubscriberKey), out var set))
-            return;
-
-        var snapshot = set.Snapshot;
+        var snapshot = GetSubscriptions(message);
         if (snapshot.Length == 0)
             return;
 
@@ -206,6 +198,37 @@ public sealed class SnowMediator : IHostedService, IDisposable
                 _lastErrorTime[subscription] = DateTime.UtcNow;
             }
         }
+    }
+
+    private Subscription[] GetSubscriptions(MessageBase message)
+    {
+        _subscribers.TryGetValue((message.GetType(), null), out var generalSet);
+        var general = generalSet?.Snapshot ?? [];
+        if (message.SubscriberKey is not { } key)
+            return general;
+
+        _subscribers.TryGetValue((message.GetType(), key), out var keyedSet);
+        var keyed = keyedSet?.Snapshot ?? [];
+        if (general.Length == 0)
+            return keyed;
+        if (keyed.Length == 0)
+            return general;
+
+        var subscriptions = new Subscription[general.Length + keyed.Length];
+        int generalIndex = 0;
+        int keyedIndex = 0;
+        int targetIndex = 0;
+        while (generalIndex < general.Length && keyedIndex < keyed.Length)
+        {
+            subscriptions[targetIndex++] = general[generalIndex].Priority <= keyed[keyedIndex].Priority
+                ? general[generalIndex++]
+                : keyed[keyedIndex++];
+        }
+
+        general.AsSpan(generalIndex).CopyTo(subscriptions.AsSpan(targetIndex));
+        targetIndex += general.Length - generalIndex;
+        keyed.AsSpan(keyedIndex).CopyTo(subscriptions.AsSpan(targetIndex));
+        return subscriptions;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

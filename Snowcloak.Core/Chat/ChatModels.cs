@@ -42,6 +42,13 @@ public enum DeliveryState
     Failed,
 }
 
+public enum ChatEntryKind
+{
+    Message,
+    MemberJoined,
+    MemberLeft,
+}
+
 public abstract record ChatSegment(string Value);
 
 public sealed record TextSegment(string Text) : ChatSegment(Text);
@@ -70,7 +77,8 @@ public sealed record ChatEntry(
     string RawText,
     DeliveryState State,
     SenderDisplay Display,
-    bool IsEmote = false);
+    bool IsEmote = false,
+    ChatEntryKind Kind = ChatEntryKind.Message);
 
 public sealed class ChatMessageSentEventArgs(ConversationKey key, ChatEntry entry) : EventArgs
 {

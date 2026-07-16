@@ -10,6 +10,8 @@ namespace Snowcloak.Services.Mediator;
 #pragma warning disable MA0048 // File name must match type name
 #pragma warning disable S2094
 public record OpenSettingsUiMessage : SameThreadMessage;
+public record OpenPluginIntegrationsSettingsMessage : SameThreadMessage;
+public record OpenPairRequestConfirmationMessage(string Ident, string CharacterName, string PluginName) : SameThreadMessage;
 public record NotificationMessage
     (string Title, string Message, NotificationType Type, TimeSpan? TimeShownOnScreen = null) : MessageBase;
 public record UiToggleMessage(Type UiType) : SameThreadMessage;

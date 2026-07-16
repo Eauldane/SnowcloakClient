@@ -89,6 +89,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     public CharacterData? LastReceivedCharacterData { get; set; }
     public string? PlayerName => GetPlayerName();
     public uint PlayerCharacterId => GetPlayerCharacterId();
+    public ushort? ObjectIndex => CachedPlayer?.ObjectIndex;
     public long LastAppliedDataBytes => CachedPlayer?.LastAppliedDataBytes ?? -1;
     public long LastAppliedDataTris { get; set; } = -1;
     public long LastAppliedApproximateVRAMBytes { get; set; } = -1;

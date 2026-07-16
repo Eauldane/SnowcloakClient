@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Snowcloak.Game", "Snowcloak
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Snowcloak.Tests", "Snowcloak.Tests\Snowcloak.Tests.csproj", "{8DECDCB2-C0A8-44C1-9143-76F2CA9CE6D3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Snowcloak.Ipc", "..\Snowcloak.Ipc\Snowcloak.Ipc\Snowcloak.Ipc.csproj", "{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -88,6 +90,18 @@ Global
 		{8DECDCB2-C0A8-44C1-9143-76F2CA9CE6D3}.Release|x64.Build.0 = Release|x64
 		{8DECDCB2-C0A8-44C1-9143-76F2CA9CE6D3}.Release|x86.ActiveCfg = Release|x64
 		{8DECDCB2-C0A8-44C1-9143-76F2CA9CE6D3}.Release|x86.Build.0 = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|Any CPU.Build.0 = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|x64.ActiveCfg = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|x64.Build.0 = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|x86.ActiveCfg = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Debug|x86.Build.0 = Debug|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|Any CPU.ActiveCfg = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|Any CPU.Build.0 = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|x64.ActiveCfg = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|x64.Build.0 = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|x86.ActiveCfg = Release|x64
+		{9B501384-6A25-4471-BC1E-3AEE62A9D9CF}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

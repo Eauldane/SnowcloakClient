@@ -35,6 +35,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private readonly FileUploadManager _fileTransferManager;
     private readonly HashSet<PairHandler> _newVisiblePlayers = [];
     private readonly PairManager _pairManager;
+    private readonly PublicIpcProvider _publicIpcProvider;
     private readonly ConcurrentDictionary<ObjectKind, GameObjectHandler> _playerRelatedObjects = [];
     private readonly OwnCharacterData _playerData = new();
     private readonly HashSet<UserData> _pendingVisibleUsers = new(UserDataComparer.Instance);
@@ -57,7 +58,8 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         IFrameScheduler frameScheduler,
         ApiController apiController,
         PairManager pairManager,
-        FileUploadManager fileTransferManager)
+        FileUploadManager fileTransferManager,
+        PublicIpcProvider publicIpcProvider)
         : base(logger, mediator)
     {
         _snapshotBuilder = snapshotBuilder;
@@ -65,6 +67,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         _apiController = apiController;
         _pairManager = pairManager;
         _fileTransferManager = fileTransferManager;
+        _publicIpcProvider = publicIpcProvider;
         _backgroundTasks = new BackgroundTaskTracker(logger);
 
         Mediator.Subscribe<ZoneSwitchStartMessage>(this, _ => _isZoning = true);
@@ -84,6 +87,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         Mediator.Subscribe<PlayerChangedMessage>(this, _ => PushCharacterData(_pairManager.GetVisibleUsers()));
         Mediator.Subscribe<PairHandlerVisibleMessage>(this, msg => OnPairHandlerVisible(msg.Player));
         Mediator.Subscribe<ConnectedMessage>(this, _ => OnConnected());
+        Mediator.Subscribe<ExtensionDataChangedMessage>(this, msg => QueueAllBuilds($"extension data change for {msg.PluginKey}"));
 
         _playerRelatedObjects[ObjectKind.Player] = gameObjectHandlerFactory.Create(ObjectKind.Player, dalamudUtil.GetPlayerPointer, isWatched: true)
             .GetAwaiter().GetResult();
@@ -405,6 +409,12 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
                 _playerData.SetFragment(kvp.Key, kvp.Value);
             }
 
+            _playerData.ExtensionData.Clear();
+            foreach (var (key, value) in _publicIpcProvider.GetLocalExtensionDataSnapshot())
+            {
+                _playerData.ExtensionData[key] = value;
+            }
+
             var apiData = _playerData.ToAPI();
             OnCharacterDataBuilt(apiData);
             Mediator.Publish(new CharacterDataCreatedMessage(apiData));
@@ -569,10 +579,16 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
         {
             Logger.LogDebug("Skipping character data upload because file transfers are not initialized yet");
+            Mediator.Publish(new LocalCharacterDataPushFailedMessage(
+                new Dictionary<string, string>(data.ExtensionData, StringComparer.Ordinal),
+                "File transfers are not initialised yet."));
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Unexpected exception while pushing character data");
+            Mediator.Publish(new LocalCharacterDataPushFailedMessage(
+                new Dictionary<string, string>(data.ExtensionData, StringComparer.Ordinal),
+                ex.Message));
         }
     }
 

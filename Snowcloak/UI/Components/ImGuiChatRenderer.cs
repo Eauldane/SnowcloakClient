@@ -41,6 +41,13 @@ public sealed class ImGuiChatRenderer
         }
 
         ImGui.SameLine(startX + timestampColumnWidth + 8f * ImGuiHelpers.GlobalScale);
+        if (entry.Kind is ChatEntryKind.MemberJoined or ChatEntryKind.MemberLeft)
+        {
+            RenderMembershipEvent(entry);
+            DrawEntryContextMenu(entry);
+            return;
+        }
+
         if (role is RoomRole.Owner or RoomRole.Moderator)
         {
             var icon = role == RoomRole.Owner ? FontAwesomeIcon.Crown : FontAwesomeIcon.UserShield;
@@ -86,11 +93,30 @@ public sealed class ImGuiChatRenderer
             ImGui.TextColored(ImGuiColors.DalamudRed, "failed");
         }
 
+        DrawEntryContextMenu(entry);
+    }
+
+    private static void RenderMembershipEvent(ChatEntry entry)
+    {
+        var joined = entry.Kind == ChatEntryKind.MemberJoined;
+        DrawMemberBadge(joined ? FontAwesomeIcon.UserPlus : FontAwesomeIcon.UserMinus,
+            joined ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactTextMuted,
+            joined ? "Member joined" : "Member left");
+        ElezenImgui.ColouredText(entry.Display.Name,
+            entry.Display.Colour ?? ImGuiColors.DalamudWhite, entry.Display.Glow);
+        ImGui.SameLine();
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, entry.RawText);
+    }
+
+    private static void DrawEntryContextMenu(ChatEntry entry)
+    {
         if (ImGui.BeginPopupContextItem($"chat-entry-{entry.LocalId}"))
         {
             if (ImGui.MenuItem("Copy message"))
             {
-                ImGui.SetClipboardText(entry.RawText);
+                ImGui.SetClipboardText(entry.Kind == ChatEntryKind.Message
+                    ? entry.RawText
+                    : $"{entry.Display.Name} {entry.RawText}");
             }
 
             ImGui.EndPopup();

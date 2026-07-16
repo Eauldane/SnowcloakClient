@@ -22,6 +22,7 @@ public static class CharacterDataCloneExtensions
             ManipulationData = source.ManipulationData,
             MoodlesData = source.MoodlesData,
             PetNamesData = source.PetNamesData,
+            ExtensionData = source.ExtensionData.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
         };
     }
 

@@ -2,6 +2,7 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Ipc;
 
 namespace Snowcloak.Services.Mediator;
 
@@ -16,9 +17,18 @@ public record HoldPairApplicationMessage(string UID, string Source) : KeyedMessa
 public record UnholdPairApplicationMessage(string UID, string Source) : KeyedMessage(UID);
 public record HoldPairDownloadsMessage(string UID, string Source) : KeyedMessage(UID);
 public record UnholdPairDownloadsMessage(string UID, string Source) : KeyedMessage(UID);
+public record PairDataReceivedMessage(string UID, CharacterData CharacterData) : KeyedMessage(UID);
 public record PairDataAppliedMessage(string UID, CharacterData? CharacterData) : KeyedMessage(UID);
 public record PairApplicationCompletedMessage(string UID, CharacterData CharacterData) : KeyedMessage(UID);
-public record LocalCharacterDataPushedMessage(IReadOnlyList<UserData> Recipients, string DataHash) : MessageBase;
+public record PairApplicationStateChangedMessage(string UID, SnowcloakApplicationState State, string? Reason = null) : KeyedMessage(UID);
+public record PairOnlineStateChangedMessage(string UID, bool IsOnline) : KeyedMessage(UID);
+public record LocalCharacterDataPushedMessage(
+    IReadOnlyList<UserData> Recipients,
+    string DataHash,
+    IReadOnlyDictionary<string, string> ExtensionData) : MessageBase;
+public record LocalCharacterDataPushFailedMessage(
+    IReadOnlyDictionary<string, string> ExtensionData,
+    string Reason) : MessageBase;
 public record RequestPairDataMessage(UserData UserData) : MessageBase;
 public record PairDataAnalyzedMessage(string UID) : KeyedMessage(UID);
 public record PairingAvailabilityChangedMessage : MessageBase;

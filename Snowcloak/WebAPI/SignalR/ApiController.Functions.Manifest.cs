@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Protocol;
 using Snowcloak.Core.Appearance;
 using Snowcloak.Services.Mediator;
 
@@ -31,6 +32,16 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<List<ManifestPointerDto>>(nameof(UserGetCurrentManifests), uids).ConfigureAwait(false);
     }
 
+    public async Task<List<ExtensionDataSnapshotDto>> UserGetCurrentExtensionData(
+        List<string> uids,
+        List<string> keys,
+        Dictionary<string, string> knownManifestHashes)
+    {
+        if (!IsConnected || _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ExtensionDataSnapshots) is not true) return [];
+        return await _snowHub!.InvokeAsync<List<ExtensionDataSnapshotDto>>(
+            nameof(UserGetCurrentExtensionData), uids, keys, knownManifestHashes).ConfigureAwait(false);
+    }
+
     public async Task<byte[]?> UserGetManifest(string hash)
     {
         if (!IsConnected) return null;
@@ -42,8 +53,13 @@ public partial class ApiController
         var manifest = AppearanceManifestCodec.ToManifest(character);
         var bytes = ManifestCanonical.Serialize(manifest);
         var hash = ManifestCanonical.ComputeHash(manifest);
+        var extensionData = character.ExtensionData.ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.Ordinal);
 
-        if (!IsConnected) return;
+        if (!IsConnected)
+        {
+            Mediator.Publish(new LocalCharacterDataPushFailedMessage(extensionData, "Snowcloak is not connected."));
+            return;
+        }
 
         var dto = new ManifestPushDto
         {
@@ -61,38 +77,20 @@ public partial class ApiController
         try
         {
             await _snowHub!.InvokeAsync(nameof(UserPushManifest), dto).ConfigureAwait(false);
-            Mediator.Publish(new LocalCharacterDataPushedMessage(visibleCharacters, hash));
+            Mediator.Publish(new LocalCharacterDataPushedMessage(
+                visibleCharacters,
+                hash,
+                extensionData));
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to push appearance manifest for {hash}", hash);
+            Mediator.Publish(new LocalCharacterDataPushFailedMessage(extensionData, "Snowcloak could not send the current manifest."));
         }
     }
 
-    private async Task RequestPairManifest(UserData user)
-    {
-        try
-        {
-            var pointers = await UserGetCurrentManifests([user.UID]).ConfigureAwait(false);
-            var pointer = pointers.Find(p => string.Equals(p.User.UID, user.UID, StringComparison.Ordinal));
-            if (pointer is null || string.IsNullOrEmpty(pointer.ManifestHash))
-            {
-                return;
-            }
-
-            var bytes = await UserGetManifest(pointer.ManifestHash).ConfigureAwait(false);
-            if (bytes is null || bytes.Length == 0)
-            {
-                return;
-            }
-
-            ApplyManifestBytes(user, bytes, pointer.Version, pointer.ReportedTriangles, pointer.ReportedVramBytes, pointer.ManifestHash);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "RequestPairManifest failed for {user}", user);
-        }
-    }
+    private Task RequestPairManifest(UserData user)
+        => ResolveManifestsInternal([user.UID], isRetry: false);
 
     public Task ResolveManifestsForVisiblePairs(IReadOnlyList<OnlineUserIdentDto> visiblePairs)
     {
@@ -117,13 +115,16 @@ public partial class ApiController
         try
         {
             var pointers = await UserGetCurrentManifests(uids).ConfigureAwait(false);
+            HashSet<string> pointerUids = new(StringComparer.Ordinal);
             foreach (var pointer in pointers)
             {
                 if (pointer is null || string.IsNullOrEmpty(pointer.ManifestHash))
                 {
                     continue;
                 }
-                
+
+                pointerUids.Add(pointer.User.UID);
+
                 var pair = _pairManager.GetPairByUID(pointer.User.UID);
                 if (pair is null)
                 {
@@ -144,6 +145,11 @@ public partial class ApiController
                 }
 
                 ApplyManifestBytes(pointer.User, bytes, pointer.Version, pointer.ReportedTriangles, pointer.ReportedVramBytes, pointer.ManifestHash);
+            }
+
+            if (!isRetry)
+            {
+                retryUids.AddRange(uids.Where(uid => !pointerUids.Contains(uid)));
             }
         }
         catch (Exception ex)

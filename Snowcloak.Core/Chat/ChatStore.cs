@@ -130,6 +130,44 @@ public sealed class ChatStore
         return entry;
     }
 
+    public void AppendMembershipEvent(ConversationKey key, string eventId, UserData user, ChatEntryKind kind)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        ArgumentNullException.ThrowIfNull(user);
+        if (kind is not ChatEntryKind.MemberJoined and not ChatEntryKind.MemberLeft)
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        }
+
+        var changed = false;
+        lock (_lock)
+        {
+            var conversation = GetOrCreateState(key, null, false, out _);
+            if (conversation.Entries.All(entry => !string.Equals(entry.MessageId, eventId, StringComparison.Ordinal)))
+            {
+                var text = kind == ChatEntryKind.MemberJoined ? "joined the room." : "left the room.";
+                conversation.Entries.Add(new ChatEntry(
+                    eventId,
+                    eventId,
+                    user.UID,
+                    DateTimeOffset.UtcNow,
+                    [new TextSegment(text)],
+                    text,
+                    DeliveryState.Sent,
+                    _identityResolver.Resolve(user),
+                    Kind: kind));
+                conversation.Entries.Sort(CompareEntries);
+                Trim(conversation.Entries);
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     public async Task SendAsync(ConversationKey key, string text, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))

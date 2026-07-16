@@ -78,8 +78,15 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         Mediator.Subscribe<RoomMemberJoinedMessage>(this, message =>
         {
             var dto = message.Dto;
+            var key = new ConversationKey(ConversationKind.Room, dto.Room.RoomId);
+            var wasActive = _rooms.GetMembers(dto.Room.RoomId)
+                .Any(member => string.Equals(member.User.UID, dto.User.UID, StringComparison.Ordinal));
             _rooms.SetMember(dto.Room, dto.User, dto.Role);
-            Store.SetMember(new ConversationKey(ConversationKind.Room, dto.Room.RoomId), dto.User.UID, dto.Role);
+            Store.SetMember(key, dto.User.UID, dto.Role);
+            if (!wasActive && !string.Equals(dto.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
+            {
+                Store.AppendMembershipEvent(key, MembershipEventId(dto.SessionSequence), dto.User, ChatEntryKind.MemberJoined);
+            }
             if (string.Equals(dto.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
             {
                 SetRoomActive(dto.Room.RoomId, true);
@@ -88,14 +95,21 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         Mediator.Subscribe<RoomMemberLeftMessage>(this, message =>
         {
             var dto = message.Dto;
+            var key = new ConversationKey(ConversationKind.Room, dto.Room.RoomId);
+            var wasActive = _rooms.GetMembers(dto.Room.RoomId)
+                .Any(member => string.Equals(member.User.UID, dto.User.UID, StringComparison.Ordinal));
             _rooms.RemoveMember(dto.Room, dto.User.UID);
-            Store.RemoveMember(new ConversationKey(ConversationKind.Room, dto.Room.RoomId), dto.User.UID);
+            Store.RemoveMember(key, dto.User.UID);
+            if (wasActive && !string.Equals(dto.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
+            {
+                Store.AppendMembershipEvent(key, MembershipEventId(dto.SessionSequence), dto.User, ChatEntryKind.MemberLeft);
+            }
             if (string.Equals(dto.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
             {
                 SetRoomActive(dto.Room.RoomId, false);
                 _serverRegistry.CurrentServer.JoinedRooms.Remove(dto.Room.RoomId);
                 _serverRegistry.Save();
-                Store.RemoveConversation(new ConversationKey(ConversationKind.Room, dto.Room.RoomId));
+                Store.RemoveConversation(key);
             }
         });
         Mediator.Subscribe<ClearProfileDataMessage>(this, _ => Store.RefreshDisplays(_identityResolver.Resolve));
@@ -309,6 +323,11 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
             Mediator.Publish(new ChatIncomingAppendedMessage(key, entry));
         }
     }
+
+    private static string MembershipEventId(long sessionSequence)
+        => sessionSequence > 0
+            ? $"room-membership:{sessionSequence}"
+            : $"room-membership:{Guid.NewGuid():N}";
 
     private void EnsureIncomingMetadata(ConversationKey key, ChatMessageDto message)
     {

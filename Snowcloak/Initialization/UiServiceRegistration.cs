@@ -38,6 +38,7 @@ internal static class UiServiceRegistration
         collection.AddScoped<InterfaceSettingsPanel>();
         collection.AddScoped<NotificationSettingsPanel>();
         collection.AddScoped<PerformanceSettingsPanel>();
+        collection.AddScoped<PluginIntegrationsSettingsPanel>();
         collection.AddScoped<PluginAvailabilityPanel>();
         collection.AddScoped<ServiceSelectionPanel>();
         collection.AddScoped<StorageSettingsPanel>();

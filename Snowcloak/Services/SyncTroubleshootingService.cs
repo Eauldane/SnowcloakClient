@@ -24,13 +24,14 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly FileTransferOrchestrator _fileTransferOrchestrator;
     private readonly IpcManager _ipcManager;
+    private readonly PublicIpcProvider _publicIpcProvider;
     private readonly BlockListStore _blockListStore;
     private readonly DownloadStatusStore _statusStore;
 
     public SyncTroubleshootingService(ILogger<SyncTroubleshootingService> logger, SnowMediator mediator,
         SnowcloakConfigService configService, DalamudUtilService dalamudUtilService,
         FileTransferOrchestrator fileTransferOrchestrator, DownloadStatusStore statusStore, IpcManager ipcManager,
-        BlockListStore blockListStore)
+        BlockListStore blockListStore, PublicIpcProvider publicIpcProvider)
         : base(logger, mediator)
     {
         _configService = configService;
@@ -39,6 +40,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         _statusStore = statusStore;
         _ipcManager = ipcManager;
         _blockListStore = blockListStore;
+        _publicIpcProvider = publicIpcProvider;
 
     }
 
@@ -199,6 +201,16 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
         dataState.Add("Last applied triangles: " + FormatTriangleMetric(pair.LastAppliedDataTris));
         dataState.Add("Last reported VRAM: " + FormatNullableByteMetric(pair.LastReportedApproximateVRAMBytes));
         dataState.Add("Last reported triangles: " + FormatNullableTriangleMetric(pair.LastReportedTriangles));
+        foreach (var extension in _publicIpcProvider.GetExtensionDiagnostics(pair.UserData.UID))
+        {
+            dataState.Add(string.Format(CultureInfo.InvariantCulture,
+                "Extension {0}: sent={1} bytes at {2}, received={3} bytes at {4}",
+                extension.PluginKey,
+                extension.SentBytes,
+                extension.LastLocalChangeAt?.ToString("u", CultureInfo.InvariantCulture) ?? "never",
+                extension.ReceivedBytes,
+                extension.LastReceivedAt?.ToString("u", CultureInfo.InvariantCulture) ?? "never"));
+        }
 
         pluginState.Add("Required IPC: " + DescribeIpcStatuses(_ipcManager.GetRequiredStatuses()));
         pluginState.Add("Optional IPC: " + DescribeIpcStatuses(_ipcManager.GetOptionalStatuses()));

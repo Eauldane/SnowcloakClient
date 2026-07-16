@@ -30,6 +30,7 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         Interface,
         Notifications,
         Chat,
+        PluginIntegrations,
         Performance,
         Storage,
         Transfers,
@@ -48,6 +49,7 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly InterfaceSettingsPanel _interfaceSettingsPanel;
     private readonly NotificationSettingsPanel _notificationSettingsPanel;
     private readonly ChatSettingsPanel _chatSettingsPanel;
+    private readonly PluginIntegrationsSettingsPanel _pluginIntegrationsSettingsPanel;
     private readonly PerformanceSettingsPanel _performanceSettingsPanel;
     private readonly PluginAvailabilityPanel _pluginAvailabilityPanel;
     private readonly ServiceSelectionPanel _serviceSelectionPanel;
@@ -68,7 +70,8 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     public SettingsUi(ILogger<SettingsUi> logger,
         UiFontService fontService, AdvancedSettingsPanel advancedSettingsPanel,
         GeneralSettingsPanel generalSettingsPanel, InterfaceSettingsPanel interfaceSettingsPanel,
-        NotificationSettingsPanel notificationSettingsPanel, ChatSettingsPanel chatSettingsPanel, PerformanceSettingsPanel performanceSettingsPanel,
+        NotificationSettingsPanel notificationSettingsPanel, ChatSettingsPanel chatSettingsPanel,
+        PluginIntegrationsSettingsPanel pluginIntegrationsSettingsPanel, PerformanceSettingsPanel performanceSettingsPanel,
         PluginAvailabilityPanel pluginAvailabilityPanel, StorageSettingsPanel storageSettingsPanel,
         ServiceSelectionPanel serviceSelectionPanel, TransferSettingsPanel transferSettingsPanel,
         TransferOverlayUiState transferOverlayState, FileDialogManager fileDialogManager,
@@ -89,6 +92,7 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         _interfaceSettingsPanel = interfaceSettingsPanel;
         _notificationSettingsPanel = notificationSettingsPanel;
         _chatSettingsPanel = chatSettingsPanel;
+        _pluginIntegrationsSettingsPanel = pluginIntegrationsSettingsPanel;
         _performanceSettingsPanel = performanceSettingsPanel;
         _pluginAvailabilityPanel = pluginAvailabilityPanel;
         _storageSettingsPanel = storageSettingsPanel;
@@ -111,6 +115,11 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
         Mediator.Subscribe<OpenChatSettingsMessage>(this, (_) =>
         {
             _selectedTab = SettingsTab.Chat;
+            IsOpen = true;
+        });
+        Mediator.Subscribe<OpenPluginIntegrationsSettingsMessage>(this, (_) =>
+        {
+            _selectedTab = SettingsTab.PluginIntegrations;
             IsOpen = true;
         });
         Mediator.Subscribe<SwitchToIntroUiMessage>(this, (_) => IsOpen = false);
@@ -164,6 +173,9 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
                     break;
                 case SettingsTab.Chat:
                     _chatSettingsPanel.Draw();
+                    break;
+                case SettingsTab.PluginIntegrations:
+                    _pluginIntegrationsSettingsPanel.Draw();
                     break;
                 case SettingsTab.Performance:
                     _performanceSettingsPanel.Draw();

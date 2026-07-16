@@ -29,6 +29,7 @@ public partial class SettingsUi
             DrawSidebarTab(SettingsTab.Interface, FontAwesomeIcon.Palette, "Interface");
             DrawSidebarTab(SettingsTab.Notifications, FontAwesomeIcon.Bell, "Notifications");
             DrawSidebarTab(SettingsTab.Chat, FontAwesomeIcon.Comments, "Chat");
+            DrawSidebarTab(SettingsTab.PluginIntegrations, FontAwesomeIcon.Plug, "Plugin Integrations");
             ModernSidebar.DrawSeparator();
             DrawSidebarTab(SettingsTab.Performance, FontAwesomeIcon.TachometerAlt, "Performance");
             DrawSidebarTab(SettingsTab.Storage, FontAwesomeIcon.Database, "Storage");

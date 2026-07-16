@@ -75,6 +75,10 @@ public sealed class UiService : DisposableMediatorSubscriberBase
             (msg, ui) => string.Equals(msg.RoomId, ui.RoomId, StringComparison.Ordinal),
             msg => _uiFactory.CreateRoomAdministrationWindow(msg.RoomId));
 
+        RegisterDynamicWindow<OpenPairRequestConfirmationMessage, PairRequestConfirmationWindow>(
+            (msg, ui) => string.Equals(msg.Ident, ui.Ident, StringComparison.Ordinal),
+            msg => _uiFactory.CreatePairRequestConfirmationWindow(msg.Ident, msg.CharacterName, msg.PluginName));
+
         Mediator.Subscribe<RemoveWindowMessage>(this, (msg) =>
         {
             _windowSystem.RemoveWindow(msg.Window);

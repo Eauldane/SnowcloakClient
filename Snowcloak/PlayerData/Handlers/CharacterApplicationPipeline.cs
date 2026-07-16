@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using ElezenTools.Core.Async;
 using Snowcloak.FileCache;
 using Snowcloak.Interop.Ipc;
+using Snowcloak.Ipc;
 using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Pairs;
@@ -111,12 +112,14 @@ internal sealed partial class CharacterApplicationPipeline
         if (updatedData.Count == 0)
         {
             LogNothingToUpdate(_handler);
+            PublishApplicationState(SnowcloakApplicationState.Applied);
             return;
         }
 
         var updateModdedPaths = updatedData.ContainsAny(PlayerChanges.ModFiles);
         var updateManip = updatedData.ContainsAny(PlayerChanges.ModManip);
 
+        PublishApplicationState(SnowcloakApplicationState.Waiting);
 
         var downloadScope = _downloadFlight.Begin(_runtimeCts.Token);
 
@@ -138,6 +141,16 @@ internal sealed partial class CharacterApplicationPipeline
         catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
         {
             LogSkippingDownloadNotInitialized(_handler);
+            PublishApplicationState(SnowcloakApplicationState.Failed, "File transfers are not ready.");
+        }
+        catch (OperationCanceledException) when (downloadToken.IsCancellationRequested)
+        {
+            LogDetectedCancellation();
+        }
+        catch (Exception)
+        {
+            PublishApplicationState(SnowcloakApplicationState.Failed, "The appearance application failed.");
+            throw;
         }
     }
 
@@ -161,6 +174,7 @@ internal sealed partial class CharacterApplicationPipeline
                 }
 
                 LogDownloadingMissingFiles(_handler.PlayerName, updatedData);
+                PublishApplicationState(SnowcloakApplicationState.Downloading);
 
                 Mediator.Publish(new EventMessage(new Event(_handler.PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Informational,
                     $"Starting download for {toDownloadReplacements.Count} files")));
@@ -168,6 +182,7 @@ internal sealed partial class CharacterApplicationPipeline
 
                 if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(_handler, charaData, toDownloadFiles, affect: true))
                 {
+                    PublishApplicationState(SnowcloakApplicationState.Blocked, "Blocked by performance limits.");
                     return;
                 }
 
@@ -190,12 +205,16 @@ internal sealed partial class CharacterApplicationPipeline
             }
 
             if (!await _playerPerformanceService.CheckBothThresholds(_handler, charaData).ConfigureAwait(false))
+            {
+                PublishApplicationState(SnowcloakApplicationState.Blocked, "Blocked by performance limits.");
                 return;
+            }
         }
 
         downloadToken.ThrowIfCancellationRequested();
 
         _applicationFlight.Cancel();
+        PublishApplicationState(SnowcloakApplicationState.Waiting, "Waiting for an application slot.");
         await _applicationAdmissionController.WaitForSlotAsync(Pair, updatedData.ContainsAny(PlayerChanges.ForcedRedraw), downloadToken).ConfigureAwait(false);
         await _applicationGate.WaitAsync(downloadToken).ConfigureAwait(false);
         try
@@ -205,6 +224,7 @@ internal sealed partial class CharacterApplicationPipeline
             using var appScope = _applicationFlight.Begin(_runtimeCts.Token);
             var token = appScope.Token;
 
+            PublishApplicationState(SnowcloakApplicationState.Applying);
             _handler.ApplicationTask = ApplyCharacterDataAsync(charaData, updatedData, updateModdedPaths, updateManip, moddedPaths, moddedFileSizes, token);
             _ = _backgroundTasks.Track(_handler.ApplicationTask, nameof(ApplyCharacterDataAsync));
             await _handler.ApplicationTask.ConfigureAwait(false);
@@ -228,6 +248,7 @@ internal sealed partial class CharacterApplicationPipeline
             if (handler == null)
             {
                 LogAbortingNullHandler(_handler);
+                PublishApplicationState(SnowcloakApplicationState.Failed, "The target character is no longer available.");
                 return;
             }
 
@@ -247,7 +268,16 @@ internal sealed partial class CharacterApplicationPipeline
             var applied = await _modApplicator.ApplyModsAsync(Logger, _handler, handler, Pair.UserData.UID, TryGetObjectIndexAsync,
                 _handler.ApplicationId, updateModdedPaths, updateManip,
                 moddedPaths.ToDictionary(k => k.Key.GamePath, k => k.Value, StringComparer.Ordinal), charaData.ManipulationData, token).ConfigureAwait(false);
-            if (!applied) return;
+            if (!applied)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                PublishApplicationState(SnowcloakApplicationState.Failed, "A required appearance integration rejected the application.");
+                return;
+            }
 
             if (updateModdedPaths)
             {
@@ -305,14 +335,19 @@ internal sealed partial class CharacterApplicationPipeline
                 _appliedState.ForceApplyMods = true;
                 _appliedState.CachedData = charaData;
                 Mediator.Publish(new PairDataAppliedMessage(Pair.UserData.UID, charaData));
+                PublishApplicationState(SnowcloakApplicationState.Idle);
                 LogPlayerTurnedNull(ex);
             }
             else
             {
+                PublishApplicationState(SnowcloakApplicationState.Failed, "The appearance application failed.");
                 LogApplicationFailed(ex);
             }
         }
     }
+
+    private void PublishApplicationState(SnowcloakApplicationState state, string? reason = null)
+        => Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, state, reason));
 
     private async Task ApplyCustomizationDataAsync(Guid applicationId, KeyValuePair<ObjectKind, IReadOnlyList<PlayerChanges>> changes, CharacterData charaData, CancellationToken token)
     {

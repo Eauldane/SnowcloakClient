@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Snowcloak.Ipc\Snowcloak.Ipc\Snowcloak.Ipc.csproj" />
     <ProjectReference Include="..\Snowcloak.Core\Snowcloak.Core.csproj" />
     <ProjectReference Include="..\Snowcloak.Infrastructure\Snowcloak.Infrastructure.csproj" />
     <ProjectReference Include="..\Snowcloak.Game\Snowcloak.Game.csproj" />
@@ -44,7 +45,7 @@
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.API" Version="3.99.12" />
+    <PackageReference Include="Snowcloak.API" Version="3.99.15" />
     <PackageReference Include="Snowcloak.CacheFile" Version="3.2.2.1" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
