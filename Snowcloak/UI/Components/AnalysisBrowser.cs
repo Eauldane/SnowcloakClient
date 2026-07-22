@@ -228,7 +228,7 @@ internal sealed class AnalysisBrowser
                 ImGui.TextColored(ImGuiColors.DalamudOrange, FontAwesomeIcon.ExclamationTriangle.ToIconString());
             ImGui.SameLine(0f, 6f * scale);
             ImGui.TextColored(ImGuiColors.DalamudOrange,
-                string.Format(CultureInfo.InvariantCulture, "This exceeds the default auto-pause thresholds ({0} MiB VRAM / {1}k triangles) other clients use.",
+                string.Format(CultureInfo.InvariantCulture, "This exceeds the default auto-pause thresholds ({0} MiB VRAM / {1}k triangles) other clients use, and may be paused by them.",
                     PerformanceBudgetPolicy.LegacyAutoBlockVramThresholdMiB, PerformanceBudgetPolicy.LegacyAutoBlockTrianglesThresholdThousands));
             ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
         }

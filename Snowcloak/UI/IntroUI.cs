@@ -38,8 +38,6 @@ public partial class IntroUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly StorageSettingsPanel _storageSettingsPanel;
     private readonly UiFontService _fontService;
     private readonly ImTextureID? _logoTextureHandle;
-
-    // Onboarding shell state. Account-registration flows live in dedicated flow components (P30).
     private readonly PasswordAccountFlow _accountFlow = new();
     private readonly SecretKeyBackupFlow _secretKeyBackupFlow;
     private readonly StandaloneKeyRegistrationFlow _standaloneKeyFlow;

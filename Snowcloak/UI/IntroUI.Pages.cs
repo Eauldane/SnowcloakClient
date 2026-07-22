@@ -3,6 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using ElezenTools;
 using ElezenTools.UI;
 using Snowcloak.UI.Components;
 using Snowcloak.UI.Components.Account;
@@ -42,23 +43,125 @@ public partial class IntroUi
             new Vector2(14f, 12f) * ImGuiHelpers.GlobalScale);
         if (ImGui.BeginChild("##serviceAgreement", new Vector2(0, documentHeight), border: true))
         {
-            ImGui.TextColored(SnowcloakColours.OnlineBlue, "WHAT SNOWCLOAK SHARES");
-            ElezenImgui.WrappedText("All of the mod files currently active on your character as well as your current character state will be uploaded to the service you registered yourself at automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.");
-            ElezenImgui.WrappedText("Data supplied by third-party plugins using the Snowcloak IPC may be relayed to paired users as part of your character state. The Snowcloak developer does not endorse, check, or approve any plugins using the IPC.");
-
+            using (_fontService.UidFont.Push())
+            {
+                ElezenImgui.ColouredText("TERMS OF SERVICE", SnowcloakColours.OnlineBlue);
+            }
+            
             ImGui.Spacing();
-            ImGui.TextColored(SnowcloakColours.OnlineBlue, "BANDWIDTH AND STORAGE");
-            ElezenImgui.WrappedText("If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded mod files might occur. Mod files will be compressed on up- and download to save on bandwidth usage. Due to varying up- and download speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again.");
-            ElezenImgui.WrappedText("The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the exact same mod files. Please think about who you are going to pair since it is unavoidable that they will receive and locally cache the necessary mod files that you have currently in use. Locally cached mod files will have arbitrary file names to discourage attempts at replicating the original mod.");
-
-            ImGui.Spacing();
-            ImGui.TextColored(SnowcloakColours.OnlineBlue, "SERVICE TERMS");
+            ElezenImgui.ColouredText("SERVICE TERMS", SnowcloakColours.OnlineBlue);
             ElezenImgui.WrappedText("The plugin creator tried their best to keep you secure. However, there is no guarantee for 100% security. Do not blindly pair your client with everyone.");
-            ElezenImgui.WrappedText("Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. After a period of not being used, the mod files may be automatically deleted.");
-            ElezenImgui.WrappedText("Accounts that are inactive for ninety (90) days will be deleted for privacy reasons.");
+            ElezenImgui.WrappedText("Mod files that are saved on the service will remain on the service as long as there are requests for the files from clients. " +
+                                    "After a period of not being used, the mod files may be automatically deleted, and will then need to be reuploaded.");
             ElezenImgui.WrappedText("Snowcloak is operated from servers located in the European Union and Canada. You agree not to upload any content to the service that violates the law of either jurisdiction.");
-            ElezenImgui.WrappedText("You may delete your account at any time from within the Settings panel of the plugin. Any mods unique to you will then be removed from the server within 14 days.");
-            ElezenImgui.WrappedText("This service is provided as-is.");
+            ElezenImgui.WrappedText("You may delete your account at any time from within the Settings panel of the plugin. If you used mods that only you had, they will be naturally removed from the server during automated" +
+                                    "cleanup.");
+            ElezenImgui.WrappedText("Snowcloak is independent of and is not affiliated with, endorsed by, or supported by Square Enix. Square Enix states that use of third-party " +
+                                    "tools is prohibited. Use of Snowcloak or any other plugins may result in action against your FFXIV account; you use it entirely at your own risk.");
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("MOD DATA", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("All of the mod files currently active on your character as well as your current character state will be uploaded to the server " +
+                                    "automatically. The plugin will exclusively upload the necessary mod files and not the whole mod.");
+            ElezenImgui.WrappedText("Data supplied by third-party plugins using the Snowcloak IPC may be relayed to paired users as part of your character state. " +
+                                    "The Snowcloak developer does not endorse, check, or approve any plugins using the IPC - using them is at your own discretion. " +
+                                    "Data received for IPC-capable plugins you're not using is discarded.");
+
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("BANDWIDTH AND STORAGE", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("If you are on a data capped internet connection, higher fees due to data usage depending on the amount of downloaded and uploaded " +
+                                    "mod files might occur. Mod files will be compressed on upload and download to save on bandwidth usage. Due to varying upload and download " +
+                                    "speeds, changes in characters might not be visible immediately. Files present on the service that already represent your active mod files will not be uploaded again. " +
+                                    "If you are on a metered connection, or one that has a data cap, you're strongly advised to limit who you pair with, or pause liberally when not engaged with that player.");
+            ElezenImgui.WrappedText("The mod files you are uploading are confidential and will not be distributed to parties other than the ones who are requesting the " +
+                                    "exact same mod files. Please think about who you are going to pair with - they'll be able to see your appearance, even if they just " +
+                                    "happen to stroll by a few days later. Locally cached mod files will have arbitrary file names to discourage attempts at replicating " +
+                                    "the original mod, but neither Snowcloak nor any other plugin can prevent this from occuring if a sufficiently determined person wants to.");
+
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("ROLEPLAY, COMMUNITY, AND USER CONSENT", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("Snowcloak allows users to create and share roleplay profiles, venues, events, chat messages, rooms, syncshells, scene information and other community content. " +
+                                    "You are responsible for content you submit and for ensuring that you have the rights and permissions needed to upload, display and share it through Snowcloak.");
+            ElezenImgui.WrappedText("You grant Snowcloak a limited, non-exclusive licence to host, process, display and transmit your content only as needed to operate the features you select. " +
+                                    "This includes making public-directory content available to eligible Snowcloak users, and making private content available to the participants you choose. Snowcloak" +
+                                    "does not use this license for any purpose other than to provide the service.");
+            ElezenImgui.WrappedText("Public profiles, rooms, venues and events may be visible to other eligible users. A public event may allow eligible users to join its " +
+                                    "associated syncshell without a password. Do not treat public-directory content as private.");
+            ElezenImgui.WrappedText("Room and syncshell owners and moderators may manage participation, including removing or banning members. When a roleplay scene is finished, its messages and scene " +
+                                    "information may be archived and made available for download to participants who had access to that scene. Do not treat room chat as ephemeral or assume " +
+                                    "that other participants will not retain copies.");
+            ElezenImgui.WrappedText("You must not use Snowcloak to share unlawful content; infringe another person's rights; harass, threaten, impersonate or dox another person; distribute malware; submit " +
+                                    "knowingly false reports; or share sexual or exploitative content involving minors. Adult content is permitted only where lawful and with consent.");
+            ElezenImgui.WrappedText("Snowcloak may remove, delist or restrict content, access or accounts where necessary for safety, moderation, legal compliance or operation of the service. " +
+                                    "Snowcloak is not responsible for user-generated content, community events, or the conduct of other users.");
+            ElezenImgui.WrappedText("If you configure a Discord webhook or another external destination, you are responsible for having authority to use it. Content sent there " +
+                                    "is subject to that third party's terms and privacy practices.");
+            ImGui.Spacing();
+            using (_fontService.UidFont.Push())
+            {
+                ElezenImgui.ColouredText("PRIVACY POLICY", SnowcloakColours.OnlineBlue);
+            }
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("WHAT WE PROCESS", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("Snowcloak processes the following information, required to operate the service:");
+            ElezenImgui.WrappedText("- Account and authentication information: your Snowcloak UID, account username if you " +
+                                    "create one, hashed and salted passwords for accounts if you create one, credential-use " +
+                                    "timestamps, and account settings. Snowcloak does not store email addresses or plaintext passwords.");
+            ElezenImgui.WrappedText("- Conection and security information: IP address, client user-agent and version, connection/session identifiers, " +
+                                    "timestamps, and rate-limit events. IP addresses are rotated out of logs daily, and are a natural part of webserver logging. " +
+                                    "IP addresses are also used to route downloads to geographically favourable servers. IP addresses are checked at the country level only.");
+            ElezenImgui.WrappedText("- Character and social information: A one-way hashed character identity supplied by the client while logged in, " +
+                                    "a generated UID, a user-provided alias, pair relationships, blocks, syncshell and room membership, permissions, availability, " +
+                                    "and related settings. \"Social information\" specifically refers to only internal Snowcloak information, it does not attempt to store information " +
+                                    "from other sources.");
+            ElezenImgui.WrappedText("- Content you choose to provide: Profile text and images, venue listings, event details, chat and roleplay messages, reports, moderation " +
+                                    "information, and data supplied through enabled third-party plugin integrations who transmit data through Snowcloak.");
+            ElezenImgui.WrappedText("- Appearance-sharing information: active Penumbra-based appearance manifests and the files necessary to provide that appearance to paired " +
+                                    "users.");
+            ElezenImgui.WrappedText("- Optional connected-account information: If you choose to link Patreon, we process identifiers, tokens, and pledge-status information needed to " +
+                                    "provide that integration.");
+            ElezenImgui.WrappedText("Snowcloak does not sell personal data, or use any data stored by the service for behavioural analysis or advertising.");
+
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("WHY WE USE IT", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("We use this information to:");
+            ElezenImgui.WrappedText("- Create and secure accounts and connections;");
+            ElezenImgui.WrappedText("- Provide appearance sharing, pairing, rooms, syncshells, profiles, venues, and chat;");
+            ElezenImgui.WrappedText("- Deliver content to eligible recipients;");
+            ElezenImgui.WrappedText("- Operate, maintain, troubleshoot, and defend the service;");
+            ElezenImgui.WrappedText("- Meet legal obligations; and");
+            ElezenImgui.WrappedText("- Provide optional features you request, such as roleplay discovery or Patreon integration.");
+            ElezenImgui.WrappedText("Our usual legal bases are performance of the service agreement, our legitimate interests in keeping the " +
+                                    "service sercure and usable, your consent where a feature is optional, and legal obligations " +
+                                    "where applicable. ");
+            ElezenImgui.WrappedText("Public roleplay directory listing, adult-content settings, connected accounts and sharing through external " +
+                                    "plugins are optional. Turning on a public or external feature may make the selected information available " +
+                                    "to people beyond your direct pairs. Exercise due caution when using these features or plugins.");
+            
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("WHO RECEIVES YOUR DATA", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("Data is transmitted only as needed:");
+            ElezenImgui.WrappedText("- To people who are eligible to receive it through the sharing, pairing, room, syncshell, directory, or venue feature you use;");
+            ElezenImgui.WrappedText("- To Snowcloak staff where needed to investigate reports, abuse, or service safety; and");
+            ElezenImgui.WrappedText("- To a webhook or external destination configured by a group or venue owner, where you choose to use a feature that sends data there.");
+            ElezenImgui.WrappedText("Snowcloak cannot control what another user does with content they receive. In particular, " +
+                                    "recipients may retain, copy or share appearance files, screenshots, messages or information you disclose.");
+
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("INTERNATIONAL PROCESSING", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("The service is operated using servers in the European Union and Canada. Snowcloak does NOT operate servers in the United States, in line " +
+                                    "with the Schrems II ruling and the updated EU-US Data Privacy Framework.");
+            
+            ImGui.Spacing();
+            ElezenImgui.ColouredText("RETENTION", SnowcloakColours.OnlineBlue);
+            ElezenImgui.WrappedText("We keep data ony for as long as needed for the purposes above.");
+            ElezenImgui.WrappedText("- Account, identity, and relationship records are kept while the relevant UID or account remains active.");
+            ElezenImgui.WrappedText("- Chat and roleplay messages are retained for 30 days, unless deletion is required sooner or a legal/safety hold applies.");
+            ElezenImgui.WrappedText("- Profile and venue images are removed 14 days after they cease to be referenced.");
+            ElezenImgui.WrappedText("- Syncshell audit logs are held for 90 days.");
+            ElezenImgui.WrappedText("- Appearance files are retained while in use and then removed under the service's unused-file retention process, normally 30 days of the last request of the file.");
+            ElezenImgui.WrappedText("- Session and presence data are deleted on logout or disconnection.");
+            ElezenImgui.WrappedText("- Backups may retain deleted information for an additional 14 days after the periods outlined above.");
+            ElezenImgui.WrappedText("Deleting a UID removes its owned service data, pairing relationships and room/syncshell membership as applicable. It does not delete other UIDs or the wider Snowcloak account.");
         }
         ImGui.EndChild();
 

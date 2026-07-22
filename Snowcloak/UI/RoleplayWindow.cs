@@ -29,6 +29,8 @@ namespace Snowcloak.UI;
 
 public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
 {
+    private static readonly Action<ILogger, Exception?> LogDirectoryImageRenderFailure = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1, nameof(TryGetDirectoryTexture)), "Failed to load roleplay directory image");
     private const string AvailabilityTab = "My availability";
     private const string PeopleTab = "People";
     private const string RoomsTab = "Rooms";
@@ -45,6 +47,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly TextureService _textureService;
     private readonly ImageTransferService _imageTransferService;
     private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _failedDirectoryImages = new(StringComparer.Ordinal);
     private string _activeTab = PeopleTab;
     private string _peopleSearch = string.Empty;
     private string _peopleTags = string.Empty;
@@ -118,6 +121,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             foreach (var texture in _bannerTextures.Values)
                 texture.Dispose();
             _bannerTextures.Clear();
+            _failedDirectoryImages.Clear();
         }
         base.Dispose(disposing);
     }
@@ -473,6 +477,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         using var padding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * ImGuiHelpers.GlobalScale);
         var height = (entry.Boundaries == null ? 142f : 166f) * ImGuiHelpers.GlobalScale;
         using var card = ImRaii.Child("rp-person-card", new Vector2(-1f, height), true);
+        if (!string.IsNullOrWhiteSpace(profile.ProfilePictureHash))
+        {
+            DrawProfilePortrait(profile.ProfilePictureHash);
+            ImGui.SameLine(0f, 12f * ImGuiHelpers.GlobalScale);
+        }
+        ImGui.BeginGroup();
         ImGui.TextColored(SnowcloakColours.OnlineBlue, string.IsNullOrWhiteSpace(profile.CharacterName) ? "Unnamed character" : profile.CharacterName);
         if (!string.IsNullOrWhiteSpace(profile.RpStatus))
         {
@@ -511,6 +521,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
         ImGui.SameLine();
         if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Directory, profile.Ident, profile.Revision);
+        ImGui.EndGroup();
     }
 
     private void DrawRooms()
@@ -591,6 +602,8 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         ImGui.TextColored(SnowcloakColours.OnlineBlue, room.Scene?.IsScene == true && !string.IsNullOrWhiteSpace(room.Scene.Title) ? room.Scene.Title : room.Name);
         ImGui.SameLine();
         ImGui.TextColored(SnowcloakColours.CompactTextMuted, $"{entry.UserCount} members");
+        if (!string.IsNullOrWhiteSpace(room.Discovery?.BannerImageHash))
+            DrawBannerImage(room.Discovery.BannerImageHash);
         if (!string.IsNullOrWhiteSpace(room.Topic)) ImGui.TextWrapped(room.Topic);
         if (room.Scene?.IsScene == true)
         {
@@ -694,10 +707,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         using var id = ImRaii.PushId(advertisement.Id.ToString("N"));
         using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
         using var padding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * ImGuiHelpers.GlobalScale);
-        using var card = ImRaii.Child("rp-venue-event-card", new Vector2(-1f, 86f * ImGuiHelpers.GlobalScale), true);
+        var height = string.IsNullOrWhiteSpace(advertisement.BannerFileHash) ? 86f : 164f;
+        using var card = ImRaii.Child("rp-venue-event-card", new Vector2(-1f, height * ImGuiHelpers.GlobalScale), true);
         ImGui.TextColored(SnowcloakColours.OnlineBlue, venue.VenueName);
         ImGui.SameLine();
         ImGui.TextColored(SnowcloakColours.CompactTextMuted, advertisement.StartsAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Upcoming venue slot");
+        if (!string.IsNullOrWhiteSpace(advertisement.BannerFileHash)) DrawBannerImage(advertisement.BannerFileHash);
         if (!string.IsNullOrWhiteSpace(advertisement.Text)) ImGui.TextWrapped(advertisement.Text);
         var reminder = reminded;
         if (ImGui.Checkbox("Remind me##venue", ref reminder))
@@ -774,7 +789,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
 
     private void DrawBannerImage(string bannerHash)
     {
-        if (_bannerTextures.TryGetValue(bannerHash, out var texture))
+        if (TryGetDirectoryTexture(bannerHash, out var texture))
         {
             var sourceSize = new Vector2(texture.Width, texture.Height);
             var widthScale = sourceSize.X > 0f ? ImGui.GetContentRegionAvail().X / sourceSize.X : 1f;
@@ -783,23 +798,60 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             return;
         }
 
-        if (!_imageTransferService.TryGetImage(bannerHash, out var bytes) || bytes.Length == 0)
+        ImGui.TextColored(_failedDirectoryImages.Contains(bannerHash) ? ImGuiColors.DalamudRed : SnowcloakColours.CompactTextMuted,
+            _failedDirectoryImages.Contains(bannerHash) ? "Banner unavailable" : "Loading banner...");
+    }
+
+    private void DrawProfilePortrait(string imageHash)
+    {
+        var size = new Vector2(72f) * ImGuiHelpers.GlobalScale;
+        if (TryGetDirectoryTexture(imageHash, out var texture))
         {
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Loading event banner...");
+            var sourceSize = new Vector2(texture.Width, texture.Height);
+            var scale = Math.Min(size.X / Math.Max(1f, sourceSize.X), size.Y / Math.Max(1f, sourceSize.Y));
+            ImGui.Image(texture.Handle, sourceSize * scale);
             return;
         }
 
+        using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
+        using var placeholder = ImRaii.Child("rp-directory-portrait", size, true,
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted,
+                (_failedDirectoryImages.Contains(imageHash) ? FontAwesomeIcon.ExclamationTriangle : FontAwesomeIcon.User).ToIconString());
+    }
+
+    private bool TryGetDirectoryTexture(string imageHash, out IDalamudTextureWrap texture)
+    {
+        if (_bannerTextures.TryGetValue(imageHash, out var cachedTexture))
+        {
+            texture = cachedTexture;
+            return true;
+        }
+        if (_failedDirectoryImages.Contains(imageHash)
+            || !_imageTransferService.TryGetImage(imageHash, out var bytes) || bytes.Length == 0)
+        {
+            texture = null!;
+            return false;
+        }
         try
         {
-            _bannerTextures[bannerHash] = _textureService.LoadImage(bytes);
-            DrawBannerImage(bannerHash);
+            texture = _textureService.LoadImage(bytes);
+            _bannerTextures[imageHash] = texture;
+            return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsExpectedTextureFailure(ex))
         {
-            _logger.LogWarning(ex, "Failed to load roleplay event banner image");
-            ImGui.TextColored(ImGuiColors.DalamudRed, "Failed to load event banner.");
+            _failedDirectoryImages.Add(imageHash);
+            LogDirectoryImageRenderFailure(_logger, ex);
+            texture = null!;
+            return false;
         }
     }
+
+    private static bool IsExpectedTextureFailure(Exception exception)
+        => exception is AggregateException or InvalidDataException or IOException or UnauthorizedAccessException
+            or NotSupportedException or ArgumentException or ObjectDisposedException or InvalidOperationException;
 
     private static string BuildICalendar(RpEventDirectoryEntryDto entry)
     {

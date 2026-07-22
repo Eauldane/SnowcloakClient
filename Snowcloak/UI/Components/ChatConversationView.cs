@@ -328,7 +328,7 @@ public sealed class ChatConversationView
         }
 
         ImGui.SameLine();
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExternalLinkAlt, "Open conversation in a separate window"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExternalLinkAlt, "Open conversation in a pop-out window"))
         {
             _mediator.Publish(new OpenChatPopoutMessage(conversation.Key));
         }

@@ -261,7 +261,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 #if false
                         Mediator.Publish(new NotificationMessage("Modified Game Files detected",
                             "Dalamud has reported modified game files in your FFXIV installation. " +
-                            "You will be able to connect, but the synchronization functionality might be (partially) broken. " +
+                            "You will be able to connect, but the synchronisation functionality might be (partially) broken. " +
                             "Exit the game and repair it through XIVLauncher to get rid of this message.",
                             NotificationType.Error, TimeSpan.FromSeconds(15)));
 #endif

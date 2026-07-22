@@ -76,13 +76,13 @@ public class UiFactory
     {
         return new SyncshellAdminUI(_loggerFactory.CreateLogger<SyncshellAdminUI>(), _snowMediator,
             _apiController, _configService, _fontService, _pairManager, dto, _performanceCollectorService, _syncshellBudgetService,
-            _dalamudUtilService);
+            _dalamudUtilService, _fileDialogManager, _imageTransferService);
     }
 
     public SyncshellEventsWindow CreateSyncshellEventsUi(GroupFullInfoDto dto)
     {
         return new SyncshellEventsWindow(_loggerFactory.CreateLogger<SyncshellEventsWindow>(), _snowMediator,
-            _apiController, _pairManager, _dalamudUtilService, _textureService, _imageTransferService, dto,
+            _apiController, _pairManager, _dalamudUtilService, _textureService, _imageTransferService, _fileDialogManager, dto,
             _performanceCollectorService);
     }
 
@@ -126,7 +126,7 @@ public class UiFactory
     {
         return new RoomAdministrationWindow(_loggerFactory.CreateLogger<RoomAdministrationWindow>(), _snowMediator,
             _apiController, _chatService, _pairManager, _chatIdentityResolver, _roleplayClientService,
-            _performanceCollectorService, roomId);
+            _fileDialogManager, _imageTransferService, _performanceCollectorService, roomId);
     }
 
     public PairRequestConfirmationWindow CreatePairRequestConfirmationWindow(string ident, string characterName, string pluginName)

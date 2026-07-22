@@ -200,10 +200,11 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         ImGui.Spacing();
         ImGui.BulletText("Frostbrand can show your public card, hooks, portrait, and profile tags while you are opted in.");
         ImGui.BulletText("Kink tags are only shown to viewers who have matching kink tags on their own profile.");
-        ImGui.BulletText("Pairs can see the full profile, including overview, OOC notes, and adult preferences.");
+        ImGui.BulletText("Pairs can see the full profile - including overview, OOC notes, and adult preferences - unless you mark a field as private.");
         ImGui.BulletText("Publishing a profile does not enable Frostbrand by itself - this is a separate opt-in system.");
         ImGui.BulletText("Drafts autosave locally while you edit, and successful publishes are kept as local recovery backups for copying to other characters, or restoring after world transfer/name change.");
         ImGui.Spacing();
+        ImGui.TextWrapped("The more you fill out, the more likely you are to find compatible partners!");
 
         if (ImGui.Button("Start editing", new Vector2(180f * ImGuiHelpers.GlobalScale, 0)))
         {

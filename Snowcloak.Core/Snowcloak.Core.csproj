@@ -9,7 +9,7 @@
   <ItemGroup>
     <PackageReference Include="ElezenTools.Core" Version="15.5.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Snowcloak.API" Version="3.99.23" />
+    <PackageReference Include="Snowcloak.API" Version="3.99.24" />
     <PackageReference Update="Meziantou.Analyzer" Version="3.0.124">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

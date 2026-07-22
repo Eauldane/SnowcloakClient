@@ -1,22 +1,29 @@
 using System.Globalization;
 using System.Numerics;
+using System.Text.Json;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
+using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.Core.IO;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
 
 namespace Snowcloak.UI.Components;
 
 internal sealed class SyncshellCommunityManagementPanel
 {
+    private static readonly Action<ILogger, Exception?> LogEventBannerUploadFailure = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1, nameof(UploadEventBannerAsync)), "Could not upload event banner");
     private static readonly GroupDirectoryJoinPolicy[] JoinPolicies =
     [
         GroupDirectoryJoinPolicy.Open,
@@ -26,6 +33,9 @@ internal sealed class SyncshellCommunityManagementPanel
 
     private readonly ApiController _apiController;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly FileDialogManager _fileDialogManager;
+    private readonly ImageTransferService _imageTransferService;
+    private readonly ILogger _logger;
     private readonly SnowMediator _mediator;
     private readonly AsyncOp<GroupCommunityDto> _communityLoadOperation = new();
     private readonly AsyncOp<GroupCommunityDto> _motdSaveOperation = new();
@@ -53,6 +63,7 @@ internal sealed class SyncshellCommunityManagementPanel
     private string _eventWarningsDraft = string.Empty;
     private int _eventCapacityDraft;
     private string _eventBannerDraft = string.Empty;
+    private bool _eventBannerUploading;
     private bool _eventPublicDraft;
     private ProfileContentRating _eventRatingDraft;
     private bool _eventRecurringDraft;
@@ -75,11 +86,15 @@ internal sealed class SyncshellCommunityManagementPanel
     private string _listingStatus = string.Empty;
     private Vector4 _listingStatusColour = ImGuiColors.DalamudYellow;
 
-    public SyncshellCommunityManagementPanel(ApiController apiController, DalamudUtilService dalamudUtilService, SnowMediator mediator)
+    public SyncshellCommunityManagementPanel(ApiController apiController, DalamudUtilService dalamudUtilService,
+        SnowMediator mediator, FileDialogManager fileDialogManager, ImageTransferService imageTransferService, ILogger logger)
     {
         _apiController = apiController;
         _dalamudUtilService = dalamudUtilService;
         _mediator = mediator;
+        _fileDialogManager = fileDialogManager;
+        _imageTransferService = imageTransferService;
+        _logger = logger;
     }
 
     public void DrawCommunity(GroupFullInfoDto group)
@@ -421,8 +436,7 @@ internal sealed class SyncshellCommunityManagementPanel
         ImGui.InputTextWithHint("##eventtags", "Theme tags, comma-separated", ref _eventTagsDraft, 512);
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##eventwarnings", "Content warnings, comma-separated", ref _eventWarningsDraft, 512);
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##eventbanner", "Optional banner image hash", ref _eventBannerDraft, 160);
+        DrawEventBannerEditor();
 
         ImGui.Checkbox("Public RP directory listing", ref _eventPublicDraft);
         ElezenImgui.AttachTooltip("Public events allow eligible players to join this syncshell without a password.");
@@ -464,7 +478,8 @@ internal sealed class SyncshellCommunityManagementPanel
                             || string.IsNullOrWhiteSpace(_eventUntilDraft)
                             || DateTime.TryParse(_eventUntilDraft, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out var parsedUntil)
                             && parsedUntil > parsedStart;
-        using (ImRaii.Disabled(string.IsNullOrWhiteSpace(_eventTitleDraft) || !hasValidStart || !hasValidUntil || _eventSaveOperation.IsRunning))
+        using (ImRaii.Disabled(string.IsNullOrWhiteSpace(_eventTitleDraft) || !hasValidStart || !hasValidUntil
+                               || _eventSaveOperation.IsRunning || _eventBannerUploading))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, _eventId == Guid.Empty ? "Create event" : "Save event") && hasValidStart)
             {
@@ -475,7 +490,8 @@ internal sealed class SyncshellCommunityManagementPanel
         if (_eventId != Guid.Empty)
         {
             ImGui.SameLine();
-            if (ImGui.Button("Cancel edit")) ResetEventDraft();
+            using (ImRaii.Disabled(_eventBannerUploading))
+                if (ImGui.Button("Cancel edit")) ResetEventDraft();
         }
         if (!hasValidStart)
             ElezenImgui.ColouredWrappedText("Enter a valid local start date and time.", ImGuiColors.DalamudYellow);
@@ -515,6 +531,103 @@ internal sealed class SyncshellCommunityManagementPanel
             ImGui.EndCombo();
         }
         ElezenImgui.AttachTooltip("Optionally narrow the event location to a world, or leave it open to every world.");
+    }
+
+    private void DrawEventBannerEditor()
+    {
+        ImGui.TextUnformatted("Banner (720x300 PNG)");
+        using (ImRaii.Disabled(_eventBannerUploading))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileUpload, "Upload banner"))
+            {
+                _fileDialogManager.OpenFileDialog("Select event banner", ".png", (success, file) =>
+                {
+                    if (success)
+                        _ = UploadEventBannerAsync(file, _activeGid);
+                });
+            }
+        }
+        ElezenImgui.AttachTooltip("Upload a 720x300 PNG banner.");
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_eventBannerUploading || string.IsNullOrWhiteSpace(_eventBannerDraft)))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear banner"))
+                _eventBannerDraft = string.Empty;
+        }
+        if (_eventBannerUploading)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Uploading...");
+        }
+        else if (!string.IsNullOrWhiteSpace(_eventBannerDraft))
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Banner selected");
+        }
+    }
+
+    private async Task UploadEventBannerAsync(string filePath, string groupId)
+    {
+        _eventBannerUploading = true;
+        SetCommunityStatus("Uploading event banner...", ImGuiColors.DalamudYellow);
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(filePath).ConfigureAwait(false);
+            using var stream = new MemoryStream(bytes);
+            var dimensions = PngHeaderReader.TryExtractDimensions(stream);
+            if (dimensions.Width != 720 || dimensions.Height != 300)
+            {
+                SetCommunityStatus("Event banners must be exactly 720x300 pixels.", ImGuiColors.DalamudRed);
+                return;
+            }
+
+            var reply = await _imageTransferService.UploadImageAsync(bytes, ImageKind.VenueBanner, CancellationToken.None).ConfigureAwait(false);
+            if (reply == null || string.IsNullOrEmpty(reply.Hash))
+            {
+                SetCommunityStatus("Could not upload that event banner.", ImGuiColors.DalamudRed);
+                return;
+            }
+            if (!string.Equals(groupId, _activeGid, StringComparison.Ordinal))
+                return;
+
+            _eventBannerDraft = reply.Hash;
+            SetCommunityStatus($"Banner uploaded. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}. Save the event to publish it.",
+                ImGuiColors.HealerGreen);
+        }
+        catch (ImageUploadException ex)
+        {
+            SetCommunityStatus(ex.Message, ImGuiColors.DalamudRed);
+        }
+        catch (IOException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (JsonException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        finally
+        {
+            _eventBannerUploading = false;
+        }
+    }
+
+    private void SetEventBannerUploadFailure(Exception exception)
+    {
+        LogEventBannerUploadFailure(_logger, exception);
+        SetCommunityStatus("Could not upload that event banner.", ImGuiColors.DalamudRed);
     }
 
     private void DrawDigestEditor(GroupFullInfoDto group)
@@ -1007,6 +1120,15 @@ internal sealed class SyncshellCommunityManagementPanel
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(16)
             .ToList();
+
+    private static string FormatImageQuota(long usageBytes, long quotaBytes)
+    {
+        var usage = (usageBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        if (quotaBytes <= 0)
+            return $"{usage} MiB used";
+        var quota = (quotaBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        return $"{usage} of {quota} MiB";
+    }
 
     private static string FormatJoinPolicy(GroupDirectoryJoinPolicy policy)
     {

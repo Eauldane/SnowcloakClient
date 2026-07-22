@@ -381,7 +381,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                ElezenImgui.AttachTooltip("Sets your allowance for sound synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Whether or not sound synchronisation is allowed for this Syncshell member." +
                                               Environment.NewLine + "Disabling applies even without an individual pair.");
 
                 var isDisableAnims = permissions.IsDisableAnimations();
@@ -397,7 +397,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                ElezenImgui.AttachTooltip("Sets your allowance for animation synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Whether or not animation sync is allowed for this Syncshell member." +
                                               Environment.NewLine +"Disabling applies even without an individual pair.");
 
                 var isDisableVfx = permissions.IsDisableVFX();
@@ -413,7 +413,7 @@ public class DrawGroupPair : DrawPairBase
                         permissions
                     ));
                 }
-                ElezenImgui.AttachTooltip("Sets your allowance for VFX synchronization for this Syncshell member." +
+                ElezenImgui.AttachTooltip("Whether or not VFX sync is allowed for this Syncshell member." +
                                               Environment.NewLine + "Disabling applies even without an individual pair.");
 
                 ImGui.Separator();

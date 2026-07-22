@@ -172,7 +172,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
             ImGui.InputTextWithHint("##password", string.Format(CultureInfo.CurrentCulture, "{0} Password", _syncShellToJoin), ref _syncShellPassword, 255, ImGuiInputTextFlags.Password);
             if (_errorGroupJoin)
             {
-                ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.CurrentCulture, "An error occured during joining of this Syncshell: you either have joined the maximum amount of Syncshells ({0}), it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full, or the Syncshell has closed invites.",
+                ElezenImgui.ColouredWrappedText(string.Format(CultureInfo.CurrentCulture, "An error occured during joining this Syncshell: you either have joined the maximum amount of Syncshells ({0}), it does not exist, the password you entered is wrong, you already joined the Syncshell, the Syncshell is full, or the Syncshell has closed invites.",
                         ApiController.ServerInfo.MaxGroupsJoinedByUser),
                     new Vector4(1, 0, 0, 1));
             }
@@ -247,7 +247,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
         {
             _mediator.Publish(new UiToggleMessage(typeof(CommunitySyncshellWindow)));
         }
-        ElezenImgui.AttachTooltip("Open the community syncshell directory to search and join public syncshells.");
+        ElezenImgui.AttachTooltip("Open the community syncshell directory to search and join open syncshells.");
         ImGuiHelpers.ScaledDummy(2);
     }
 
@@ -299,7 +299,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
             {
                 ImGui.Button("Join regional Snowcloak Syncshell", new Vector2(-1, 0));
             }
-            ElezenImgui.AttachTooltip("Regional Syncshell is unavailable because your datacenter region could not be determined.");
+            ElezenImgui.AttachTooltip("Regional Syncshell is unavailable because your datacenter region could not be determined. Are you a GM..?");
         }
 
         if (_showRegionJoinError)
@@ -316,7 +316,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
         {
             ElezenImgui.WrappedText("Public Syncshells can contain lots of people, and these people may gather in one particular spot.");
             ElezenImgui.WrappedText("This can cause significant load on both the server, and your PC. If you have a lower-end computer, we STRONGLY recommend that you do not join public syncshells.");
-            ElezenImgui.WrappedText("Please note that these syncshells are not provided with the intention of facilitating large gatherings. In the event that one occurs, public syncshells will be automatically disabled and paused for all members to protect the functionality of the rest of the service.");
+            ElezenImgui.WrappedText("Please note that these syncshells are not provided with the intention of facilitating overly large gatherings, and you should use your own syncshell for those.");
 
             ImGui.Separator();
 
@@ -969,8 +969,8 @@ internal sealed class GroupPanel : IMediatorSubscriber
                 perm.SetDisableSounds(!perm.IsDisableSounds());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            ElezenImgui.AttachTooltip("Sets your allowance for sound synchronization for users of this syncshell."
-                                          + Environment.NewLine + "Disabling the synchronization will stop applying sound modifications for users of this syncshell."
+            ElezenImgui.AttachTooltip("Sets your allowance for sound synchronisation for users of this syncshell."
+                                          + Environment.NewLine + "Disabling the synchronisation will stop applying sound modifications for users of this syncshell."
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."
                                           + Environment.NewLine + "Note: this setting does not apply to individual pairs that are also in the syncshell.");
 
@@ -982,9 +982,9 @@ internal sealed class GroupPanel : IMediatorSubscriber
                 perm.SetDisableAnimations(!perm.IsDisableAnimations());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            ElezenImgui.AttachTooltip("Sets your allowance for animations synchronization for users of this syncshell."
-                                          + Environment.NewLine + "Disabling the synchronization will stop applying animations modifications for users of this syncshell."
-                                          + Environment.NewLine + "Note: this setting might also affect sound synchronization"
+            ElezenImgui.AttachTooltip("Sets your allowance for animations synchronisation for users of this syncshell."
+                                          + Environment.NewLine + "Disabling the synchronisation will stop applying animations modifications for users of this syncshell."
+                                          + Environment.NewLine + "Note: this setting might also affect sound synchronisation"
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."
                                           + Environment.NewLine + "Note: this setting does not apply to individual pairs that are also in the syncshell.");
 
@@ -996,9 +996,9 @@ internal sealed class GroupPanel : IMediatorSubscriber
                 perm.SetDisableVFX(!perm.IsDisableVFX());
                 _ = ApiController.GroupChangeIndividualPermissionState(new(groupDto.Group, new UserData(ApiController.UID), perm));
             }
-            ElezenImgui.AttachTooltip("Sets your allowance for VFX synchronization for users of this syncshell."
-                                          + Environment.NewLine + "Disabling the synchronization will stop applying VFX modifications for users of this syncshell."
-                                          + Environment.NewLine + "Note: this setting might also affect animation synchronization to some degree"
+            ElezenImgui.AttachTooltip("Sets your allowance for VFX synchronisation for users of this syncshell."
+                                          + Environment.NewLine + "Disabling the synchronisation will stop applying VFX modifications for users of this syncshell."
+                                          + Environment.NewLine + "Note: this setting might also affect animation synchronisation to some degree"
                                           + Environment.NewLine + "Note: this setting can be forcefully overridden to 'disabled' through the syncshell owner."
                                           + Environment.NewLine + "Note: this setting does not apply to individual pairs that are also in the syncshell.");
 

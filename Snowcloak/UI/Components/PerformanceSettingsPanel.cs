@@ -114,7 +114,7 @@ public sealed class PerformanceSettingsPanel
 
     private void DrawPerformanceGeneral(ref bool recalculatePerformance)
     {
-        ElezenImgui.WrappedText("These settings control local-only performance protection. Per-player auto-blocking applies to direct pairs and syncshell members, while crowd control only manages visible syncshell members.");
+        ElezenImgui.WrappedText("These settings control how Snowcloak manages data application, and allows you to prevent overly-heavy modsets from loading.");
         ImGui.Separator();
 
         _fontService.BigText("Global Configuration");
@@ -215,8 +215,8 @@ public sealed class PerformanceSettingsPanel
             _playerPerformanceConfigService.Update(c => c.CrowdPriorityModeEnabled = crowdPriorityModeEnabled);
             recalculatePerformance = true;
         }
-        ElezenImgui.DrawHelpText("Local only. When crowd pressure exceeds the thresholds below, Snowcloak temporarily holds the lowest-priority visible syncshell members first."
-            + Environment.NewLine + "Priority order: direct pairs, party members, syncshell owners, moderators, pinned members, then normal syncshell members."
+        ElezenImgui.DrawHelpText("In areas with heavy syncshell pair presence, Snowcloak will hold back pairs based on priority order if it detects lag."
+            + Environment.NewLine + "Priority order: direct pairs, party members, syncshell owners, moderators, pinned members, then normal syncshell members. Lowest priority pairs are paused first."
             + Environment.NewLine + "Set any threshold to 0 to disable that specific limit.");
 
         using (ImRaii.Disabled(!crowdPriorityModeEnabled))
@@ -241,7 +241,7 @@ public sealed class PerformanceSettingsPanel
             }
             ImGui.SameLine();
             ImGui.Text("(GiB)");
-            ElezenImgui.DrawHelpText("Suggested default: 75% of your detected local GPU VRAM, leaving headroom for the game and desktop, with an 8 GiB fallback.");
+            ElezenImgui.DrawHelpText("Suggested default: 75% of your detected local GPU VRAM. If using other syncs, you may need to employ trial and error.");
 
             ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("Shell-visible triangle threshold", ref crowdTriangleThreshold))
@@ -302,7 +302,7 @@ public sealed class PerformanceSettingsPanel
             ImGui.SameLine();
             ImGui.Text("(thousand triangles)");
             ElezenImgui.DrawHelpText("When a player's individual triangle count exceeds this amount, Snowcloak automatically blocks them." + ElezenImgui.TooltipSeparator
-                + "Suggested default: 0.4 million per player.");
+                + "Suggested default: 400k per player.");
 
             using (ImRaii.Disabled(!_perfUnapplied))
             {
@@ -318,7 +318,7 @@ public sealed class PerformanceSettingsPanel
     private void DrawModNullificationSettings()
     {
         _fontService.BigText("Mod Nullification [EXPERIMENTAL]");
-        ElezenImgui.WrappedText("These options allow you to selectively nullify certain annoying aspects without outright pausing a user.");
+        ElezenImgui.WrappedText("These options allow you to selectively nullify certain potentially annoying aspects without outright pausing a user.");
 
         var settingsChanged = false;
         var config = _playerPerformanceConfigService.Current;

@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
@@ -8,21 +9,28 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.Core.IO;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Chat;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
 using System.Globalization;
 using System.Numerics;
+using System.Text.Json;
 
 namespace Snowcloak.UI;
 
 public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
 {
+    private static readonly Action<ILogger, Exception?> LogRoomBannerUploadFailure = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1, nameof(UploadRoomBannerAsync)), "Could not upload room banner");
     private readonly ChatClientService _chatService;
     private readonly ApiController _apiController;
     private readonly ChatIdentityResolver _identityResolver;
+    private readonly FileDialogManager _fileDialogManager;
+    private readonly ImageTransferService _imageTransferService;
     private readonly AsyncOp _inviteOperation = new();
     private readonly AsyncOp _discoveryOperation = new();
     private readonly AsyncOp _sceneOperation = new();
@@ -47,6 +55,8 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     private string _unbanUid = string.Empty;
     private bool _directoryListed;
     private string _directoryTags = string.Empty;
+    private string _directoryBannerHash = string.Empty;
+    private bool _directoryBannerUploading;
     private ProfileContentRating _directoryRating = ProfileContentRating.General;
     private string _directorySource = string.Empty;
     private string _directoryStatus = string.Empty;
@@ -67,7 +77,7 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
 
     public RoomAdministrationWindow(ILogger<RoomAdministrationWindow> logger, SnowMediator mediator,
         ApiController apiController, ChatClientService chatService, PairManager pairManager, ChatIdentityResolver identityResolver,
-        RoleplayClientService roleplayService,
+        RoleplayClientService roleplayService, FileDialogManager fileDialogManager, ImageTransferService imageTransferService,
         PerformanceCollectorService performanceCollectorService, string roomId)
         : base(logger, mediator, BuildTitle(chatService, roomId), performanceCollectorService)
     {
@@ -76,6 +86,8 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
         _pairManager = pairManager;
         _identityResolver = identityResolver;
         _roleplayService = roleplayService;
+        _fileDialogManager = fileDialogManager;
+        _imageTransferService = imageTransferService;
         RoomId = roomId;
         SetScaledSizeConstraints(new Vector2(500, 440), new Vector2(900, 1200));
         Size = new Vector2(620, 650);
@@ -148,12 +160,14 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     {
         var discovery = room.Discovery ?? new RoomDiscoveryDto();
         var discoverySource = string.Join('|', discovery.IsListed, discovery.ContentRating,
-            string.Join('\u001f', discovery.Tags));
-        if (!string.Equals(_directorySource, discoverySource, StringComparison.Ordinal) && !_discoveryOperation.IsRunning)
+            discovery.BannerImageHash, string.Join('\u001f', discovery.Tags));
+        if (!string.Equals(_directorySource, discoverySource, StringComparison.Ordinal)
+            && !_discoveryOperation.IsRunning && !_directoryBannerUploading)
         {
             _directoryListed = discovery.IsListed;
             _directoryRating = discovery.ContentRating;
             _directoryTags = string.Join(", ", discovery.Tags);
+            _directoryBannerHash = discovery.BannerImageHash ?? string.Empty;
             _directorySource = discoverySource;
         }
 
@@ -202,7 +216,8 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
             }
             ImGui.EndCombo();
         }
-        using (ImRaii.Disabled(_discoveryOperation.IsRunning))
+        DrawRoomBannerEditor();
+        using (ImRaii.Disabled(_discoveryOperation.IsRunning || _directoryBannerUploading))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, "Save public discovery settings"))
             {
@@ -213,10 +228,110 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
                     IsListed = !room.IsPrivate && _directoryListed,
                     Tags = SplitValues(_directoryTags),
                     ContentRating = _directoryRating,
+                    BannerImageHash = string.IsNullOrWhiteSpace(_directoryBannerHash) ? null : _directoryBannerHash,
                 }));
             }
         }
         DrawOperationStatus(_discoveryOperation, _directoryStatus, _directoryStatusIsError, "Saving discovery...");
+    }
+
+    private void DrawRoomBannerEditor()
+    {
+        ImGui.TextUnformatted("Directory banner (720x300 PNG)");
+        using (ImRaii.Disabled(_directoryBannerUploading))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileUpload, "Upload room banner"))
+            {
+                _fileDialogManager.OpenFileDialog("Select room banner", ".png", (success, file) =>
+                {
+                    if (success)
+                        _ = UploadRoomBannerAsync(file);
+                });
+            }
+        }
+        ElezenImgui.AttachTooltip("Upload a 720x300 PNG banner for this room's directory card.");
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_directoryBannerUploading || string.IsNullOrWhiteSpace(_directoryBannerHash)))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear room banner"))
+                _directoryBannerHash = string.Empty;
+        }
+        if (_directoryBannerUploading)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Uploading...");
+        }
+        else if (!string.IsNullOrWhiteSpace(_directoryBannerHash))
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Banner selected");
+        }
+    }
+
+    private async Task UploadRoomBannerAsync(string filePath)
+    {
+        _directoryBannerUploading = true;
+        _directoryStatus = "Uploading room banner...";
+        _directoryStatusIsError = false;
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(filePath).ConfigureAwait(false);
+            using var stream = new MemoryStream(bytes);
+            var dimensions = PngHeaderReader.TryExtractDimensions(stream);
+            if (dimensions.Width != 720 || dimensions.Height != 300)
+            {
+                _directoryStatus = "Room banners must be exactly 720x300 pixels.";
+                _directoryStatusIsError = true;
+                return;
+            }
+
+            var reply = await _imageTransferService.UploadImageAsync(bytes, ImageKind.VenueBanner, CancellationToken.None).ConfigureAwait(false);
+            if (reply == null || string.IsNullOrEmpty(reply.Hash))
+            {
+                _directoryStatus = "Could not upload that room banner.";
+                _directoryStatusIsError = true;
+                return;
+            }
+
+            _directoryBannerHash = reply.Hash;
+            _directoryStatus = $"Banner uploaded. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}. Save discovery settings to publish it.";
+        }
+        catch (ImageUploadException ex)
+        {
+            _directoryStatus = ex.Message;
+            _directoryStatusIsError = true;
+        }
+        catch (IOException ex)
+        {
+            SetRoomBannerUploadFailure(ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            SetRoomBannerUploadFailure(ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            SetRoomBannerUploadFailure(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            SetRoomBannerUploadFailure(ex);
+        }
+        catch (JsonException ex)
+        {
+            SetRoomBannerUploadFailure(ex);
+        }
+        finally
+        {
+            _directoryBannerUploading = false;
+        }
+    }
+
+    private void SetRoomBannerUploadFailure(Exception exception)
+    {
+        LogRoomBannerUploadFailure(_logger, exception);
+        _directoryStatus = "Could not upload that room banner.";
+        _directoryStatusIsError = true;
     }
 
     private void DrawSceneSection(RoomData room, IReadOnlyList<Snowcloak.API.Dto.Chat.RoomMemberDto> members)
@@ -338,6 +453,15 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     private static List<string> SplitValues(string value)
         => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static string FormatImageQuota(long usageBytes, long quotaBytes)
+    {
+        var usage = (usageBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        if (quotaBytes <= 0)
+            return $"{usage} MiB used";
+        var quota = (quotaBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        return $"{usage} of {quota} MiB";
+    }
 
     private static string BuildTitle(ChatClientService chatService, string roomId)
     {

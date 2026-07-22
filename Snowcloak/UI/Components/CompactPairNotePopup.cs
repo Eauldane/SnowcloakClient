@@ -40,7 +40,7 @@ internal sealed class CompactPairNotePopup
         }
         else
         {
-            ElezenImgui.WrappedText($"You have successfully added {_lastAddedUser.UserData.AliasOrUID}. Set a local note for the user in the field below:");
+            ElezenImgui.WrappedText($"You have successfully added {_lastAddedUser.UserData.AliasOrUID}. Set a note for them below:");
             ImGui.InputTextWithHint("##noteforuser", $"Note for {_lastAddedUser.UserData.AliasOrUID}", ref _lastAddedUserComment, 100);
             if (ElezenImgui.ShowIconButton(Dalamud.Interface.FontAwesomeIcon.Save, "Save Note"))
             {

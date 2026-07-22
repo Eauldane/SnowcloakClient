@@ -27,7 +27,7 @@ internal sealed class SyncshellBudgetPanel
         ElezenImgui.ShowIcon(FontAwesomeIcon.ChartBar);
         ImGui.SameLine();
         ImGui.TextUnformatted("Shell Budget");
-        ElezenImgui.AttachTooltip("Local-only summary based on what your client currently sees and has applied.");
+        ElezenImgui.AttachTooltip("Performance stats for this specific syncshell.");
 
         DrawMetricGrid(snapshot);
 

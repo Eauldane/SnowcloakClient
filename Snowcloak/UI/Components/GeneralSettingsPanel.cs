@@ -48,7 +48,7 @@ public sealed class GeneralSettingsPanel
 
         ImGui.SameLine();
         ImGui.Checkbox("Overwrite existing notes", ref _overwriteExistingLabels);
-        ElezenImgui.DrawHelpText("If this option is selected all already existing notes for UIDs will be overwritten by the imported notes.");
+        ElezenImgui.DrawHelpText("If this option is selected, all already existing notes for UIDs will be overwritten by the imported notes.");
         if (_notesSuccessfullyApplied == true)
         {
             ElezenImgui.ColouredWrappedText("User Notes successfully imported", ImGuiColors.HealerGreen);
@@ -70,12 +70,12 @@ public sealed class GeneralSettingsPanel
         {
             _configService.Update(c => c.AutofillEmptyNotesFromCharaName = autofillNotes);
         }
-        ElezenImgui.DrawHelpText("This will automatically set a user's note with their player name unless you override it");
+        ElezenImgui.DrawHelpText("Pairs without a custom note set will auto-fill the first character name you see them online as.");
 
         ImGui.Separator();
         _fontService.BigText("Venues");
         var autoJoinVenues = _configService.Current.AutoJoinVenueSyncshells;
-        if (ImGui.Checkbox("Show prompts to join venue syncshells when on their grounds", ref autoJoinVenues))
+        if (ImGui.Checkbox("Show prompts to join venue syncshells when on their plots", ref autoJoinVenues))
         {
             _configService.Update(c => c.AutoJoinVenueSyncshells = autoJoinVenues);
         }

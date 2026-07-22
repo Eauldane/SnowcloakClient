@@ -54,7 +54,7 @@ internal sealed class PerformanceDashboardPanel
         ElezenImgui.ShowIcon(FontAwesomeIcon.ChartBar);
         ImGui.SameLine();
         ImGui.TextUnformatted("Performance");
-        ElezenImgui.AttachTooltip("Local-only dashboard for your current visible load, local GPU VRAM, and syncshell crowd-control pressure.");
+        ElezenImgui.AttachTooltip("Shows the strain your specific machine is under from nearby pairs. Note that this only reads pairs through Snowcloak and will not attempt to access data from other syncs, if installed.");
 
         DrawOverviewGrid(allKnownPairs.Count, visiblePairs.Count, autoBlockedPairs.Count, visibleVramBytes, visibleTriangleCount);
 

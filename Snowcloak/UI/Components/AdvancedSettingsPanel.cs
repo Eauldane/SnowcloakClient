@@ -63,6 +63,7 @@ public sealed class AdvancedSettingsPanel
         {
             _mediator.Publish(new UiToggleMessage(typeof(EventViewerUI)));
         }
+        
 
         var holdCombatApplication = _configService.Current.HoldCombatApplication;
         if (ImGui.Checkbox("Hold application during combat", ref holdCombatApplication))
@@ -74,6 +75,7 @@ public sealed class AdvancedSettingsPanel
 
             _configService.Update(c => c.HoldCombatApplication = holdCombatApplication);
         }
+        ElezenImgui.DrawHelpText("Prevents applying character data if Snowcloak detects you're in combat. May help avoid hitches.");
 
         ImGui.Separator();
         _fontService.BigText("Debug");
@@ -127,7 +129,7 @@ public sealed class AdvancedSettingsPanel
         {
             _configService.Update(c => c.LogPerformance = logPerformance);
         }
-        ElezenImgui.DrawHelpText("Enabling this can incur a (slight) performance impact. Enabling this for extended periods of time is not recommended.");
+        ElezenImgui.DrawHelpText("Enabling this can incur a performance impact. Enabling this for extended periods of time is not recommended, and should only be used for debugging.");
 
         using (ImRaii.Disabled(!logPerformance))
         {

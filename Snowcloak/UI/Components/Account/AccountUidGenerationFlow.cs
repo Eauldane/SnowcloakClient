@@ -68,7 +68,7 @@ public sealed class AccountUidGenerationFlow
             {
                 _success = true;
                 _message = string.Format(CultureInfo.InvariantCulture,
-                    "Created account UID {0}. Stored {1} account key(s), including {2} new key(s), and assigned this character. Attempting to connect.",
+                    "Created account UID {0}. Registered {1} account key(s), including {2} new key(s), and assigned this character. Attempting to connect.",
                     result.Uid, result.SecretKeyCount, result.NewSecretKeyCount);
                 _ = _apiController.CreateConnections();
             }

@@ -210,19 +210,19 @@ internal sealed class CharaDataHubGposeTogetherTab
             {
                 PlayerInteractionService.SetMarkerAndOpenMap(new(user.WorldData.Value.PositionX, user.WorldData.Value.PositionY, user.WorldData.Value.PositionZ), user.Map);
             }
-            ElezenImgui.AttachTooltip(string.Format("{0}" + ElezenImgui.TooltipSeparator + "Note: Click to open the users location on your map." + Environment.NewLine + "Note: For GPose synchronization to work properly, you must be on the same map.",
+            ElezenImgui.AttachTooltip(string.Format("{0}" + ElezenImgui.TooltipSeparator + "Note: Click to open the users location on your map." + Environment.NewLine + "Note: For GPose synchronisation to work properly, you must be on the same map.",
                 sameMapAndServer.SameMap ? "You are on the same map." : "You are not on the same map."));
 
             ImGui.SameLine();
             ElezenImgui.ShowIcon(FontAwesomeIcon.Globe, sameMapAndServer.SameServer ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
-            ElezenImgui.AttachTooltip(string.Format("{0}" + ElezenImgui.TooltipSeparator + "Note: GPose synchronization is not dependent on the current server, but you will have to spawn a character for the other lobby users.",
+            ElezenImgui.AttachTooltip(string.Format("{0}" + ElezenImgui.TooltipSeparator + "Note: GPose synchronisation is not dependent on the current server, but you will have to spawn a character for the other lobby users.",
                 sameMapAndServer.SameServer ? "You are on the same server." : "You are not on the same server."));
 
             ImGui.SameLine();
             ElezenImgui.ShowIcon(FontAwesomeIcon.Running, sameMapAndServer.SameEverything ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudRed);
             ElezenImgui.AttachTooltip((sameMapAndServer.SameEverything ? "You are in the same instanced area." : "You are not in the same instanced area.") + ElezenImgui.TooltipSeparator +
                                           "Note: Users not in your instance, but on the same map, will be drawn as floating wisps." + Environment.NewLine
-                                              + "Note: GPose synchronization is not dependent on the current instance, but you will have to spawn a character for the other lobby users.");
+                                              + "Note: GPose synchronisation is not dependent on the current instance, but you will have to spawn a character for the other lobby users.");
 
             using (ImRaii.Disabled(!_dalamudUtilService.IsInGpose))
             {

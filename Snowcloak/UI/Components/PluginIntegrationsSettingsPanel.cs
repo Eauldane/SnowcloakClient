@@ -22,7 +22,7 @@ public sealed class PluginIntegrationsSettingsPanel
         (SnowcloakIpcCapability.OpenProfileWindow, "Open profile windows", "Allows opening Snowcloak's profile window for a pair."),
         (SnowcloakIpcCapability.ApplyMcdf, "Apply MCDF files", "Apply an MCDF file to a GPose object. Snowcloak still restricts this to GPose."),
         (SnowcloakIpcCapability.TransmitExtensionData, "Transmit extension data", "Allows the plugin to package its data into your pair packet."),
-        (SnowcloakIpcCapability.ReceiveExtensionData, "Receive extension data", "llows the plugin to act on and recieve its data from your pairs."),
+        (SnowcloakIpcCapability.ReceiveExtensionData, "Receive extension data", "Allows the plugin to act on and receive its data from your pairs."),
         (SnowcloakIpcCapability.ReceiveExtensionDataOutOfRange, "Receive out-of-range extension data", "Continue receiving only this plugin's matching data while an online pair is outside game-object range. Snowcloak does not download the pair's appearance sections for this."),
         (SnowcloakIpcCapability.OpenPairRequestWindow, "Open pair-request confirmation", "Open a Frostbrand pair request confirmation for a targeted player. The plugin cannot send the request directly."),
     ];
@@ -44,7 +44,7 @@ public sealed class PluginIntegrationsSettingsPanel
     {
         _fontService.BigText("Plugin Integrations");
         ElezenImgui.WrappedText("Review what each companion plugin has requested, approve only the capabilities you want it to use, and inspect its current activity.");
-        ElezenImgui.DrawHelpText("New integrations start without permissions. A plugin can query its current grant and is notified whenever you change it.");
+        ElezenImgui.DrawHelpText("New plugins start without permissions. A plugin can query its current grant and is notified whenever you change it.");
 
         if (DateTimeOffset.UtcNow >= _nextRefreshUtc)
         {

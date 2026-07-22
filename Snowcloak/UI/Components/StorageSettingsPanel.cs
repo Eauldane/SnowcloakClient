@@ -69,8 +69,9 @@ public sealed partial class StorageSettingsPanel : IDisposable
     {
         _fontService.BigText("Storage");
 
-        ElezenImgui.WrappedText("Snowcloak stores downloaded files from paired people permanently. This is to improve loading performance and requiring less downloads. "
-                                + "The storage governs itself by clearing data beyond the set storage size. Please set the storage size accordingly. It is not necessary to manually clear the storage.");
+        ElezenImgui.WrappedText("Snowcloak stores downloaded files from paired people permanently, or until further downloads would " +
+                                "use more storage than you've allocated. It is not necessary to manually clear the storage, Snowcloak will " +
+                                "remove files that are not actively used when this happens.");
 
         DrawFileScanState();
         DrawWatcherState();
@@ -90,7 +91,7 @@ public sealed partial class StorageSettingsPanel : IDisposable
         {
             ImGui.SameLine();
             using var id = ImRaii.PushId("penumbraMonitor");
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialise Monitor"))
             {
                 _cacheMonitor.StartPenumbraWatcher(_ipcManager.Penumbra.ModDirectory);
             }
@@ -102,7 +103,7 @@ public sealed partial class StorageSettingsPanel : IDisposable
         {
             ImGui.SameLine();
             using var id = ImRaii.PushId("snowMonitor");
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialize Monitor"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ArrowsToCircle, "Try to reinitialise Monitor"))
             {
                 _cacheMonitor.StartSnowWatcher(_configService.Current.CacheFolder);
             }

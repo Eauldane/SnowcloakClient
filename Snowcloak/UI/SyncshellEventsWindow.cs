@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.Core.IO;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -17,16 +19,22 @@ using Snowcloak.WebAPI.Files;
 using Snowcloak.UI.Components;
 using System.Globalization;
 using System.Numerics;
+using System.Text.Json;
 
 namespace Snowcloak.UI;
 
 public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
 {
+    private static readonly Action<ILogger, Exception?> LogEventBannerUploadFailure = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(1, nameof(UploadEventBannerAsync)), "Could not upload event banner");
+    private static readonly Action<ILogger, Exception?> LogEventBannerRenderFailure = LoggerMessage.Define(
+        LogLevel.Warning, new EventId(2, nameof(DrawBannerImage)), "Failed to load event banner image");
     // An event counts as "active" for one hour after its start time. This mirrors the
     // calendar indicator shown on the syncshell row in the main UI.
     private static readonly TimeSpan EventActiveWindow = TimeSpan.FromHours(1);
 
     private readonly ApiController _apiController;
+    private readonly FileDialogManager _fileDialogManager;
     private readonly PairManager _pairManager;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly TextureService _textureService;
@@ -49,6 +57,7 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
     private string _eventWorldId = string.Empty;
     private int _eventCapacity;
     private string _eventBannerHash = string.Empty;
+    private bool _eventBannerUploading;
     private bool _eventPublic;
     private ProfileContentRating _eventRating;
     private bool _eventRecurring;
@@ -63,13 +72,14 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
 
     public SyncshellEventsWindow(ILogger<SyncshellEventsWindow> logger, SnowMediator mediator,
         ApiController apiController, PairManager pairManager, DalamudUtilService dalamudUtilService,
-        TextureService textureService, ImageTransferService imageTransferService,
+        TextureService textureService, ImageTransferService imageTransferService, FileDialogManager fileDialogManager,
         GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, BuildWindowTitle(groupFullInfo), performanceCollectorService)
     {
         ArgumentNullException.ThrowIfNull(groupFullInfo);
         GroupFullInfo = groupFullInfo;
         _apiController = apiController;
+        _fileDialogManager = fileDialogManager;
         _pairManager = pairManager;
         _dalamudUtilService = dalamudUtilService;
         _textureService = textureService;
@@ -310,14 +320,32 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
         ImGui.SetNextItemWidth(100f * ImGuiHelpers.GlobalScale);
         ImGui.InputInt("Capacity", ref _eventCapacity);
         _eventCapacity = Math.Max(0, _eventCapacity);
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputTextWithHint("##event-banner", "Optional banner image hash", ref _eventBannerHash, 160);
-        if (!string.IsNullOrWhiteSpace(_eventBannerHash))
+        ImGui.TextUnformatted("Banner (720x300 PNG)");
+        using (ImRaii.Disabled(_eventBannerUploading))
         {
-            DrawBannerImage(_eventBannerHash.Trim());
-            if (ImGui.SmallButton("Clear banner"))
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.FileUpload, "Upload banner"))
+            {
+                _fileDialogManager.OpenFileDialog("Select event banner", ".png", (success, file) =>
+                {
+                    if (success)
+                        _ = UploadEventBannerAsync(file);
+                });
+            }
+        }
+        ElezenImgui.AttachTooltip("Upload a 720x300 PNG banner.");
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_eventBannerUploading || string.IsNullOrWhiteSpace(_eventBannerHash)))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Clear banner"))
                 _eventBannerHash = string.Empty;
         }
+        if (_eventBannerUploading)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Uploading...");
+        }
+        if (!string.IsNullOrWhiteSpace(_eventBannerHash))
+            DrawBannerImage(_eventBannerHash.Trim());
         ImGui.Checkbox("Public directory listing", ref _eventPublic);
         ElezenImgui.AttachTooltip("Public events allow eligible players to join this syncshell without a password.");
         ImGui.SameLine();
@@ -353,12 +381,13 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
             ImGui.InputInt("Occurrences", ref _eventOccurrenceCount);
             _eventOccurrenceCount = Math.Max(0, _eventOccurrenceCount);
         }
-        using (ImRaii.Disabled(_eventOperation.IsRunning || string.IsNullOrWhiteSpace(_eventTitle)))
+        using (ImRaii.Disabled(_eventOperation.IsRunning || _eventBannerUploading || string.IsNullOrWhiteSpace(_eventTitle)))
             if (ImGui.Button(_editEventId == Guid.Empty ? "Create event" : "Save event")) SaveEvent();
         if (_editEventId != Guid.Empty)
         {
             ImGui.SameLine();
-            if (ImGui.Button("Cancel edit")) ResetEventDraft();
+            using (ImRaii.Disabled(_eventBannerUploading))
+                if (ImGui.Button("Cancel edit")) ResetEventDraft();
         }
 
         ImGuiHelpers.ScaledDummy(8f);
@@ -418,6 +447,67 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
             } : null,
         };
         _ = _eventOperation.Run(() => _apiController.GroupUpsertEvent(new GroupEventUpsertDto(GroupFullInfo.Group, shellEvent)));
+    }
+
+    private async Task UploadEventBannerAsync(string filePath)
+    {
+        _eventBannerUploading = true;
+        _status = "Uploading event banner...";
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(filePath).ConfigureAwait(false);
+            using var stream = new MemoryStream(bytes);
+            var dimensions = PngHeaderReader.TryExtractDimensions(stream);
+            if (dimensions.Width != 720 || dimensions.Height != 300)
+            {
+                _status = "Event banners must be exactly 720x300 pixels.";
+                return;
+            }
+
+            var reply = await _imageTransferService.UploadImageAsync(bytes, ImageKind.VenueBanner, CancellationToken.None).ConfigureAwait(false);
+            if (reply == null || string.IsNullOrEmpty(reply.Hash))
+            {
+                _status = "Could not upload that event banner.";
+                return;
+            }
+
+            _eventBannerHash = reply.Hash;
+            _status = $"Banner uploaded. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}. Save the event to publish it.";
+        }
+        catch (ImageUploadException ex)
+        {
+            _status = ex.Message;
+        }
+        catch (IOException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        catch (JsonException ex)
+        {
+            SetEventBannerUploadFailure(ex);
+        }
+        finally
+        {
+            _eventBannerUploading = false;
+        }
+    }
+
+    private void SetEventBannerUploadFailure(Exception exception)
+    {
+        LogEventBannerUploadFailure(_logger, exception);
+        _status = "Could not upload that event banner.";
     }
 
     private void LoadEventDraft(GroupEventDto shellEvent)
@@ -521,9 +611,9 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
                 _bannerTextures[bannerHash] = _textureService.LoadImage(bytes);
                 DrawBannerImage(bannerHash);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsExpectedTextureFailure(ex))
             {
-                _logger.LogWarning(ex, "Failed to load event banner image");
+                LogEventBannerRenderFailure(_logger, ex);
                 ImGui.TextColored(ImGuiColors.DalamudRed, "Failed to load event banner.");
             }
             return;
@@ -533,6 +623,19 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
     }
 
     private static List<string> SplitTerms(string value) => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static bool IsExpectedTextureFailure(Exception exception)
+        => exception is AggregateException or InvalidDataException or IOException or UnauthorizedAccessException
+            or NotSupportedException or ArgumentException or ObjectDisposedException or InvalidOperationException;
+
+    private static string FormatImageQuota(long usageBytes, long quotaBytes)
+    {
+        var usage = (usageBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        if (quotaBytes <= 0)
+            return $"{usage} MiB used";
+        var quota = (quotaBytes / 1024d / 1024d).ToString("0.#", CultureInfo.InvariantCulture);
+        return $"{usage} of {quota} MiB";
+    }
 
     private void ConsumeCommunityLoad()
     {

@@ -55,20 +55,20 @@ public sealed class FrostbrandFilterEditor
             _configService.Update(c => c.PairRequestNameColors = pairRequestColor);
             _guiHookService.RequestRedraw();
         }
-        ElezenImgui.DrawHelpText("Opted-in Frostbrand users are shown to you in this color while Frostbrand is enabled.");
+        ElezenImgui.DrawHelpText("Other users with Frostbrand enabled will have their names drawn in this colour when enabled.");
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
-        ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Opted-in user preview");
+        ImGui.TextColored(ConvertColorToVec4(pairRequestColor.Foreground), "Example Nameplate Colour");
     }
 
     private void DrawFilterColumn()
     {
         FrostbrandPanelChrome.DrawSectionTitle(FontAwesomeIcon.Filter, "Auto-reject filters");
-        ImGui.TextWrapped("Snowcloak will automatically filter pair requests from the following characters if they're within inspection range.\n\n Note: If the sender is not within visible range, the request will show as pending and will be checked when they're next in range.");
+        ImGui.TextWrapped("Snowcloak will automatically filter pair requests from the following characters if they're within draw range when they send their request.\n\n Note: If the sender is not within visible range, the request will show as pending and will be checked when they're next in range.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 2));
 
         var minimumLevel = _configService.Current.PairRequestMinimumLevel;
-        ImGui.TextUnformatted("Reject requests below level");
+        ImGui.TextUnformatted("Reject characters below level");
         ImGui.SameLine();
         ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
         if (ImGui.InputInt("##FrostbrandMinLevel", ref minimumLevel))
@@ -84,13 +84,13 @@ public sealed class FrostbrandFilterEditor
         {
             _configService.Update(c => c.PairRequestFriendsOnly = friendsOnly);
         }
-        ElezenImgui.DrawHelpText("Only allow pairing with characters marked as friends in your nameplates.");
+        ElezenImgui.DrawHelpText("Only allow pairing with characters on your friends list.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
         ImGui.TextWrapped("If you don't want to interact with a certain kind of character regardless of their level, check the appropriate box below. Requests from matching characters will be rejected.");
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
-        ImGui.TextWrapped("Please note: Snowcloak can only make determinations for this feature based on their unpaired, unglamoured state. For your safety, the client does not attempt to automatically load adventurer plates.");
+        ImGui.TextWrapped("Please note: Snowcloak can only make determinations for this feature based on their unpaired, vanilla state. For your safety, the client does not attempt to automatically load adventurer plates to read any custom gender markers.");
         foreach (var option in _raceClanOptions)
             DrawRaceFilter(option.Id, option.Name, option.Tribes);
 

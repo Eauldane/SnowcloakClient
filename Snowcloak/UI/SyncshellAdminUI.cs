@@ -1,6 +1,7 @@
 ﻿using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -16,6 +17,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -82,7 +84,8 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     public SyncshellAdminUI(ILogger<SyncshellAdminUI> logger, SnowMediator mediator, ApiController apiController,
         SnowcloakConfigService configService,
         UiFontService fontService, PairManager pairManager, GroupFullInfoDto groupFullInfo, PerformanceCollectorService performanceCollectorService,
-        SyncshellBudgetService syncshellBudgetService, DalamudUtilService dalamudUtilService)
+        SyncshellBudgetService syncshellBudgetService, DalamudUtilService dalamudUtilService,
+        FileDialogManager fileDialogManager, ImageTransferService imageTransferService)
         : base(logger, mediator, BuildWindowTitle(groupFullInfo), performanceCollectorService)
     {
         ArgumentNullException.ThrowIfNull(groupFullInfo);
@@ -92,7 +95,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
         _fontService = fontService;
         _pairManager = pairManager;
         _syncshellBudgetPanel = new(syncshellBudgetService);
-        _communityManagementPanel = new(apiController, dalamudUtilService, mediator);
+        _communityManagementPanel = new(apiController, dalamudUtilService, mediator, fileDialogManager, imageTransferService, logger);
         _memberManagementPanel = new(apiController, mediator, pairManager);
         _newPassword = string.Empty;
         _syncshellAlias = groupFullInfo.Group.Alias ?? string.Empty;

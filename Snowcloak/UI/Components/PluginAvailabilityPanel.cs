@@ -134,9 +134,9 @@ public sealed class PluginAvailabilityPanel : IDisposable
 
         ImGuiHelpers.ScaledDummy(7);
         using (_fontService.UidFont.Push())
-            ImGui.TextColored(ImGuiColors.DalamudGrey, "OPTIONAL COMPATIBILITY");
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "OPTIONAL COMPATIBILITY PLUGINS");
         ImGui.TextColored(SnowcloakColours.CompactTextMuted,
-            "These integrations help reproduce other characters as intended.");
+            "These plugins are commonly used and provide extra options to allow characters to be seen as intended. Installing them is highly recommended!");
 
         if (ImGui.BeginTable("##optionalPlugins", 3,
                 ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.PadOuterX))
