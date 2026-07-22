@@ -106,6 +106,7 @@ public sealed class DownloadStatusStore
         private long _transferredBytes;
         private long _totalBytes;
         private int _transferredFiles;
+        private string? _statusMessage;
 
         public DownloadGroupState(string server, long totalBytes, int totalFiles)
         {
@@ -119,6 +120,15 @@ public sealed class DownloadStatusStore
             lock (_gate)
             {
                 _status = status;
+            }
+        }
+
+        public void SetUnavailable(string message)
+        {
+            lock (_gate)
+            {
+                _status = DownloadStatus.Unavailable;
+                _statusMessage = message;
             }
         }
 
@@ -150,7 +160,8 @@ public sealed class DownloadStatusStore
         {
             lock (_gate)
             {
-                return new DownloadGroupSnapshot(_server, _status, _transferredBytes, _totalBytes, _transferredFiles, _totalFiles);
+                return new DownloadGroupSnapshot(_server, _status, _transferredBytes, _totalBytes, _transferredFiles,
+                    _totalFiles, _statusMessage);
             }
         }
     }
@@ -187,6 +198,8 @@ public sealed class DownloadStatusStore
         }
 
         public void SetStatus(DownloadStatus status) => _state.SetStatus(status);
+
+        public void SetUnavailable(string message) => _state.SetUnavailable(message);
 
         public void SetTotalBytes(long totalBytes) => _state.SetTotalBytes(totalBytes);
 

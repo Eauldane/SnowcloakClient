@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
-using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
@@ -18,7 +17,6 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
     private readonly Lazy<ApiController> _apiController;
     private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly CancellationTokenSource _runtimeCts = new();
-    private readonly SnowcloakConfigService _configService;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly ConcurrentDictionary<ProfileRequestKey, SnowProfileData> _profiles = new();
     private readonly ConcurrentDictionary<ProfileRequestKey, DateTime> _profileErrorTimes = new();
@@ -26,11 +24,10 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
     private int _disposed;
     private string _currentIdent = string.Empty;
 
-    public SnowProfileManager(ILogger<SnowProfileManager> logger, SnowcloakConfigService configService,
-        DalamudUtilService dalamudUtilService, SnowMediator mediator, IServiceProvider serviceProvider)
+    public SnowProfileManager(ILogger<SnowProfileManager> logger, DalamudUtilService dalamudUtilService,
+        SnowMediator mediator, IServiceProvider serviceProvider)
         : base(logger, mediator)
     {
-        _configService = configService;
         _dalamudUtilService = dalamudUtilService;
         _backgroundTasks = new BackgroundTaskTracker(logger);
         _apiController = new Lazy<ApiController>(() => serviceProvider.GetRequiredService<ApiController>());
@@ -115,6 +112,20 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
         return await RefreshOwnAsync(visibility).ConfigureAwait(false);
     }
 
+    public async Task<SnowProfileData> SetOwnRpStatusAsync(string status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        var current = await GetOwnProfileAsync(ProfileVisibility.Private, forceRefresh: true).ConfigureAwait(false);
+        var document = current.Document with { RpStatus = status.Trim() };
+        var saved = await _apiController.Value.CharacterProfileSet(new CharacterProfileUpdateDto(
+            current.Revision > 0 ? current.Revision : null,
+            document)).ConfigureAwait(false);
+        Mediator.Publish(new ClearCharacterProfileDataMessage(saved.Ident));
+        var stored = Store(new ProfileRequestKey(saved.Ident, saved.Visibility), saved);
+        Mediator.Publish(new OwnRpStatusUpdatedMessage(saved.Ident, saved.Revision, saved.Document.RpStatus));
+        return stored;
+    }
+
     public CharacterProfileSummaryDto? GetSummary(string ident)
         => _summaries.TryGetValue(ident, out var summary) ? summary : null;
 
@@ -166,7 +177,7 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
         ArgumentNullException.ThrowIfNull(summary);
 
         if (!string.IsNullOrWhiteSpace(summary.Ident))
-            _summaries[summary.Ident] = MaskAdultSummary(summary);
+            _summaries[summary.Ident] = summary;
     }
 
     public void ClearSummary(string ident) => _summaries.TryRemove(ident, out _);
@@ -208,17 +219,6 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
     private SnowProfileData Store(ProfileRequestKey key, CharacterProfileDto dto)
     {
         var document = dto.Document ?? new();
-        if (document.ContentRating == ProfileContentRating.Adult
-            && !_configService.Current.ProfilesAllowNsfw
-            && !dto.IsOwnProfile)
-        {
-            document = new CharacterProfileDocumentDto
-            {
-                CharacterName = "Adult RP profile",
-                Tagline = "Adult RP profile hidden by your profile-content settings.",
-                ContentRating = document.ContentRating,
-            };
-        }
 
         var profile = new SnowProfileData(
             dto.Ident,
@@ -269,24 +269,6 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
         _profiles.TryRemove(key, out _);
         profile = null!;
         return false;
-    }
-
-    private CharacterProfileSummaryDto MaskAdultSummary(CharacterProfileSummaryDto summary)
-    {
-        if (summary.ContentRating != ProfileContentRating.Adult || _configService.Current.ProfilesAllowNsfw)
-            return summary;
-
-        return summary with
-        {
-            CharacterName = "Adult RP profile",
-            Title = string.Empty,
-            Pronouns = string.Empty,
-            Tagline = "Adult RP profile hidden by your profile-content settings.",
-            RpStatus = string.Empty,
-            Approachability = string.Empty,
-            Hooks = [],
-            Tags = [],
-        };
     }
 
     private static CharacterProfileSummaryDto ToSummary(SnowProfileData profile)

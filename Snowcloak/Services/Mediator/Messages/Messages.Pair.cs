@@ -10,6 +10,8 @@ namespace Snowcloak.Services.Mediator;
 #pragma warning disable S2094
 public record ClearProfileDataMessage(UserData? UserData = null, ProfileVisibility? Visibility = null) : MessageBase;
 public record ClearCharacterProfileDataMessage(string? Ident = null, ProfileVisibility? Visibility = null, bool PreserveSummary = false) : MessageBase;
+public record OpenRpSafetyChangedMessage(UserSafetyStateDto State) : MessageBase;
+public record OwnRpStatusUpdatedMessage(string Ident, long Revision, string Status) : MessageBase;
 public record CyclePauseMessage(UserData UserData) : MessageBase;
 public record PauseMessage(UserData UserData) : MessageBase;
 public record TargetPairMessage(Pair Pair) : MessageBase;

@@ -79,6 +79,12 @@ internal sealed class PairRequestInbox
         return RespondWithDecisionAsync(requestId, accepted, reason);
     }
 
+    public void Remove(Guid requestId)
+    {
+        if (_pendingRequests.TryRemove(requestId, out _))
+            _mediator.Publish(new PairingRequestListChangedMessage());
+    }
+
     public async Task DeclineAllPendingRequestsAsync(string? reason = null)
     {
         var pending = _pendingRequests.Values.Select(p => p.Request).ToList();

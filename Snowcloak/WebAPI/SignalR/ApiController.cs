@@ -35,9 +35,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     // If you're testing against the live server for some reason, do a release build.
     #if DEBUG
         public const string SnowcloakServer = "Snowcloak Dev Server";
-        public const string SnowcloakServiceUri = "ws://hub.snow.cloak";
-        public const string SnowcloakServiceApiUri = "ws://hub.snow.cloak/";
-        public const string SnowcloakServiceHubUri = "ws://hub.snow.cloak/snow";
+        public const string SnowcloakServiceUri = "wss://dev.snowcloak-sync.com";
+        public const string SnowcloakServiceApiUri = "wss://dev.snowcloak-sync.com";
+        public const string SnowcloakServiceHubUri = "wss://dev.snowcloak-sync.com/snow";
     #else 
         public const string SnowcloakServer = "Snowcloak Main Server";
         public const string SnowcloakServiceUri = "wss://hub.snowcloak-sync.com";

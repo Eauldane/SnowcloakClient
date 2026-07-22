@@ -108,6 +108,7 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
                     var dlQueue = item.CountByStatus(DownloadStatus.WaitingForQueue);
                     var dlProg = item.CountByStatus(DownloadStatus.Downloading);
                     var dlDecomp = item.CountByStatus(DownloadStatus.Decompressing);
+                    var dlUnavailable = item.CountByStatus(DownloadStatus.Unavailable);
                     var totalFiles = item.TotalFiles;
                     var transferredFiles = item.TransferredFiles;
                     var totalBytes = item.TotalBytes;
@@ -117,13 +118,19 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
                     ElezenImgui.DrawOutlinedFont(
-                        $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/D:{dlDecomp}]",
+                        $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/D:{dlDecomp}/U:{dlUnavailable}]",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();
                     ImGui.SameLine(xDistance);
                     ElezenImgui.DrawOutlinedFont(
                         $"{transferredFiles}/{totalFiles} ({ElezenImgui.ByteToString(transferredBytes, addSuffix: false)}/{ElezenImgui.ByteToString(totalBytes)})",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
+                    foreach (var message in item.GetUnavailableMessages().Take(1))
+                    {
+                        ImGui.NewLine();
+                        ImGui.SameLine(xDistance);
+                        ImGui.TextWrapped(message);
+                    }
                 }
             }
             catch

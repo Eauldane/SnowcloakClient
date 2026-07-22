@@ -57,7 +57,9 @@ public partial class SettingsUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly TransferSettingsPanel _transferSettingsPanel;
     private readonly TransferOverlayUiState _transferOverlayState;
     private readonly UiFontService _fontService;
-    private bool _deleteAccountPopupModalShown;
+    private Task? _deleteUidTask;
+    private int? _deleteUidSecretKeyIndex;
+    private string _deleteUidError = string.Empty;
     private bool _wasOpen;
 
     private readonly PasswordAccountFlow _accountMigrationFlow = new();

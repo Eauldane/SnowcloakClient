@@ -1,10 +1,5 @@
 namespace Snowcloak.Core.Accounts;
 
-/// <summary>
-/// Pure validation for the Snowcloak account username/password credential forms shared by
-/// the onboarding (IntroUI) and Settings account flows. Returns a user-facing message describing
-/// the first problem found, or <c>null</c> when the credentials are acceptable.
-/// </summary>
 public static class AccountCredentialValidator
 {
     public static string? Validate(string? username, string? password, string? passwordConfirm, bool requireConfirmation)
@@ -28,8 +23,8 @@ public static class AccountCredentialValidator
         if (!requireConfirmation)
             return null;
 
-        if (password.Length < 12)
-            return "New account passwords must be at least 12 characters long.";
+        if (password.Length < 8)
+            return "New account passwords must be at least 8 characters long.";
 
         if (string.IsNullOrEmpty(passwordConfirm))
             return "Re-enter your password to confirm it.";

@@ -29,6 +29,8 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private const string EditorTabCard = "Public Card";
     private const string EditorTabDetails = "Details";
     private const string EditorTabTags = "Tags";
+    private const string EditorTabBoundaries = "Boundaries";
+    private const string EditorTabVisibility = "Visibility";
     private const string EditorTabPreview = "Preview";
     private const string EditorTabPublish = "Publish";
 
@@ -64,6 +66,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private Guid? _selectedBackupId;
     private bool _wasOpen;
     private string _editorActiveTab = EditorTabCard;
+    private OwnRpStatusUpdatedMessage? _pendingRpStatusUpdate;
 
     public EditProfileUi(ILogger<EditProfileUi> logger, SnowMediator mediator,
         ApiController apiController, SnowcloakConfigService configService, TextureService textureService, FileDialogManager fileDialogManager,
@@ -80,7 +83,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         _snowProfileManager = snowProfileManager;
         _backupService = backupService;
         _dalamudUtilService = dalamudUtilService;
-        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService);
+        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
         IsOpen = false;
         SetScaledSizeConstraints(new Vector2(620f, 600f), new Vector2(860f, 2000f));
         Mediator.Subscribe<GposeStartMessage>(this, _ => { _wasOpen = IsOpen; IsOpen = false; });
@@ -99,6 +102,8 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
                 _headerTextureHash = string.Empty;
             }
         });
+        Mediator.Subscribe<OwnRpStatusUpdatedMessage>(this, message =>
+            Interlocked.Exchange(ref _pendingRpStatusUpdate, message));
     }
 
     protected override void DrawInternal()
@@ -106,6 +111,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         DrawFirstRunTutorial();
         DrawProfileScopeNotice();
         ConsumeOperations();
+        ApplyPendingRpStatusUpdate();
 
         var profile = _snowProfileManager.GetOwnProfile(ProfileVisibility.Private);
         if (string.IsNullOrWhiteSpace(profile.Ident))
@@ -128,7 +134,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
         _editorActiveTab = ModernTabBar.Draw(
             "rp-profile-editor-tabs",
-            new[] { EditorTabCard, EditorTabDetails, EditorTabTags, EditorTabPreview, EditorTabPublish },
+            new[] { EditorTabCard, EditorTabDetails, EditorTabTags, EditorTabBoundaries, EditorTabVisibility, EditorTabPreview, EditorTabPublish },
             _editorActiveTab);
         ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
 
@@ -152,6 +158,14 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         else if (string.Equals(_editorActiveTab, EditorTabTags, StringComparison.Ordinal))
         {
             _tagsSection.Draw(_session, MarkDirty);
+        }
+        else if (string.Equals(_editorActiveTab, EditorTabBoundaries, StringComparison.Ordinal))
+        {
+            ProfileBoundariesEditorSection.Draw(_session, MarkDirty);
+        }
+        else if (string.Equals(_editorActiveTab, EditorTabVisibility, StringComparison.Ordinal))
+        {
+            ProfileVisibilityEditorSection.Draw(_session, MarkDirty);
         }
         else if (string.Equals(_editorActiveTab, EditorTabPreview, StringComparison.Ordinal))
         {
@@ -279,7 +293,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
             _previewMode = 1;
         }
 
-        var document = _previewMode == 0 ? _session.ToPublicPreviewDocument() : _session.ToDocument();
+        var document = _previewMode == 0 ? _session.ToPublicPreviewDocument() : _session.ToPairedPreviewDocument();
         using var preview = ImRaii.Child("rp-profile-preview", new Vector2(0f, 360f * ImGuiHelpers.GlobalScale), true);
         if (preview)
         {
@@ -324,6 +338,13 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private void LoadDraft(SnowProfileData profile)
     {
         _session.Load(profile.Ident, profile.Revision, profile.Document);
+    }
+
+    private void ApplyPendingRpStatusUpdate()
+    {
+        var update = Interlocked.Exchange(ref _pendingRpStatusUpdate, null);
+        if (update != null && string.Equals(update.Ident, _session.LoadedIdent, StringComparison.Ordinal))
+            _session.ApplyExternalRpStatus(update.Revision, update.Status);
     }
 
     private void LoadDocument(CharacterProfileDocumentDto document, bool markDirty)
@@ -606,7 +627,8 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private static string BuildValidationStatus(ProfileEditValidationResult validation)
     {
-        var issue = validation.Issues.FirstOrDefault();
+        if (validation.Issues.Count == 0) return "The profile contains invalid values.";
+        var issue = validation.Issues[0];
         return issue.Kind switch
         {
             ProfileEditValidationIssueKind.TextTooLong => $"{issue.Field} must be {issue.Limit} characters or shorter.",

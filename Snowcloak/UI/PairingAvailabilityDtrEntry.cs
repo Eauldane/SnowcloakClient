@@ -11,6 +11,7 @@ using System.Globalization;
 using System.Linq;
 using System;
 using ElezenTools.UI;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.UI;
 
@@ -19,6 +20,8 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
     private readonly SnowcloakConfigService _configService;
     private readonly AvailabilityDispatcher _dispatcher;
     private readonly PairingAvailabilityStore _availabilityStore;
+    private readonly RoleplayClientService _roleplay;
+    private readonly SnowMediator _mediator;
     private string? _text;
     private string? _valueText;
     private string? _tooltip;
@@ -26,13 +29,15 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
 
     public PairingAvailabilityDtrEntry(ILogger<PairingAvailabilityDtrEntry> logger, IDtrBar dtrBar,
         SnowcloakConfigService configService, SnowMediator snowMediator, PairRequestService pairRequestService,
-        DalamudUtilService dalamudUtilService)
+        DalamudUtilService dalamudUtilService, RoleplayClientService roleplay)
         : base(logger, dtrBar, "Snowcloak Pairing")
     {
         ArgumentNullException.ThrowIfNull(pairRequestService);
 
         _configService = configService;
         _availabilityStore = pairRequestService.AvailabilityStore;
+        _roleplay = roleplay;
+        _mediator = snowMediator;
         _dispatcher = new AvailabilityDispatcher(logger, pairRequestService, dalamudUtilService, snowMediator);
     }
 
@@ -41,6 +46,12 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
         entry.OnClick = _ =>
         {
             var state = _availabilityStore.State;
+            if (state.PendingRequestCount == 0 && _configService.Current.RoleplayDtrEntry
+                && (_roleplay.OwnAvailability != null || FindStartingSoonEvent() != null))
+            {
+                _mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow)));
+                return;
+            }
             _dispatcher.Dispatch(state.PendingRequestCount > 0
                 ? new OpenFrostbrandPanelIntent()
                 : new ToggleAvailabilityWindowIntent());
@@ -61,7 +72,8 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
         var pendingCount = availability.PendingRequestCount;
         var hasPending = pendingCount > 0;
 
-        if (!_configService.Current.EnableDtrEntry || !_configService.Current.PairingSystemEnabled)
+        if (!_configService.Current.EnableDtrEntry
+            || (!_configService.Current.PairingSystemEnabled && !_configService.Current.RoleplayDtrEntry))
         {
             if (HasVisibleEntry)
                 HideEntry();
@@ -69,7 +81,9 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
         }
 
         var availabilityActive = availability.AvailabilityChannelActive;
-        if (!availabilityActive && !hasPending && availability.TotalCount == 0 && availability.AutoRejectedCount == 0)
+        var hasRoleplay = _configService.Current.RoleplayDtrEntry
+            && (_roleplay.OwnAvailability != null || FindStartingSoonEvent() != null);
+        if (!availabilityActive && !hasPending && availability.TotalCount == 0 && availability.AutoRejectedCount == 0 && !hasRoleplay)
         {
             ShowUnavailable();
             return;
@@ -127,6 +141,22 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
                 ? _configService.Current.DtrColorsPairsInRange
                 : _configService.Current.DtrColorsDefault;
         var fullText = string.IsNullOrWhiteSpace(valueText) ? iconText : iconText + ' ' + valueText;
+        if (_configService.Current.RoleplayDtrEntry)
+        {
+            if (_roleplay.OwnAvailability is { } rpCard)
+            {
+                fullText += "  RP: " + AvailabilityLabel(rpCard.State);
+                tooltipLines.Add("RP availability: " + AvailabilityLabel(rpCard.State)
+                    + (rpCard.Paused ? " (paused)" : string.Empty));
+            }
+            var next = FindStartingSoonEvent();
+            if (next != null)
+            {
+                fullText += "  • Event soon";
+                tooltipLines.Add("Starting soon: " + next.Event.Title + " at " + next.Event.StartsAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
+            }
+            tooltip = string.Join(Environment.NewLine + Environment.NewLine, tooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)));
+        }
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 
@@ -171,7 +201,13 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
     private static HoverPlayers ResolveHoverPlayers(AvailabilityViewState availability)
     {
         var resolved = availability.VisibleRows
-            .Select(row => string.IsNullOrWhiteSpace(row.CharacterName) ? "Unnamed character" : row.CharacterName)
+            .Select(row =>
+            {
+                var name = string.IsNullOrWhiteSpace(row.CharacterName) ? "Unnamed character" : row.CharacterName;
+                return row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
+                    ? name + " — RP: " + AvailabilityLabel(card.State)
+                    : name;
+            })
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
@@ -182,5 +218,25 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
     private readonly record struct HoverPlayers(IReadOnlyList<string> Names, int Total, int FilteredCount)
     {
         public int Count => Names.Count;
+    }
+
+    private static string AvailabilityLabel(RpAvailabilityState state) => state switch
+    {
+        RpAvailabilityState.OpenToWalkUps => "Walk-ups",
+        RpAvailabilityState.SeekingHooks => "Seeking hooks",
+        RpAvailabilityState.InScene => "In scene",
+        RpAvailabilityState.OutOfCharacter => "OOC",
+        RpAvailabilityState.Away => "AFK",
+        _ => "Closed",
+    };
+
+    private Snowcloak.API.Dto.Roleplay.RpEventDirectoryEntryDto? FindStartingSoonEvent()
+    {
+        var now = DateTime.UtcNow;
+        return _roleplay.JoinedEvents
+        .Concat(_roleplay.PublicEvents.Entries.Where(item => _configService.Current.RpEventReminders.Contains(item.Event.Id)))
+        .Where(item => item.Event.StartsAtUtc >= now && item.Event.StartsAtUtc <= now.AddMinutes(30))
+        .OrderBy(item => item.Event.StartsAtUtc)
+        .FirstOrDefault();
     }
 }

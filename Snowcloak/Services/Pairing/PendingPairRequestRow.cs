@@ -6,6 +6,7 @@ public sealed record PendingPairRequestRow(
     Guid RequestId,
     DateTimeOffset RequestedAt,
     string DisplayName,
+    string RequesterUid,
     string AliasOrUid,
     bool ShowAlias,
     PairRequesterCharacterSnapshot? CharacterSnapshot,

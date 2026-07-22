@@ -124,6 +124,9 @@ public partial class CompactUi
             if (_apiController.ServerState is ServerState.Connected)
             {
                 DrawSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
+                if (_apiController.SupportsRpFeatures)
+                    DrawSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
+                        () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
             }
             DrawSidebarSeparator();
             //buttons without state change
@@ -181,6 +184,9 @@ public partial class CompactUi
         if (_apiController.ServerState is ServerState.Connected)
         {
             DrawCollapsedSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
+            if (_apiController.SupportsRpFeatures)
+                DrawCollapsedSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
+                    () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
         }
         DrawCollapsedSidebarSeparator();
         DrawCollapsedSidebarAction(FontAwesomeIcon.ChartBar, "Character Analysis",
@@ -210,6 +216,12 @@ public partial class CompactUi
         }
 
         DrawSidebarCollapseToggle(collapsed: true);
+    }
+
+    private string GetRoleplaySidebarLabel()
+    {
+        var count = _roleplayClientService.PendingInvites.Count;
+        return count == 0 ? "Roleplay" : $"Roleplay ({count})";
     }
 
     private static void DrawCollapsedSidebarSeparator()

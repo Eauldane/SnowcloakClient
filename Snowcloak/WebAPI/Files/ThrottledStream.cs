@@ -1,8 +1,6 @@
 ﻿namespace Snowcloak.WebAPI.Files
 {
-    /// <summary>
-    ///     Class for streaming data with throttling support.
-    /// </summary>
+
     internal class ThrottledStream : Stream
     {
         public static long Infinite => long.MaxValue;
@@ -10,14 +8,7 @@
         private long _bandwidthLimit;
         private readonly Bandwidth _bandwidth = new();
         private CancellationTokenSource _bandwidthChangeTokenSource = new();
-
-        /// <summary>
-        ///     Initializes a new instance of the <see cref="T:ThrottledStream" /> class.
-        /// </summary>
-        /// <param name="baseStream">The base stream.</param>
-        /// <param name="bandwidthLimit">The maximum bytes per second that can be transferred through the base stream.</param>
-        /// <exception cref="ArgumentNullException">Thrown when <see cref="baseStream" /> is a null reference.</exception>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="BandwidthLimit" /> is a negative value.</exception>
+        
         public ThrottledStream(Stream baseStream, long bandwidthLimit)
         {
             if (bandwidthLimit < 0)

@@ -10,7 +10,6 @@ public sealed partial class AccountRegistrationService
         ArgumentNullException.ThrowIfNull(username);
         ArgumentNullException.ThrowIfNull(password);
 
-        var localKeysToLink = GetLocalSecretKeys(_serverManager.CurrentServer);
         var charaIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(charaIdent))
         {
@@ -49,12 +48,6 @@ public sealed partial class AccountRegistrationService
         }
 
         var accountToken = string.IsNullOrWhiteSpace(account.AccessTokens.AuthToken) ? account.Token : account.AccessTokens.AuthToken;
-        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, accountToken).ConfigureAwait(false);
-        if (linkedCount != localKeysToLink.Length)
-        {
-            return CreateLocalKeyLinkFailure(localKeysToLink.Length, linkedCount);
-        }
-
         var accountKeys = await GetAccountKeys(token, accountToken).ConfigureAwait(false);
         if (accountKeys == null || !accountKeys.Success)
         {
@@ -69,8 +62,7 @@ public sealed partial class AccountRegistrationService
             Uid = account.Uid,
             UserAccountId = account.UserAccountId,
             SecretKeyCount = imported.SecretKeyCount,
-            NewSecretKeyCount = imported.NewSecretKeyCount,
-            LinkedLocalSecretKeyCount = linkedCount
+            NewSecretKeyCount = imported.NewSecretKeyCount
         };
     }
 
@@ -79,7 +71,6 @@ public sealed partial class AccountRegistrationService
         ArgumentNullException.ThrowIfNull(username);
         ArgumentNullException.ThrowIfNull(password);
 
-        var localKeysToLink = GetLocalSecretKeys(_serverManager.CurrentServer);
         using var request = await CreateAuthorizedRequest(HttpMethod.Post, new Uri(GetApiBaseUri(), AccountPasswordRoute), token).ConfigureAwait(false);
         request.Content = JsonContent.Create(new AttachPasswordRequestDto
         {
@@ -108,12 +99,6 @@ public sealed partial class AccountRegistrationService
         }
 
         var accountToken = string.IsNullOrWhiteSpace(account.AccessTokens.AuthToken) ? account.Token : account.AccessTokens.AuthToken;
-        var linkedCount = await LinkLocalSecretKeysAsync(localKeysToLink, token, accountToken).ConfigureAwait(false);
-        if (linkedCount != localKeysToLink.Length)
-        {
-            return CreateLocalKeyLinkFailure(localKeysToLink.Length, linkedCount);
-        }
-
         var accountKeys = await GetAccountKeys(token, accountToken).ConfigureAwait(false);
         if (accountKeys == null || !accountKeys.Success)
         {
@@ -129,8 +114,7 @@ public sealed partial class AccountRegistrationService
             Uid = account.Uid,
             UserAccountId = account.UserAccountId,
             SecretKeyCount = imported.SecretKeyCount,
-            NewSecretKeyCount = imported.NewSecretKeyCount,
-            LinkedLocalSecretKeyCount = linkedCount
+            NewSecretKeyCount = imported.NewSecretKeyCount
         };
     }
 

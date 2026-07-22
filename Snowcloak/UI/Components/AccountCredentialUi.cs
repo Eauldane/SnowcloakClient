@@ -1,7 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
-using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using System.Numerics;
 
@@ -10,8 +9,6 @@ namespace Snowcloak.UI.Components;
 public static class AccountCredentialUi
 {
     private static readonly Vector4 AccentColor = new(0.34f, 0.68f, 0.92f, 1f);
-    private static readonly Vector4 SelectedButtonColor = new(0.12f, 0.34f, 0.52f, 1f);
-    private static readonly Vector4 SelectedButtonHoverColor = new(0.16f, 0.43f, 0.64f, 1f);
 
     public static void DrawHeader(string title, string description)
     {
@@ -19,20 +16,6 @@ public static class AccountCredentialUi
         ImGui.Separator();
         ImGui.TextWrapped(description);
         ImGuiHelpers.ScaledDummy(new Vector2(0, 4));
-    }
-
-    public static bool DrawModeButton(string label, bool selected, float width)
-    {
-        using var buttonColor = ImRaii.PushColor(ImGuiCol.Button, selected
-            ? SelectedButtonColor
-            : ImGui.GetStyle().Colors[(int)ImGuiCol.Button]);
-        using var hoverColor = ImRaii.PushColor(ImGuiCol.ButtonHovered, selected
-            ? SelectedButtonHoverColor
-            : ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonHovered]);
-        using var activeColor = ImRaii.PushColor(ImGuiCol.ButtonActive, selected
-            ? SelectedButtonHoverColor
-            : ImGui.GetStyle().Colors[(int)ImGuiCol.ButtonActive]);
-        return ImGui.Button(label, new Vector2(width, 0));
     }
 
     public static void DrawTextInput(string id, string label, string hint, ref string value, int maxLength,
@@ -64,7 +47,7 @@ public static class AccountCredentialUi
     public static void DrawRequirements(bool includePassword)
     {
         var text = includePassword
-            ? "Username: 3-64 characters with no spaces. Password: at least 12 characters."
+            ? "Username: 3-64 characters with no spaces. Password: at least 8 characters."
             : "Username: 3-64 characters with no spaces.";
         ElezenImgui.DrawHelpText(text);
     }

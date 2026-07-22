@@ -52,7 +52,7 @@ public sealed class ProfilePublishEditorSection
             markDirty();
         }
 
-        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult public views are hidden locally for viewers who disabled adult profile content.");
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult public views require explicit adult-content opt-in.");
     }
 
     private static void DrawRatingCombo(string label, ProfileContentRating value, Action<ProfileContentRating> setValue, Action markDirty)

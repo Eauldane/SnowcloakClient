@@ -1,71 +1,60 @@
-using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.Account;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Core.Accounts;
 using System.Globalization;
-using System.Net;
 using System.Net.Http.Json;
 
 namespace Snowcloak.WebAPI;
 
 public sealed partial class AccountRegistrationService
 {
-    private static readonly Action<ILogger, HttpStatusCode, Exception?> LogLocalAccountSecretKeyLinkFailed =
-        LoggerMessage.Define<HttpStatusCode>(LogLevel.Warning, new EventId(5, nameof(LogLocalAccountSecretKeyLinkFailed)),
-            "Failed to link local account secret key: {Status}");
-
-    private async Task<int> LinkLocalSecretKeysAsync(IReadOnlyList<string> secretKeys, CancellationToken token, string? jwt = null)
+    public async Task<AccountOperationResult> LinkLocalSecretKey(string secretKey, CancellationToken token)
     {
-        var linkedCount = 0;
-        foreach (var secretKey in secretKeys)
+        ArgumentNullException.ThrowIfNull(secretKey);
+
+        var normalizedSecretKey = NormalizeSecretKey(secretKey);
+        if (!IsValidSecretKey(normalizedSecretKey))
         {
-            using (var request = await CreateLocalSecretKeyLinkRequestAsync(jwt, token).ConfigureAwait(false))
+            return new AccountOperationResult
             {
-                request.Content = JsonContent.Create(new LinkAccountKeyRequestDto
-                {
-                    SecretKey = secretKey
-                });
-
-                using var response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    LogLocalAccountSecretKeyLinkFailed(_logger, response.StatusCode, null);
-                    continue;
-                }
-
-                var payload = await response.Content.ReadFromJsonAsync<LinkAccountKeyReplyDto>(cancellationToken: token).ConfigureAwait(false);
-                if (payload?.Success == true)
-                {
-                    linkedCount++;
-                }
-            }
+                Success = false,
+                ErrorMessage = "The selected secret key is not a valid 64-character hexadecimal key."
+            };
         }
 
-        return linkedCount;
-    }
-
-    private async Task<HttpRequestMessage> CreateLocalSecretKeyLinkRequestAsync(string? jwt, CancellationToken token)
-    {
-        var uri = new Uri(GetApiBaseUri(), AccountKeyLinkRoute);
-        if (string.IsNullOrWhiteSpace(jwt))
+        using var request = await CreateAccountAuthorizedRequest(HttpMethod.Post, new Uri(GetApiBaseUri(), AccountKeyLinkRoute), token).ConfigureAwait(false);
+        request.Content = JsonContent.Create(new LinkAccountKeyRequestDto
         {
-            return await CreateAuthorizedRequest(HttpMethod.Post, uri, token).ConfigureAwait(false);
+            SecretKey = normalizedSecretKey
+        });
+
+        using var response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new AccountOperationResult
+            {
+                Success = false,
+                ErrorMessage = await ReadErrorAsync(response, token).ConfigureAwait(false)
+            };
         }
 
-        return CreateBearerRequest(HttpMethod.Post, uri, jwt);
-    }
+        var payload = await response.Content.ReadFromJsonAsync<LinkAccountKeyReplyDto>(cancellationToken: token).ConfigureAwait(false);
+        if (payload?.Success != true)
+        {
+            return new AccountOperationResult
+            {
+                Success = false,
+                ErrorMessage = payload?.ErrorMessage ?? "Server returned an invalid secret key link response."
+            };
+        }
 
-    private static AccountOperationResult CreateLocalKeyLinkFailure(int localKeyCount, int linkedKeyCount)
-    {
+        MarkCurrentServerAccountLinked(payload.UserAccountId);
         return new AccountOperationResult
         {
-            Success = false,
-            ErrorMessage = string.Format(
-                CultureInfo.InvariantCulture,
-                "Unable to link every local secret key to the account. Linked {0} of {1} key(s). Try again; keys already linked to another account must be removed from this service first.",
-                linkedKeyCount,
-                localKeyCount),
-            LinkedLocalSecretKeyCount = linkedKeyCount
+            Success = true,
+            Uid = payload.Uid,
+            UserAccountId = payload.UserAccountId,
+            SecretKeyCount = 1
         };
     }
 

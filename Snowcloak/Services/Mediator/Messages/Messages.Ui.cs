@@ -20,10 +20,12 @@ public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
 public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null,
     string? Ident = null, string? FallbackName = null) : MessageBase;
 public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
-public record OpenReportPopupMessage(Pair PairToReport, string Ident, ProfileVisibility Visibility, long Revision) : SameThreadMessage;
+public record OpenReportPopupMessage(UserData User, string Ident, ProfileVisibility Visibility, long Revision,
+    ProfileReportSurface Surface = ProfileReportSurface.Profile) : SameThreadMessage;
 public record OpenBanUserPopupMessage(Pair PairToBan, GroupFullInfoDto GroupFullInfoDto) : SameThreadMessage;
 public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : SameThreadMessage;
 public record OpenSyncshellEventsWindow(GroupFullInfoDto GroupInfo) : MessageBase;
+public record GroupCommunityUpdatedMessage(GroupCommunityDto Community) : MessageBase;
 public record OpenPermissionWindow(Pair Pair) : MessageBase;
 public record OpenPairAnalysisWindow(Pair Pair) : MessageBase;
 public record OpenSyncTroubleshootingWindow(Pair Pair) : MessageBase;

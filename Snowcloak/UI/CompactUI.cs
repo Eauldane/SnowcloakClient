@@ -106,6 +106,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
     private PatreonLoginFeedbackLevel _patreonLoginFeedbackLevel = PatreonLoginFeedbackLevel.None;
     private readonly HashSet<Guid> _dismissedAnnouncementIds = new();
     private readonly ChatNotifier _chatNotifier;
+    private readonly SnowProfileManager _snowProfileManager;
+    private readonly RoleplayClientService _roleplayClientService;
     private readonly Dictionary<string, object> _selectedComboItems = new(StringComparer.Ordinal);
 
     public CompactUi(ILogger<CompactUi> logger, UiFontService fontService,
@@ -114,7 +116,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         PerformanceCollectorService performanceCollectorService, AccountRegistrationService registerService, SyncshellBudgetService syncshellBudgetService,
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PairingFilterConfigService pairingFilterConfigService,
-        DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier)
+        DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier, SnowProfileManager snowProfileManager,
+        RoleplayClientService roleplayClientService)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _fontService = fontService;
@@ -132,6 +135,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _charaDataManager = charaDataManager;
         _dalamudUtilService = dalamudUtilService;
         _chatNotifier = chatNotifier;
+        _snowProfileManager = snowProfileManager;
+        _roleplayClientService = roleplayClientService;
         _tagHandler = new TagHandler(tagStore);
         _availabilityDispatcher = new AvailabilityDispatcher(logger, _pairRequestService, _dalamudUtilService, mediator);
         _frostbrandPanel = new FrostbrandPanel(_configService, pairingFilterConfigService, _fontService,

@@ -43,6 +43,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     public StandaloneProfileUi(ILogger<StandaloneProfileUi> logger, SnowMediator mediator, UiFontService fontService,
         BbCodeRenderService bbCodeRenderService, TextureService textureService,
+        Snowcloak.Configuration.SnowcloakConfigService configService,
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
         string? ident, string? fallbackName, DalamudUtilService dalamudUtilService,
         IpcManager ipcManager, PerformanceCollectorService performanceCollectorService)
@@ -52,7 +53,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     {
         _textureService = textureService;
         _imageTransferService = imageTransferService;
-        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService);
+        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
         _snowProfileManager = snowProfileManager;
         _dalamudUtilService = dalamudUtilService;
         _ipcManager = ipcManager;
@@ -106,10 +107,11 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     private void DrawReportButton(SnowProfileData profile)
     {
-        var canReport = Pair != null && profile.Revision > 0 && !profile.IsOwnProfile;
+        var canReport = profile.User != null && profile.Revision > 0 && !profile.IsOwnProfile;
         ImGui.BeginDisabled(!canReport);
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report displayed profile") && Pair != null)
-            Mediator.Publish(new OpenReportPopupMessage(Pair, profile.Ident, profile.Visibility, profile.Revision));
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block this user") && profile.User != null)
+            Mediator.Publish(new OpenReportPopupMessage(profile.User, profile.Ident, profile.Visibility, profile.Revision,
+                Pair == null ? ProfileReportSurface.PairingAvailability : ProfileReportSurface.Profile));
         ImGui.EndDisabled();
     }
 

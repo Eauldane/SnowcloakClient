@@ -7,19 +7,6 @@ using System.Threading.Channels;
 
 namespace Snowcloak.Services.Mediator;
 
-/// <summary>
-/// In-process message bus. Subscribers register typed handlers; publishers send
-/// <see cref="MessageBase"/> records that are dispatched to matching subscribers.
-///
-/// Dispatch is reflection-free: each subscription stores a closure that casts the message
-/// to its concrete type once, at subscribe time. Queued (non-same-thread) messages flow
-/// through an unbounded <see cref="Channel{T}"/> drained by a single reader, replacing the
-/// older polling loop. Same-thread messages (<see cref="MessageBase.KeepThreadContext"/>)
-/// run synchronously on the publishing thread, preserving framework-thread affinity.
-///
-/// Each subscription carries a <see cref="MediatorPriority"/>; for a given message, subscribers
-/// are invoked in priority order (highest first), and in subscribe order within a priority.
-/// </summary>
 public sealed class SnowMediator : IHostedService, IDisposable
 {
     private readonly ILogger<SnowMediator> _logger;
@@ -259,11 +246,7 @@ public sealed class SnowMediator : IHostedService, IDisposable
     {
         _loopCts.Dispose();
     }
-
-    /// <summary>
-    /// Begins draining queued messages. Messages published before this is called are buffered
-    /// in the channel and delivered once processing starts. Idempotent.
-    /// </summary>
+    
     public void StartQueueProcessing()
     {
         if (Interlocked.Exchange(ref _processingStarted, 1) != 0)
@@ -309,12 +292,7 @@ public sealed class SnowMediator : IHostedService, IDisposable
             _logger.LogInformation("---");
         }
     }
-
-    /// <summary>
-    /// Subscriptions for a single (message type, key). Maintains an immutable, priority-ordered
-    /// snapshot that dispatch reads without locking; the mutable list is only touched under the
-    /// mediator's subscriber lock.
-    /// </summary>
+    
     private sealed class SubscriberSet
     {
         private readonly List<Subscription> _items = [];

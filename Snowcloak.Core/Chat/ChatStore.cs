@@ -3,10 +3,11 @@ namespace Snowcloak.Core.Chat;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
+using Snowcloak.API.Dto.Roleplay;
 
 public interface IChatTransport
 {
-    Task<ChatMessageDto> SendAsync(ConversationKey key, string text, CancellationToken cancellationToken);
+    Task<ChatMessageDto> SendAsync(ConversationKey key, string text, RpChatMode rpMode, CancellationToken cancellationToken);
     Task<IReadOnlyList<ChatMessageDto>> GetHistoryAsync(ConversationKey key, CancellationToken cancellationToken);
 }
 
@@ -109,14 +110,35 @@ public sealed class ChatStore
         }
     }
 
-    public ChatEntry? AppendIncoming(ConversationKey key, ChatMessageDto message)
+    public void ResetConversation(ConversationKey key)
+    {
+        var changed = false;
+        lock (_lock)
+        {
+            if (_conversations.TryGetValue(key, out var conversation))
+            {
+                conversation.Entries.Clear();
+                conversation.Unread = 0;
+                conversation.HistoryLoaded = false;
+                _historyLoads.Remove(key);
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public ChatEntry? AppendIncoming(ConversationKey key, ChatMessageDto message, bool suppressUnread = false)
     {
         ArgumentNullException.ThrowIfNull(message);
         ChatEntry? entry = null;
         lock (_lock)
         {
             var conversation = GetOrCreateState(key, null, false, out _);
-            if (AppendStamped(conversation, message, countUnread: _activeConversation != key))
+            if (AppendStamped(conversation, message, countUnread: _activeConversation != key && !suppressUnread))
             {
                 entry = conversation.Entries.First(candidate => string.Equals(candidate.MessageId, message.MessageId, StringComparison.Ordinal));
             }
@@ -168,7 +190,8 @@ public sealed class ChatStore
         }
     }
 
-    public async Task SendAsync(ConversationKey key, string text, CancellationToken cancellationToken = default)
+    public async Task SendAsync(ConversationKey key, string text, RpChatMode rpMode = RpChatMode.Standard,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -188,7 +211,8 @@ public sealed class ChatStore
                 text,
                 DeliveryState.Pending,
                 new SenderDisplay("You"),
-                IsEmote(text)));
+                IsEmote(rpMode),
+                RpMode: rpMode));
             Trim(conversation.Entries);
             conversation.Draft = string.Empty;
         }
@@ -198,7 +222,7 @@ public sealed class ChatStore
         ChatEntry? sent = null;
         try
         {
-            var stamped = await _transport.SendAsync(key, text, cancellationToken).ConfigureAwait(false);
+            var stamped = await _transport.SendAsync(key, text, rpMode, cancellationToken).ConfigureAwait(false);
             lock (_lock)
             {
                 if (!_conversations.TryGetValue(key, out var conversation))
@@ -220,7 +244,7 @@ public sealed class ChatStore
                 }
                 else
                 {
-                    conversation.Entries[pendingIndex] = CreateEntry(stamped, localId);
+                    conversation.Entries[pendingIndex] = CreateEntry(conversation, stamped, localId);
                 }
 
                 sent = conversation.Entries.FirstOrDefault(entry => string.Equals(entry.MessageId, stamped.MessageId, StringComparison.Ordinal));
@@ -256,6 +280,7 @@ public sealed class ChatStore
     public Task RetryAsync(ConversationKey key, string localId, CancellationToken cancellationToken = default)
     {
         string? text = null;
+        var rpMode = RpChatMode.Standard;
         lock (_lock)
         {
             if (_conversations.TryGetValue(key, out var conversation))
@@ -264,12 +289,70 @@ public sealed class ChatStore
                 if (entry?.State == DeliveryState.Failed)
                 {
                     text = entry.RawText;
+                    rpMode = entry.RpMode;
                     conversation.Entries.Remove(entry);
                 }
             }
         }
 
-        return text == null ? Task.CompletedTask : SendAsync(key, text, cancellationToken);
+        return text == null ? Task.CompletedTask : SendAsync(key, text, rpMode, cancellationToken);
+    }
+
+    public ChatEntry? AppendServerStamped(ConversationKey key, ChatMessageDto message, bool countUnread)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ChatEntry? entry = null;
+        lock (_lock)
+        {
+            var conversation = GetOrCreateState(key, null, false, out _);
+            if (AppendStamped(conversation, message, countUnread))
+            {
+                entry = conversation.Entries.First(candidate => string.Equals(candidate.MessageId, message.MessageId, StringComparison.Ordinal));
+            }
+        }
+
+        if (entry != null)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return entry;
+    }
+
+    public ChatEntry? AppendTurnEvent(ConversationKey key, string eventId, string text, RoomTurnStateDto turnState)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentNullException.ThrowIfNull(turnState);
+        ChatEntry? appended = null;
+        lock (_lock)
+        {
+            var conversation = GetOrCreateState(key, null, false, out _);
+            if (conversation.Entries.All(entry => !string.Equals(entry.MessageId, eventId, StringComparison.Ordinal)))
+            {
+                appended = new ChatEntry(
+                    eventId,
+                    eventId,
+                    string.Empty,
+                    DateTimeOffset.UtcNow,
+                    [new TextSegment(text)],
+                    text,
+                    DeliveryState.Sent,
+                    new SenderDisplay("Scene"),
+                    Kind: ChatEntryKind.TurnChanged,
+                    TurnState: turnState);
+                conversation.Entries.Add(appended);
+                conversation.Entries.Sort(CompareEntries);
+                Trim(conversation.Entries);
+            }
+        }
+
+        if (appended != null)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return appended;
     }
 
     public Task EnsureHistory(ConversationKey key, CancellationToken cancellationToken = default)
@@ -473,7 +556,7 @@ public sealed class ChatStore
             return false;
         }
 
-        conversation.Entries.Add(CreateEntry(message, Guid.NewGuid().ToString("N")));
+        conversation.Entries.Add(CreateEntry(conversation, message, Guid.NewGuid().ToString("N")));
         conversation.Entries.Sort(CompareEntries);
         Trim(conversation.Entries);
         if (countUnread && !string.Equals(message.Sender.UID, _identityResolver.SelfUid, StringComparison.Ordinal))
@@ -484,9 +567,21 @@ public sealed class ChatStore
         return true;
     }
 
-    private ChatEntry CreateEntry(ChatMessageDto message, string localId)
+    private ChatEntry CreateEntry(ConversationState conversation, ChatMessageDto message, string localId)
     {
         var raw = ChatMessageCodec.DecodeText(message.Message.PayloadContent);
+        var rpMode = message.Message.RpMode;
+        if (rpMode == RpChatMode.Standard && TryUnwrapOoc(raw, out var ooc))
+        {
+            rpMode = RpChatMode.OutOfCharacter;
+            raw = ooc;
+        }
+        var display = _identityResolver.Resolve(message.Sender);
+        if (conversation.Key.Kind == ConversationKind.Room && rpMode != RpChatMode.Standard
+            && !string.IsNullOrWhiteSpace(message.Message.SenderName))
+        {
+            display = display with { Name = message.Message.SenderName.Trim() };
+        }
         return new ChatEntry(
             localId,
             message.MessageId,
@@ -495,8 +590,11 @@ public sealed class ChatStore
             ChatMessageCodec.Decode(raw),
             raw,
             DeliveryState.Sent,
-            _identityResolver.Resolve(message.Sender),
-            IsEmote(raw));
+            display,
+            IsEmote(rpMode),
+            RpMode: rpMode,
+            DiceRoll: message.DiceRoll,
+            TurnState: message.TurnState);
     }
 
     private ConversationState GetOrCreateState(ConversationKey key, string? title, bool muted, out bool created)
@@ -518,7 +616,23 @@ public sealed class ChatStore
         return conversation;
     }
 
-    private static bool IsEmote(string text) => text.StartsWith("/me ", StringComparison.OrdinalIgnoreCase);
+    private static bool IsEmote(RpChatMode rpMode)
+        => rpMode == RpChatMode.Action;
+
+    private static bool TryUnwrapOoc(string value, out string content)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.StartsWith("((", StringComparison.Ordinal)
+            && trimmed.EndsWith("))", StringComparison.Ordinal)
+            && trimmed.Length > 4)
+        {
+            content = trimmed[2..^2].Trim();
+            return content.Length > 0;
+        }
+
+        content = value;
+        return false;
+    }
 
     private static int CompareEntries(ChatEntry left, ChatEntry right)
     {

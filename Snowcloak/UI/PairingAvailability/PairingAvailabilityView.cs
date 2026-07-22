@@ -8,6 +8,7 @@ using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using ElezenTools.UI.Mvu;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.Core.Pairing;
 using Snowcloak.Services.Pairing;
 using Snowcloak.UI.Components;
@@ -215,7 +216,9 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
 
         DrawCardLabelValue("Pronouns:", row.Profile?.Pronouns);
         DrawCardLabelValue("Approach:", row.Profile?.Approachability);
-        DrawRotatingHook(row);
+        DrawRpAvailability(row);
+        if (row.RpCard?.CurrentHook == null)
+            DrawRotatingHook(row);
         DrawCardTags(row.VisibleTags);
 
         ImGui.Dummy(new Vector2(0f, 5f * scale));
@@ -389,6 +392,28 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         }
     }
 
+    private static void DrawRpAvailability(AvailabilityRow row)
+    {
+        var card = row.RpCard;
+        if (card == null || card.Paused || card.ExpiresAtUtc <= DateTimeOffset.UtcNow)
+            return;
+        ImGui.Spacing();
+        ImGui.TextColored(ImGuiColors.HealerGreen, "RP: " + RpAvailabilityLabel(card.State));
+        if (card.Themes.Count > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudGrey, string.Join(" · ", card.Themes.Select(RpThemeLabel)));
+        }
+        if (card.CurrentHook != null)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "Current hook:");
+            ImGui.SameLine();
+            ImGui.TextWrapped(card.CurrentHook.Title);
+            if (!string.IsNullOrWhiteSpace(card.CurrentHook.Description))
+                ImGui.TextWrapped(card.CurrentHook.Description);
+        }
+    }
+
     private static (CharacterProfileHookDto Hook, float Alpha, int Index) SelectDisplayedHook(string ident, List<CharacterProfileHookDto> hooks)
     {
         if (hooks.Count == 1)
@@ -434,7 +459,10 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.TextUnformatted(row.DisplayName);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "status", dispatch);
-        ImGui.TextColored(ImGuiColors.HealerGreen, row.Status);
+        var status = row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
+            ? row.Status + " · RP: " + RpAvailabilityLabel(card.State)
+            : row.Status;
+        ImGui.TextColored(ImGuiColors.HealerGreen, status);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "tagline", dispatch);
         ImGui.TextUnformatted(string.IsNullOrWhiteSpace(row.Profile?.Tagline) ? "-" : row.Profile.Tagline);
@@ -498,9 +526,12 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
             dispatch.Dispatch(new ViewProfileIntent(row.Ident));
         if (DrawContextMenuItem(FontAwesomeIcon.Handshake, "Send Snowcloak Pair Request", "pair-request", menuWidth))
             dispatch.Dispatch(new SendPairRequestIntent(row.Ident));
+        if (row.Profile?.User != null && row.Profile.Revision > 0
+            && DrawContextMenuItem(FontAwesomeIcon.ExclamationTriangle, "Report or block", "report", menuWidth))
+            dispatch.Dispatch(new ReportProfileIntent(row.Profile.User, row.Ident, row.Profile.Revision));
     }
 
-    private static readonly string[] ContextMenuLabels = { "Examine", "Adventurer Plate", "View Snowcloak Profile", "Send Snowcloak Pair Request" };
+    private static readonly string[] ContextMenuLabels = { "Examine", "Adventurer Plate", "View Snowcloak Profile", "Send Snowcloak Pair Request", "Report or block" };
     private const float ContextMenuLeftPad = 6f;
     private const float ContextMenuIconSlot = 20f;
     private const float ContextMenuGap = 10f;
@@ -571,5 +602,22 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
             ImGui.CloseCurrentPopup();
         return clicked;
     }
+
+    private static string RpAvailabilityLabel(RpAvailabilityState state) => state switch
+    {
+        RpAvailabilityState.OpenToWalkUps => "Walk-ups",
+        RpAvailabilityState.SeekingHooks => "Seeking hooks",
+        RpAvailabilityState.InScene => "In scene",
+        RpAvailabilityState.OutOfCharacter => "OOC",
+        RpAvailabilityState.Away => "AFK",
+        _ => "Closed",
+    };
+
+    private static string RpThemeLabel(RpTheme theme) => theme switch
+    {
+        RpTheme.SliceOfLife => "Slice of life",
+        RpTheme.LoreHeavy => "Lore-heavy",
+        _ => theme.ToString(),
+    };
 
 }

@@ -1,8 +1,16 @@
 using Snowcloak.WebAPI.Files.Models;
+using Snowcloak.Infrastructure.Transfers;
 
 namespace Snowcloak.WebAPI.Files;
 
-public sealed record DownloadFileRequest(Uri DownloadUri);
+public enum FileDownloadPurpose
+{
+    Interactive,
+    OptionalPrefetch,
+}
+
+public sealed record DownloadFileRequest(Uri DownloadUri, string Hash, long ExpectedBytes,
+    FileDownloadPurpose Purpose = FileDownloadPurpose.Interactive);
 
 public sealed class FileGrantRejectedException : HttpRequestException
 {
@@ -17,6 +25,22 @@ public sealed class FileGrantRejectedException : HttpRequestException
     public FileGrantRejectedException(string message, Exception innerException) : base(message, innerException)
     {
     }
+}
+
+public sealed class FileDownloadUnavailableException : HttpRequestException
+{
+    public FileDownloadUnavailableException(FileDownloadNegativeEntry entry) : base(entry.Message)
+    {
+        Entry = entry;
+    }
+
+    public FileDownloadUnavailableException(FileDownloadNegativeEntry entry, Exception innerException)
+        : base(entry.Message, innerException)
+    {
+        Entry = entry;
+    }
+
+    public FileDownloadNegativeEntry Entry { get; }
 }
 
 public sealed class DownloadResponse : IAsyncDisposable

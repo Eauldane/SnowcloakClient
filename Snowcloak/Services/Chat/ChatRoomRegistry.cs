@@ -69,7 +69,8 @@ public sealed class ChatRoomRegistry
         lock (_lock)
         {
             return _members.TryGetValue(roomId, out var members)
-                ? members.Values.OrderByDescending(member => member.Role).ThenBy(member => member.User.AliasOrUID, StringComparer.OrdinalIgnoreCase).ToArray()
+                ? members.Values.OrderByDescending(member => member.Role)
+                    .ThenBy(member => member.SceneNickname ?? member.User.AliasOrUID, StringComparer.OrdinalIgnoreCase).ToArray()
                 : [];
         }
     }
@@ -83,21 +84,31 @@ public sealed class ChatRoomRegistry
         }
     }
 
-    public void SetMember(RoomData room, UserData user, RoomRole role)
+    public void SetMember(RoomMemberJoinedDto member)
     {
-        ArgumentNullException.ThrowIfNull(room);
-        ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(member);
+        SetMember(new RoomMemberDto(member.Room, member.User, member.Role)
+        {
+            SceneNickname = member.SceneNickname,
+            SceneRoleIconId = member.SceneRoleIconId,
+            SceneRoleLabel = member.SceneRoleLabel,
+        });
+    }
+
+    public void SetMember(RoomMemberDto member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
         lock (_lock)
         {
-            _rooms[room.RoomId] = room;
-            if (!_members.TryGetValue(room.RoomId, out var members))
+            _rooms[member.Room.RoomId] = member.Room;
+            if (!_members.TryGetValue(member.Room.RoomId, out var members))
             {
                 members = new Dictionary<string, RoomMemberDto>(StringComparer.Ordinal);
-                _members[room.RoomId] = members;
+                _members[member.Room.RoomId] = members;
             }
 
-            members[user.UID] = new RoomMemberDto(room, user, role);
-            _counts[room.RoomId] = members.Count;
+            members[member.User.UID] = member;
+            _counts[member.Room.RoomId] = members.Count;
         }
     }
 

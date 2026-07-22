@@ -7,6 +7,7 @@ using ElezenTools.UI.Mvu;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Configurations;
 using ElezenTools.Core.Async;
@@ -41,6 +42,7 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
     private readonly Func<string, bool, Task<PairRequestFilterResult>> _filter;
     private readonly PairingAvailabilitySet _availability = new();
     private readonly Lock _availabilityLock = new();
+    private readonly Dictionary<string, RpAvailabilityCardDto> _rpCards = new(StringComparer.Ordinal);
     private readonly Lock _filterLock = new();
     private readonly Lock _pendingLock = new();
     private readonly SingleFlightCts _filterRebuild = new();
@@ -99,6 +101,12 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
         }
     }
 
+    public bool TryGetRpCard(string ident, out RpAvailabilityCardDto? card)
+    {
+        lock (_availabilityLock)
+            return _rpCards.TryGetValue(ident, out card);
+    }
+
     public AvailabilityFilterSnapshot GetFilterSnapshot()
     {
         lock (_filterLock)
@@ -115,6 +123,13 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
     {
         var entries = available?.ToList() ?? [];
         _profileManager.UpdateSummaries(entries);
+        lock (_availabilityLock)
+        {
+            foreach (var entry in entries)
+            {
+                if (entry.RpCard == null) _rpCards.Remove(entry.Ident); else _rpCards[entry.Ident] = entry.RpCard;
+            }
+        }
         var incoming = entries.Select(dto => dto.Ident)
             .Where(ident => !string.IsNullOrWhiteSpace(ident))
             .ToHashSet(StringComparer.Ordinal);
@@ -136,6 +151,8 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
             : new HashSet<string>(StringComparer.Ordinal);
 
         ApplyDelta(incoming, unavailable, publishImmediately);
+        if (entries.Count > 0)
+            RequestStateRefresh(publishImmediately);
     }
 
     public void ApplyProfileDelta(IEnumerable<PairingAvailabilityDto> availableProfiles,
@@ -143,7 +160,16 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
     {
         var profiles = availableProfiles?.ToList() ?? [];
         _profileManager.UpdateSummaries(profiles);
+        lock (_availabilityLock)
+        {
+            foreach (var profile in profiles)
+            {
+                if (profile.RpCard == null) _rpCards.Remove(profile.Ident); else _rpCards[profile.Ident] = profile.RpCard;
+            }
+        }
         ApplyDelta(profiles.Select(profile => profile.Ident), unavailableIdents, publishImmediately);
+        if (profiles.Count > 0)
+            RequestStateRefresh(publishImmediately);
     }
 
     public void ApplyDelta(IEnumerable<string>? availableIdents,
@@ -167,6 +193,7 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
         bool changed;
         lock (_availabilityLock)
         {
+            foreach (var ident in removals) _rpCards.Remove(ident);
             changed = _availability.ApplyDelta(availableIdents, removals, _localPlayerIdent);
         }
 
@@ -182,6 +209,8 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
         lock (_availabilityLock)
         {
             changed = _availability.Clear();
+            changed |= _rpCards.Count > 0;
+            _rpCards.Clear();
         }
 
         lock (_filterLock)
@@ -452,7 +481,16 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
             HomeWorldId: homeWorldId,
             HomeWorldName: ResolveWorldName(homeWorldId),
             Profile: profile,
-            VisibleTags: ProfileTagUtilities.GetVisibleTagsForViewer(profile?.Tags, viewerTags));
+            VisibleTags: ProfileTagUtilities.GetVisibleTagsForViewer(profile?.Tags, viewerTags),
+            RpCard: GetVisibleRpCard(ident));
+    }
+
+    private RpAvailabilityCardDto? GetVisibleRpCard(string ident)
+    {
+        lock (_availabilityLock)
+            return _rpCards.TryGetValue(ident, out var card) && !card.Paused && card.ExpiresAtUtc > DateTimeOffset.UtcNow
+                ? card
+                : null;
     }
 
     private IReadOnlyList<UserProfileTagDto> GetViewerProfileTags()

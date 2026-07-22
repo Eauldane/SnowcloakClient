@@ -42,12 +42,13 @@ public sealed class CommandManagerService : IDisposable
     private readonly Dictionary<string, CommandVerb> _snowCommands = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _snowCommandOrder = [];
     private readonly ChatClientService _chatService;
+    private readonly SnowProfileManager _snowProfileManager;
     private readonly BackgroundTaskTracker _backgroundTasks;
 
     public CommandManagerService(ILogger<CommandManagerService> logger, ICommandManager commandManager, IChatGui chatGui, DalamudUtilService dalamudService, PerformanceCollectorService performanceCollectorService,
         ServerRegistry serverRegistry, CacheMonitor periodicFileScanner,
         ApiController apiController, SnowMediator mediator, SnowcloakConfigService snowcloakConfigService, PairManager pairManager,
-        VenueRegistrationService venueRegistrationService, ChatClientService chatService)
+        VenueRegistrationService venueRegistrationService, ChatClientService chatService, SnowProfileManager snowProfileManager)
     {
         _commandManager = commandManager;
         _chatGui = chatGui;
@@ -61,6 +62,7 @@ public sealed class CommandManagerService : IDisposable
         _pairManager = pairManager;
         _venueRegistrationService = venueRegistrationService;
         _chatService = chatService;
+        _snowProfileManager = snowProfileManager;
         _backgroundTasks = new BackgroundTaskTracker(logger);
 
         RegisterSnowCommands();
@@ -114,6 +116,7 @@ public sealed class CommandManagerService : IDisposable
         RegisterSnowCommand("analyze", "Open data analysis.", _ => _mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
         RegisterSnowCommand("bbtest", "Open the BBCode test window.", _ => _mediator.Publish(new UiToggleMessage(typeof(BbCodeTestUi))));
         RegisterSnowCommand("venue", "Open venues, or use ad/register.", HandleVenueCommand);
+        RegisterSnowCommand("rp", "Set your RP status, or use clear.", SetRpStatus);
     }
 
     private void RegisterSnowCommand(string verb, string helpText, Action<string[]> handler)
@@ -162,19 +165,19 @@ public sealed class CommandManagerService : IDisposable
             return;
         }
 
-        var snapshot = _chatService.Store.Snapshot;
+        var conversations = _chatService.GetOrderedConversations(includeOfflineDirect: false);
         ConversationKey? key;
         var messageStart = 0;
         if (int.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out var index))
         {
-            key = index > 0 && index <= snapshot.Conversations.Count
-                ? snapshot.Conversations[index - 1].Key
+            key = index > 0 && index <= conversations.Count
+                ? conversations[index - 1].Key
                 : null;
             messageStart = 1;
         }
         else
         {
-            key = snapshot.ActiveConversation;
+            key = _chatService.Store.Snapshot.ActiveConversation;
         }
 
         if (!key.HasValue || messageStart >= args.Length)
@@ -208,6 +211,33 @@ public sealed class CommandManagerService : IDisposable
             _serverRegistry.Save();
             _ = _apiController.CreateConnections();
         }
+    }
+
+    private void SetRpStatus(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            _chatGui.PrintError("[Snowcloak] Usage: /snow rp <status text|clear>");
+            return;
+        }
+
+        var status = args.Length == 1 && string.Equals(args[0], "clear", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : string.Join(' ', args).Trim();
+        _ = _backgroundTasks.Run(async () =>
+        {
+            try
+            {
+                await _snowProfileManager.SetOwnRpStatusAsync(status).ConfigureAwait(false);
+                _chatGui.Print(string.IsNullOrEmpty(status)
+                    ? "[Snowcloak] RP status cleared."
+                    : $"[Snowcloak] RP status set to: {status}");
+            }
+            catch (Exception ex)
+            {
+                _chatGui.PrintError("[Snowcloak] Could not update RP status: " + ex.Message);
+            }
+        }, nameof(SetRpStatus));
     }
 
     private void PrintPerformanceStats(string[] args)

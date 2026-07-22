@@ -45,7 +45,7 @@
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.API" Version="3.99.15" />
+    <PackageReference Include="Snowcloak.API" Version="3.99.23" />
     <PackageReference Include="Snowcloak.CacheFile" Version="3.2.2.1" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
@@ -63,6 +63,9 @@
 
   <ItemGroup>
     <None Include="..\.editorconfig" Link=".editorconfig" />
+    <Content Include="images\logo-sidebar.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 

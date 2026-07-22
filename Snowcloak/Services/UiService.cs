@@ -86,13 +86,7 @@ public sealed class UiService : DisposableMediatorSubscriberBase
             msg.Window.Dispose();
         });
     }
-
-    /// <summary>
-    /// Subscribes to <typeparamref name="TMessage"/> and ensures a <typeparamref name="TWindow"/>
-    /// matching <paramref name="matches"/> exists, creating one via <paramref name="factory"/>
-    /// otherwise. Created windows are tracked in <see cref="_createdWindows"/> and disposed via
-    /// <see cref="RemoveWindowMessage"/> (published from each window's OnClose).
-    /// </summary>
+    
     private void RegisterDynamicWindow<TMessage, TWindow>(Func<TMessage, TWindow, bool> matches, Func<TMessage, TWindow> factory)
         where TMessage : MessageBase
         where TWindow : WindowMediatorSubscriberBase

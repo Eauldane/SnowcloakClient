@@ -1,4 +1,5 @@
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.ImGuiFileDialog;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Core.Chat;
 using Snowcloak.Services;
@@ -14,11 +15,12 @@ public sealed class ChatPopoutWindow : WindowMediatorSubscriberBase
     private readonly ChatConversationView _view;
 
     public ChatPopoutWindow(ILogger<ChatPopoutWindow> logger, SnowMediator mediator, ChatClientService chatService,
-        ImGuiChatRenderer renderer, PerformanceCollectorService performanceCollectorService, ConversationKey key)
+        ImGuiChatRenderer renderer, FileDialogManager fileDialogManager,
+        PerformanceCollectorService performanceCollectorService, ConversationKey key)
         : base(logger, mediator, BuildTitle(chatService ?? throw new ArgumentNullException(nameof(chatService)), key), performanceCollectorService)
     {
         Key = key;
-        _view = new ChatConversationView(logger, chatService, renderer, mediator);
+        _view = new ChatConversationView(logger, chatService, renderer, mediator, fileDialogManager);
         SetScaledSizeConstraints(new Vector2(420, 300), new Vector2(1200, 1600));
         Size = new Vector2(560, 520);
         SizeCondition = ImGuiCond.FirstUseEver;

@@ -1,6 +1,7 @@
 namespace Snowcloak.Core.Chat;
 
 using Snowcloak.API.Data.Enum;
+using Snowcloak.API.Dto.Roleplay;
 using System.Numerics;
 
 public enum ConversationKind
@@ -47,6 +48,7 @@ public enum ChatEntryKind
     Message,
     MemberJoined,
     MemberLeft,
+    TurnChanged,
 }
 
 public abstract record ChatSegment(string Value);
@@ -78,7 +80,10 @@ public sealed record ChatEntry(
     DeliveryState State,
     SenderDisplay Display,
     bool IsEmote = false,
-    ChatEntryKind Kind = ChatEntryKind.Message);
+    ChatEntryKind Kind = ChatEntryKind.Message,
+    RpChatMode RpMode = RpChatMode.Standard,
+    RoomDiceRollDto? DiceRoll = null,
+    RoomTurnStateDto? TurnState = null);
 
 public sealed class ChatMessageSentEventArgs(ConversationKey key, ChatEntry entry) : EventArgs
 {

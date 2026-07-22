@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Roleplay;
 
 namespace Snowcloak.Core.Profiles;
 
@@ -21,6 +22,7 @@ public sealed record ProfileEditValidationResult(IReadOnlyList<ProfileEditValida
 
 public sealed class ProfileEditableHook
 {
+    public string HookId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 }
@@ -52,10 +54,12 @@ public sealed class ProfileEditSession
     public Collection<ProfileEditableHook> Hooks { get; } = [];
     public string OocNotes { get; set; } = string.Empty;
     public string AdultPreferences { get; set; } = string.Empty;
+    public RpBoundariesDto? Boundaries { get; set; }
     public ProfileContentRating PublicContentRating { get; set; } = ProfileContentRating.General;
     public ProfileContentRating ContentRating { get; set; } = ProfileContentRating.General;
     public string ProfileImageHash { get; set; } = string.Empty;
     public IReadOnlyList<UserProfileTagDto> Tags => _tags;
+    public CharacterProfileFieldVisibilityDto FieldVisibility { get; private set; } = new();
 
     public long? ExpectedRevision => LoadedRevision > 0 ? LoadedRevision : null;
 
@@ -90,6 +94,7 @@ public sealed class ProfileEditSession
         {
             Hooks.Add(new ProfileEditableHook
             {
+                HookId = hook.HookId,
                 Title = hook.Title,
                 Description = hook.Description,
             });
@@ -97,9 +102,22 @@ public sealed class ProfileEditSession
 
         OocNotes = document.OocNotes;
         AdultPreferences = document.AdultPreferences;
+        Boundaries = document.Boundaries is null
+            ? null
+            : new RpBoundariesDto
+            {
+                Entries = document.Boundaries.Entries.Select(entry => new RpBoundaryEntryDto
+                {
+                    Key = entry.Key,
+                    Rating = entry.Rating,
+                }).ToList(),
+                Note = document.Boundaries.Note,
+                RequireAcknowledgement = document.Boundaries.RequireAcknowledgement,
+            };
         PublicContentRating = document.PublicContentRating;
         ContentRating = document.ContentRating;
         ProfileImageHash = document.ProfilePictureHash ?? string.Empty;
+        FieldVisibility = document.FieldVisibility is null ? new() : document.FieldVisibility with { };
         _tags = ProfileTagPolicy.NormalizeForStorage(document.Tags);
         Dirty = markDirty;
     }
@@ -109,6 +127,12 @@ public sealed class ProfileEditSession
         LoadedIdent = ident;
         LoadedRevision = revision;
         Dirty = false;
+    }
+
+    public void ApplyExternalRpStatus(long revision, string status)
+    {
+        LoadedRevision = revision;
+        RpStatus = status;
     }
 
     public void MarkDirty() => Dirty = true;
@@ -134,19 +158,27 @@ public sealed class ProfileEditSession
             AtAGlance = ParseLines(AtAGlanceText),
             Overview = Overview.Trim(),
             Hooks = Hooks
-                .Select(hook => new CharacterProfileHookDto(hook.Title.Trim(), hook.Description.Trim()))
+                .Select(hook => new CharacterProfileHookDto(hook.Title.Trim(), hook.Description.Trim())
+                {
+                    HookId = hook.HookId,
+                })
                 .Where(hook => !string.IsNullOrWhiteSpace(hook.Title) || !string.IsNullOrWhiteSpace(hook.Description))
                 .ToList(),
             OocNotes = OocNotes.Trim(),
             AdultPreferences = AdultPreferences.Trim(),
+            Boundaries = NormalizeBoundaries(Boundaries),
             PublicContentRating = PublicContentRating,
             ContentRating = MaxRating(ContentRating, PublicContentRating),
             ProfilePictureHash = string.IsNullOrWhiteSpace(ProfileImageHash) ? null : ProfileImageHash,
             Tags = ProfileTagPolicy.NormalizeForStorage(_tags),
+            FieldVisibility = FieldVisibility with { },
         };
 
     public CharacterProfileDocumentDto ToPublicPreviewDocument()
-        => BuildPublicPreviewDocument(ToDocument());
+        => BuildPreviewDocument(ToDocument(), ProfileAudience.Public);
+
+    public CharacterProfileDocumentDto ToPairedPreviewDocument()
+        => BuildPreviewDocument(ToDocument(), ProfileAudience.Paired);
 
     public ProfileEditValidationResult Validate()
     {
@@ -161,6 +193,8 @@ public sealed class ProfileEditSession
         AddTextIssue(issues, nameof(Overview), Overview, MaxLongTextLength);
         AddTextIssue(issues, nameof(OocNotes), OocNotes, MaxLongTextLength);
         AddTextIssue(issues, nameof(AdultPreferences), AdultPreferences, MaxLongTextLength);
+        if (Boundaries != null)
+            AddTextIssue(issues, nameof(Boundaries), Boundaries.Note, MaxLongTextLength);
 
         for (var i = 0; i < Hooks.Count; i++)
         {
@@ -227,7 +261,7 @@ public sealed class ProfileEditSession
             return;
         }
 
-        Hooks.Add(new ProfileEditableHook());
+        Hooks.Add(new ProfileEditableHook { HookId = Guid.NewGuid().ToString("N") });
         Dirty = true;
     }
 
@@ -255,15 +289,31 @@ public sealed class ProfileEditSession
     }
 
     public static CharacterProfileDocumentDto BuildPublicPreviewDocument(CharacterProfileDocumentDto document)
+        => BuildPreviewDocument(document, ProfileAudience.Public);
+
+    public static CharacterProfileDocumentDto BuildPreviewDocument(CharacterProfileDocumentDto document, ProfileAudience audience)
     {
         ArgumentNullException.ThrowIfNull(document);
 
+        var fields = document.FieldVisibility ?? new();
         return document with
         {
-            Overview = string.Empty,
-            OocNotes = string.Empty,
-            AdultPreferences = string.Empty,
-            ContentRating = document.PublicContentRating,
+            CharacterName = fields.CharacterName <= audience ? document.CharacterName : string.Empty,
+            Title = fields.Title <= audience ? document.Title : string.Empty,
+            Pronouns = fields.Pronouns <= audience ? document.Pronouns : string.Empty,
+            Tagline = fields.Tagline <= audience ? document.Tagline : string.Empty,
+            RpStatus = fields.RpStatus <= audience ? document.RpStatus : string.Empty,
+            Approachability = fields.Approachability <= audience ? document.Approachability : string.Empty,
+            HeaderImageHash = fields.Header <= audience ? document.HeaderImageHash : null,
+            ProfilePictureHash = fields.Portrait <= audience ? document.ProfilePictureHash : null,
+            AtAGlance = fields.AtAGlance <= audience ? document.AtAGlance : [],
+            Overview = fields.Overview <= audience ? document.Overview : string.Empty,
+            Hooks = fields.Hooks <= audience ? document.Hooks : [],
+            OocNotes = fields.OocNotes <= audience ? document.OocNotes : string.Empty,
+            AdultPreferences = fields.AdultPreferences <= audience ? document.AdultPreferences : string.Empty,
+            Boundaries = fields.Boundaries <= audience ? document.Boundaries : null,
+            Tags = fields.Tags <= audience ? document.Tags : [],
+            ContentRating = audience == ProfileAudience.Public ? document.PublicContentRating : document.ContentRating,
         };
     }
 
@@ -272,6 +322,32 @@ public sealed class ProfileEditSession
 
     public static ProfileContentRating MaxRating(ProfileContentRating left, ProfileContentRating right)
         => (ProfileContentRating)Math.Max((int)left, (int)right);
+
+    private static RpBoundariesDto? NormalizeBoundaries(RpBoundariesDto? boundaries)
+    {
+        if (boundaries == null)
+            return null;
+
+        var entries = boundaries.Entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Key))
+            .GroupBy(entry => entry.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new RpBoundaryEntryDto
+            {
+                Key = group.Key,
+                Rating = group.Last().Rating,
+            })
+            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var note = boundaries.Note.Trim();
+        return entries.Count == 0 && string.IsNullOrEmpty(note)
+            ? null
+            : new RpBoundariesDto
+            {
+                Entries = entries,
+                Note = note,
+                RequireAcknowledgement = boundaries.RequireAcknowledgement,
+            };
+    }
 
     private static void AddTextIssue(List<ProfileEditValidationIssue> issues, string field, string value, int limit)
     {

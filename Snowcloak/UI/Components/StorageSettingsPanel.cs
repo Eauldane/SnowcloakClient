@@ -136,12 +136,23 @@ public sealed partial class StorageSettingsPanel : IDisposable
         }
     }
 
-    public void DrawCacheDirectorySetting()
+    public void DrawCacheDirectorySetting(bool showLocationGuidance = true, bool stackedLayout = false)
     {
-        ElezenImgui.ColouredWrappedText("Note: The storage folder should be somewhere close to root (i.e. C\\SnowcloakStorage) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder.", ImGuiColors.DalamudYellow);
+        if (showLocationGuidance)
+            ElezenImgui.ColouredWrappedText("Note: The storage folder should be somewhere close to root (i.e. C:\\Snowcloak) in a new empty folder. DO NOT point this to your game folder. DO NOT point this to your Penumbra folder.", ImGuiColors.DalamudYellow);
         var cacheDirectory = _configService.Current.CacheFolder;
-        ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        ImGui.InputText("Storage Folder##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
+        if (stackedLayout)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "Storage folder");
+            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - ImGui.GetFrameHeight()
+                - ImGui.GetStyle().ItemSpacing.X);
+            ImGui.InputText("##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
+        }
+        else
+        {
+            ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
+            ImGui.InputText("Storage Folder##cache", ref cacheDirectory, 255, ImGuiInputTextFlags.ReadOnly);
+        }
         ImGui.SameLine();
         using (ImRaii.Disabled(_cacheMonitor.SnowWatcher != null))
         {
@@ -235,14 +246,31 @@ public sealed partial class StorageSettingsPanel : IDisposable
         }
 
         float maxCacheSize = (float)_configService.Current.MaxLocalCacheInGiB;
-        ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("Maximum Storage Size", ref maxCacheSize, 1f, 200f, "%.2f GiB"))
+        if (stackedLayout)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "Maximum storage size");
+            ImGui.SetNextItemWidth(-1);
+        }
+        else
+        {
+            ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
+        }
+        var storageSizeLabel = stackedLayout ? "##maximumStorageSize" : "Maximum Storage Size";
+        if (ImGui.SliderFloat(storageSizeLabel, ref maxCacheSize, 1f, 200f, "%.2f GiB"))
         {
             _configService.Update(c => c.MaxLocalCacheInGiB = maxCacheSize);
         }
         ElezenImgui.DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");
-        ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
-        ElezenImgui.DrawCombo("Eviction Strategy", Enum.GetValues<CacheEvictionMode>(),
+        if (stackedLayout)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "Eviction strategy");
+            ImGui.SetNextItemWidth(-1);
+        }
+        else
+        {
+            ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
+        }
+        ElezenImgui.DrawCombo(stackedLayout ? "##evictionStrategy" : "Eviction Strategy", Enum.GetValues<CacheEvictionMode>(),
             mode => mode switch
             {
                 CacheEvictionMode.LeastRecentlyUsed => "Least Recently Used (LRU)",

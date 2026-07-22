@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration;
 using Snowcloak.API.Dto.CharaData;
+using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Services.Mediator;
@@ -51,6 +52,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly AvailabilitySubscriptionClient _availabilitySubscription;
     private readonly NearbyPresenceScanner _nearbyPresenceScanner;
     private readonly PairRequestInbox _requestInbox;
+    private readonly Lazy<UserSafetyStore> _safetyStore;
     private bool _advertisingPairing;
     private int _disposed;
     private bool _lastPairingEnabled;
@@ -72,6 +74,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         _contextMenu = contextMenu;
         _pairManager = pairManager;
         _snowProfileManager = snowProfileManager;
+        _safetyStore = new Lazy<UserSafetyStore>(() => serviceProvider.GetRequiredService<UserSafetyStore>());
         _notesStore = notesStore;
         _availabilityStore = new PairingAvailabilityStore(logger, configService, snowProfileManager, mediator,
             _backgroundTasks, dalamudUtilService, CacheRequesterCharacterSnapshot, ShouldAutoRejectAsync);
@@ -92,6 +95,8 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         Mediator.Subscribe<ConnectedMessage>(this, OnConnected);
         Mediator.Subscribe<HubReconnectedMessage>(this, OnHubReconnected);
         Mediator.Subscribe<DisconnectedMessage>(this, _ => HandleDisconnect());
+        Mediator.Subscribe<OpenRpSafetyChangedMessage>(this, message => _ = _backgroundTasks.Run(
+            () => RefreshNearbyAvailabilityAsync(force: true), nameof(RefreshNearbyAvailabilityAsync)));
         Mediator.Subscribe<PairingRequestListChangedMessage>(this, OnPairingRequestListChanged);
         _ = _backgroundTasks.Run(_nearbyPresenceScanner.RunAsync, nameof(NearbyPresenceScanner.RunAsync));
         RefreshPendingRequestRows();
@@ -203,6 +208,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         => _availabilityStore.GetFilterSnapshot();
 
     internal PairingAvailabilityStore AvailabilityStore => _availabilityStore;
+    public bool TryGetRpAvailability(string ident, out RpAvailabilityCardDto? card) => _availabilityStore.TryGetRpCard(ident, out card);
 
     public void RefreshAvailableProfileSummary(string ident)
         => _ = _availabilityStore.RefreshProfileSummaryAsync(ident);
@@ -408,21 +414,30 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         => _nearbyPresenceScanner.RefreshAsync(force);
 
     
-    public async Task SendPairRequestAsync(string ident)
+    public async Task SendPairRequestAsync(string ident, RpIntroSnapshotDto? intro = null,
+        PairingRequestSource source = PairingRequestSource.Standard)
     {
         if (!_configService.Current.PairingSystemEnabled)
         {
+            if (source == PairingRequestSource.RoleplayDirectory)
+                throw new InvalidOperationException("Enable Frostbrand before using the directory.");
             _logger.LogDebug("Pair request send ignored: pairing system disabled");
             return;
         }
 
         try
         {
-            await _apiController.Value.UserSendPairRequest(new PairingRequestTargetDto(ident)).ConfigureAwait(false);
+            await _apiController.Value.UserSendPairRequest(new PairingRequestTargetDto(ident)
+            {
+                Intro = intro,
+                Source = source,
+            }).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send pair request to {Ident}", ident);
+            if (source == PairingRequestSource.RoleplayDirectory)
+                throw;
         }
     }
 
@@ -434,6 +449,13 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
 
     public Task RespondAsync(Guid requestId, bool accepted, string? reason = null)
         => _requestInbox.RespondAsync(requestId, accepted, reason);
+
+    public async Task BlockRequesterAsync(Guid requestId, string uid)
+    {
+        await _apiController.Value.UserBlock(new UserBlockRequestDto(uid)).ConfigureAwait(false);
+        _requestInbox.Remove(requestId);
+        await _safetyStore.Value.RefreshAsync().ConfigureAwait(false);
+    }
 
     public Task DeclineAllPendingRequestsAsync(string? reason = null)
         => _requestInbox.DeclineAllPendingRequestsAsync(reason);
@@ -487,8 +509,13 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
                         && !string.Equals(aliasOrUid, displayName, StringComparison.Ordinal);
 
         var characterSnapshot = GetRequesterCharacterSnapshot(dto);
-        return new PendingPairRequestRow(dto.RequestId, dto.RequestedAt, displayName, aliasOrUid, showAlias,
-            characterSnapshot, BuildMetadataText(characterSnapshot));
+        var metadata = BuildMetadataText(characterSnapshot);
+        if (dto.Source == PairingRequestSource.RoleplayDirectory)
+            metadata = string.Join(Environment.NewLine, new[] { "Interest sent from the RP directory", metadata }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (dto.Intro != null)
+            metadata = string.Join(Environment.NewLine, new[] { metadata, dto.Intro.Title, dto.Intro.Description }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return new PendingPairRequestRow(dto.RequestId, dto.RequestedAt, displayName, requesterUid, aliasOrUid, showAlias,
+            characterSnapshot, metadata);
     }
 
     private static bool IsMalformed(PairingRequestDto dto)

@@ -5,6 +5,7 @@ using Snowcloak.API.Dto.CharaData;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Chat;
+using Snowcloak.API.Dto.Roleplay;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
@@ -13,6 +14,24 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
+    public Task Client_RpAvailabilityChanged(RpAvailabilityChangedDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RpAvailabilityChangedMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_RpRoomUpdated(RoomDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RpRoomUpdatedMessage(dto)));
+        return Task.CompletedTask;
+    }
+
+    public Task Client_RpRoomInviteReceived(RoomInviteReceivedDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RpRoomInviteReceivedMessage(dto)));
+        return Task.CompletedTask;
+    }
+
     public Task Client_UserChatMsg(UserChatMsgDto dto)
     {
         ExecuteSafely(() => Mediator.Publish(new UserChatMsgMessage(dto)));

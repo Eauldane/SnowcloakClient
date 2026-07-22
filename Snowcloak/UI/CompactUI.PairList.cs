@@ -53,6 +53,7 @@ public partial class CompactUi
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, tallPadding);
         var buttonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Plus);
         var clearButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Times);
+        var rpButtonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.CommentDots);
         var entryIcon = FontAwesomeIcon.Link;
         var entryIconWidth = ElezenImgui.GetIconData(entryIcon).X;
         var spacing = ImGui.GetStyle().ItemSpacing.X;
@@ -67,7 +68,8 @@ public partial class CompactUi
             - entryIconWidth
             - clearButtonSize.X
             - buttonSize.X
-            - spacing * 3);
+            - rpButtonSize.X
+            - spacing * 4);
         ImGui.InputTextWithHint("##otheruid", "Other players UID/Alias", ref _pairToAdd, 20);
         ImGui.SameLine();
         if (ElezenImgui.IconButton(FontAwesomeIcon.Times))
@@ -75,6 +77,11 @@ public partial class CompactUi
             _pairToAdd = string.Empty;
         }
         ElezenImgui.AttachTooltip("Clear");
+        ImGui.SameLine();
+        if (ElezenImgui.IconButton(FontAwesomeIcon.CommentDots))
+            ImGui.OpenPopup("rp-status-presets");
+        ElezenImgui.AttachTooltip("Quick-set RP status");
+        DrawRpStatusPresets();
         ImGui.SameLine();
         var canAdd = !_pairManager.DirectPairs.Any(p => string.Equals(p.UserData.UID, _pairToAdd, StringComparison.Ordinal) || string.Equals(p.UserData.Alias, _pairToAdd, StringComparison.Ordinal));
         using (ImRaii.Disabled(!canAdd))
@@ -89,6 +96,23 @@ public partial class CompactUi
         ImGui.PopStyleVar();
 
         ImGuiHelpers.ScaledDummy(10);
+    }
+
+    private void DrawRpStatusPresets()
+    {
+        if (!ImGui.BeginPopup("rp-status-presets"))
+            return;
+
+        foreach (var status in new[] { "Open to RP", "Seeking hooks", "In a scene", "OOC", "AFK" })
+        {
+            if (ImGui.MenuItem(status))
+                _ = _snowProfileManager.SetOwnRpStatusAsync(status);
+        }
+
+        ImGui.Separator();
+        if (ImGui.MenuItem("Clear"))
+            _ = _snowProfileManager.SetOwnRpStatusAsync(string.Empty);
+        ImGui.EndPopup();
     }
 
     private void DrawFilter()

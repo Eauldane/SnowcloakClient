@@ -12,6 +12,7 @@ using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
 using Snowcloak.Core.Chat;
 using Snowcloak.Services.Chat;
+using Dalamud.Interface.ImGuiFileDialog;
 
 namespace Snowcloak.Services;
 
@@ -36,6 +37,8 @@ public class UiFactory
     private readonly ChatClientService _chatService;
     private readonly ChatIdentityResolver _chatIdentityResolver;
     private readonly ImGuiChatRenderer _chatRenderer;
+    private readonly FileDialogManager _fileDialogManager;
+    private readonly RoleplayClientService _roleplayClientService;
 
     public UiFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, ApiController apiController,
         SnowcloakConfigService configService,
@@ -43,7 +46,8 @@ public class UiFactory
         DalamudUtilService dalamudUtilService, IpcManager ipcManager,
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, PerformanceCollectorService performanceCollectorService,
         SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService,
-        ChatClientService chatService, ChatIdentityResolver chatIdentityResolver, ImGuiChatRenderer chatRenderer)
+        ChatClientService chatService, ChatIdentityResolver chatIdentityResolver, ImGuiChatRenderer chatRenderer,
+        FileDialogManager fileDialogManager, RoleplayClientService roleplayClientService)
     {
         _loggerFactory = loggerFactory;
         _snowMediator = snowMediator;
@@ -64,6 +68,8 @@ public class UiFactory
         _chatService = chatService;
         _chatIdentityResolver = chatIdentityResolver;
         _chatRenderer = chatRenderer;
+        _fileDialogManager = fileDialogManager;
+        _roleplayClientService = roleplayClientService;
     }
 
     public SyncshellAdminUI CreateSyncshellAdminUi(GroupFullInfoDto dto)
@@ -76,7 +82,8 @@ public class UiFactory
     public SyncshellEventsWindow CreateSyncshellEventsUi(GroupFullInfoDto dto)
     {
         return new SyncshellEventsWindow(_loggerFactory.CreateLogger<SyncshellEventsWindow>(), _snowMediator,
-            _apiController, _pairManager, _dalamudUtilService, dto, _performanceCollectorService);
+            _apiController, _pairManager, _dalamudUtilService, _textureService, _imageTransferService, dto,
+            _performanceCollectorService);
     }
 
     public StandaloneProfileUi CreateStandaloneProfileUi(UserData userData, Pair? pair = null, ProfileVisibility? requestedVisibility = null,
@@ -87,7 +94,7 @@ public class UiFactory
         if (pair == null && !string.IsNullOrWhiteSpace(userData.UID))
             pair = _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
-            _fontService, _bbCodeRenderService, _textureService, _snowProfileManager, _imageTransferService, pair, userData, requestedVisibility, ident, fallbackName,
+            _fontService, _bbCodeRenderService, _textureService, _configService, _snowProfileManager, _imageTransferService, pair, userData, requestedVisibility, ident, fallbackName,
             _dalamudUtilService, _ipcManager, _performanceCollectorService);
     }
 
@@ -112,13 +119,14 @@ public class UiFactory
     public ChatPopoutWindow CreateChatPopoutWindow(ConversationKey key)
     {
         return new ChatPopoutWindow(_loggerFactory.CreateLogger<ChatPopoutWindow>(), _snowMediator,
-            _chatService, _chatRenderer, _performanceCollectorService, key);
+            _chatService, _chatRenderer, _fileDialogManager, _performanceCollectorService, key);
     }
 
     public RoomAdministrationWindow CreateRoomAdministrationWindow(string roomId)
     {
         return new RoomAdministrationWindow(_loggerFactory.CreateLogger<RoomAdministrationWindow>(), _snowMediator,
-            _chatService, _pairManager, _chatIdentityResolver, _performanceCollectorService, roomId);
+            _apiController, _chatService, _pairManager, _chatIdentityResolver, _roleplayClientService,
+            _performanceCollectorService, roomId);
     }
 
     public PairRequestConfirmationWindow CreatePairRequestConfirmationWindow(string ident, string characterName, string pluginName)

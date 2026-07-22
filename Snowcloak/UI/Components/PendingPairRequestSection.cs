@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Globalization;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.Data;
@@ -116,7 +117,7 @@ public static class PendingPairRequestSection
             textX += badgeSize.X + 9f * scale;
         }
 
-        var buttonsWidth = buttonSize.X * 2f + ImGui.GetStyle().ItemSpacing.X;
+        var buttonsWidth = buttonSize.X * 3f + ImGui.GetStyle().ItemSpacing.X * 2f;
         var textWidth = MathF.Max(1f, max.X - textX - buttonsWidth - 12f * scale);
         ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - nameSize.Y - (hasMetadata ? metaSize.Y + 4f * scale : 0f)) * 0.5f));
         ImGui.PushTextWrapPos(ImGui.GetCursorScreenPos().X + textWidth);
@@ -147,6 +148,10 @@ public static class PendingPairRequestSection
         ImGui.SameLine();
         if (DrawPairBase.DrawRowActionButton(FontAwesomeIcon.Times, "reject", SnowcloakColours.CompactTextMuted))
             dispatch.Dispatch(new RespondPairRequestIntent(request.RequestId, false));
+
+        ImGui.SameLine();
+        if (DrawPairBase.DrawRowActionButton(FontAwesomeIcon.UserSlash, "block requester", ImGuiColors.DalamudRed))
+            dispatch.Dispatch(new BlockPairRequesterIntent(request.RequestId, request.RequesterUid));
 
         ImGui.SetCursorScreenPos(new Vector2(min.X, max.Y + 2f * scale));
     }

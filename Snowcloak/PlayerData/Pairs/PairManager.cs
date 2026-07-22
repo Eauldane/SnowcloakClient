@@ -1,5 +1,4 @@
-﻿using Dalamud.Plugin.Services;
-using Snowcloak.API.Data;
+﻿using Snowcloak.API.Data;
 using Snowcloak.API.Data.Comparer;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
@@ -10,7 +9,6 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
-using Snowcloak.UI.Components;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -23,9 +21,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly ConcurrentDictionary<string, Pair> _allClientPairs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<GroupData, GroupFullInfoDto> _allGroups = new(GroupDataComparer.Instance);
     private readonly SnowcloakConfigService _configurationService;
-    private readonly IContextMenu _dalamudContextMenu;
     private readonly PairFactory _pairFactory;
-    private readonly PairContextMenuBuilder _contextMenuBuilder;
     private readonly Lock _projectionLock = new();
     private List<Pair> _directPairsCache = [];
     private Dictionary<GroupFullInfoDto, List<Pair>> _groupPairsCache = new();
@@ -34,18 +30,13 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     private int _disposed;
 
     public PairManager(ILogger<PairManager> logger, PairFactory pairFactory,
-                SnowcloakConfigService configurationService, SnowMediator mediator,
-                IContextMenu dalamudContextMenu, PairContextMenuBuilder contextMenuBuilder) : base(logger, mediator)
+                SnowcloakConfigService configurationService, SnowMediator mediator) : base(logger, mediator)
     {
         _pairFactory = pairFactory;
         _configurationService = configurationService;
-        _dalamudContextMenu = dalamudContextMenu;
-        _contextMenuBuilder = contextMenuBuilder;
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => ClearPairs());
         Mediator.Subscribe<CutsceneEndMessage>(this, (_) => ReapplyPairData());
         Mediator.Subscribe<LocalCharacterDataPushedMessage>(this, MarkLocalCharacterDataPushed);
-
-        _dalamudContextMenu.OnMenuOpened += DalamudContextMenuOnOnOpenGameObjectContextMenu;
     }
 
     public List<Pair> DirectPairs
@@ -628,8 +619,6 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         base.Dispose(disposing);
 
-        _dalamudContextMenu.OnMenuOpened -= DalamudContextMenuOnOnOpenGameObjectContextMenu;
-
         DisposePairs();
     }
 
@@ -642,22 +631,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         base.Dispose(disposing: true);
 
-        _dalamudContextMenu.OnMenuOpened -= DalamudContextMenuOnOnOpenGameObjectContextMenu;
-
         await DisposePairsAsync().ConfigureAwait(false);
 
         GC.SuppressFinalize(this);
-    }
-
-    private void DalamudContextMenuOnOnOpenGameObjectContextMenu(Dalamud.Game.Gui.ContextMenu.IMenuOpenedArgs args)
-    {
-        if (args.MenuType == Dalamud.Game.Gui.ContextMenu.ContextMenuType.Inventory) return;
-        if (!_configurationService.Current.EnableRightClickMenus) return;
-
-        foreach (var pair in _allClientPairs.Where((p => p.Value.IsVisible)))
-        {
-            _contextMenuBuilder.AddContextMenu(args, pair.Value);
-        }
     }
 
     private void DisposePairs()

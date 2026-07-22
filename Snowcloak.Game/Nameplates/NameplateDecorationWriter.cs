@@ -5,10 +5,19 @@ namespace Snowcloak.Game.Nameplates;
 
 public static class NameplateDecorationWriter
 {
-    public static void Apply(INamePlateUpdateHandler handler, SeString start, SeString end)
+    public static void Apply(INamePlateUpdateHandler handler, SeString start, SeString end, string? suffix = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        handler.NameParts.TextWrap = (start, end);
+        if (string.IsNullOrEmpty(suffix))
+        {
+            handler.NameParts.TextWrap = (start, end);
+            return;
+        }
+
+        var builder = new SeStringBuilder();
+        builder.Append(end);
+        builder.AddText(suffix);
+        handler.NameParts.TextWrap = (start, builder.Build());
     }
 }

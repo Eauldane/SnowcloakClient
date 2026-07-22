@@ -7,6 +7,8 @@ namespace Snowcloak.WebAPI;
 
 public sealed partial class AccountRegistrationService
 {
+    private readonly Dictionary<string, RegisterReplyDto> _pendingPasswordAccountRegistrations = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<RegisterReplyDto> RegisterAccount(CancellationToken token)
     {
         var secretKey = GenerateSecretKey();
@@ -43,27 +45,39 @@ public sealed partial class AccountRegistrationService
     public async Task<AccountOperationResult> CreateAccountWithPassword(string username, string password, CancellationToken token,
         Action<string>? reportProgress = null)
     {
-        reportProgress?.Invoke("Registering a character key with the selected service...");
-        var register = await RegisterAccount(token).ConfigureAwait(false);
-        if (!register.Success)
+        var service = _serverManager.CurrentApiUrl;
+        if (!_pendingPasswordAccountRegistrations.TryGetValue(service, out var register))
         {
-            return new AccountOperationResult
+            reportProgress?.Invoke("Registering a character key...");
+            register = await RegisterAccount(token).ConfigureAwait(false);
+            if (!register.Success)
             {
-                Success = false,
-                ErrorMessage = string.IsNullOrWhiteSpace(register.ErrorMessage)
-                    ? "Secret-key registration failed."
-                    : register.ErrorMessage
-            };
+                return new AccountOperationResult
+                {
+                    Success = false,
+                    ErrorMessage = string.IsNullOrWhiteSpace(register.ErrorMessage)
+                        ? "Secret-key registration failed."
+                        : register.ErrorMessage
+                };
+            }
+
+            _pendingPasswordAccountRegistrations[service] = register;
         }
 
-        reportProgress?.Invoke("Character key registered. Creating the password account on the selected service...");
+        reportProgress?.Invoke("Character key registered. Creating your user account...");
         await StoreRegisteredSecretKeyAsync(register, assignCurrentCharacter: true).ConfigureAwait(false);
         var result = await AttachPasswordToCurrentAccount(username, password, token).ConfigureAwait(false);
         if (!result.Success)
         {
+            result.StandaloneKeyReady = true;
+            result.Uid = register.UID ?? string.Empty;
+            result.SecretKeyCount = 1;
+            result.NewSecretKeyCount = 1;
             result.ErrorMessage = "Secret-key registration succeeded, but password account setup failed: " + result.ErrorMessage;
+            return result;
         }
 
+        _pendingPasswordAccountRegistrations.Remove(service);
         return result;
     }
 

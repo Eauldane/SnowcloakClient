@@ -23,6 +23,11 @@ public partial class SyncshellAdminUI
         {
             _selectedTab = SyncshellAdminTab.Settings;
         }
+
+        if (_selectedTab == SyncshellAdminTab.Events && !_apiController.SupportsRpFeatures)
+        {
+            _selectedTab = SyncshellAdminTab.Community;
+        }
     }
 
     private void DrawAdminSidebar()
@@ -47,12 +52,12 @@ public partial class SyncshellAdminUI
 
         DrawSidebarTab(SyncshellAdminTab.Settings, FontAwesomeIcon.Cog, "Settings");
         DrawSidebarTab(SyncshellAdminTab.Community, FontAwesomeIcon.Bullhorn, "Community");
-        DrawSidebarTab(SyncshellAdminTab.Directory, FontAwesomeIcon.Globe, "Directory");
+        if (_apiController.SupportsRpFeatures)
+        {
+            DrawSidebarTab(SyncshellAdminTab.Events, FontAwesomeIcon.CalendarDay, "Events");
+        }
         ModernSidebar.DrawSeparator();
         DrawSidebarTab(SyncshellAdminTab.Members, FontAwesomeIcon.Users, "Members");
-        DrawSidebarTab(SyncshellAdminTab.Invites, FontAwesomeIcon.Envelope, "Invites");
-        DrawSidebarTab(SyncshellAdminTab.Cleanup, FontAwesomeIcon.Broom, "Cleanup");
-        DrawSidebarTab(SyncshellAdminTab.Bans, FontAwesomeIcon.Ban, "Bans");
         ModernSidebar.DrawSeparator();
         DrawSidebarTab(SyncshellAdminTab.Permissions, FontAwesomeIcon.Wrench, "Permissions");
         DrawSidebarTab(SyncshellAdminTab.Audit, FontAwesomeIcon.History, "Audit History");

@@ -13,6 +13,8 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI;
+using Dalamud.Game.Text.SeStringHandling;
+using Snowcloak.API.Data.Enum;
 
 namespace Snowcloak.Services;
 
@@ -27,6 +29,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
     private readonly ApiController _apiController;
+    private readonly RoleplayClientService _roleplay;
     private readonly IFrameTickHandle _tick;
     private readonly CancellationTokenSource _runtimeCts = new();
 
@@ -38,7 +41,8 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
 
     public PairDisplayDecorationService(ILogger<PairDisplayDecorationService> logger, DalamudUtilService dalamudUtil, SnowMediator mediator,
         SnowcloakConfigService configService, INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList,
-        PairManager pairManager, PairRequestService pairRequestService, ApiController apiController, IFrameScheduler frameScheduler)
+        PairManager pairManager, PairRequestService pairRequestService, ApiController apiController,
+        RoleplayClientService roleplay, IFrameScheduler frameScheduler)
         : base(logger, mediator)
     {
         ArgumentNullException.ThrowIfNull(logger);
@@ -61,6 +65,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
         _apiController = apiController;
+        _roleplay = roleplay;
 
         _namePlateGui.OnNamePlateUpdate += OnNamePlateUpdate;
         _namePlateGui.RequestRedraw();
@@ -70,6 +75,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
         Mediator.Subscribe<PairHandlerVisibleMessage>(this, _ => RequestRedraw());
         Mediator.Subscribe<NameplateRedrawMessage>(this, _ => RequestRedraw());
         Mediator.Subscribe<PairingAvailabilityChangedMessage>(this, _ => RequestRedraw(force: true));
+        Mediator.Subscribe<RpAvailabilityChangedMessage>(this, _ => RequestRedraw(force: true));
     }
 
     public void RequestRedraw(bool force = false)
@@ -150,6 +156,12 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
                 .ToDictionary(candidate => (ulong)candidate.Player.EntityId, candidate => candidate.Ident)
             : new Dictionary<ulong, string>();
 
+        var roleplayers = _roleplay.VisibleCards
+            .Where(item => item.Value is { Paused: false } && item.Value.ExpiresAtUtc > DateTimeOffset.UtcNow)
+            .Select(item => (Player: _dalamudUtil.FindPlayerByNameHash(item.Key), item.Key))
+            .Where(item => item.Player.EntityId != 0)
+            .ToDictionary(item => (ulong)item.Player.EntityId, item => item.Key);
+
         var partyMembers = new HashSet<nint>();
         for (var i = 0; i < _partyList.Count; i++)
         {
@@ -177,17 +189,39 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
 
                 TryApplyDecoration(handler, options, PairDisplayDecorationMapper.CreatePairSubject(pair, allowPairVanity: true));
             }
-            else if (availableForPairing.ContainsKey(handler.GameObjectId))
+            else if (availableForPairing.TryGetValue(handler.GameObjectId, out var ident))
             {
-                TryApplyDecoration(handler, options, PairDisplayDecorationMapper.CreatePairingCandidateSubject());
+                var marker = _pairRequestService.TryGetRpAvailability(ident, out var card)
+                    && card is { Paused: false } && card.ExpiresAtUtc > DateTimeOffset.UtcNow
+                    ? "  • RP: " + RpAvailabilityLabel(card.State)
+                    : null;
+                TryApplyDecoration(handler, options, PairDisplayDecorationMapper.CreatePairingCandidateSubject(), marker);
+            }
+            else if (roleplayers.ContainsKey(handler.GameObjectId))
+            {
+                var empty = new SeStringBuilder().Build();
+                var card = _roleplay.VisibleCards[roleplayers[handler.GameObjectId]];
+                NameplateDecorationWriter.Apply(handler, empty, empty, "  • RP: " + RpAvailabilityLabel(card.State));
+                _isModified = true;
             }
         }
     }
 
+    private static string RpAvailabilityLabel(RpAvailabilityState state) => state switch
+    {
+        RpAvailabilityState.OpenToWalkUps => "Walk-ups",
+        RpAvailabilityState.SeekingHooks => "Hooks",
+        RpAvailabilityState.InScene => "Scene",
+        RpAvailabilityState.OutOfCharacter => "OOC",
+        RpAvailabilityState.Away => "AFK",
+        _ => "Closed",
+    };
+
     private bool TryApplyDecoration(
         INamePlateUpdateHandler handler,
         PairDisplayDecorationOptions options,
-        PairDisplayDecorationSubject subject)
+        PairDisplayDecorationSubject subject,
+        string? suffix = null)
     {
         var decoration = PairDisplayDecorationPolicy.Resolve(options, subject);
         if (decoration == null)
@@ -197,7 +231,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
         NameplateDecorationWriter.Apply(
             handler,
             ElezenStrings.BuildColourStartString(colors),
-            ElezenStrings.BuildColourEndString(colors));
+            ElezenStrings.BuildColourEndString(colors), suffix);
         _isModified = true;
         return true;
     }

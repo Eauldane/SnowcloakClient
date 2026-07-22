@@ -8,6 +8,7 @@ using Snowcloak.API.Dto.Manifest;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Session;
 using Snowcloak.API.Dto.Chat;
+using Snowcloak.API.Dto.Roleplay;
 
 namespace Snowcloak.WebAPI.SignalR;
 
@@ -19,6 +20,7 @@ internal static class CallbackRouter
         PairCallbacks.Register(hub, api);
         GroupCallbacks.Register(hub, api);
         ChatCallbacks.Register(hub, api);
+        RoleplayCallbacks.Register(hub, api);
         GposeCallbacks.Register(hub, api);
     }
 
@@ -26,6 +28,16 @@ internal static class CallbackRouter
         where T : ISequencedSessionEvent
     {
         hub.On<T>(method, payload => api.RouteSessionEvent(payload, handler));
+    }
+}
+
+internal static class RoleplayCallbacks
+{
+    public static void Register(HubConnection hub, ApiController api)
+    {
+        hub.On<RpAvailabilityChangedDto>(nameof(ApiController.Client_RpAvailabilityChanged), api.Client_RpAvailabilityChanged);
+        hub.On<RoomDto>(nameof(ApiController.Client_RpRoomUpdated), api.Client_RpRoomUpdated);
+        hub.On<RoomInviteReceivedDto>(nameof(ApiController.Client_RpRoomInviteReceived), api.Client_RpRoomInviteReceived);
     }
 }
 

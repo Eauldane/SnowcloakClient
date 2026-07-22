@@ -7,6 +7,7 @@ using Snowcloak.FileCache;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Infrastructure.Transfers;
 using Snowcloak.Utils;
 using Snowcloak.WebAPI.Files.Models;
 using System.Buffers;
@@ -23,18 +24,22 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private readonly IFileDownloadTransport _transport;
     private readonly DownloadStatusStore _statusStore;
     private readonly UsageStatisticsService _usageStatisticsService;
+    private readonly FileDownloadNegativeCache _negativeCache;
     private readonly ConcurrentDictionary<ThrottledStream, byte> _activeDownloadStreams = new();
     private List<DownloadFileTransfer> _currentDownloads = [];
+    private Dictionary<string, string> _preflightUnavailable = new(StringComparer.OrdinalIgnoreCase);
 
     public FileDownloadManager(ILogger<FileDownloadManager> logger, SnowMediator mediator,
         FileTransferOrchestrator orchestrator, IFileDownloadTransport transport,
-        DownloadStatusStore statusStore, FileCacheManager fileCacheManager, UsageStatisticsService usageStatisticsService) : base(logger, mediator)
+        DownloadStatusStore statusStore, FileCacheManager fileCacheManager, UsageStatisticsService usageStatisticsService,
+        FileDownloadNegativeCache negativeCache) : base(logger, mediator)
     {
         _orchestrator = orchestrator;
         _transport = transport;
         _statusStore = statusStore;
         _fileDbManager = fileCacheManager;
         _usageStatisticsService = usageStatisticsService;
+        _negativeCache = negativeCache;
 
         Mediator.Subscribe<DownloadLimitChangedMessage>(this, _ =>
         {
@@ -60,12 +65,36 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         ArgumentNullException.ThrowIfNull(gameObjectHandler);
         ArgumentNullException.ThrowIfNull(fileReplacement);
         LogDownloadStart(Logger, gameObjectHandler.Name);
-        var fileInfo = await FilesGetSizes(fileReplacement.Select(file => file.Hash)
-            .Distinct(StringComparer.Ordinal).ToList(), ct).ConfigureAwait(false);
+        var requestedHashes = fileReplacement.Select(file => file.Hash).Distinct(StringComparer.Ordinal).ToList();
+        _preflightUnavailable = requestedHashes
+            .Select(hash => _negativeCache.TryGet(hash, out var entry) ? entry : null)
+            .Where(entry => entry != null)
+            .ToDictionary(entry => entry!.Hash, entry => entry!.Message, StringComparer.OrdinalIgnoreCase);
+        var eligibleHashes = requestedHashes.Where(hash => !_preflightUnavailable.ContainsKey(hash)).ToList();
+        var fileInfo = eligibleHashes.Count == 0
+            ? []
+            : await FilesGetSizes(eligibleHashes, ct).ConfigureAwait(false);
+        var returnedHashes = fileInfo.Select(file => file.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var missingHash in eligibleHashes.Where(hash => !returnedHashes.Contains(hash)))
+        {
+            var entry = _negativeCache.Record(missingHash, FileDownloadNegativeReason.Missing, TimeSpan.FromMinutes(10),
+                "The requested file is not available on the server. Snowcloak will check again later.");
+            _preflightUnavailable[entry.Hash] = entry.Message;
+        }
 
         foreach (var dto in fileInfo.Where(file => file.IsForbidden))
         {
             _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(dto.Hash, dto.ForbiddenBy, ForbiddenTransferKind.Download));
+            var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(30),
+                "The requested file is blocked from transfer.");
+            _preflightUnavailable[entry.Hash] = entry.Message;
+        }
+
+        foreach (var dto in fileInfo.Where(file => !file.FileExists))
+        {
+            var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Missing, TimeSpan.FromMinutes(10),
+                "The requested file is not available on the server. Snowcloak will check again later.");
+            _preflightUnavailable[entry.Hash] = entry.Message;
         }
 
         _currentDownloads = fileInfo.Distinct()
@@ -118,6 +147,12 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         var downloadGroups = _currentDownloads.GroupBy(GetDownloadGroupKey, StringComparer.Ordinal).ToList();
 
         using var download = _statusStore.Begin(gameObjectHandler, uid);
+        var unavailable = new ConcurrentDictionary<string, string>(_preflightUnavailable, StringComparer.OrdinalIgnoreCase);
+        if (!unavailable.IsEmpty)
+        {
+            var message = unavailable.Values.First();
+            download.AddGroup("Unavailable", 0, unavailable.Count).SetUnavailable(message);
+        }
         var groupHandles = downloadGroups.ToDictionary(group => group.Key,
             group => download.AddGroup(group.Key, group.Sum(transfer => transfer.Total), group.Count()),
             StringComparer.Ordinal);
@@ -148,6 +183,12 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             {
                 throw;
             }
+            catch (FileDownloadUnavailableException ex)
+            {
+                unavailable.TryAdd(transfer.Hash, ex.Entry.Message);
+                groupHandle.SetUnavailable(ex.Entry.Message);
+                LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
+            }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or UnauthorizedAccessException)
             {
                 LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
@@ -157,6 +198,14 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 TryDeleteFile(tempPath);
             }
         }).ConfigureAwait(false);
+
+        if (!unavailable.IsEmpty)
+        {
+            var reasons = string.Join(" ", unavailable.Values.Distinct(StringComparer.Ordinal).Take(2));
+            Mediator.Publish(new NotificationMessage("Some files are temporarily unavailable",
+                $"{unavailable.Count} file(s) could not be downloaded. {reasons}",
+                Configuration.Models.NotificationType.Warning, TimeSpan.FromSeconds(8)));
+        }
 
         LogDownloadEnd(Logger, gameObjectHandler.Name);
     }
@@ -168,7 +217,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             try
             {
-                var downloadedBytes = await DownloadToFileAsync(transfer.DownloadUri, groupHandle, tempPath, ct).ConfigureAwait(false);
+                var downloadedBytes = await DownloadToFileAsync(transfer, groupHandle, tempPath, ct).ConfigureAwait(false);
                 groupHandle.SetStatus(DownloadStatus.Decompressing);
                 var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -180,6 +229,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 }
 
                 _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
+                _negativeCache.Clear(transfer.Hash);
                 groupHandle.MarkFileTransferred();
                 return;
             }
@@ -188,18 +238,33 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 var refreshed = (await FilesGetSizes([transfer.Hash], ct).ConfigureAwait(false)).SingleOrDefault();
                 if (refreshed == null || !refreshed.FileExists || refreshed.IsForbidden || refreshed.Size <= 0)
                 {
-                    throw;
+                    var reason = refreshed?.IsForbidden == true
+                        ? FileDownloadNegativeReason.Rejected
+                        : FileDownloadNegativeReason.Missing;
+                    var message = reason == FileDownloadNegativeReason.Rejected
+                        ? "The requested file is blocked from transfer."
+                        : "The requested file is not available on the server. Snowcloak will check again later.";
+                    throw new FileDownloadUnavailableException(_negativeCache.Record(transfer.Hash, reason,
+                        reason == FileDownloadNegativeReason.Rejected ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10),
+                        message));
                 }
 
                 transfer.Refresh(refreshed);
             }
+            catch (FileGrantRejectedException)
+            {
+                throw new FileDownloadUnavailableException(_negativeCache.Record(transfer.Hash,
+                    FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(1),
+                    "The refreshed file grant was rejected. Snowcloak will request a new grant later."));
+            }
         }
     }
 
-    private async Task<long> DownloadToFileAsync(Uri downloadUri, DownloadStatusStore.DownloadGroupHandle groupHandle,
+    private async Task<long> DownloadToFileAsync(DownloadFileTransfer transfer, DownloadStatusStore.DownloadGroupHandle groupHandle,
         string tempPath, CancellationToken ct)
     {
-        var response = await _transport.OpenAsync(new DownloadFileRequest(downloadUri), groupHandle.SetStatus, ct).ConfigureAwait(false);
+        var response = await _transport.OpenAsync(new DownloadFileRequest(transfer.DownloadUri, transfer.Hash, transfer.Total),
+            groupHandle.SetStatus, ct).ConfigureAwait(false);
         await using (response.ConfigureAwait(false))
         {
             var directory = Path.GetDirectoryName(tempPath);

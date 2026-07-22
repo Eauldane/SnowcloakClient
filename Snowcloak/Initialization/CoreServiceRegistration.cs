@@ -59,6 +59,9 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<ApplicationAdmissionController>();
         collection.AddSingleton<TextureShrinkService>();
         collection.AddSingleton<SnowProfileManager>();
+        collection.AddSingleton<UserSafetyStore>();
+        collection.AddSingleton<RoleplayClientService>();
+        collection.AddSingleton<RoleplayReminderService>();
         collection.AddSingleton<CharacterProfileBackupService>();
         collection.AddSingleton<ChatRoomRegistry>();
         collection.AddSingleton<ChatIdentityResolver>();

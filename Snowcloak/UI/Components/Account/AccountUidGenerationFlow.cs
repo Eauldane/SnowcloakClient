@@ -8,10 +8,6 @@ using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components.Account;
 
-/// <summary>
-/// Creates a server-side account UID and assigns it to the current character (account-linked
-/// services). Used by the Settings secret-key tab (P30).
-/// </summary>
 public sealed class AccountUidGenerationFlow
 {
     private readonly ILogger _logger;

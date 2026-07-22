@@ -80,12 +80,7 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     public bool HasModifiedGameFiles => _gameData.HasModifiedGameDataFiles;
     public uint ClassJobId => _objectTableCache.ClassJobId;
     public IReadOnlyDictionary<ushort, string> WorldData => WorldDetails.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name);
-
-    /// <summary>
-    /// Resolves a world id (as carried on community/directory DTOs) to its display name,
-    /// or null when unset or unknown. The world map is cached since the data language is
-    /// fixed for the session, so this is cheap to call per-frame.
-    /// </summary>
+    
     public string? GetWorldName(uint? worldId)
     {
         if (worldId is not uint id || id == 0 || id > ushort.MaxValue)
@@ -95,7 +90,6 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
         return _worldNameCache.TryGetValue((ushort)id, out var name) && !string.IsNullOrEmpty(name) ? name : null;
     }
 
-    /// <summary>Resolves a world id to its datacenter region name, or null when unset/unknown.</summary>
     public string? GetWorldRegion(uint? worldId)
     {
         if (worldId is not uint id || id == 0 || id > ushort.MaxValue)
@@ -110,7 +104,6 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
         return null;
     }
 
-    /// <summary>Distinct datacenter region names, ordered for display.</summary>
     public IReadOnlyList<string> WorldRegions => WorldCatalog
         .Select(world => world.Region)
         .Where(region => !string.IsNullOrEmpty(region))
@@ -118,7 +111,6 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
         .OrderBy(region => region, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    /// <summary>Worlds belonging to the given region, ordered by name.</summary>
     public IReadOnlyList<(ushort Id, string Name)> GetWorldsInRegion(string region) => WorldCatalog
         .Where(world => string.Equals(world.Region, region, StringComparison.Ordinal))
         .Select(world => (world.Id, world.Name))

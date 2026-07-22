@@ -38,7 +38,7 @@ public sealed class PopoutProfileUi : WindowMediatorSubscriberBase, IStaticWindo
     {
         _textureService = textureService;
         _imageTransferService = imageTransferService;
-        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService);
+        _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, snowcloakConfigService);
         _snowProfileManager = snowProfileManager;
         Flags = ImGuiWindowFlags.NoDecoration;
         Mediator.Subscribe<ProfilePopoutToggle>(this, message =>

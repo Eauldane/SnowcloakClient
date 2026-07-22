@@ -1,5 +1,6 @@
 using System.Numerics;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Roleplay;
 
 namespace Snowcloak.Core.Pairing;
 
@@ -18,4 +19,5 @@ public sealed record AvailabilityRow(
     ushort? HomeWorldId,
     string HomeWorldName,
     CharacterProfileSummaryDto? Profile,
-    IReadOnlyList<UserProfileTagDto> VisibleTags);
+    IReadOnlyList<UserProfileTagDto> VisibleTags,
+    RpAvailabilityCardDto? RpCard);

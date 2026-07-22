@@ -1,5 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
@@ -19,20 +20,24 @@ public sealed partial class InterfaceSettingsPanel
     private readonly ILogger<InterfaceSettingsPanel> _logger;
     private readonly SnowMediator _mediator;
     private readonly UiFontService _fontService;
+    private readonly UserSafetyStore _safetyStore;
     private readonly Dictionary<string, object> _selectedComboItems = new(StringComparer.Ordinal);
+    private string _blockUid = string.Empty;
 
     public InterfaceSettingsPanel(
         SnowcloakConfigService configService,
         PairDisplayDecorationService displayDecorationService,
         ILogger<InterfaceSettingsPanel> logger,
         SnowMediator mediator,
-        UiFontService fontService)
+        UiFontService fontService,
+        UserSafetyStore safetyStore)
     {
         _configService = configService;
         _displayDecorationService = displayDecorationService;
         _logger = logger;
         _mediator = mediator;
         _fontService = fontService;
+        _safetyStore = safetyStore;
     }
 
     public void Draw()
@@ -49,6 +54,7 @@ public sealed partial class InterfaceSettingsPanel
         DrawServerInfoBar();
         DrawNameplates();
         DrawProfiles();
+        DrawSafety();
     }
 
     private void DrawServerInfoBar()
@@ -61,6 +67,7 @@ public sealed partial class InterfaceSettingsPanel
         var dtrColorsNotConnected = _configService.Current.DtrColorsNotConnected;
         var dtrColorsPairsInRange = _configService.Current.DtrColorsPairsInRange;
         var dtrColorsPendingRequests = _configService.Current.DtrColorsPendingRequests;
+        var roleplayDtrEntry = _configService.Current.RoleplayDtrEntry;
 
         ImGui.Separator();
         _fontService.BigText("Server Info Bar");
@@ -81,6 +88,11 @@ public sealed partial class InterfaceSettingsPanel
             if (ImGui.Checkbox("Prefer notes over player names in tooltip", ref preferNoteInDtrTooltip))
             {
                 _configService.Update(c => c.PreferNoteInDtrTooltip = preferNoteInDtrTooltip);
+            }
+
+            if (ImGui.Checkbox("Show RP availability and event reminders", ref roleplayDtrEntry))
+            {
+                _configService.Update(c => c.RoleplayDtrEntry = roleplayDtrEntry);
             }
 
             ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
@@ -217,7 +229,6 @@ public sealed partial class InterfaceSettingsPanel
     private void DrawProfiles()
     {
         var showProfiles = _configService.Current.ProfilesShow;
-        var showNsfwProfiles = _configService.Current.ProfilesAllowNsfw;
         var profileDelay = _configService.Current.ProfileDelay;
         var profileOnRight = _configService.Current.ProfilePopoutRight;
         var allowBbCodeImages = _configService.Current.AllowBbCodeImages;
@@ -257,18 +268,54 @@ public sealed partial class InterfaceSettingsPanel
         }
         ImGui.Unindent();
 
-        if (ImGui.Checkbox("Show profiles marked as NSFW", ref showNsfwProfiles))
-        {
-            _mediator.Publish(new ClearProfileDataMessage());
-            _configService.Update(c => c.ProfilesAllowNsfw = showNsfwProfiles);
-        }
-        ElezenImgui.DrawHelpText("Will show profiles that have the NSFW tag enabled");
-
         if (ImGui.Checkbox("Render BBCode images", ref allowBbCodeImages))
         {
             _configService.Update(c => c.AllowBbCodeImages = allowBbCodeImages);
         }
         ElezenImgui.DrawHelpText("Disable this to show [img] tags as text instead of loading external images.");
+    }
+
+    private void DrawSafety()
+    {
+        _safetyStore.EnsureLoaded();
+        ImGui.Separator();
+        _fontService.BigText("Safety and Content");
+
+        var adultContent = _safetyStore.State.AdultContentEnabled;
+        using (ImRaii.Disabled(_safetyStore.IsBusy || !_safetyStore.IsAvailable))
+        {
+            if (ImGui.Checkbox("Allow Adult-rated RP content for this UID", ref adultContent))
+                _safetyStore.SetAdultContent(adultContent);
+        }
+        ElezenImgui.DrawHelpText("Adult-rated profiles and kink tags are shared only when both UIDs have explicitly enabled this setting.");
+        if (!_safetyStore.IsAvailable)
+            ElezenImgui.ColouredWrappedText("The connected server does not advertise open-RP safety controls.", ImGuiColors.DalamudGrey);
+
+        ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##blockUid", "UID", ref _blockUid, 10);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_safetyStore.IsBusy || !_safetyStore.IsAvailable || string.IsNullOrWhiteSpace(_blockUid)))
+        {
+            if (ImGui.Button("Block UID"))
+            {
+                _safetyStore.Block(_blockUid);
+                _blockUid = string.Empty;
+            }
+        }
+
+        foreach (var block in _safetyStore.State.BlockedUsers)
+        {
+            ImGui.TextUnformatted(block.User.AliasOrUID);
+            ImGui.SameLine();
+            using (ImRaii.Disabled(_safetyStore.IsBusy || !_safetyStore.IsAvailable))
+            {
+                if (ImGui.SmallButton($"Unblock##{block.User.UID}"))
+                    _safetyStore.Unblock(block.User.UID);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_safetyStore.Status))
+            ElezenImgui.ColouredWrappedText(_safetyStore.Status, ImGuiColors.DalamudGrey);
     }
 
     [LoggerMessage(EventId = 0, Level = LogLevel.Warning, Message = "Changing value: {SortSyncshellsByVram}")]

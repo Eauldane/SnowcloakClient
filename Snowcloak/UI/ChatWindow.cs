@@ -1,8 +1,10 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.ImGuiFileDialog;
 using ElezenTools.UI;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -10,6 +12,7 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
+using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
@@ -34,6 +37,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ChatIdentityResolver _identityResolver;
     private readonly ApiController _apiController;
     private readonly NotesStore _notesStore;
+    private readonly TextureService _textureService;
     private readonly ConcurrentQueue<Action> _uiUpdates = new();
     private bool _sidebarCollapsed;
     private float _sidebarWidth = ModernSidebar.ExpandedWidth - 15f;
@@ -47,24 +51,36 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private bool _privateRoom;
     private string _roomStatus = string.Empty;
     private bool _creatingRoom;
+    private bool _showOfflineDirectChats;
     private string? _noteUid;
     private string _noteDraft = string.Empty;
     private bool _openNoteEditor;
+    private bool _openSceneIdentityEditor;
+    private string? _sceneIdentityRoomId;
+    private string _sceneNicknameDraft = string.Empty;
+    private int _sceneRoleIconIdDraft;
+    private string _sceneRoleLabelDraft = string.Empty;
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ChatClientService chatService,
         ImGuiChatRenderer renderer, UiFontService fontService, PairManager pairManager, ChatIdentityResolver identityResolver,
-        ApiController apiController, NotesStore notesStore,
+        ApiController apiController, NotesStore notesStore, TextureService textureService, FileDialogManager fileDialogManager,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChat", performanceCollectorService)
     {
         _backgroundTasks = new BackgroundTaskTracker(logger);
         _chatService = chatService;
-        _conversationView = new ChatConversationView(logger, chatService, renderer, mediator);
+        _conversationView = new ChatConversationView(logger, chatService, renderer, mediator, fileDialogManager);
         _fontService = fontService;
         _pairManager = pairManager;
         _identityResolver = identityResolver;
         _apiController = apiController;
         _notesStore = notesStore;
+        _textureService = textureService;
+        Mediator.Subscribe<OpenChatConversationMessage>(this, message =>
+        {
+            IsOpen = true;
+            _uiUpdates.Enqueue(() => Select(message.Key));
+        });
         SetScaledSizeConstraints(new Vector2(720, 440), new Vector2(1800, 1800));
         Size = new Vector2(1040, 680);
         SizeCondition = ImGuiCond.FirstUseEver;
@@ -82,7 +98,13 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var selected = snapshot.ActiveConversation;
         if (selected == null || snapshot.Conversations.All(conversation => conversation.Key != selected))
         {
-            selected = snapshot.Conversations.Count == 0 ? null : snapshot.Conversations[0].Key;
+            var orderedConversations = _chatService.GetOrderedConversations(includeOfflineDirect: false);
+            if (orderedConversations.Count == 0)
+            {
+                orderedConversations = _chatService.GetOrderedConversations(includeOfflineDirect: true);
+            }
+
+            selected = orderedConversations.Count == 0 ? null : orderedConversations[0].Key;
             Select(selected);
         }
 
@@ -108,6 +130,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
         DrawRoomBrowser();
         DrawNoteEditor();
+        DrawSceneIdentityEditor();
     }
 
     private void DrawConversationSidebar(ChatStoreSnapshot snapshot)
@@ -120,20 +143,32 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         using var sidebar = ImRaii.Child("chat-conversations", new Vector2(width, -1), false);
         using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 4f * scale));
 
+        var conversations = _chatService.GetOrderedConversations(_showOfflineDirectChats);
         var index = 1;
-        foreach (var kind in Enum.GetValues<ConversationKind>())
+        foreach (var kind in new[] { ConversationKind.Room, ConversationKind.Direct, ConversationKind.Syncshell })
         {
-            var conversations = snapshot.Conversations.Where(conversation => conversation.Key.Kind == kind).ToArray();
-            if (conversations.Length == 0)
+            var section = conversations
+                .Where(conversation => conversation.Key.Kind == kind
+                    && (kind != ConversationKind.Direct || _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true))
+                .ToArray();
+            var hasOfflineDirectChats = kind == ConversationKind.Direct && snapshot.Conversations.Any(conversation =>
+                conversation.Key.Kind == ConversationKind.Direct
+                && _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline != true);
+            if (section.Length == 0 && !hasOfflineDirectChats)
             {
                 continue;
             }
 
             DrawConversationSectionHeader(kind);
-            foreach (var conversation in conversations)
+            foreach (var conversation in section)
             {
                 DrawConversationRow(conversation, index, snapshot.ActiveConversation == conversation.Key);
                 index++;
+            }
+
+            if (kind == ConversationKind.Direct)
+            {
+                DrawOfflineDirectChats(snapshot);
             }
 
             if (!_sidebarCollapsed)
@@ -170,6 +205,36 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             unread == 0 ? SnowcloakColours.CompactTextMuted : SnowcloakColours.OnlineBlue);
         ImGuiHelpers.ScaledDummy(4);
         DrawChatSettingsButton();
+    }
+
+    private void DrawOfflineDirectChats(ChatStoreSnapshot snapshot)
+    {
+        var offline = snapshot.Conversations
+            .Where(conversation => conversation.Key.Kind == ConversationKind.Direct
+                && _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline != true)
+            .OrderBy(conversation => conversation.Title, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (offline.Length == 0 || _sidebarCollapsed)
+        {
+            return;
+        }
+
+        var label = string.Format(CultureInfo.InvariantCulture, "Offline pairs ({0})", offline.Length);
+        if (ModernSidebar.DrawRow(_showOfflineDirectChats ? FontAwesomeIcon.ChevronDown : FontAwesomeIcon.ChevronRight,
+                label, active: false))
+        {
+            _showOfflineDirectChats = !_showOfflineDirectChats;
+        }
+
+        if (!_showOfflineDirectChats)
+        {
+            return;
+        }
+
+        foreach (var conversation in offline)
+        {
+            DrawConversationRow(conversation, 0, snapshot.ActiveConversation == conversation.Key);
+        }
     }
 
     private void DrawSidebarResizeHandle()
@@ -282,8 +347,10 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var hovered = ImGui.IsItemHovered();
         if (hovered)
         {
-            var tooltip = string.Format(CultureInfo.InvariantCulture, "{0}\n/snow {1} <message>{2}",
-                conversation.Title, index, conversation.Muted ? "\nMuted" : string.Empty);
+            var tooltip = index > 0
+                ? string.Format(CultureInfo.InvariantCulture, "{0}\n/snow {1} <message>{2}",
+                    conversation.Title, index, conversation.Muted ? "\nMuted" : string.Empty)
+                : conversation.Muted ? conversation.Title + "\nMuted" : conversation.Title;
             ImGui.SetTooltip(tooltip);
         }
 
@@ -310,6 +377,9 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         var display = ResolveConversationDisplay(conversation);
+        var titleColour = conversation.Unread > 0
+            ? SnowcloakColours.OnlineBlue
+            : Vector4.One;
         var iconText = display.Icon.ToIconString();
         ImGui.PushFont(UiBuilder.IconFont);
         var iconSize = ImGui.CalcTextSize(iconText);
@@ -330,6 +400,16 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         var cursor = ImGui.GetCursorPos();
         var textX = min.X + 32f * scale;
+        if (index == 0)
+        {
+            ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(max.X - 7f * scale, max.Y), true);
+            ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - ImGui.GetTextLineHeight()) * 0.5f));
+            ElezenImgui.ColouredText(display.Title, titleColour, null);
+            ImGui.PopClipRect();
+            ImGui.SetCursorPos(cursor);
+            return;
+        }
+
         var rightLabel = conversation.Unread > 0
             ? string.Format(CultureInfo.InvariantCulture, "{0} · {1}", index, conversation.Unread)
             : index.ToString(CultureInfo.InvariantCulture);
@@ -337,7 +417,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var rightX = max.X - rightSize.X - 7f * scale;
         ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(rightX - 5f * scale, max.Y), true);
         ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - ImGui.GetTextLineHeight()) * 0.5f));
-        ElezenImgui.ColouredText(display.Title, display.Colour, display.Glow);
+        ElezenImgui.ColouredText(display.Title, titleColour, null);
         ImGui.PopClipRect();
         ImGui.SetCursorPos(cursor);
         drawList.AddText(new Vector2(rightX, min.Y + (height - rightSize.Y) * 0.5f),
@@ -377,23 +457,20 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             ElezenImgui.ColouredText(display.Title, display.Colour ?? SnowcloakColours.OnlineBlue, display.Glow);
         }
 
-        var subtitle = GetConversationSubtitle(conversation);
+        var room = conversation.Key.Kind == ConversationKind.Room
+            ? _chatService.ListRooms().FirstOrDefault(candidate => string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal))
+            : null;
+        var subtitle = GetConversationSubtitle(conversation, room);
         var subtitleSize = ImGui.CalcTextSize(subtitle);
         ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - subtitleSize.X) * 0.5f);
         ImGui.TextColored(SnowcloakColours.CompactTextMuted, subtitle);
-        if (conversation.Key.Kind == ConversationKind.Room)
+        if (room?.Scene?.IsScene == true)
         {
-            var room = _chatService.ListRooms().FirstOrDefault(candidate =>
-                string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
-            if (!string.IsNullOrWhiteSpace(room?.Topic))
-            {
-                var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X
-                    - 190f * ImGuiHelpers.GlobalScale;
-                var topic = TrimToWidth(room.Topic, Math.Max(120f * ImGuiHelpers.GlobalScale, availableWidth));
-                var topicSize = ImGui.CalcTextSize(topic);
-                ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - topicSize.X) * 0.5f);
-                ImGui.TextColored(SnowcloakColours.CompactTextMuted, topic);
-            }
+            DrawSceneHeaderMetadata(room.Scene);
+        }
+        else if (!string.IsNullOrWhiteSpace(room?.Topic))
+        {
+            DrawCentredHeaderText(room.Topic, SnowcloakColours.CompactTextMuted);
         }
         var headerEnd = ImGui.GetCursorPos();
 
@@ -462,6 +539,32 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         return text.AsSpan(0, length).ToString() + ellipsis;
     }
 
+    private static void DrawSceneHeaderMetadata(RoomSceneMetadataDto scene)
+    {
+        if (!string.IsNullOrWhiteSpace(scene.Setting))
+        {
+            DrawCentredHeaderText("Setting: " + scene.Setting, SnowcloakColours.CompactTextMuted);
+        }
+        if (scene.Cast.Count > 0)
+        {
+            DrawCentredHeaderText("Cast: " + string.Join(", ", scene.Cast), SnowcloakColours.CompactTextMuted);
+        }
+        if (scene.ContentWarnings.Count > 0)
+        {
+            DrawCentredHeaderText("Warnings: " + string.Join(", ", scene.ContentWarnings), ImGuiColors.DalamudYellow);
+        }
+    }
+
+    private static void DrawCentredHeaderText(string value, Vector4 colour)
+    {
+        var availableWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X
+            - 190f * ImGuiHelpers.GlobalScale;
+        var text = TrimToWidth(value, Math.Max(120f * ImGuiHelpers.GlobalScale, availableWidth));
+        var textSize = ImGui.CalcTextSize(text);
+        ImGui.SetCursorPosX((ImGui.GetWindowContentRegionMax().X + ImGui.GetWindowContentRegionMin().X - textSize.X) * 0.5f);
+        ImGui.TextColored(colour, text);
+    }
+
     private (string Title, Vector4? Colour, Vector4? Glow, FontAwesomeIcon Icon) ResolveConversationDisplay(
         ConversationSnapshot conversation)
     {
@@ -481,10 +584,14 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
                 FontAwesomeIcon.PeopleGroup);
         }
 
-        return (conversation.Title, SnowcloakColours.OnlineBlue, null, FontAwesomeIcon.Comments);
+        var room = _chatService.ListRooms().FirstOrDefault(candidate => string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
+        var title = room?.Scene?.IsScene == true && !string.IsNullOrWhiteSpace(room.Scene.Title)
+            ? room.Name + " · " + room.Scene.Title
+            : conversation.Title;
+        return (title, null, null, FontAwesomeIcon.Comments);
     }
 
-    private string GetConversationSubtitle(ConversationSnapshot conversation)
+    private string GetConversationSubtitle(ConversationSnapshot conversation, RoomData? room = null)
     {
         var parts = new List<string>();
         switch (conversation.Key.Kind)
@@ -498,10 +605,19 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
                 parts.Add(FormatMemberCount(conversation.Members.Count));
                 break;
             case ConversationKind.Room:
-                var room = _chatService.ListRooms().FirstOrDefault(candidate =>
-                    string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
-                parts.Add(room?.IsPrivate == true ? "Private Room" : "Room");
-                parts.Add(FormatMemberCount(conversation.Members.Count));
+                if (room?.Scene?.IsScene == true)
+                {
+                    parts.Add("Scene");
+                    if (!string.IsNullOrWhiteSpace(room.Scene.ExpectedTone))
+                    {
+                        parts.Add(room.Scene.ExpectedTone);
+                    }
+                }
+                else
+                {
+                    parts.Add(room?.IsPrivate == true ? "Private Room" : "Room");
+                    parts.Add(FormatMemberCount(conversation.Members.Count));
+                }
                 break;
         }
 
@@ -692,7 +808,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         DrawRoomControls(roomData, actorRole);
         foreach (var member in members)
         {
-            DrawMemberName(member.User, member.Role, null, roomData, actorRole, online: true, null);
+            DrawMemberName(member.User, member.Role, null, roomData, actorRole, online: true, null, member);
         }
     }
 
@@ -703,6 +819,17 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             ImGuiHelpers.ScaledDummy(4);
             ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Topic");
             ImGui.TextWrapped(room.Topic);
+        }
+
+        if (room.Scene?.IsScene == true && _apiController.SupportsRoleplaySceneIdentity)
+        {
+            var self = _chatService.GetRoomMembers(room.RoomId)
+                .FirstOrDefault(member => string.Equals(member.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal));
+            if (self != null && ImGui.Button("Edit scene identity", new Vector2(-1f, 0f)))
+            {
+                OpenSceneIdentityEditor(room, self);
+            }
+            ImGuiHelpers.ScaledDummy(4);
         }
 
         if (actorRole >= RoomRole.Moderator)
@@ -726,7 +853,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     }
 
     private void DrawMemberName(UserData user, RoomRole role, IReadOnlyList<string>? memberLabels, RoomData? room,
-        RoomRole actorRole, bool online, GroupFullInfoDto? syncshell)
+        RoomRole actorRole, bool online, GroupFullInfoDto? syncshell, Snowcloak.API.Dto.Chat.RoomMemberDto? roomMember = null)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var width = ImGui.GetContentRegionAvail().X;
@@ -758,13 +885,21 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             DrawMemberBadge(drawList, min, height, scale, ref badgeX, labelIcon, labelColour);
         }
 
-        if (!hasPermissionBadge && !hasMemberLabel)
+        var hasSceneRoleIcon = roomMember?.SceneRoleIconId is uint sceneRoleIconId
+                               && DrawSceneRoleIconBadge(drawList, min, height, scale, ref badgeX, sceneRoleIconId);
+
+        if (!hasPermissionBadge && !hasMemberLabel && !hasSceneRoleIcon)
         {
             DrawMemberBadge(drawList, min, height, scale, ref badgeX, FontAwesomeIcon.User,
                 SnowcloakColours.CompactTextMuted);
         }
 
         var display = _identityResolver.Resolve(user.UID) ?? _identityResolver.Resolve(user);
+        var canonicalName = display.Name;
+        if (!string.IsNullOrWhiteSpace(roomMember?.SceneNickname))
+        {
+            display = display with { Name = roomMember.SceneNickname };
+        }
         var cursor = ImGui.GetCursorPos();
         var textX = badgeX + 1f * scale;
         ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(min.X + width - 16f * scale, min.Y + height), true);
@@ -787,8 +922,32 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             {
                 tooltip += $"\n{labelTooltip}";
             }
+            if (!string.IsNullOrWhiteSpace(roomMember?.SceneNickname)
+                && !string.Equals(roomMember.SceneNickname, canonicalName, StringComparison.Ordinal))
+            {
+                tooltip += $"\nSnowcloak identity: {canonicalName}";
+            }
+            if (hasSceneRoleIcon)
+            {
+                tooltip += $"\n{(string.IsNullOrWhiteSpace(roomMember?.SceneRoleLabel) ? $"Role icon {roomMember?.SceneRoleIconId}" : roomMember.SceneRoleLabel)}";
+            }
             ImGui.SetTooltip(tooltip);
         }
+    }
+
+    private bool DrawSceneRoleIconBadge(ImDrawListPtr drawList, Vector2 min, float height, float scale,
+        ref float badgeX, uint iconId)
+    {
+        if (!_textureService.TryGetGameIcon(iconId, out var icon))
+        {
+            return false;
+        }
+
+        var size = 22f * scale;
+        var topLeft = new Vector2(badgeX, min.Y + (height - size) * 0.5f);
+        drawList.AddImage(icon!.GetWrapOrEmpty().Handle, topLeft, topLeft + new Vector2(size));
+        badgeX += size + 6f * scale;
+        return true;
     }
 
     private static void DrawMemberBadge(ImDrawListPtr drawList, Vector2 min, float height, float scale,
@@ -948,6 +1107,88 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         if (ImGui.Button("Cancel"))
         {
             _noteUid = null;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void OpenSceneIdentityEditor(RoomData room, Snowcloak.API.Dto.Chat.RoomMemberDto member)
+    {
+        _sceneIdentityRoomId = room.RoomId;
+        _sceneNicknameDraft = member.SceneNickname ?? string.Empty;
+        _sceneRoleIconIdDraft = member.SceneRoleIconId is uint iconId && iconId <= int.MaxValue ? (int)iconId : 0;
+        _sceneRoleLabelDraft = member.SceneRoleLabel ?? string.Empty;
+        _openSceneIdentityEditor = true;
+    }
+
+    private void DrawSceneIdentityEditor()
+    {
+        if (_openSceneIdentityEditor)
+        {
+            _openSceneIdentityEditor = false;
+            ImGui.OpenPopup("Edit scene identity");
+        }
+
+        if (!ImGui.BeginPopupModal("Edit scene identity", ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            return;
+        }
+
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.SetNextItemWidth(360f * scale);
+        ImGui.InputText("Scene nickname", ref _sceneNicknameDraft, 40);
+        ImGui.SetNextItemWidth(180f * scale);
+        ImGui.InputInt("Role icon ID", ref _sceneRoleIconIdDraft);
+        var supportedIcon = _sceneRoleIconIdDraft == 0
+                            || _sceneRoleIconIdDraft > 0 && RpRoleIconCatalogue.IsSupported((uint)_sceneRoleIconIdDraft);
+        if (!supportedIcon)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudRed,
+                $"Supported IDs are {RpRoleIconCatalogue.InitialFirstIconId}-{RpRoleIconCatalogue.InitialLastIconId}.");
+        }
+        else if (_sceneRoleIconIdDraft > 0
+                 && _textureService.TryGetGameIcon((uint)_sceneRoleIconIdDraft, out var icon))
+        {
+            ImGui.Image(icon!.GetWrapOrEmpty().Handle, new Vector2(48f) * scale);
+        }
+
+        ImGui.SetNextItemWidth(360f * scale);
+        using (ImRaii.Disabled(_sceneRoleIconIdDraft == 0))
+        {
+            ImGui.InputText("Role label", ref _sceneRoleLabelDraft, 32);
+        }
+        ImGui.TextDisabled("Nicknames and role icons are cleared when the scene is marked finished.");
+
+        using (ImRaii.Disabled(!supportedIcon || _sceneIdentityRoomId == null))
+        {
+            if (ImGui.Button("Save"))
+            {
+                var room = _chatService.ListRooms()
+                    .FirstOrDefault(candidate => string.Equals(candidate.RoomId, _sceneIdentityRoomId, StringComparison.Ordinal));
+                if (room != null)
+                {
+                    var iconId = _sceneRoleIconIdDraft == 0 ? null : (uint?)_sceneRoleIconIdDraft;
+                    Queue(_chatService.SetSceneIdentityAsync(room, _sceneNicknameDraft, iconId, _sceneRoleLabelDraft),
+                        nameof(ChatClientService.SetSceneIdentityAsync));
+                }
+                _sceneIdentityRoomId = null;
+                ImGui.CloseCurrentPopup();
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Clear"))
+        {
+            _sceneNicknameDraft = string.Empty;
+            _sceneRoleIconIdDraft = 0;
+            _sceneRoleLabelDraft = string.Empty;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            _sceneIdentityRoomId = null;
             ImGui.CloseCurrentPopup();
         }
 

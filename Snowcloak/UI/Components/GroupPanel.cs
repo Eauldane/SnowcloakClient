@@ -26,8 +26,10 @@ using System.Numerics;
 
 namespace Snowcloak.UI.Components;
 
-internal sealed class GroupPanel
+internal sealed class GroupPanel : IMediatorSubscriber
 {
+    private static readonly TimeSpan CommunityCacheLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CommunityFailureRetry = TimeSpan.FromSeconds(15);
     private readonly Dictionary<string, bool> _expandedGroupState = new(StringComparer.Ordinal);
     private readonly ApiController _apiController;
     private readonly DalamudUtilService _dalamudUtilService;
@@ -51,8 +53,9 @@ internal sealed class GroupPanel
     private string _syncShellToJoin = string.Empty;
     private bool _showPublicSyncshellWarning;
     private string? _publicSyncshellAliasToJoin;
-    private readonly ConcurrentDictionary<string, GroupCommunityDto> _communityCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CommunityCacheEntry> _communityCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _communityLoading = new(StringComparer.Ordinal);
+    private int _communityGeneration;
     private readonly Dictionary<string, DrawGroupPair> _groupPairRowCache = new(StringComparer.Ordinal);
 
     public GroupPanel(SnowMediator mediator, ApiController apiController, DalamudUtilService dalamudUtilService, PairManager pairManager,
@@ -68,7 +71,13 @@ internal sealed class GroupPanel
         _syncshellBudgetPanel = new(syncshellBudgetService);
         _notesStore = notesStore;
         _charaDataManager = charaDataManager;
+        mediator.Subscribe<ConnectedMessage>(this, _ => ClearCommunityCache());
+        mediator.Subscribe<HubReconnectedMessage>(this, _ => ClearCommunityCache());
+        mediator.Subscribe<DisconnectedMessage>(this, _ => ClearCommunityCache());
+        mediator.Subscribe<GroupCommunityUpdatedMessage>(this, message => StoreCommunity(message.Community));
     }
+
+    public SnowMediator Mediator => _mediator;
 
     private ApiController ApiController => _apiController;
 
@@ -607,11 +616,13 @@ internal sealed class GroupPanel
 
     private GroupCommunityDto GetCommunity(GroupFullInfoDto groupDto)
     {
-        if (_communityCache.TryGetValue(groupDto.GID, out var community))
+        if (_communityCache.TryGetValue(groupDto.GID, out var cached)
+            && cached.ExpiresAt > DateTimeOffset.UtcNow)
         {
-            return community;
+            return cached.Community;
         }
 
+        _communityCache.TryRemove(groupDto.GID, out _);
         QueueCommunityLoad(groupDto);
         return new GroupCommunityDto(groupDto.Group);
     }
@@ -623,10 +634,10 @@ internal sealed class GroupPanel
             return;
         }
 
-        _ = LoadCommunityAsync(groupDto);
+        _ = LoadCommunityAsync(groupDto, Volatile.Read(ref _communityGeneration));
     }
 
-    private async Task LoadCommunityAsync(GroupFullInfoDto groupDto)
+    private async Task LoadCommunityAsync(GroupFullInfoDto groupDto, int generation)
     {
         GroupCommunityDto? community;
         try
@@ -639,8 +650,28 @@ internal sealed class GroupPanel
             community = null;
         }
 
-        _communityCache[groupDto.GID] = community ?? new GroupCommunityDto(groupDto.Group);
-        _communityLoading.TryRemove(groupDto.GID, out _);
+        if (generation == Volatile.Read(ref _communityGeneration))
+        {
+            _communityCache[groupDto.GID] = new CommunityCacheEntry(
+                community ?? new GroupCommunityDto(groupDto.Group),
+                DateTimeOffset.UtcNow + (community == null ? CommunityFailureRetry : CommunityCacheLifetime));
+            _communityLoading.TryRemove(groupDto.GID, out _);
+        }
+    }
+
+    private void StoreCommunity(GroupCommunityDto community)
+    {
+        Interlocked.Increment(ref _communityGeneration);
+        _communityLoading.Clear();
+        _communityCache[community.Group.GID] = new CommunityCacheEntry(
+            community, DateTimeOffset.UtcNow + CommunityCacheLifetime);
+    }
+
+    private void ClearCommunityCache()
+    {
+        Interlocked.Increment(ref _communityGeneration);
+        _communityCache.Clear();
+        _communityLoading.Clear();
     }
 
     private static readonly TimeSpan EventActiveWindow = TimeSpan.FromHours(1);
@@ -688,7 +719,6 @@ internal sealed class GroupPanel
         return width;
     }
 
-    /// <summary>Shows the admin-configured location (world, else region) next to the syncshell name.</summary>
     private void DrawSyncshellWorldTag(GroupCommunityDto community)
     {
         var locationText = _dalamudUtilService.GetWorldName(community.MainWorldId) ?? community.MainRegion;
@@ -714,7 +744,8 @@ internal sealed class GroupPanel
         foreach (var shellEvent in community.Events)
         {
             var start = DateTime.SpecifyKind(shellEvent.StartsAtUtc, DateTimeKind.Utc);
-            var active = start <= nowUtc && nowUtc < start + EventActiveWindow;
+            var end = DateTime.SpecifyKind(shellEvent.EndsAtUtc.GetValueOrDefault(start + EventActiveWindow), DateTimeKind.Utc);
+            var active = start <= nowUtc && nowUtc < end;
             var upcoming = start > nowUtc;
             if (!active && !upcoming)
             {
@@ -746,6 +777,8 @@ internal sealed class GroupPanel
 
         return header + Environment.NewLine + "Click to view events.";
     }
+
+    private sealed record CommunityCacheEntry(GroupCommunityDto Community, DateTimeOffset ExpiresAt);
 
 
     private static (bool ShowInfoIcon, float StartX) GetSyncShellButtonsLayout(GroupFullInfoDto groupDto)
@@ -1022,16 +1055,14 @@ internal sealed class GroupPanel
                 .Select(membership => GetGroupPairRow(membership.Key, pair, membership.Value)))
             .ToList();
 
-        ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Visible Syncshell Users ({0})", rows.Count));
-        ImGui.Separator();
         if (rows.Count == 0)
         {
-            ElezenImgui.ColouredText("No syncshell users are currently visible.", ImGuiColors.DalamudGrey);
+            return;
         }
-        else
-        {
-            UidDisplayHandler.RenderPairList(rows);
-        }
+
+        ImGui.TextUnformatted(string.Format(CultureInfo.CurrentCulture, "Visible Syncshell Users ({0})", rows.Count));
+        ImGui.Separator();
+        UidDisplayHandler.RenderPairList(rows);
         ImGui.Separator();
     }
 

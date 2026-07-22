@@ -10,32 +10,24 @@ using System.Numerics;
 
 namespace Snowcloak.UI.Components.Account;
 
-/// <summary>
-/// The result of a sign-in / create-account submission, surfaced to the user as a status line.
-/// </summary>
 public readonly record struct AccountFlowResult(bool Success, string Message);
 
-/// <summary>
-/// Per-draw configuration describing the surface a <see cref="PasswordAccountFlow"/> renders on.
-/// The flow owns the credential form, validation, in-flight tracking and status display; the
-/// surface supplies the copy and the async actions (which perform the service call and any
-/// side effects, returning a user-facing result).
-/// </summary>
 public sealed class PasswordAccountFlowOptions
 {
     public string IdPrefix { get; init; } = "account";
     public string HeaderTitle { get; init; } = string.Empty;
     public string HeaderDescription { get; init; } = string.Empty;
 
-    /// <summary>When false only the sign-in mode is offered (no mode toggle).</summary>
     public bool ShowModeToggle { get; init; } = true;
 
-    /// <summary>When false the "Create account" toggle is disabled (sign-in is still allowed).</summary>
     public bool CanCreate { get; init; } = true;
 
     public string? CreateDisabledHelp { get; init; }
     public string? SignInDescription { get; init; }
     public string? CreateDescription { get; init; }
+    public string SignInModeLabel { get; init; } = "Sign in";
+    public string CreateModeLabel { get; init; } = "Create account";
+    public string CreateSubmitLabel { get; init; } = "Create account";
 
     public string SignInRunningMessage { get; init; } = "Signing in...";
     public string CreateRunningMessage { get; init; } = "Creating account...";
@@ -44,11 +36,6 @@ public sealed class PasswordAccountFlowOptions
     public required Func<string, string, Task<AccountFlowResult>> Create { get; init; }
 }
 
-/// <summary>
-/// Reusable username/password account form rendered by both onboarding (IntroUI) and Settings.
-/// Replaces the duplicated credential state, validation and submission code that previously lived
-/// as window fields in each surface (P30).
-/// </summary>
 public sealed class PasswordAccountFlow
 {
     private readonly AsyncOp<AccountFlowResult> _operation = new();
@@ -59,6 +46,9 @@ public sealed class PasswordAccountFlow
     private AccountAuthMode _mode;
     private string? _message;
     private bool _success;
+    private bool _usernameValidationReady;
+    private bool _passwordValidationReady;
+    private bool _passwordConfirmValidationReady;
 
     public bool IsRunning => _operation.IsRunning;
 
@@ -71,6 +61,9 @@ public sealed class PasswordAccountFlow
         _mode = AccountAuthMode.SignIn;
         _message = null;
         _success = false;
+        _usernameValidationReady = false;
+        _passwordValidationReady = false;
+        _passwordConfirmValidationReady = false;
         _operation.Reset();
     }
 
@@ -89,13 +82,13 @@ public sealed class PasswordAccountFlow
 
         if (options.ShowModeToggle)
         {
-            var modeButtonWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2;
-            if (AccountCredentialUi.DrawModeButton("Sign in", _mode == AccountAuthMode.SignIn, modeButtonWidth))
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "ACCOUNT ACTION");
+            if (ImGui.RadioButton($"{options.SignInModeLabel}##{options.IdPrefix}SignInMode", _mode == AccountAuthMode.SignIn))
                 SetMode(AccountAuthMode.SignIn);
             ImGui.SameLine();
             using (ImRaii.Disabled(!options.CanCreate))
             {
-                if (AccountCredentialUi.DrawModeButton("Create account", _mode == AccountAuthMode.CreateAccount, modeButtonWidth))
+                if (ImGui.RadioButton($"{options.CreateModeLabel}##{options.IdPrefix}CreateMode", _mode == AccountAuthMode.CreateAccount))
                     SetMode(AccountAuthMode.CreateAccount);
             }
 
@@ -112,11 +105,17 @@ public sealed class PasswordAccountFlow
 
         ImGuiHelpers.ScaledDummy(new Vector2(0, 3));
         AccountCredentialUi.DrawTextInput($"{options.IdPrefix}Username", "Username", "Enter your username", ref _username, 64);
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            _usernameValidationReady = true;
         AccountCredentialUi.DrawPasswordInput($"{options.IdPrefix}Password", "Password", "Enter your password", ref _password, 128, _showPassword);
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            _passwordValidationReady = true;
         if (_mode == AccountAuthMode.CreateAccount)
         {
             AccountCredentialUi.DrawPasswordInput($"{options.IdPrefix}PasswordConfirm", "Confirm password", "Re-enter your password",
                 ref _passwordConfirm, 128, _showPassword);
+            if (ImGui.IsItemDeactivatedAfterEdit())
+                _passwordConfirmValidationReady = true;
         }
         AccountCredentialUi.DrawPasswordVisibilityToggle($"{options.IdPrefix}PasswordVisibility", ref _showPassword);
         AccountCredentialUi.DrawRequirements(includePassword: _mode == AccountAuthMode.CreateAccount);
@@ -124,26 +123,16 @@ public sealed class PasswordAccountFlow
         var validationMessage = AccountCredentialValidator.Validate(_username, _password, _passwordConfirm,
             requireConfirmation: _mode == AccountAuthMode.CreateAccount);
 
-        using (ImRaii.Disabled(IsRunning))
+        using (ImRaii.Disabled(IsRunning || validationMessage != null))
         {
             var buttonLabel = IsRunning
-                ? _mode == AccountAuthMode.CreateAccount ? "Creating account..." : "Signing in..."
-                : _mode == AccountAuthMode.CreateAccount ? "Create account" : "Sign in";
+                ? _mode == AccountAuthMode.CreateAccount ? options.CreateRunningMessage : options.SignInRunningMessage
+                : _mode == AccountAuthMode.CreateAccount ? options.CreateSubmitLabel : "Sign in";
             if (AccountCredentialUi.DrawPrimaryButton($"{options.IdPrefix}Submit", buttonLabel))
-            {
-                if (validationMessage != null)
-                {
-                    _message = validationMessage;
-                    _success = false;
-                }
-                else
-                {
-                    Submit(options);
-                }
-            }
+                Submit(options);
         }
 
-        if (validationMessage != null)
+        if (validationMessage != null && ShouldShowValidationMessage())
             ElezenImgui.ColouredWrappedText(validationMessage, ImGuiColors.DalamudYellow);
 
         DrawStatus();
@@ -181,10 +170,31 @@ public sealed class PasswordAccountFlow
             {
                 _password = string.Empty;
                 _passwordConfirm = string.Empty;
+                _usernameValidationReady = false;
+                _passwordValidationReady = false;
+                _passwordConfirmValidationReady = false;
             }
         }
 
         _operation.Reset();
+    }
+
+    private bool ShouldShowValidationMessage()
+    {
+        var trimmedUsernameLength = _username.Trim().Length;
+        if (trimmedUsernameLength == 0 || trimmedUsernameLength is < 3 or > 64 || _username.Any(char.IsWhiteSpace))
+            return _usernameValidationReady;
+
+        if (string.IsNullOrEmpty(_password))
+            return _passwordValidationReady;
+
+        if (_mode != AccountAuthMode.CreateAccount)
+            return false;
+
+        if (_password.Length < 8)
+            return _passwordValidationReady;
+
+        return _passwordConfirmValidationReady;
     }
 
     private void DrawStatus()
@@ -207,5 +217,6 @@ public sealed class PasswordAccountFlow
         _mode = mode;
         _message = null;
         _passwordConfirm = string.Empty;
+        _passwordConfirmValidationReady = false;
     }
 }

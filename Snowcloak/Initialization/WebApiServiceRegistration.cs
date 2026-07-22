@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Snowcloak.PlayerData.Factories;
+using Snowcloak.Infrastructure.Transfers;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using Snowcloak.WebAPI.Files;
@@ -24,6 +25,7 @@ internal static class WebApiServiceRegistration
         collection.AddSingleton<FileTransferOrchestrator>();
         collection.AddSingleton<ImageTransferService>();
         collection.AddSingleton<DownloadStatusStore>();
+        collection.AddSingleton<FileDownloadNegativeCache>();
         collection.AddSingleton<IFileDownloadTransport, DirectFileDownloadTransport>();
         collection.AddSingleton<FileDownloadManagerFactory>();
 

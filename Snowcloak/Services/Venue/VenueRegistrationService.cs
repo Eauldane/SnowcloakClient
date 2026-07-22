@@ -14,13 +14,6 @@ using Snowcloak.Services.Mediator;
 
 namespace Snowcloak.Services.Venue;
 
-/// <summary>
-/// Drives venue ownership verification as an explicit flow:
-/// Idle -> AwaitingPlacard -> Captured -> Submitting -> Idle.
-/// Framework polling rides the shared frame scheduler (no raw OnFrameworkUpdate hook) and the unsafe
-/// addon read is delegated to <see cref="HousingPlacardReader"/>, so this service stays a plain
-/// state machine over clean inputs.
-/// </summary>
 public sealed class VenueRegistrationService : IHostedService, IDisposable
 {
     private static readonly TimeSpan PlacardSettleDelay = TimeSpan.FromSeconds(2);

@@ -1,6 +1,7 @@
 ﻿using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Protocol;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Services.Mediator;
@@ -11,6 +12,9 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
+    public bool SupportsOpenRpSafety => IsConnected
+        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.OpenRpSafety) is true;
+
     public async Task PushCharacterData(CharacterData data, List<UserData> visibleCharacters)
     {
         if (!IsConnected) return;
@@ -39,8 +43,8 @@ public partial class ApiController
     public async Task UserDelete()
     {
         CheckConnection();
-        await _snowHub!.SendAsync(nameof(UserDelete)).ConfigureAwait(false);
-        await CreateConnections().ConfigureAwait(false);
+        await _snowHub!.InvokeAsync(nameof(UserDelete)).ConfigureAwait(false);
+        await StopConnection(SignalR.Utils.ServerState.NoSecretKey).ConfigureAwait(false);
     }
     
     public async Task<List<OnlineUserIdentDto>> UserGetPairsInRange(List<string> idents)
@@ -106,6 +110,31 @@ public partial class ApiController
     {
         if (!IsConnected) return;
         await _snowHub!.InvokeAsync(nameof(CharacterProfileReport), dto).ConfigureAwait(false);
+    }
+
+    public async Task<UserSafetyStateDto> UserSafetyGet()
+    {
+        if (!SupportsOpenRpSafety)
+            return new UserSafetyStateDto(false, null, []);
+        return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserSafetyGet)).ConfigureAwait(false);
+    }
+
+    public async Task<UserSafetyStateDto> UserSafetySetAdultContent(AdultContentOptInDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserSafetySetAdultContent), dto).ConfigureAwait(false);
+    }
+
+    public async Task<UserSafetyStateDto> UserBlock(UserBlockRequestDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserBlock), dto).ConfigureAwait(false);
+    }
+
+    public async Task<UserSafetyStateDto> UserUnblock(UserBlockRequestDto dto)
+    {
+        CheckConnection();
+        return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserUnblock), dto).ConfigureAwait(false);
     }
     
     

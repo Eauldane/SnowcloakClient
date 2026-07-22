@@ -38,6 +38,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     private readonly Lock _forbiddenLock = new();
     private readonly List<ForbiddenTransfer> _forbiddenTransfers = [];
     private readonly HashSet<string> _allowedFileDownloadHosts = new(StringComparer.OrdinalIgnoreCase);
+    private long _optionalPrefetchBytesRemaining;
 
     public FileTransferOrchestrator(ILogger<FileTransferOrchestrator> logger, SnowcloakConfigService snowcloakConfig,
         SnowMediator mediator, TokenProvider tokenProvider) : base(logger, mediator)
@@ -50,6 +51,8 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             ConnectTimeout = ConnectTimeout,
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.All,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
         };
         _httpClient = new HttpClient(_httpHandler, false)
         {
@@ -59,6 +62,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
 
         _downloadSlots = new DownloadSlotGate(snowcloakConfig.Current.ParallelDownloads);
+        ResetOptionalPrefetchBudget();
         
         Mediator.Subscribe<FileServerInfoReceivedMessage>(this, (msg) =>
         {
@@ -70,6 +74,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         {
             FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
             SetAllowedDownloadHosts(msg.Connection.ServerInfo.AllowedFileDownloadHosts);
+            ResetOptionalPrefetchBudget();
         });
 
         Mediator.Subscribe<DisconnectedMessage>(this, (msg) =>
@@ -182,6 +187,26 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     public async Task<HttpResponseMessage> SendRequestStreamAsync(HttpMethod method, Uri uri, ProgressableStreamContent content, CancellationToken ct)
     {
         return await SendRequestInternalAsync(() => new HttpRequestMessage(method, uri) { Content = content }, ct, allowRetry: false).ConfigureAwait(false);
+    }
+
+    public bool TryReserveOptionalPrefetch(long bytes)
+    {
+        if (bytes <= 0) return false;
+        while (true)
+        {
+            var remaining = Interlocked.Read(ref _optionalPrefetchBytesRemaining);
+            if (bytes > remaining) return false;
+            if (Interlocked.CompareExchange(ref _optionalPrefetchBytesRemaining, remaining - bytes, remaining) == remaining)
+            {
+                return true;
+            }
+        }
+    }
+
+    private void ResetOptionalPrefetchBudget()
+    {
+        Interlocked.Exchange(ref _optionalPrefetchBytesRemaining,
+            Math.Max(0, _snowcloakConfig.Current.OptionalPrefetchByteBudget));
     }
 
     public async Task<HttpResponseMessage> SendFileDownloadRequestAsync(Uri uri, CancellationToken ct)

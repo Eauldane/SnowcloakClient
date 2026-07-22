@@ -50,6 +50,11 @@ public sealed class AvailabilityDispatcher : IDispatcher
             case ViewProfileIntent view:
                 Run(() => _pairRequestService.RequestProfileAsync(view.Ident));
                 break;
+            case ReportProfileIntent report:
+                _mediator.Publish(new OpenReportPopupMessage(report.User, report.Ident,
+                    Snowcloak.API.Data.Enum.ProfileVisibility.Public, report.Revision,
+                    Snowcloak.API.Data.Enum.ProfileReportSurface.PairingAvailability));
+                break;
             case ExaminePlayerIntent examine:
                 Run(() => ExamineAsync(examine.Ident, examine.DisplayName));
                 break;
@@ -76,6 +81,9 @@ public sealed class AvailabilityDispatcher : IDispatcher
                 break;
             case RespondPairRequestIntent response:
                 Run(() => _pairRequestService.RespondAsync(response.RequestId, response.Accepted));
+                break;
+            case BlockPairRequesterIntent block:
+                Run(() => _pairRequestService.BlockRequesterAsync(block.RequestId, block.Uid));
                 break;
             case SetPairingEnabledIntent pairing:
                 _pairRequestService.SetPairingSystemEnabled(pairing.Enabled);

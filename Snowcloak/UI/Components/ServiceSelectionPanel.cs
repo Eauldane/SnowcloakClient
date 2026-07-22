@@ -51,8 +51,18 @@ public sealed class ServiceSelectionPanel
             }
         }
 
-        ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo("Select Service", comboEntries[_serverSelectionIndex]))
+        if (intro)
+        {
+            ImGui.TextUnformatted("Service");
+            ImGui.SetNextItemWidth(-1);
+        }
+        else
+        {
+            ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
+        }
+
+        var comboLabel = intro ? "##selectService" : "Select Service";
+        if (ImGui.BeginCombo(comboLabel, comboEntries[_serverSelectionIndex]))
         {
             for (int i = 0; i < comboEntries.Length; i++)
             {

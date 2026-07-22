@@ -68,7 +68,20 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
             _gameChatLogRenderer.Render(incoming.Key, conversation.Title, incoming.Entry);
         }
 
+        if (incoming.Entry.Kind == ChatEntryKind.TurnChanged || incoming.Entry.DiceRoll != null)
+        {
+            return;
+        }
+
         if (conversation.Muted)
+        {
+            return;
+        }
+
+        if (incoming.Key.Kind == ConversationKind.Room
+            && incoming.Entry.RpMode == Snowcloak.API.Data.Enum.RpChatMode.Standard
+            && _chatService.ListRooms().Any(room => string.Equals(room.RoomId, incoming.Key.Id, StringComparison.Ordinal)
+                && room.Scene?.IsScene == true))
         {
             return;
         }

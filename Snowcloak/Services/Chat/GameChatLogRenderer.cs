@@ -3,6 +3,7 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Plugin.Services;
 using ElezenTools.Services;
 using ElezenTools.UI;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.Core.Chat;
 using Snowcloak.Utils;
 
@@ -28,6 +29,22 @@ public sealed class GameChatLogRenderer
             .Add(ChatUtils.CreateExtraChatTagPayload(key.ToString()))
             .AddText($"[{title}] ");
 
+        if (entry.Kind == ChatEntryKind.TurnChanged)
+        {
+            builder.AddText("Scene: " + entry.RawText);
+            Print(builder);
+            return;
+        }
+
+        if (entry.RpMode == RpChatMode.OutOfCharacter)
+        {
+            builder.AddText("((");
+        }
+        else if (entry.RpMode == RpChatMode.Action)
+        {
+            builder.AddText("* ");
+        }
+
         if (ElezenStrings.TryBuildColours(entry.Display.ForegroundHex, entry.Display.GlowHex, out var colours))
         {
             builder.Append(ElezenStrings.BuildColouredString(entry.Display.Name, colours));
@@ -37,9 +54,19 @@ public sealed class GameChatLogRenderer
             builder.AddText(entry.Display.Name);
         }
 
-        builder.AddText(entry.IsEmote
-            ? " " + flattened[4..]
-            : ": " + flattened);
+        builder.AddText(entry.RpMode switch
+        {
+            RpChatMode.InCharacter => " (IC): " + flattened,
+            RpChatMode.OutOfCharacter => ": " + flattened + "))",
+            RpChatMode.Action => " " + flattened,
+            _ => ": " + flattened,
+        });
+
+        Print(builder);
+    }
+
+    private void Print(SeStringBuilder builder)
+    {
 
         _chatGui.Print(new XivChatEntry
         {
@@ -47,4 +74,5 @@ public sealed class GameChatLogRenderer
             Type = XivChatType.Echo,
         });
     }
+
 }

@@ -8,6 +8,7 @@ using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Venue;
 using Snowcloak.UI;
+using Snowcloak.UI.Components;
 using Snowcloak.Services.Chat;
 
 namespace Snowcloak.Initialization;
@@ -26,6 +27,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<FrameScheduler>());
         collection.AddHostedService(p => p.GetRequiredService<GameStateTracker>());
         collection.AddHostedService(p => p.GetRequiredService<DalamudUtilService>());
+        collection.AddHostedService(p => p.GetRequiredService<PairContextMenuBuilder>());
         collection.AddHostedService(p => p.GetRequiredService<SyncTroubleshootingService>());
         collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
         collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());
@@ -40,6 +42,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<ChatClientService>());
         collection.AddHostedService(p => p.GetRequiredService<ChatNotifier>());
         collection.AddHostedService(p => p.GetRequiredService<ChatDtrEntry>());
+        collection.AddHostedService(p => p.GetRequiredService<RoleplayReminderService>());
 
         return collection;
     }

@@ -47,6 +47,13 @@ public sealed class ImGuiChatRenderer
             DrawEntryContextMenu(entry);
             return;
         }
+        if (entry.Kind == ChatEntryKind.TurnChanged)
+        {
+            DrawMemberBadge(FontAwesomeIcon.StepForward, SnowcloakColours.OnlineBlue, "Server-synchronised turn order");
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, entry.RawText);
+            DrawEntryContextMenu(entry);
+            return;
+        }
 
         if (role is RoomRole.Owner or RoomRole.Moderator)
         {
@@ -59,20 +66,34 @@ public sealed class ImGuiChatRenderer
             DrawMemberBadge(labelIcon, labelColour, labelTooltip);
         }
 
-        ElezenImgui.ColouredText(entry.IsEmote ? $"* {name}" : $"{name}:",
+        if (entry.DiceRoll != null)
+        {
+            DrawMemberBadge(FontAwesomeIcon.DiceD20, ImGuiColors.DalamudYellow, "Server-stamped dice roll");
+        }
+        else if (entry.RpMode == RpChatMode.InCharacter)
+        {
+            DrawMemberBadge(FontAwesomeIcon.TheaterMasks, ImGuiColors.HealerGreen, "In character");
+        }
+        else if (entry.RpMode == RpChatMode.OutOfCharacter)
+        {
+            DrawMemberBadge(FontAwesomeIcon.Comment, SnowcloakColours.CompactTextMuted, "Out of character");
+        }
+
+        var senderLabel = entry.RpMode switch
+        {
+            RpChatMode.Action => $"* {name}",
+            RpChatMode.InCharacter => $"{name} (IC):",
+            RpChatMode.OutOfCharacter => $"(({name}:",
+            _ when entry.IsEmote => $"* {name}",
+            _ => $"{name}:",
+        };
+        ElezenImgui.ColouredText(senderLabel,
             entry.Display.Colour ?? ImGuiColors.DalamudWhite, entry.Display.Glow);
 
         ImGui.SameLine();
         var first = true;
         foreach (var segment in entry.Segments)
         {
-            if (entry.IsEmote && first && segment.Value.StartsWith("/me ", StringComparison.OrdinalIgnoreCase))
-            {
-                RenderText(segment.Value[4..]);
-                first = false;
-                continue;
-            }
-
             if (!first)
             {
                 ImGui.SameLine(0f, 0f);
@@ -80,6 +101,12 @@ public sealed class ImGuiChatRenderer
 
             RenderSegment(segment, width);
             first = false;
+        }
+
+        if (entry.RpMode == RpChatMode.OutOfCharacter)
+        {
+            ImGui.SameLine(0f, 0f);
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "))");
         }
 
         if (entry.State == DeliveryState.Pending)

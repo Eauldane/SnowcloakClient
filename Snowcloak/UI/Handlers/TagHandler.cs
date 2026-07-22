@@ -52,12 +52,7 @@ public class TagHandler
     {
         return _tagStore.ContainsTag(uid, tagName);
     }
-
-    /// <summary>
-    /// Is this tag opened in the paired clients UI?
-    /// </summary>
-    /// <param name="tag">the tag</param>
-    /// <returns>open true/false</returns>
+    
     public bool IsTagOpen(string tag)
     {
         return _tagStore.ContainsOpenPairTag(tag);

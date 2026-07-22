@@ -13,21 +13,11 @@ public class SelectGroupForPairUi
 {
     private readonly TagHandler _tagHandler;
     private readonly UidDisplayHandler _uidDisplayHandler;
-
-    /// <summary>
-    /// The group UI is always open for a specific pair. This defines which pair the UI is open for.
-    /// </summary>
-    /// <returns></returns>
+    
     private Pair? _pair;
 
-    /// <summary>
-    /// Should the panel show, yes/no
-    /// </summary>
     private bool _show;
-
-    /// <summary>
-    /// For the add category option, this stores the currently typed in tag name
-    /// </summary>
+    
     private string _tagNameToAdd = "";
 
     public SelectGroupForPairUi(TagHandler tagHandler, UidDisplayHandler uidDisplayHandler)

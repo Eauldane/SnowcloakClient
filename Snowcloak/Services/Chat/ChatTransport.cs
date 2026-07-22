@@ -1,4 +1,5 @@
 using Snowcloak.API.Data;
+using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
@@ -24,7 +25,8 @@ public sealed class ChatTransport : IChatTransport
         _rooms = rooms;
     }
 
-    public async Task<ChatMessageDto> SendAsync(ConversationKey key, string text, CancellationToken cancellationToken)
+    public async Task<ChatMessageDto> SendAsync(ConversationKey key, string text, RpChatMode rpMode,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var message = new ChatMessage
@@ -32,6 +34,7 @@ public sealed class ChatTransport : IChatTransport
             SenderName = await _dalamudUtil.GetPlayerNameAsync().ConfigureAwait(false),
             SenderHomeWorldId = await _dalamudUtil.GetHomeWorldIdAsync().ConfigureAwait(false),
             PayloadContent = ChatMessageCodec.Encode(text),
+            RpMode = rpMode,
         };
 
         return await (key.Kind switch

@@ -5,6 +5,8 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.Configuration;
 using Snowcloak.Services;
 using System.Numerics;
 
@@ -15,19 +17,24 @@ public sealed class ProfileViewComponent
     private readonly BbCodeRenderService _bbCodeRenderService;
     private readonly TextureService _textureService;
     private readonly UiFontService _fontService;
+    private readonly SnowcloakConfigService _configService;
+    private readonly HashSet<string> _expandedGeneralBoundaries = new(StringComparer.Ordinal);
 
     public ProfileViewComponent(
         UiFontService fontService,
         BbCodeRenderService bbCodeRenderService,
-        TextureService textureService)
+        TextureService textureService,
+        SnowcloakConfigService configService)
     {
         _fontService = fontService;
         _bbCodeRenderService = bbCodeRenderService;
         _textureService = textureService;
+        _configService = configService;
     }
 
     public void DrawStandalone(ProfileViewRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         CharacterProfileUiShared.DrawHeader(request.Profile.Document, request.FallbackName, headerImageTexture: request.HeaderImageTexture);
         ImGui.Spacing();
         CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges");
@@ -49,12 +56,13 @@ public sealed class ProfileViewComponent
             return;
         }
 
-        DrawFullProfileBody(request.Profile.Document, request.ProfileImageTexture, request.VisibleTags, request.IdPrefix);
+        DrawFullProfileBody(request.Profile, request.ProfileImageTexture, request.VisibleTags, request.IdPrefix);
         request.DrawPairingDetails?.Invoke();
     }
 
     public void DrawCompact(ProfileViewRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         CharacterProfileUiShared.DrawHeader(
             request.Profile.Document,
             request.FallbackName,
@@ -96,6 +104,8 @@ public sealed class ProfileViewComponent
         string idPrefix,
         bool fullProfile)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(tags);
         CharacterProfileUiShared.DrawHeader(document, fallbackName, headerImageTexture: headerImageTexture);
         CharacterProfileUiShared.DrawProfileBadges(document, $"{idPrefix}-badges");
         ImGui.Spacing();
@@ -122,17 +132,20 @@ public sealed class ProfileViewComponent
             {
                 DrawPlainTextSection("Adult Preferences", document.AdultPreferences);
             }
+            DrawBoundaries(document.Boundaries, null, 0, true,
+                document.ContentRating == ProfileContentRating.Adult, idPrefix);
         }
 
         DrawTags(tags, $"{idPrefix}-tags");
     }
 
     private void DrawFullProfileBody(
-        CharacterProfileDocumentDto document,
+        SnowProfileData profile,
         IDalamudTextureWrap? profileImageTexture,
         IReadOnlyList<UserProfileTagDto> visibleTags,
         string idPrefix)
     {
+        var document = profile.Document;
         using (var table = ImRaii.Table($"{idPrefix}-main", 2, ImGuiTableFlags.SizingFixedFit))
         {
             if (table)
@@ -157,6 +170,8 @@ public sealed class ProfileViewComponent
         {
             DrawBbCodeSection("Adult Preferences", document.AdultPreferences);
         }
+        DrawBoundaries(document.Boundaries, profile.User?.UID, profile.Revision, profile.IsOwnProfile,
+            document.ContentRating == ProfileContentRating.Adult, idPrefix);
 
         DrawTags(visibleTags, $"{idPrefix}-tags");
     }
@@ -282,6 +297,89 @@ public sealed class ProfileViewComponent
         CharacterProfileUiShared.DrawSectionTitle(title);
         ImGui.TextWrapped(value);
     }
+
+    private void DrawBoundaries(RpBoundariesDto? boundaries, string? uid, long revision, bool ownProfile, bool adult, string idPrefix)
+    {
+        if (boundaries == null || (boundaries.Entries.Count == 0 && string.IsNullOrWhiteSpace(boundaries.Note)))
+            return;
+
+        var acknowledgementKey = string.IsNullOrWhiteSpace(uid) ? null : uid + ":" + revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var requiresAcknowledgement = adult || boundaries.RequireAcknowledgement;
+        CharacterProfileUiShared.DrawSectionTitle("Boundaries");
+        var acknowledged = ownProfile || !requiresAcknowledgement
+            || acknowledgementKey != null
+            && _configService.Current.RpBoundaryAcknowledgements.GetValueOrDefault(acknowledgementKey) >= revision;
+        if (!acknowledged)
+        {
+            using var card = ImRaii.Child(idPrefix + "-boundaries-ack", new Vector2(-1f, 82f * ImGuiHelpers.GlobalScale), true);
+            ImGui.TextWrapped("This boundaries card asks you to acknowledge it before viewing.");
+            using (ImRaii.Disabled(acknowledgementKey == null))
+            {
+                if (ImGui.Button("Acknowledge and show", new Vector2(180f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
+                    _configService.Update(config => config.RpBoundaryAcknowledgements[acknowledgementKey] = revision);
+            }
+            return;
+        }
+
+        var generalExpanded = ownProfile || requiresAcknowledgement
+            || acknowledgementKey == null || _expandedGeneralBoundaries.Contains(acknowledgementKey);
+        if (!generalExpanded)
+        {
+            using var collapsedCard = ImRaii.Child(idPrefix + "-boundaries-collapsed", new Vector2(-1f, 64f * ImGuiHelpers.GlobalScale), true);
+            ImGui.TextWrapped("This profile includes a boundaries card.");
+            if (ImGui.Button("Show boundaries", new Vector2(150f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
+                _expandedGeneralBoundaries.Add(acknowledgementKey);
+            return;
+        }
+
+        var height = (28f + boundaries.Entries.Select(entry => entry.Rating).Distinct().Count() * 25f
+            + (string.IsNullOrWhiteSpace(boundaries.Note) ? 0f : 48f)) * ImGuiHelpers.GlobalScale;
+        using var boundaryCard = ImRaii.Child(idPrefix + "-boundaries", new Vector2(-1f, height), true);
+        foreach (var group in boundaries.Entries.GroupBy(entry => entry.Rating).OrderBy(group => group.Key))
+        {
+            ImGui.TextColored(BoundaryColour(group.Key), BoundaryLabel(group.Key));
+            ImGui.SameLine();
+            ImGui.TextWrapped(string.Join("  •  ", group.Select(entry => BoundaryName(entry.Key))));
+        }
+        if (!string.IsNullOrWhiteSpace(boundaries.Note))
+        {
+            ImGui.Separator();
+            ImGui.TextWrapped(boundaries.Note);
+        }
+    }
+
+    private static string BoundaryLabel(RpBoundaryRating rating) => rating switch
+    {
+        RpBoundaryRating.Willing => "Willing",
+        RpBoundaryRating.AskFirst => "Ask first",
+        RpBoundaryRating.HardNo => "Hard no",
+        _ => rating.ToString(),
+    };
+
+    private static string BoundaryName(string key) => key switch
+    {
+        "romance" => "Romance",
+        "sexual-themes" => "Sexual themes",
+        "violence" => "Violence",
+        "injury-gore" => "Injury or gore",
+        "horror" => "Horror",
+        "death" => "Death",
+        "captivity-restraint" => "Captivity or restraint",
+        "power-imbalance" => "Power imbalance",
+        "substance-use" => "Substance use",
+        "discrimination" => "Discrimination",
+        "pregnancy-family" => "Pregnancy or family",
+        "lore-divergence" => "Lore divergence",
+        _ => key,
+    };
+
+    private static Vector4 BoundaryColour(RpBoundaryRating rating) => rating switch
+    {
+        RpBoundaryRating.Willing => ImGuiColors.HealerGreen,
+        RpBoundaryRating.AskFirst => ImGuiColors.DalamudYellow,
+        RpBoundaryRating.HardNo => ImGuiColors.DalamudRed,
+        _ => SnowcloakColours.CompactTextMuted,
+    };
 
     private static void DrawTags(IReadOnlyList<UserProfileTagDto> tags, string idPrefix)
     {

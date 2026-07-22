@@ -7,6 +7,8 @@ namespace Snowcloak.Services.ServerConfiguration;
 public sealed class SecretKeyBackupService
 {
     private const int SecretKeyBackupVersion = 1;
+    private static readonly JsonSerializerOptions ExportOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions ImportOptions = new() { PropertyNameCaseInsensitive = true };
     private readonly NotesStore _notesStore;
     private readonly ServerRegistry _serverRegistry;
 
@@ -18,7 +20,9 @@ public sealed class SecretKeyBackupService
 
     public SecretKeyBackupExportResult Export(ServerStorage selectedServer, string path)
     {
-        var notes = _notesStore.GetNotesForServer(selectedServer.ServerUri);
+        ArgumentNullException.ThrowIfNull(selectedServer);
+
+        var notes = _notesStore.GetNotesForServer(new Uri(selectedServer.ServerUri, UriKind.Absolute));
         var backup = new SecretKeyBackupFile()
         {
             Version = SecretKeyBackupVersion,
@@ -30,16 +34,18 @@ public sealed class SecretKeyBackupService
             Notes = CloneNotes(notes)
         };
 
-        File.WriteAllText(path, JsonSerializer.Serialize(backup, new JsonSerializerOptions() { WriteIndented = true }));
+        File.WriteAllText(path, JsonSerializer.Serialize(backup, ExportOptions));
         return new SecretKeyBackupExportResult(backup.SecretKeys.Count, backup.CharacterAssignments.Count, backup.Notes.UidServerComments.Count);
     }
 
     public SecretKeyBackupImportResult ImportIntoServer(string path, ServerStorage selectedServer)
     {
+        ArgumentNullException.ThrowIfNull(selectedServer);
+
         var imported = LoadBackup(path);
-        ApplyBackupToServer(imported, selectedServer);
+        var merge = MergeBackupIntoServer(imported, selectedServer);
         int serverIndex = Array.IndexOf(_serverRegistry.GetServerApiUrls(), selectedServer.ServerUri);
-        return CreateImportResult(selectedServer, serverIndex, imported,
+        return CreateImportResult(selectedServer, serverIndex, merge,
             currentCharacterAssigned: serverIndex >= 0 && _serverRegistry.HasCurrentCharacterAssignment(serverIndex));
     }
 
@@ -49,18 +55,36 @@ public sealed class SecretKeyBackupService
         int targetServerIndex = ResolveServerIndex(imported);
         var targetServer = _serverRegistry.GetServerByIndex(targetServerIndex);
 
-        ApplyBackupToServer(imported, targetServer);
+        var merge = MergeBackupIntoServer(imported, targetServer);
 
         bool autoAssignedCurrentCharacter = false;
         bool currentCharacterAssigned = _serverRegistry.HasCurrentCharacterAssignment(targetServerIndex);
-        if (!currentCharacterAssigned && targetServer.SecretKeys.Count == 1)
+        if (!currentCharacterAssigned && merge.ImportedKeyChoices.Count == 1)
         {
-            _serverRegistry.AddCurrentCharacterToServer(targetServerIndex, targetServer.SecretKeys.Single().Key, save: true);
+            _serverRegistry.AddCurrentCharacterToServer(targetServerIndex, merge.ImportedKeyChoices[0].KeyIndex, save: true);
             autoAssignedCurrentCharacter = true;
-            currentCharacterAssigned = true;
+            currentCharacterAssigned = _serverRegistry.HasCurrentCharacterAssignment(targetServerIndex);
         }
 
-        return CreateImportResult(targetServer, targetServerIndex, imported, currentCharacterAssigned, autoAssignedCurrentCharacter);
+        return CreateImportResult(targetServer, targetServerIndex, merge, currentCharacterAssigned, autoAssignedCurrentCharacter);
+    }
+
+    public SecretKeyBackupImportResult AssignCurrentCharacter(SecretKeyBackupImportResult imported, int keyIndex)
+    {
+        ArgumentNullException.ThrowIfNull(imported);
+
+        if (imported.ServerIndex < 0 || imported.KeyChoices.All(choice => choice.KeyIndex != keyIndex))
+        {
+            throw new InvalidOperationException("The selected backup key is not available for assignment.");
+        }
+
+        _serverRegistry.AddCurrentCharacterToServer(imported.ServerIndex, keyIndex, save: true);
+        if (!_serverRegistry.HasCurrentCharacterAssignment(imported.ServerIndex))
+        {
+            throw new InvalidOperationException("The current character could not be assigned to the selected backup key.");
+        }
+
+        return imported.WithCurrentCharacterAssignment();
     }
 
     private int ResolveServerIndex(SecretKeyBackupFile imported)
@@ -95,35 +119,117 @@ public sealed class SecretKeyBackupService
         return createdIndex;
     }
 
-    private void ApplyBackupToServer(SecretKeyBackupFile imported, ServerStorage selectedServer)
+    private BackupMergeResult MergeBackupIntoServer(SecretKeyBackupFile imported, ServerStorage selectedServer)
     {
-        selectedServer.SecretKeys = CloneSecretKeys(imported.SecretKeys);
-        selectedServer.Authentications = CloneAuthentications(imported.CharacterAssignments);
-        _notesStore.ReplaceNotesForServer(selectedServer.ServerUri, CloneNotes(imported.Notes), save: true);
+        var keyIndices = new Dictionary<int, int>();
+        var keyChoices = new List<SecretKeyBackupKeyChoice>();
+        int addedSecretKeys = 0;
+        int nextKeyIndex = selectedServer.SecretKeys.Count == 0 ? 0 : selectedServer.SecretKeys.Keys.Max() + 1;
+
+        foreach (var importedKey in imported.SecretKeys.OrderBy(kvp => kvp.Key))
+        {
+            var normalisedKey = importedKey.Value.Key.Trim().ToUpperInvariant();
+            int? existingKeyIndex = selectedServer.SecretKeys
+                .Where(kvp => string.Equals(kvp.Value.Key.Trim(), normalisedKey, StringComparison.OrdinalIgnoreCase))
+                .Select(kvp => (int?)kvp.Key)
+                .FirstOrDefault();
+            int localKeyIndex;
+            if (existingKeyIndex.HasValue)
+            {
+                localKeyIndex = existingKeyIndex.Value;
+            }
+            else
+            {
+                while (selectedServer.SecretKeys.ContainsKey(nextKeyIndex))
+                {
+                    nextKeyIndex++;
+                }
+
+                localKeyIndex = nextKeyIndex++;
+                selectedServer.SecretKeys.Add(localKeyIndex, new SecretKey
+                {
+                    FriendlyName = importedKey.Value.FriendlyName,
+                    Key = normalisedKey
+                });
+                addedSecretKeys++;
+            }
+
+            keyIndices[importedKey.Key] = localKeyIndex;
+            if (normalisedKey.Length == 64
+                && normalisedKey.All(char.IsAsciiHexDigit)
+                && keyChoices.All(choice => choice.KeyIndex != localKeyIndex))
+            {
+                keyChoices.Add(new SecretKeyBackupKeyChoice(localKeyIndex, selectedServer.SecretKeys[localKeyIndex].FriendlyName));
+            }
+        }
+
+        int addedAssignments = 0;
+        foreach (var importedAssignment in imported.CharacterAssignments)
+        {
+            if (importedAssignment.SecretKeyIdx == -1
+                || string.IsNullOrWhiteSpace(importedAssignment.CharacterName)
+                || !keyIndices.TryGetValue(importedAssignment.SecretKeyIdx, out int localKeyIndex)
+                || selectedServer.Authentications.Any(existing =>
+                    string.Equals(existing.CharacterName, importedAssignment.CharacterName, StringComparison.OrdinalIgnoreCase)
+                    && existing.WorldId == importedAssignment.WorldId))
+            {
+                continue;
+            }
+
+            selectedServer.Authentications.Add(new Authentication
+            {
+                CharacterName = importedAssignment.CharacterName,
+                WorldId = importedAssignment.WorldId,
+                SecretKeyIdx = localKeyIndex
+            });
+            addedAssignments++;
+        }
+
+        var serverUri = new Uri(selectedServer.ServerUri, UriKind.Absolute);
+        var notes = _notesStore.GetNotesForServer(serverUri);
+        int addedUserNotes = MergeMissing(notes.UidServerComments, imported.Notes.UidServerComments);
+        MergeMissing(notes.GidServerComments, imported.Notes.GidServerComments);
+        MergeMissing(notes.UidLastSeenNames, imported.Notes.UidLastSeenNames);
+        _notesStore.ReplaceNotesForServer(serverUri, notes, save: true);
         _serverRegistry.Save();
+
+        return new BackupMergeResult(addedSecretKeys, addedAssignments, addedUserNotes, keyChoices);
     }
 
-    private static SecretKeyBackupImportResult CreateImportResult(ServerStorage selectedServer, int serverIndex, SecretKeyBackupFile imported,
+    private static int MergeMissing(Dictionary<string, string> destination, Dictionary<string, string>? source)
+    {
+        int added = 0;
+        foreach (var item in source ?? [])
+        {
+            if (destination.TryAdd(item.Key, item.Value))
+            {
+                added++;
+            }
+        }
+
+        return added;
+    }
+
+    private static SecretKeyBackupImportResult CreateImportResult(ServerStorage selectedServer, int serverIndex, BackupMergeResult merge,
         bool currentCharacterAssigned, bool autoAssignedCurrentCharacter = false)
     {
         return new SecretKeyBackupImportResult(
             selectedServer.ServerName,
-            selectedServer.ServerUri,
             serverIndex,
             selectedServer.SecretKeys.Count,
             selectedServer.Authentications.Count,
-            imported.Notes.UidServerComments.Count,
+            merge.AddedSecretKeyCount,
+            merge.AddedCharacterAssignmentCount,
+            merge.AddedUserNoteCount,
             currentCharacterAssigned,
-            autoAssignedCurrentCharacter);
+            autoAssignedCurrentCharacter,
+            merge.ImportedKeyChoices);
     }
 
     private static SecretKeyBackupFile LoadBackup(string path)
     {
         var fileContent = File.ReadAllText(path);
-        var imported = JsonSerializer.Deserialize<SecretKeyBackupFile>(fileContent, new JsonSerializerOptions()
-        {
-            PropertyNameCaseInsensitive = true
-        });
+        var imported = JsonSerializer.Deserialize<SecretKeyBackupFile>(fileContent, ImportOptions);
         if (imported == null)
         {
             throw new InvalidDataException("Backup file could not be parsed.");
@@ -181,6 +287,12 @@ public sealed class SecretKeyBackupService
         };
     }
 
+    private sealed record BackupMergeResult(
+        int AddedSecretKeyCount,
+        int AddedCharacterAssignmentCount,
+        int AddedUserNoteCount,
+        IReadOnlyList<SecretKeyBackupKeyChoice> ImportedKeyChoices);
+
     [Serializable]
     private sealed class SecretKeyBackupFile
     {
@@ -210,25 +322,47 @@ public sealed class SecretKeyBackupExportResult
 
 public sealed class SecretKeyBackupImportResult
 {
-    public SecretKeyBackupImportResult(string serviceName, string serviceUri, int serverIndex, int secretKeyCount, int characterAssignmentCount,
-        int userNoteCount, bool currentCharacterAssigned, bool autoAssignedCurrentCharacter)
+    public SecretKeyBackupImportResult(string serviceName, int serverIndex, int secretKeyCount, int characterAssignmentCount,
+        int addedSecretKeyCount, int addedCharacterAssignmentCount, int addedUserNoteCount, bool currentCharacterAssigned,
+        bool autoAssignedCurrentCharacter, IReadOnlyList<SecretKeyBackupKeyChoice> keyChoices)
     {
         ServiceName = serviceName;
-        ServiceUri = serviceUri;
         ServerIndex = serverIndex;
         SecretKeyCount = secretKeyCount;
         CharacterAssignmentCount = characterAssignmentCount;
-        UserNoteCount = userNoteCount;
+        AddedSecretKeyCount = addedSecretKeyCount;
+        AddedCharacterAssignmentCount = addedCharacterAssignmentCount;
+        AddedUserNoteCount = addedUserNoteCount;
         CurrentCharacterAssigned = currentCharacterAssigned;
         AutoAssignedCurrentCharacter = autoAssignedCurrentCharacter;
+        KeyChoices = keyChoices;
     }
 
     public string ServiceName { get; }
-    public string ServiceUri { get; }
     public int ServerIndex { get; }
     public int SecretKeyCount { get; }
     public int CharacterAssignmentCount { get; }
-    public int UserNoteCount { get; }
+    public int AddedSecretKeyCount { get; }
+    public int AddedCharacterAssignmentCount { get; }
+    public int AddedUserNoteCount { get; }
     public bool CurrentCharacterAssigned { get; }
     public bool AutoAssignedCurrentCharacter { get; }
+    public IReadOnlyList<SecretKeyBackupKeyChoice> KeyChoices { get; }
+
+    public SecretKeyBackupImportResult WithCurrentCharacterAssignment()
+    {
+        return new SecretKeyBackupImportResult(
+            ServiceName,
+            ServerIndex,
+            SecretKeyCount,
+            CharacterAssignmentCount + 1,
+            AddedSecretKeyCount,
+            AddedCharacterAssignmentCount + 1,
+            AddedUserNoteCount,
+            currentCharacterAssigned: true,
+            autoAssignedCurrentCharacter: false,
+            KeyChoices);
+    }
 }
+
+public sealed record SecretKeyBackupKeyChoice(int KeyIndex, string FriendlyName);

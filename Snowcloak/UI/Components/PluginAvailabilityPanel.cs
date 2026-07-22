@@ -1,10 +1,13 @@
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.Core.Scheduling;
 using Snowcloak.Game.Scheduling;
 using Snowcloak.Interop.Ipc;
+using System.Numerics;
 
 namespace Snowcloak.UI.Components;
 
@@ -37,16 +40,10 @@ public sealed class PluginAvailabilityPanel : IDisposable
     public bool Draw(bool intro = false)
     {
         if (intro)
-        {
-            ImGui.SetWindowFontScale(0.8f);
-            _fontService.BigText("Mandatory Plugins");
-            ImGui.SetWindowFontScale(1.0f);
-        }
-        else
-        {
-            ImGui.TextUnformatted("Mandatory Plugins:");
-            ImGui.SameLine();
-        }
+            return DrawIntro();
+
+        ImGui.TextUnformatted("Mandatory Plugins:");
+        ImGui.SameLine();
 
         ImGui.TextUnformatted("Penumbra");
         ImGui.SameLine();
@@ -59,18 +56,8 @@ public sealed class PluginAvailabilityPanel : IDisposable
         ElezenImgui.GetBooleanIcon(_glamourerExists, inline: false);
         ElezenImgui.AttachTooltip($"Glamourer is {(_glamourerExists ? "available and up to date." : "unavailable or not up to date.")}");
 
-        if (intro)
-        {
-            ImGui.SetWindowFontScale(0.8f);
-            _fontService.BigText("Optional Addons");
-            ImGui.SetWindowFontScale(1.0f);
-            ElezenImgui.WrappedText("These addons are not required for basic operation, but without them you may not see others as intended.");
-        }
-        else
-        {
-            ImGui.TextUnformatted("Optional Addons:");
-            ImGui.SameLine();
-        }
+        ImGui.TextUnformatted("Optional Addons:");
+        ImGui.SameLine();
 
         var alignPos = ImGui.GetCursorPosX();
 
@@ -128,6 +115,91 @@ public sealed class PluginAvailabilityPanel : IDisposable
         }
 
         return true;
+    }
+
+    private bool DrawIntro()
+    {
+        using (_fontService.UidFont.Push())
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, "REQUIRED PLUGINS");
+
+        if (ImGui.BeginTable("##requiredPlugins", 2,
+                ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.PadOuterX))
+        {
+            ImGui.TableNextColumn();
+            DrawRequiredPluginCard("Penumbra", _penumbraExists, _ipcManager.Penumbra.Status.Version);
+            ImGui.TableNextColumn();
+            DrawRequiredPluginCard("Glamourer", _glamourerExists, _ipcManager.Glamourer.Status.Version);
+            ImGui.EndTable();
+        }
+
+        ImGuiHelpers.ScaledDummy(7);
+        using (_fontService.UidFont.Push())
+            ImGui.TextColored(ImGuiColors.DalamudGrey, "OPTIONAL COMPATIBILITY");
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted,
+            "These integrations help reproduce other characters as intended.");
+
+        if (ImGui.BeginTable("##optionalPlugins", 3,
+                ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.PadOuterX))
+        {
+            DrawOptionalPluginCell("SimpleHeels", _heelsExists);
+            DrawOptionalPluginCell("Customize+", _customizePlusExists);
+            DrawOptionalPluginCell("Honorific", _honorificExists);
+            DrawOptionalPluginCell("PetNicknames", _petNamesExists);
+            DrawOptionalPluginCell("Moodles", _moodlesExists);
+            DrawOptionalPluginCell("Brio", _brioExists);
+            ImGui.EndTable();
+        }
+
+        var ready = _penumbraExists && _glamourerExists;
+        if (!ready)
+        {
+            ImGuiHelpers.ScaledDummy(4);
+            CharaDataHubCard.Error("Penumbra and Glamourer must both be available and up to date before setup can continue.");
+        }
+
+        return ready;
+    }
+
+    private static void DrawRequiredPluginCard(string name, bool available, string? version)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var min = ImGui.GetCursorScreenPos();
+        var size = new Vector2(ImGui.GetContentRegionAvail().X, 58f * scale);
+        var max = min + size;
+        var drawList = ImGui.GetWindowDrawList();
+        var accent = available ? SnowcloakColours.OnlineBlue : ImGuiColors.DalamudRed;
+
+        drawList.AddRectFilled(min, max, Colour.Vector4ToColour(SnowcloakColours.CompactPanelAlt), 4f * scale);
+        drawList.AddRect(min, max, Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle),
+            4f * scale, ImDrawFlags.None, scale);
+        drawList.AddLine(min, min with { Y = max.Y }, Colour.Vector4ToColour(accent), 2f * scale);
+
+        ImGui.PushFont(UiBuilder.IconFont);
+        var iconText = (available ? FontAwesomeIcon.CheckCircle : FontAwesomeIcon.TimesCircle).ToIconString();
+        var iconSize = ImGui.CalcTextSize(iconText);
+        drawList.AddText(new Vector2(min.X + 12f * scale, min.Y + (size.Y - iconSize.Y) * 0.5f),
+            Colour.Vector4ToColour(accent), iconText);
+        ImGui.PopFont();
+
+        var textX = min.X + 12f * scale + iconSize.X + 10f * scale;
+        drawList.AddText(new Vector2(textX, min.Y + 10f * scale), Colour.Vector4ToColour(Vector4.One), name);
+        drawList.AddText(new Vector2(textX, min.Y + 31f * scale),
+            Colour.Vector4ToColour(SnowcloakColours.CompactTextMuted),
+            available
+                ? $"Detected {version ?? "version unknown"}"
+                : "Missing or outdated");
+        ImGui.Dummy(size);
+    }
+
+    private static void DrawOptionalPluginCell(string name, bool available)
+    {
+        ImGui.TableNextColumn();
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.TextColored(available ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactTextMuted,
+            (available ? FontAwesomeIcon.Check : FontAwesomeIcon.Minus).ToIconString());
+        ImGui.PopFont();
+        ImGui.SameLine();
+        ImGui.TextColored(available ? Vector4.One : SnowcloakColours.CompactTextMuted, name);
     }
 
     public void Dispose()

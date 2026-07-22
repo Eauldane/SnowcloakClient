@@ -64,6 +64,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
     private string _passwordChangeMessage = string.Empty;
     private bool _passwordChangeIsError;
     private bool _showMemberLabelEditor;
+    private string _memberSection = "Members";
     private SyncshellAdminTab _selectedTab = SyncshellAdminTab.Settings;
 
     private enum SyncshellAdminTab
@@ -71,11 +72,8 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
         Performance,
         Settings,
         Community,
-        Directory,
-        Invites,
+        Events,
         Members,
-        Cleanup,
-        Bans,
         Permissions,
         Audit,
         Owner,
@@ -94,7 +92,7 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
         _fontService = fontService;
         _pairManager = pairManager;
         _syncshellBudgetPanel = new(syncshellBudgetService);
-        _communityManagementPanel = new(apiController, dalamudUtilService);
+        _communityManagementPanel = new(apiController, dalamudUtilService, mediator);
         _memberManagementPanel = new(apiController, mediator, pairManager);
         _newPassword = string.Empty;
         _syncshellAlias = groupFullInfo.Group.Alias ?? string.Empty;
@@ -171,20 +169,11 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
             case SyncshellAdminTab.Community:
                 _communityManagementPanel.DrawCommunity(GroupFullInfo);
                 break;
-            case SyncshellAdminTab.Directory:
-                _communityManagementPanel.DrawDirectory(GroupFullInfo);
-                break;
-            case SyncshellAdminTab.Invites:
-                DrawInvitesTab();
+            case SyncshellAdminTab.Events:
+                _communityManagementPanel.DrawEvents(GroupFullInfo);
                 break;
             case SyncshellAdminTab.Members:
-                _memberManagementPanel.DrawMembers(GroupFullInfo, IsOwner, IsModerator, OpenMemberLabelEditor);
-                break;
-            case SyncshellAdminTab.Cleanup:
-                _memberManagementPanel.DrawCleanup(GroupFullInfo);
-                break;
-            case SyncshellAdminTab.Bans:
-                _memberManagementPanel.DrawBans(GroupFullInfo);
+                DrawMemberManagement();
                 break;
             case SyncshellAdminTab.Permissions:
                 DrawPermissionsTab();
@@ -194,6 +183,30 @@ public partial class SyncshellAdminUI : WindowMediatorSubscriberBase
                 break;
             case SyncshellAdminTab.Owner:
                 DrawOwnerSettingsTab();
+                break;
+        }
+    }
+
+    private void DrawMemberManagement()
+    {
+        ModernSection.Header(FontAwesomeIcon.Users, "Member management");
+        _memberSection = ModernTabBar.Draw("syncshell-member-management-tabs",
+            ["Members", "Invites", "Cleanup", "Banned users"], _memberSection);
+        ImGuiHelpers.ScaledDummy(6f);
+
+        switch (_memberSection)
+        {
+            case "Members":
+                _memberManagementPanel.DrawMembers(GroupFullInfo, IsOwner, IsModerator, OpenMemberLabelEditor);
+                break;
+            case "Invites":
+                DrawInvitesTab();
+                break;
+            case "Cleanup":
+                _memberManagementPanel.DrawCleanup(GroupFullInfo);
+                break;
+            case "Banned users":
+                _memberManagementPanel.DrawBans(GroupFullInfo);
                 break;
         }
     }

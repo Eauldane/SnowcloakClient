@@ -70,11 +70,7 @@ public abstract class DrawPairBase
 
         return clicked;
     }
-
-    /// <summary>
-    /// Appends the shared "Mods Info" block (file size / VRAM / triangle count) to a presence
-    /// tooltip. Shared by direct-pair and syncshell-member rows so the wording stays in sync.
-    /// </summary>
+    
     protected string AppendModsInfoTooltip(string tooltip)
     {
         if (PairEntry.LastAppliedDataBytes < 0)
@@ -97,11 +93,7 @@ public abstract class DrawPairBase
 
         return tooltip;
     }
-
-    /// <summary>
-    /// Draws the body of the "Individual User permissions" tooltip (sound/animation/VFX state for
-    /// the direct pair). Caller wraps this in its own Begin/EndTooltip. Shared by both row types.
-    /// </summary>
+    
     protected void DrawIndividualPermissionsTooltipBody(bool soundsDisabled, bool animDisabled, bool vfxDisabled)
     {
         ImGui.TextUnformatted("Individual User permissions");
