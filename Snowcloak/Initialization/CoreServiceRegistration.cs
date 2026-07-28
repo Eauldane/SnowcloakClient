@@ -46,6 +46,7 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<VisibilityService>();
         collection.AddSingleton<EventAggregator>();
         collection.AddSingleton<NotificationService>();
+        collection.AddSingleton<ServerNewsChatService>();
         collection.AddSingleton<PluginWatcherService>();
         collection.AddSingleton<SyncTroubleshootingService>();
         collection.AddSingleton<PluginWarningNotificationService>();

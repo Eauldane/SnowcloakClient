@@ -12,14 +12,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <!-- Transitive pin for CVE-2025-6965; see Snowcloak.csproj for details. -->
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="3.2.2.1" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.124">
+    <PackageReference Include="Snowcloak.CacheFile" Version="4.0.0" />
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.134">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.29.0.143774">
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.30.0.144632">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

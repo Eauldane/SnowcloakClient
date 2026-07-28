@@ -190,6 +190,7 @@ public partial class ApiController
         if (!string.IsNullOrEmpty(normalizedNews))
         {
             SystemInfoDto = SystemInfoDto with { News = normalizedNews };
+            PublishServerNews(normalizedNews);
         }
 
         return Task.CompletedTask;
@@ -198,12 +199,19 @@ public partial class ApiController
     public Task Client_UpdateSystemInfo(SystemInfoDto systemInfo)
     {
         SystemInfoDto = systemInfo;
+        PublishServerNews(systemInfo.News);
         return Task.CompletedTask;
     }
 
     private static string? NormalizeNews(string? news)
     {
         return string.IsNullOrWhiteSpace(news) ? null : news.Trim();
+    }
+
+    private void PublishServerNews(string? news)
+    {
+        if (!string.IsNullOrWhiteSpace(news))
+            Mediator.Publish(new ServerNewsMessage(news.Trim()));
     }
 
     public Task Client_UserAddClientPair(UserPairDto dto)

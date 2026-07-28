@@ -23,6 +23,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<ConfigStore>());
         collection.AddHostedService(p => p.GetRequiredService<SnowMediator>());
         collection.AddHostedService(p => p.GetRequiredService<NotificationService>());
+        collection.AddHostedService(p => p.GetRequiredService<ServerNewsChatService>());
         collection.AddHostedService(p => p.GetRequiredService<FileCacheManager>());
         collection.AddHostedService(p => p.GetRequiredService<FrameScheduler>());
         collection.AddHostedService(p => p.GetRequiredService<GameStateTracker>());
