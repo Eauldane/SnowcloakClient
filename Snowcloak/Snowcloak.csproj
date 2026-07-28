@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>4.0.0.2</Version>
+    <Version>4.0.1.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Configurations>Release;Debug</Configurations>
@@ -34,12 +34,12 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.10" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Snowcloak.Ipc" Version="1.4.0" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.Ipc" Version="1.4.0" />
     <PackageReference Include="Snowcloak.API" Version="4.0.0" />
     <PackageReference Include="Snowcloak.CacheFile" Version="4.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.21.0" />

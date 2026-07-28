@@ -27,7 +27,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private readonly FileDownloadNegativeCache _negativeCache;
     private readonly ConcurrentDictionary<ThrottledStream, byte> _activeDownloadStreams = new();
     private List<DownloadFileTransfer> _currentDownloads = [];
-    private Dictionary<string, string> _preflightUnavailable = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, FileDownloadNegativeEntry> _preflightUnavailable = new(StringComparer.OrdinalIgnoreCase);
 
     public FileDownloadManager(ILogger<FileDownloadManager> logger, SnowMediator mediator,
         FileTransferOrchestrator orchestrator, IFileDownloadTransport transport,
@@ -69,7 +69,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         _preflightUnavailable = requestedHashes
             .Select(hash => _negativeCache.TryGet(hash, out var entry) ? entry : null)
             .Where(entry => entry != null)
-            .ToDictionary(entry => entry!.Hash, entry => entry!.Message, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(entry => entry!.Hash, entry => entry!, StringComparer.OrdinalIgnoreCase);
         var eligibleHashes = requestedHashes.Where(hash => !_preflightUnavailable.ContainsKey(hash)).ToList();
         var fileInfo = eligibleHashes.Count == 0
             ? []
@@ -79,7 +79,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             var entry = _negativeCache.Record(missingHash, FileDownloadNegativeReason.Missing, TimeSpan.FromMinutes(10),
                 "The requested file is not available on the server. Snowcloak will check again later.");
-            _preflightUnavailable[entry.Hash] = entry.Message;
+            _preflightUnavailable[entry.Hash] = entry;
         }
 
         foreach (var dto in fileInfo.Where(file => file.IsForbidden))
@@ -87,14 +87,14 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(dto.Hash, dto.ForbiddenBy, ForbiddenTransferKind.Download));
             var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(30),
                 "The requested file is blocked from transfer.");
-            _preflightUnavailable[entry.Hash] = entry.Message;
+            _preflightUnavailable[entry.Hash] = entry;
         }
 
         foreach (var dto in fileInfo.Where(file => !file.FileExists))
         {
             var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Missing, TimeSpan.FromMinutes(10),
                 "The requested file is not available on the server. Snowcloak will check again later.");
-            _preflightUnavailable[entry.Hash] = entry.Message;
+            _preflightUnavailable[entry.Hash] = entry;
         }
 
         _currentDownloads = fileInfo.Distinct()
@@ -147,10 +147,11 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         var downloadGroups = _currentDownloads.GroupBy(GetDownloadGroupKey, StringComparer.Ordinal).ToList();
 
         using var download = _statusStore.Begin(gameObjectHandler, uid);
-        var unavailable = new ConcurrentDictionary<string, string>(_preflightUnavailable, StringComparer.OrdinalIgnoreCase);
+        var unavailable = new ConcurrentDictionary<string, FileDownloadNegativeEntry>(_preflightUnavailable, StringComparer.OrdinalIgnoreCase);
         if (!unavailable.IsEmpty)
         {
-            var message = unavailable.Values.First();
+            var message = unavailable.Values.FirstOrDefault(entry => entry.Reason != FileDownloadNegativeReason.Missing)?.Message
+                ?? string.Empty;
             download.AddGroup("Unavailable", 0, unavailable.Count).SetUnavailable(message);
         }
         var groupHandles = downloadGroups.ToDictionary(group => group.Key,
@@ -185,8 +186,8 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             }
             catch (FileDownloadUnavailableException ex)
             {
-                unavailable.TryAdd(transfer.Hash, ex.Entry.Message);
-                groupHandle.SetUnavailable(ex.Entry.Message);
+                unavailable.TryAdd(transfer.Hash, ex.Entry);
+                groupHandle.SetUnavailable(ex.Entry.Reason == FileDownloadNegativeReason.Missing ? string.Empty : ex.Entry.Message);
                 LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or UnauthorizedAccessException)
@@ -201,10 +202,16 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
 
         if (!unavailable.IsEmpty)
         {
-            var reasons = string.Join(" ", unavailable.Values.Distinct(StringComparer.Ordinal).Take(2));
-            Mediator.Publish(new NotificationMessage("Some files are temporarily unavailable",
-                $"{unavailable.Count} file(s) could not be downloaded. {reasons}",
-                Configuration.Models.NotificationType.Warning, TimeSpan.FromSeconds(8)));
+            var actionableUnavailable = unavailable.Values
+                .Where(entry => entry.Reason != FileDownloadNegativeReason.Missing)
+                .ToList();
+            if (actionableUnavailable.Count > 0)
+            {
+                var reasons = string.Join(" ", actionableUnavailable.Select(entry => entry.Message).Distinct(StringComparer.Ordinal).Take(2));
+                Mediator.Publish(new NotificationMessage("Some files are temporarily unavailable",
+                    $"{actionableUnavailable.Count} file(s) could not be downloaded. {reasons}",
+                    Configuration.Models.NotificationType.Warning, TimeSpan.FromSeconds(8)));
+            }
         }
 
         LogDownloadEnd(Logger, gameObjectHandler.Name);
