@@ -231,7 +231,7 @@
         "type": "Direct",
         "requested": "[1.4.0, )",
         "resolved": "1.4.0",
-        "contentHash": "eaOCzzeYgfHVgbixXGFPHYPfelTLC/nGI2eJMLWakQqkz3yS8yDda2e+D+agaBk1oxrf9dfpJd+R5Y1SV2e9Qw=="
+        "contentHash": "SQCaEHmiuNkZZM+cXWYDk7/iT+Wdh6+46sst1eb1fy4NuN/NHTUkHbraF+pd0Mwdm/Y4WUti8yU5Vaqen6X8KA=="
       },
       "SonarAnalyzer.CSharp": {
         "type": "Direct",
