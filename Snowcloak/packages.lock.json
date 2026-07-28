@@ -229,9 +229,9 @@
       },
       "Snowcloak.Ipc": {
         "type": "Direct",
-        "requested": "[1.4.0, )",
-        "resolved": "1.4.0",
-        "contentHash": "eaOCzzeYgfHVgbixXGFPHYPfelTLC/nGI2eJMLWakQqkz3yS8yDda2e+D+agaBk1oxrf9dfpJd+R5Y1SV2e9Qw=="
+        "requested": "[1.4.0.1, )",
+        "resolved": "1.4.0.1",
+        "contentHash": "E/nNiVleSkIbfgJ/v/H4j2rgwTbeiVFRen22rRfo6pBVHXIrYDdcYYtCXGelcfXDaIQ/+Qv25jB7aPWu/tDaXw=="
       },
       "SonarAnalyzer.CSharp": {
         "type": "Direct",
