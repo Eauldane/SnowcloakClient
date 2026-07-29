@@ -299,7 +299,13 @@ public partial class ApiController
     public Task Client_UserUpdateOtherPairPermissions(UserPermissionsDto dto)
     {
         Logger.LogDebug("Client_UserUpdateOtherPairPermissions: {dto}", dto);
-        ExecuteSafely(() => _pairManager.UpdatePairPermissions(dto));
+        ExecuteSafely(() =>
+        {
+            if (_pairManager.UpdatePairPermissions(dto))
+            {
+                Mediator.Publish(new ChatMembershipChangedMessage());
+            }
+        });
         return Task.CompletedTask;
     }
 

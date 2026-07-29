@@ -4,9 +4,13 @@ using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
+using Snowcloak.API.Data.Enum;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Snowcloak.UI;
 
@@ -32,17 +36,20 @@ public sealed class DtrEntry : DtrEntryBase
     private readonly SnowcloakConfigService _configService;
     private readonly SnowMediator _snowMediator;
     private readonly PairManager _pairManager;
+    private readonly RoleplayClientService _roleplay;
     private string? _text;
     private string? _tooltip;
     private ElezenStrings.Colour _colors;
 
-    public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator, PairManager pairManager, ApiController apiController)
+    public DtrEntry(ILogger<DtrEntry> logger, IDtrBar dtrBar, SnowcloakConfigService configService, SnowMediator snowMediator,
+        PairManager pairManager, ApiController apiController, RoleplayClientService roleplay)
         : base(logger, dtrBar, "Snowcloak")
     {
         _configService = configService;
         _snowMediator = snowMediator;
         _pairManager = pairManager;
         _apiController = apiController;
+        _roleplay = roleplay;
     }
 
     protected override void ResetCachedState()
@@ -54,7 +61,7 @@ public sealed class DtrEntry : DtrEntryBase
 
     protected override void ConfigureEntry(IDtrBarEntry entry)
     {
-        entry.OnClick = _ => _snowMediator.Publish(new UiToggleMessage(typeof(CompactUi)));
+        entry.OnClick = _ => _snowMediator.Publish(new UiToggleMessage(HasRoleplayReminder() ? typeof(RoleplayWindow) : typeof(CompactUi)));
     }
 
     protected override void UpdateEntry()
@@ -119,6 +126,12 @@ public sealed class DtrEntry : DtrEntryBase
             colors = _configService.Current.DtrColorsNotConnected;
         }
 
+        if (HasRoleplayReminder(out var roleplayText, out var roleplayTooltip))
+        {
+            text += "  " + roleplayText;
+            tooltip += Environment.NewLine + Environment.NewLine + roleplayTooltip;
+        }
+
         if (!_configService.Current.UseColorsInDtr)
             colors = default;
 
@@ -148,5 +161,62 @@ public sealed class DtrEntry : DtrEntryBase
             DtrStyle.Style9 => $"\xE040 {text} \xE041",
             _ => $"\uE05D {text}"
         };
+    }
+
+    private bool HasRoleplayReminder() => HasRoleplayReminder(out _, out _);
+
+    private bool HasRoleplayReminder(out string text, out string tooltip)
+    {
+        if (!_configService.Current.PairingSystemEnabled || !_configService.Current.RoleplayDtrEntry)
+        {
+            text = string.Empty;
+            tooltip = string.Empty;
+            return false;
+        }
+
+        return TryGetRoleplayStatus(out text, out tooltip);
+    }
+
+    private bool TryGetRoleplayStatus(out string text, out string tooltip)
+    {
+        var labels = new List<string>();
+        var tooltipLines = new List<string>();
+        if (_roleplay.OwnAvailability is { } card)
+        {
+            var label = AvailabilityLabel(card.State);
+            labels.Add("RP: " + label);
+            tooltipLines.Add("RP availability: " + label + (card.Paused ? " (paused)" : string.Empty));
+        }
+
+        var next = FindStartingSoonEvent();
+        if (next != null)
+        {
+            labels.Add("Event soon");
+            tooltipLines.Add("Starting soon: " + next.Event.Title + " at " + next.Event.StartsAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
+        }
+
+        text = string.Join(" • ", labels);
+        tooltip = string.Join(Environment.NewLine + Environment.NewLine, tooltipLines);
+        return labels.Count > 0;
+    }
+
+    private static string AvailabilityLabel(RpAvailabilityState state) => state switch
+    {
+        RpAvailabilityState.OpenToWalkUps => "Walk-ups",
+        RpAvailabilityState.SeekingHooks => "Seeking hooks",
+        RpAvailabilityState.InScene => "In scene",
+        RpAvailabilityState.OutOfCharacter => "OOC",
+        RpAvailabilityState.Away => "AFK",
+        _ => "Closed",
+    };
+
+    private Snowcloak.API.Dto.Roleplay.RpEventDirectoryEntryDto? FindStartingSoonEvent()
+    {
+        var now = DateTime.UtcNow;
+        return _roleplay.JoinedEvents
+            .Concat(_roleplay.PublicEvents.Entries.Where(item => _configService.Current.RpEventReminders.Contains(item.Event.Id)))
+            .Where(item => item.Event.StartsAtUtc >= now && item.Event.StartsAtUtc <= now.AddMinutes(30))
+            .OrderBy(item => item.Event.StartsAtUtc)
+            .FirstOrDefault();
     }
 }

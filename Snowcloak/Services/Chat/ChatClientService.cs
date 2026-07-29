@@ -63,6 +63,8 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     public IReadOnlyList<ConversationSnapshot> GetOrderedConversations(bool includeOfflineDirect)
     {
         return Store.Snapshot.Conversations
+            .Where(conversation => conversation.Key.Kind != ConversationKind.Direct
+                || _pairManager.GetPairByUID(conversation.Key.Id)?.IsMutualDirectPair == true)
             .Where(conversation => includeOfflineDirect || conversation.Key.Kind != ConversationKind.Direct
                 || _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true)
             .OrderBy(conversation => conversation.Key.Kind switch
@@ -364,7 +366,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
             }
 
             var activeKeys = new HashSet<ConversationKey>();
-            foreach (var pair in _pairManager.DirectPairs)
+            foreach (var pair in _pairManager.DirectPairs.Where(static pair => pair.IsMutualDirectPair))
             {
                 var key = new ConversationKey(ConversationKind.Direct, pair.UserData.UID);
                 activeKeys.Add(key);

@@ -395,22 +395,23 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         InvalidateProjections();
     }
 
-    public void UpdatePairPermissions(UserPermissionsDto dto)
+    public bool UpdatePairPermissions(UserPermissionsDto dto)
     {
         if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
             Logger.LogWarning("UpdatePairPermissions: no such pair for {dto}", dto);
-            return;
+            return false;
         }
 
         if (pair.UserPair == null)
         {
             Logger.LogWarning("UpdatePairPermissions: no direct pair for {dto}", dto);
-            return;
+            return false;
         }
 
+        var pairingChanged = pair.UserPair.OtherPermissions.IsPaired() != dto.Permissions.IsPaired();
         if (pair.UserPair.OtherPermissions.IsPaused() != dto.Permissions.IsPaused()
-            || pair.UserPair.OtherPermissions.IsPaired() != dto.Permissions.IsPaired())
+            || pairingChanged)
         {
             Mediator.Publish(new ClearProfileDataMessage(dto.User));
         }
@@ -427,6 +428,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
             pair.ApplyLastReceivedData();
 
         InvalidateProjections();
+        return pairingChanged;
     }
 
     public void UpdateSelfPairPermissions(UserPermissionsDto dto)

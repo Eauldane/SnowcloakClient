@@ -65,6 +65,9 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     public ConcurrentDictionary<GroupFullInfoDto, GroupPairFullInfoDto> GroupPair { get; } = new(GroupDtoComparer.Instance);
     public bool HasCachedPlayer => CachedPlayer != null && !string.IsNullOrEmpty(CachedPlayer.PlayerName) && _onlineUserIdentDto != null;
     public bool IsOnline => CachedPlayer != null;
+    public bool IsMutualDirectPair => UserPair is { } pair
+        && pair.OwnPermissions.IsPaired()
+        && pair.OtherPermissions.IsPaired();
     public bool IsPaused => EffectivePermissionsResolver.IsPaused(BuildDirectPermissions(), BuildGroupPermissionViews());
 
     private DirectPermissions? BuildDirectPermissions()

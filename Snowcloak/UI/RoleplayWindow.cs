@@ -515,6 +515,13 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                 Queue(_pairRequests.SendPairRequestAsync(profile.Ident, ownIntro, PairingRequestSource.RoleplayDirectory), "Interest request sent.");
             ElezenImgui.AttachTooltip("Sends a pair request marked as coming from the RP directory. Direct messages become available after it is accepted.");
         }
+        else if (!pair.IsMutualDirectPair)
+        {
+            using (ImRaii.Disabled())
+            {
+                ImGui.Button("Awaiting mutual pairing");
+            }
+        }
         else
         {
             if (ImGui.Button(targetIntro == null ? "Open DM" : "Message about hook")) OpenDirectMessage(pair, targetIntro);
