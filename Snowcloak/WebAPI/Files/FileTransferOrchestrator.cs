@@ -35,6 +35,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     private readonly SnowcloakConfigService _snowcloakConfig;
     private readonly TokenProvider _tokenProvider;
     private readonly DownloadSlotGate _downloadSlots;
+    private readonly DownloadSlotGate _decompressionSlots;
     private readonly Lock _forbiddenLock = new();
     private readonly List<ForbiddenTransfer> _forbiddenTransfers = [];
     private readonly HashSet<string> _allowedFileDownloadHosts = new(StringComparer.OrdinalIgnoreCase);
@@ -58,10 +59,13 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        var ver = Assembly.GetExecutingAssembly().GetName().Version;
-        _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", ver!.Major + "." + ver!.Minor + "." + ver!.Build));
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+        _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", version));
 
+        ProcessorThreadCount = Environment.ProcessorCount;
+        DecompressionWorkerLimit = Math.Max(1, ProcessorThreadCount - 2);
         _downloadSlots = new DownloadSlotGate(snowcloakConfig.Current.ParallelDownloads);
+        _decompressionSlots = new DownloadSlotGate(DecompressionWorkerLimit);
         ResetOptionalPrefetchBudget();
         
         Mediator.Subscribe<FileServerInfoReceivedMessage>(this, (msg) =>
@@ -89,6 +93,8 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     public Uri? FilesCdnUri { private set; get; }
     public bool IsInitialized => FilesCdnUri != null;
+    public int ProcessorThreadCount { get; }
+    public int DecompressionWorkerLimit { get; }
 
     protected override void Dispose(bool disposing)
     {
@@ -125,11 +131,14 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         }
     }
 
-    public IReadOnlyList<ForbiddenTransfer> GetForbiddenTransfers()
+    public IReadOnlyList<ForbiddenTransfer> ForbiddenTransfers
     {
-        lock (_forbiddenLock)
+        get
         {
-            return [.. _forbiddenTransfers];
+            lock (_forbiddenLock)
+            {
+                return [.. _forbiddenTransfers];
+            }
         }
     }
 
@@ -144,6 +153,16 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     {
         _downloadSlots.Release();
         Mediator.Publish(new DownloadLimitChangedMessage());
+    }
+
+    public async Task WaitForDecompressionSlotAsync(CancellationToken token)
+    {
+        await _decompressionSlots.WaitAsync(token).ConfigureAwait(false);
+    }
+
+    public void ReleaseDecompressionSlot()
+    {
+        _decompressionSlots.Release();
     }
 
     public long DownloadLimitPerSlot()
@@ -285,20 +304,19 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             attempt++;
             using var requestMessage = requestFactory();
             requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
+            var requestToken = ct ?? untrackedTimeout!.Token;
 
             if (Logger.IsEnabled(LogLevel.Debug)
                 && requestMessage.Content != null && requestMessage.Content is not StreamContent && requestMessage.Content is not ByteArrayContent)
             {
-                var content = await ((JsonContent)requestMessage.Content).ReadAsStringAsync().ConfigureAwait(false);
+                var content = await ((JsonContent)requestMessage.Content).ReadAsStringAsync(requestToken).ConfigureAwait(false);
                 LogSendingRequestWithContent(Logger, requestMessage.Method, requestMessage.RequestUri, content);
             }
             else if (Logger.IsEnabled(LogLevel.Debug))
             {
                 LogSendingRequest(Logger, requestMessage.Method, requestMessage.RequestUri);
             }
-
-            using var untrackedTimeout = ct == null ? new CancellationTokenSource(UntrackedRequestTimeout) : null;
-            var requestToken = ct ?? untrackedTimeout!.Token;
 
             try
             {

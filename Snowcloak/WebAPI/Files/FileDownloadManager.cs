@@ -168,17 +168,8 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             var tempPath = _fileDbManager.GetTemporaryCacheFilePath(Guid.NewGuid().ToString("N"), "scf");
             try
             {
-                groupHandle.SetStatus(DownloadStatus.WaitingForSlot);
-                await _orchestrator.WaitForDownloadSlotAsync(token).ConfigureAwait(false);
-                try
-                {
-                    await DownloadAndExtractAsync(transfer, expectedExtensionByHash[transfer.Hash], groupHandle, tempPath, token)
-                        .ConfigureAwait(false);
-                }
-                finally
-                {
-                    _orchestrator.ReleaseDownloadSlot();
-                }
+                await DownloadAndExtractAsync(transfer, expectedExtensionByHash[transfer.Hash], groupHandle, tempPath, token)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -224,15 +215,34 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             try
             {
-                var downloadedBytes = await DownloadToFileAsync(transfer, groupHandle, tempPath, ct).ConfigureAwait(false);
-                groupHandle.SetStatus(DownloadStatus.Decompressing);
-                var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                await using (input.ConfigureAwait(false))
+                groupHandle.SetStatus(DownloadStatus.WaitingForSlot);
+                await _orchestrator.WaitForDownloadSlotAsync(ct).ConfigureAwait(false);
+                long downloadedBytes;
+                try
                 {
-                    var extractedPath = await ExtractScfToCacheAsync(input, transfer.Hash, expectedExtension, ct).ConfigureAwait(false);
-                    LogExtracted(Logger, transfer.Hash, downloadedBytes, extractedPath);
-                    PersistFileToStorage(transfer.Hash, extractedPath, downloadedBytes);
+                    downloadedBytes = await DownloadToFileAsync(transfer, groupHandle, tempPath, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _orchestrator.ReleaseDownloadSlot();
+                }
+
+                groupHandle.SetStatus(DownloadStatus.Decompressing);
+                await _orchestrator.WaitForDecompressionSlotAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    await using (input.ConfigureAwait(false))
+                    {
+                        var extractedPath = await ExtractScfToCacheAsync(input, transfer.Hash, expectedExtension, ct).ConfigureAwait(false);
+                        LogExtracted(Logger, transfer.Hash, downloadedBytes, extractedPath);
+                        PersistFileToStorage(transfer.Hash, extractedPath, downloadedBytes);
+                    }
+                }
+                finally
+                {
+                    _orchestrator.ReleaseDecompressionSlot();
                 }
 
                 _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);

@@ -101,6 +101,12 @@ public sealed class TransferSettingsPanel
         {
             _configService.Update(c => c.ParallelDownloads = maxParallelDownloads);
         }
+
+#if DEBUG
+        ImGui.TextDisabled(
+            $"Logical processor threads detected: {_fileTransferOrchestrator.ProcessorThreadCount}; "
+            + $"decompression workers allowed: {_fileTransferOrchestrator.DecompressionWorkerLimit}");
+#endif
     }
 
     private void DrawTransferUiSettings()
@@ -308,7 +314,7 @@ public sealed class TransferSettingsPanel
             ImGui.TableSetupColumn("Forbidden by");
             ImGui.TableHeadersRow();
 
-            foreach (var item in _fileTransferOrchestrator.GetForbiddenTransfers())
+            foreach (var item in _fileTransferOrchestrator.ForbiddenTransfers)
             {
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(item.DisplayName);

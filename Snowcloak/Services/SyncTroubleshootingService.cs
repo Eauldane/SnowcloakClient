@@ -390,7 +390,7 @@ public sealed class SyncTroubleshootingService : DisposableMediatorSubscriberBas
             .Where(hash => !string.IsNullOrWhiteSpace(hash))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return _fileTransferOrchestrator.GetForbiddenTransfers()
+        return _fileTransferOrchestrator.ForbiddenTransfers
             .Where(transfer => transfer.Kind == ForbiddenTransferKind.Download && hashes.Contains(transfer.Hash))
             .Select(transfer => transfer.Hash)
             .Distinct(StringComparer.OrdinalIgnoreCase)
