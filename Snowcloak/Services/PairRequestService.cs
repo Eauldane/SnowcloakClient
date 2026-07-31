@@ -44,7 +44,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly IpcManager _ipcManager;
     private readonly PairManager _pairManager;
-    private readonly SnowProfileManager _snowProfileManager;
     private readonly ConcurrentDictionary<string, PairRequesterCharacterSnapshot> _requesterCharacterSnapshots = new(StringComparer.Ordinal);
     private readonly IContextMenu _contextMenu;
     private readonly NotesStore _notesStore;
@@ -73,7 +72,6 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         _ipcManager = ipcManager;
         _contextMenu = contextMenu;
         _pairManager = pairManager;
-        _snowProfileManager = snowProfileManager;
         _safetyStore = new Lazy<UserSafetyStore>(() => serviceProvider.GetRequiredService<UserSafetyStore>());
         _notesStore = notesStore;
         _availabilityStore = new PairingAvailabilityStore(logger, configService, snowProfileManager, mediator,
@@ -311,7 +309,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
                     || string.Equals(pair.GetPlayerNameHash(), ident, StringComparison.Ordinal)));
     }
 
-    public async Task RequestProfileAsync(string ident)
+    public Task RequestProfileAsync(string ident)
     {
         try
         {
@@ -319,22 +317,21 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
             if (connectedPair != null)
             {
                 Mediator.Publish(new ProfileOpenStandaloneMessage(connectedPair.UserData, connectedPair, FallbackName: connectedPair.PlayerName));
-                return;
+                return Task.CompletedTask;
             }
 
-            var profile = await _snowProfileManager.GetSnowProfileAsync(ident, ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
             var nearbyPlayer = _dalamudUtilService.FindPlayerByNameHash(ident);
             var fallbackName = string.IsNullOrWhiteSpace(nearbyPlayer.Name) ? null : nearbyPlayer.Name;
-            var userData = profile.User ?? new UserData(string.Empty);
-            var pair = profile.User == null ? null : _pairManager.GetOrCreateTransientPair(userData);
-            Mediator.Publish(new ProfileOpenStandaloneMessage(userData, pair, profile.Visibility, ident, fallbackName));
+            Mediator.Publish(new ProfileOpenStandaloneMessage(
+                new UserData(string.Empty), RequestedVisibility: ProfileVisibility.Public, Ident: ident, FallbackName: fallbackName));
+            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to request profile for ident {Ident}", ident);
             Mediator.Publish(new NotificationMessage("Profile request failed", "Could not retrieve that profile right now.", NotificationType.Warning, TimeSpan.FromSeconds(5)));
+            return Task.CompletedTask;
         }
-        
     }
 
     public async Task SyncAdvertisingAsync(bool force = false)

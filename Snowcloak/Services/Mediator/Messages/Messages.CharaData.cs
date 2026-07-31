@@ -8,7 +8,7 @@ namespace Snowcloak.Services.Mediator;
 
 public record HaltCharaDataCreation(bool Resume = false) : SameThreadMessage;
 
-public record OpenCharaDataHubWithFilterMessage(UserData UserData) : MessageBase;
+public record OpenCharaDataHubWithFilterMessage(UserData UserData) : SameThreadMessage;
 public record GposeLobbyUserJoin(UserData UserData) : MessageBase;
 public record GPoseLobbyUserLeave(UserData UserData) : MessageBase;
 public record GPoseLobbyReceiveCharaData(CharaDataDownloadDto CharaDataDownloadDto) : MessageBase;

@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>4.0.3</Version>
+    <Version>4.0.4</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Configurations>Release;Debug</Configurations>
@@ -40,7 +40,7 @@
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.API" Version="4.0.0.3" />
+    <PackageReference Include="Snowcloak.API" Version="4.0.4" />
     <PackageReference Include="Snowcloak.CacheFile" Version="4.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />

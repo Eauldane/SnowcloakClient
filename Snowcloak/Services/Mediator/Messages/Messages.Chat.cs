@@ -16,9 +16,9 @@ public record RpRoomUpdatedMessage(RoomDto Dto) : MessageBase;
 public record RpRoomInviteReceivedMessage(RoomInviteReceivedDto Dto) : MessageBase;
 public record ChatMembershipChangedMessage : MessageBase;
 public record ChatIncomingAppendedMessage(ConversationKey Key, ChatEntry Entry) : MessageBase;
-public record OpenChatPopoutMessage(ConversationKey Key) : MessageBase;
-public record OpenRoomAdministrationMessage(string RoomId) : MessageBase;
+public record OpenChatPopoutMessage(ConversationKey Key) : SameThreadMessage;
+public record OpenRoomAdministrationMessage(string RoomId) : SameThreadMessage;
 public record OpenChatSettingsMessage : SameThreadMessage;
-public record OpenChatConversationMessage(ConversationKey Key) : MessageBase;
+public record OpenChatConversationMessage(ConversationKey Key) : SameThreadMessage;
 public record ChatOutgoingStampedMessage(ConversationKey Key, ChatEntry Entry) : MessageBase;
 #pragma warning restore MA0048

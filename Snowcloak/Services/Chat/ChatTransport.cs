@@ -54,7 +54,9 @@ public sealed class ChatTransport : IChatTransport
             ConversationKind.Direct when TryResolveMutualUser(key.Id, out var user)
                 => await _apiController.UserChatGetHistory(new UserDto(user)).ConfigureAwait(false),
             ConversationKind.Direct => [],
-            ConversationKind.Syncshell => await _apiController.GroupChatGetHistory(new GroupDto(ResolveGroup(key.Id))).ConfigureAwait(false),
+            ConversationKind.Syncshell when TryResolveGroup(key.Id, out var group)
+                => await _apiController.GroupChatGetHistory(new GroupDto(group)).ConfigureAwait(false),
+            ConversationKind.Syncshell => [],
             ConversationKind.Room => await _apiController.RoomChatGetHistory(new RoomDto(ResolveRoom(key.Id))).ConfigureAwait(false),
             _ => throw new InvalidOperationException("Unknown conversation kind"),
         };
@@ -73,8 +75,16 @@ public sealed class ChatTransport : IChatTransport
     }
 
     private GroupData ResolveGroup(string gid)
-        => _pairManager.Groups.Keys.FirstOrDefault(group => string.Equals(group.GID, gid, StringComparison.Ordinal))
-           ?? new GroupData(gid);
+        => TryResolveGroup(gid, out var group)
+            ? group
+            : throw new InvalidOperationException("Syncshell is no longer available.");
+
+    private bool TryResolveGroup(string gid, out GroupData group)
+    {
+        var resolved = _pairManager.Groups.Keys.FirstOrDefault(candidate => string.Equals(candidate.GID, gid, StringComparison.Ordinal));
+        group = resolved ?? new GroupData(gid);
+        return resolved != null;
+    }
 
     private RoomData ResolveRoom(string roomId)
         => _rooms.TryGet(roomId, out var room)

@@ -18,17 +18,17 @@ public record UiToggleMessage(Type UiType) : SameThreadMessage;
 public record ProfilePopoutToggle(Pair? Pair) : SameThreadMessage;
 public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
 public record ProfileOpenStandaloneMessage(UserData UserData, Pair? Pair = null, ProfileVisibility? RequestedVisibility = null,
-    string? Ident = null, string? FallbackName = null) : MessageBase;
-public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : MessageBase;
+    string? Ident = null, string? FallbackName = null) : SameThreadMessage;
+public record RemoveWindowMessage(WindowMediatorSubscriberBase Window) : SameThreadMessage;
 public record OpenReportPopupMessage(UserData User, string Ident, ProfileVisibility Visibility, long Revision,
     ProfileReportSurface Surface = ProfileReportSurface.Profile) : SameThreadMessage;
 public record OpenBanUserPopupMessage(Pair PairToBan, GroupFullInfoDto GroupFullInfoDto) : SameThreadMessage;
 public record OpenSyncshellAdminPanel(GroupFullInfoDto GroupInfo) : SameThreadMessage;
-public record OpenSyncshellEventsWindow(GroupFullInfoDto GroupInfo) : MessageBase;
+public record OpenSyncshellEventsWindow(GroupFullInfoDto GroupInfo) : SameThreadMessage;
 public record GroupCommunityUpdatedMessage(GroupCommunityDto Community) : MessageBase;
-public record OpenPermissionWindow(Pair Pair) : MessageBase;
-public record OpenPairAnalysisWindow(Pair Pair) : MessageBase;
-public record OpenSyncTroubleshootingWindow(Pair Pair) : MessageBase;
+public record OpenPermissionWindow(Pair Pair) : SameThreadMessage;
+public record OpenPairAnalysisWindow(Pair Pair) : SameThreadMessage;
+public record OpenSyncTroubleshootingWindow(Pair Pair) : SameThreadMessage;
 public record OpenBbCodeLinkPopupMessage(string Url) : SameThreadMessage;
 public record OpenFrostbrandUiMessage : SameThreadMessage;
 #pragma warning restore S2094

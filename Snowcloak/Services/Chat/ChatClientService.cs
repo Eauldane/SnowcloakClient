@@ -18,12 +18,14 @@ namespace Snowcloak.Services.Chat;
 
 public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHostedService
 {
+    private static readonly TimeSpan HistoryRestoreInterval = TimeSpan.FromMilliseconds(500);
     private static readonly Action<ILogger, ConversationKey, Exception?> LogHistoryRestoreFailed = LoggerMessage.Define<ConversationKey>(
         LogLevel.Debug,
         new EventId(1, nameof(EnsureHistoryAsync)),
         "Unable to restore chat history for {Conversation}");
     private readonly ApiController _apiController;
     private readonly ChatPreferencesStore _chatPreferences;
+    private readonly ChatSyncStateStore _chatSyncState;
     private readonly SnowcloakConfigService _configService;
     private readonly ChatIdentityResolver _identityResolver;
     private readonly PairManager _pairManager;
@@ -35,17 +37,19 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     private readonly HashSet<string> _activeRooms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RoomTurnStateDto?> _roomTurns = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly SemaphoreSlim _historyRestoreGate = new(1, 1);
     private bool _chatEnabled;
 
     public ChatClientService(ILogger<ChatClientService> logger, SnowMediator mediator, ApiController apiController,
         ChatStore store, ChatPreferencesStore chatPreferences, SnowcloakConfigService configService,
-        ChatIdentityResolver identityResolver, PairManager pairManager, ChatRoomRegistry rooms,
+        ChatSyncStateStore chatSyncState, ChatIdentityResolver identityResolver, PairManager pairManager, ChatRoomRegistry rooms,
         ServerRegistry serverRegistry) : base(logger, mediator)
     {
         ArgumentNullException.ThrowIfNull(configService);
         _apiController = apiController;
         Store = store;
         _chatPreferences = chatPreferences;
+        _chatSyncState = chatSyncState;
         _configService = configService;
         _identityResolver = identityResolver;
         _pairManager = pairManager;
@@ -388,11 +392,6 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
                 Store.RemoveConversation(conversation.Key);
             }
 
-            foreach (var conversation in Store.Snapshot.Conversations.Where(conversation => conversation.Key.Kind != ConversationKind.Room))
-            {
-                await EnsureHistoryAsync(conversation.Key, cancellationToken).ConfigureAwait(false);
-            }
-
             var roomList = await _apiController.RoomList().ConfigureAwait(false);
             var counts = await _apiController.RoomListUserCounts().ConfigureAwait(false);
             foreach (var listedRoom in roomList)
@@ -439,28 +438,249 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
             }
 
             _serverRegistry.Save();
-            foreach (var conversation in Store.Snapshot.Conversations.Where(conversation => conversation.Key.Kind == ConversationKind.Room))
-            {
-                await EnsureHistoryAsync(conversation.Key, cancellationToken).ConfigureAwait(false);
-            }
         }
         finally
         {
             _refreshGate.Release();
         }
+
+        await RestoreChangedHistoriesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task EnsureHistoryAsync(ConversationKey key, CancellationToken cancellationToken)
+    private async Task RestoreChangedHistoriesAsync(CancellationToken cancellationToken)
+    {
+        await _historyRestoreGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_configService.Current.ChatEnabled || !_apiController.IsConnected)
+            {
+                return;
+            }
+
+            if (!_apiController.SupportsChatHistoryDigest)
+            {
+                await RestoreLegacyHistoriesAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var digest = await _apiController.ChatGetHistoryDigest().ConfigureAwait(false);
+            var snapshot = Store.Snapshot;
+            var activeConversation = snapshot.ActiveConversation;
+            var conversations = snapshot.Conversations.ToDictionary(conversation => conversation.Key);
+            var storedHeads = new Dictionary<ConversationKey, string>(
+                _chatSyncState.GetHistoryHeads(_serverRegistry.CurrentApiUrl));
+            var digestHeads = new Dictionary<ConversationKey, ChatHistoryDigestEntryDto>();
+            foreach (var entry in digest.Conversations)
+            {
+                if (TryMapDigestKey(entry, out var key) && conversations.ContainsKey(key))
+                {
+                    digestHeads[key] = entry;
+                }
+            }
+
+            var candidates = digestHeads
+                .Select(entry =>
+                {
+                    var conversation = conversations[entry.Key];
+                    var localHead = LatestMessageId(conversation);
+                    storedHeads.TryGetValue(entry.Key, out var storedHead);
+                    var previousHead = storedHead ?? localHead;
+                    return new HistoryRestoreCandidate(
+                        entry.Key,
+                        entry.Value,
+                        previousHead,
+                        conversation.Entries.Count > 0);
+                })
+                .Where(candidate => !string.Equals(candidate.Digest.MessageId,
+                    storedHeads.GetValueOrDefault(candidate.Key) ?? LatestMessageId(conversations[candidate.Key]),
+                    StringComparison.Ordinal))
+                .OrderBy(candidate => candidate.Key.Kind switch
+                {
+                    ConversationKind.Direct when candidate.HasLocalMessages => 0,
+                    ConversationKind.Direct => 1,
+                    ConversationKind.Syncshell when candidate.HasLocalMessages => 2,
+                    ConversationKind.Syncshell => 3,
+                    _ => 4,
+                })
+                .ThenBy(candidate => candidate.Key == activeConversation ? 0 : 1)
+                .ToArray();
+
+            for (var index = 0; index < candidates.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_apiController.IsConnected)
+                {
+                    return;
+                }
+
+                if (index > 0)
+                {
+                    await Task.Delay(HistoryRestoreInterval, cancellationToken).ConfigureAwait(false);
+                }
+
+                var candidate = candidates[index];
+                if (!await EnsureHistoryAsync(candidate.Key, cancellationToken).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                SurfaceOfflineMessages(candidate);
+                storedHeads[candidate.Key] = candidate.Digest.MessageId;
+            }
+
+            if (_apiController.IsConnected)
+            {
+                var updatedHeads = digestHeads.ToDictionary(entry => entry.Key, entry => entry.Value.MessageId);
+                foreach (var candidate in candidates.Where(candidate =>
+                             !storedHeads.TryGetValue(candidate.Key, out var head)
+                             || !string.Equals(head, candidate.Digest.MessageId, StringComparison.Ordinal)))
+                {
+                    if (storedHeads.TryGetValue(candidate.Key, out var previousHead))
+                    {
+                        updatedHeads[candidate.Key] = previousHead;
+                    }
+                    else
+                    {
+                        updatedHeads.Remove(candidate.Key);
+                    }
+                }
+
+                var currentConversations = Store.Snapshot.Conversations.ToDictionary(conversation => conversation.Key);
+                foreach (var currentHead in _chatSyncState.GetHistoryHeads(_serverRegistry.CurrentApiUrl))
+                {
+                    if (!digestHeads.TryGetValue(currentHead.Key, out var digestHead)
+                        || !currentConversations.TryGetValue(currentHead.Key, out var conversation))
+                    {
+                        continue;
+                    }
+
+                    var currentEntry = conversation.Entries.FirstOrDefault(entry =>
+                        string.Equals(entry.MessageId, currentHead.Value, StringComparison.Ordinal));
+                    if (currentEntry != null
+                        && currentEntry.Timestamp.ToUnixTimeSeconds() >= digestHead.Timestamp)
+                    {
+                        updatedHeads[currentHead.Key] = currentHead.Value;
+                    }
+                }
+
+                _chatSyncState.ReplaceHistoryHeads(_serverRegistry.CurrentApiUrl, updatedHeads);
+            }
+        }
+        finally
+        {
+            _historyRestoreGate.Release();
+        }
+    }
+
+    private async Task RestoreLegacyHistoriesAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = Store.Snapshot;
+        var activeConversation = snapshot.ActiveConversation;
+        var candidates = snapshot.Conversations
+            .Where(conversation => conversation.Key.Kind is ConversationKind.Direct or ConversationKind.Syncshell
+                                   && !conversation.HistoryLoaded)
+            .OrderBy(conversation => conversation.Key.Kind switch
+            {
+                ConversationKind.Direct when conversation.Entries.Count > 0 => 0,
+                ConversationKind.Direct => 1,
+                ConversationKind.Syncshell when conversation.Entries.Count > 0 => 2,
+                ConversationKind.Syncshell => 3,
+                _ => 4,
+            })
+            .ThenBy(conversation => conversation.Key == activeConversation ? 0 : 1)
+            .Select(conversation => conversation.Key)
+            .ToArray();
+        for (var index = 0; index < candidates.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_apiController.IsConnected)
+            {
+                return;
+            }
+
+            if (index > 0)
+            {
+                await Task.Delay(HistoryRestoreInterval, cancellationToken).ConfigureAwait(false);
+            }
+
+            await EnsureHistoryAsync(candidates[index], cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<bool> EnsureHistoryAsync(ConversationKey key, CancellationToken cancellationToken)
     {
         try
         {
             await Store.EnsureHistory(key, cancellationToken).ConfigureAwait(false);
+            return true;
         }
         catch (HubException ex)
         {
             LogHistoryRestoreFailed(Logger, key, ex);
+            return false;
         }
     }
+
+    private void SurfaceOfflineMessages(HistoryRestoreCandidate candidate)
+    {
+        if (string.IsNullOrEmpty(candidate.PreviousMessageId))
+        {
+            return;
+        }
+
+        var conversation = Store.Snapshot.Conversations.FirstOrDefault(entry => entry.Key == candidate.Key);
+        if (conversation == null)
+        {
+            return;
+        }
+
+        var messages = conversation.Entries
+            .Where(entry => entry.Kind == ChatEntryKind.Message && !string.IsNullOrEmpty(entry.MessageId))
+            .ToArray();
+        var previousIndex = Array.FindIndex(messages,
+            entry => string.Equals(entry.MessageId, candidate.PreviousMessageId, StringComparison.Ordinal));
+        var digestIndex = Array.FindIndex(messages,
+            entry => string.Equals(entry.MessageId, candidate.Digest.MessageId, StringComparison.Ordinal));
+        if (digestIndex < 0)
+        {
+            return;
+        }
+
+        var incoming = previousIndex >= 0 && previousIndex < digestIndex
+            ? messages[(previousIndex + 1)..(digestIndex + 1)]
+                .Where(entry => !string.Equals(entry.SenderUid, _identityResolver.SelfUid, StringComparison.Ordinal))
+                .ToArray()
+            : messages
+                .Where((entry, index) => index == digestIndex
+                                         && !string.Equals(entry.SenderUid, _identityResolver.SelfUid, StringComparison.Ordinal))
+                .ToArray();
+        if (incoming.Length == 0)
+        {
+            return;
+        }
+
+        Store.AddUnread(candidate.Key, incoming.Length);
+        Mediator.Publish(new ChatIncomingAppendedMessage(candidate.Key, incoming[^1]));
+    }
+
+    private static bool TryMapDigestKey(ChatHistoryDigestEntryDto entry, out ConversationKey key)
+    {
+        key = entry.Kind switch
+        {
+            ChatHistoryConversationKind.Direct => new ConversationKey(ConversationKind.Direct, entry.Id),
+            ChatHistoryConversationKind.Group => new ConversationKey(ConversationKind.Syncshell, entry.Id),
+            _ => default,
+        };
+        return entry.Kind is ChatHistoryConversationKind.Direct or ChatHistoryConversationKind.Group;
+    }
+
+    private static string? LatestMessageId(ConversationSnapshot conversation)
+        => conversation.Entries
+            .Where(entry => entry.Kind == ChatEntryKind.Message && !string.IsNullOrEmpty(entry.MessageId))
+            .OrderByDescending(entry => entry.Timestamp)
+            .ThenByDescending(entry => entry.MessageId, StringComparer.Ordinal)
+            .Select(entry => entry.MessageId)
+            .FirstOrDefault();
 
     private void Receive(ConversationKey key, ChatMessageDto message)
     {
@@ -473,6 +693,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         var entry = Store.AppendIncoming(key, message, suppressUnread: message.DiceRoll != null);
         if (entry != null)
         {
+            TrackHistoryHead(key, entry.MessageId);
             Mediator.Publish(new ChatIncomingAppendedMessage(key, entry));
         }
     }
@@ -677,7 +898,17 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
 
     private void OnMessageSent(object? sender, ChatMessageSentEventArgs eventArgs)
     {
+        TrackHistoryHead(eventArgs.Key, eventArgs.Entry.MessageId);
         Mediator.Publish(new ChatOutgoingStampedMessage(eventArgs.Key, eventArgs.Entry));
+    }
+
+    private void TrackHistoryHead(ConversationKey key, string messageId)
+    {
+        if (key.Kind is ConversationKind.Direct or ConversationKind.Syncshell
+            && !string.IsNullOrEmpty(messageId))
+        {
+            _chatSyncState.SetHistoryHead(_serverRegistry.CurrentApiUrl, key, messageId);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -686,6 +917,13 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         _configService.ConfigChanged -= OnGlobalConfigChanged;
         Store.MessageSent -= OnMessageSent;
         _refreshGate.Dispose();
+        _historyRestoreGate.Dispose();
         base.Dispose(disposing);
     }
+
+    private sealed record HistoryRestoreCandidate(
+        ConversationKey Key,
+        ChatHistoryDigestEntryDto Digest,
+        string? PreviousMessageId,
+        bool HasLocalMessages);
 }

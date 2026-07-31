@@ -89,7 +89,7 @@ public sealed class ProfileViewComponent
         CharacterProfileUiShared.DrawLabelValue("Approach:", request.Profile.Document.Approachability);
         foreach (var glance in request.Profile.Document.AtAGlance.Take(3))
         {
-            ImGui.BulletText(glance);
+            DrawWrappedBullet(glance);
         }
 
         DrawTags(request.VisibleTags, $"{request.IdPrefix}-tags");
@@ -224,8 +224,15 @@ public sealed class ProfileViewComponent
         CharacterProfileUiShared.DrawSectionTitle("At A Glance");
         foreach (var entry in entries)
         {
-            ImGui.BulletText(entry);
+            DrawWrappedBullet(entry);
         }
+    }
+
+    private static void DrawWrappedBullet(string text)
+    {
+        ImGui.Bullet();
+        ImGui.SameLine();
+        ImGui.TextWrapped(text);
     }
 
     private void DrawBbCodeSection(string title, string text)

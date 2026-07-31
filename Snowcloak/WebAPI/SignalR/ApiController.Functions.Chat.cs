@@ -3,11 +3,24 @@ using Snowcloak.API.Data;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Protocol;
 
 namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
+    public bool SupportsChatHistoryDigest
+        => IsConnected
+           && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ChatHistoryDigest) is true;
+
+    public Task<ChatHistoryDigestDto> ChatGetHistoryDigest()
+    {
+        CheckConnection();
+        return _snowHub!.InvokeAsync<ChatHistoryDigestDto>(
+            nameof(ChatGetHistoryDigest),
+            _connectionLifecycle.ConnectionToken);
+    }
+
     public Task<ChatMessageDto> UserChatSendMsg(UserDto user, ChatMessage message)
     {
         CheckConnection();

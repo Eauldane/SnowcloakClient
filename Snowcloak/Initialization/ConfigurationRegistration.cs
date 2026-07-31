@@ -38,6 +38,8 @@ internal static class ConfigurationRegistration
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<RemoteConfigCacheService>());
         collection.AddSingleton<ChatPreferencesStore>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<ChatPreferencesStore>());
+        collection.AddSingleton<ChatSyncStateStore>();
+        collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<ChatSyncStateStore>());
         collection.AddSingleton<StateDocumentWarmup>();
 
         return collection;

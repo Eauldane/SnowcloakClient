@@ -421,6 +421,24 @@ public sealed class ChatStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    public void AddUnread(ConversationKey key, int count)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            if (_activeConversation != key && _conversations.TryGetValue(key, out var conversation))
+            {
+                conversation.Unread += count;
+            }
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     public void SetMuted(ConversationKey key, bool muted)
     {
         lock (_lock)
