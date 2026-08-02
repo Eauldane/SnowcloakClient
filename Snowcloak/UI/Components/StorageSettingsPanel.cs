@@ -247,18 +247,21 @@ public sealed partial class StorageSettingsPanel : IDisposable
         }
 
         float maxCacheSize = (float)_configService.Current.MaxLocalCacheInGiB;
+        float storageSizeControlWidth;
         if (stackedLayout)
         {
             ImGui.TextColored(ImGuiColors.DalamudGrey, "Maximum storage size");
-            ImGui.SetNextItemWidth(-1);
+            storageSizeControlWidth = ImGui.GetContentRegionAvail().X;
         }
         else
         {
-            ImGui.SetNextItemWidth(400 * ImGuiHelpers.GlobalScale);
+            storageSizeControlWidth = 400 * ImGuiHelpers.GlobalScale;
         }
         var storageSizeLabel = stackedLayout ? "##maximumStorageSize" : "Maximum Storage Size";
-        if (ImGui.SliderFloat(storageSizeLabel, ref maxCacheSize, 1f, 200f, "%.2f GiB"))
+        if (ElezenImgui.SliderFloatWithInput(storageSizeLabel, ref maxCacheSize, 1f, 200f,
+                "%.2f GiB", storageSizeControlWidth))
         {
+            maxCacheSize = float.IsFinite(maxCacheSize) ? Math.Max(1f, maxCacheSize) : 1f;
             _configService.Update(c => c.MaxLocalCacheInGiB = maxCacheSize);
         }
         ElezenImgui.DrawHelpText("The storage is automatically governed by Snowcloak. It will clear itself automatically once it reaches the set capacity according to the selected eviction strategy. You typically do not need to clear it yourself.");

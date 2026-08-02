@@ -28,9 +28,9 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[15.5.7, )",
-        "resolved": "15.5.7",
-        "contentHash": "iWClgVPN4BWl5/00V6cow0O0PQOhvXNYO1kSy3dUYnRGLE04sR7ftk/DRMq0kf3w8dozEkYOgyn5PDufBMe+Rw==",
+        "requested": "[15.5.8, )",
+        "resolved": "15.5.8",
+        "contentHash": "XSS+HxVyA9u0rC9uhFSEV4SsfQTisumJmYvjhbFlcsjw8ES4PcZAZndQZEo1xzogGF03l+uD/WHo09MAx29ZrA==",
         "dependencies": {
           "Microsoft.Extensions.Logging": "10.0.9"
         }
