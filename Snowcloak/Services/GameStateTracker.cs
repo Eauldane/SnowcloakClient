@@ -2,7 +2,6 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin.Services;
 using ElezenTools.Housing;
-using ElezenTools.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Core.Scheduling;
@@ -62,15 +61,7 @@ public sealed partial class GameStateTracker : IHostedService
     public bool IsZoning => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
     public bool IsInCombatOrPerforming { get; private set; }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        await Service.RunOnFrameworkAsync(() =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _objectTableCache.Initialise();
-        }).ConfigureAwait(false);
-    }
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task StopAsync(CancellationToken cancellationToken)
     {

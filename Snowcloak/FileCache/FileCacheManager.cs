@@ -18,7 +18,6 @@ namespace Snowcloak.FileCache;
 public sealed class FileCacheManager : IHostedService
 {
     public const string CachePrefix = CachePathResolver.CachePrefix;
-    public const string CsvSplit = "|";
     public const string PenumbraPrefix = CachePathResolver.PenumbraPrefix;
     public const string SubstPrefix = CachePathResolver.SubstitutePrefix;
     public const string SubstPath = "subst";
@@ -27,7 +26,6 @@ public sealed class FileCacheManager : IHostedService
     private readonly SnowcloakConfigService _configService;
     private readonly SnowMediator _snowMediator;
     private readonly FileCacheIndex _index;
-    private readonly string _csvPath;
     private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly CancellationTokenSource _runtimeCts = new();
     private readonly ConcurrentDictionary<string, List<FileCacheEntity>> _fileCaches = new(StringComparer.OrdinalIgnoreCase);
@@ -50,10 +48,7 @@ public sealed class FileCacheManager : IHostedService
         _snowMediator = snowMediator;
         _index = index;
         _backgroundTasks = new BackgroundTaskTracker(logger);
-        _csvPath = Path.Combine(configService.ConfigurationDirectory, "SnowcloakFiles.csv");
     }
-
-    private string CsvBakPath => _csvPath + ".bak";
 
     public FileCacheEntity? CreateCacheEntry(string path, string? hash = null)
     {
@@ -605,8 +600,6 @@ public sealed class FileCacheManager : IHostedService
     {
         _logger.LogInformation("Starting FileCacheManager");
 
-        ImportLegacyCsvIfPresent();
-
         var entities = _index.LoadAll();
 
         if (entities.Count > 0 && (!_ipcManager.Penumbra.APIAvailable || string.IsNullOrEmpty(_ipcManager.Penumbra.ModDirectory)))
@@ -649,112 +642,6 @@ public sealed class FileCacheManager : IHostedService
             }
 
             await Task.Delay(25, token).ConfigureAwait(false);
-        }
-    }
-
-    private void ImportLegacyCsvIfPresent()
-    {
-        try
-        {
-            if (File.Exists(CsvBakPath))
-            {
-                _logger.LogInformation("{bakPath} found, moving to {csvPath}", CsvBakPath, _csvPath);
-                File.Move(CsvBakPath, _csvPath, overwrite: true);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to move BAK to ORG, deleting BAK");
-            try
-            {
-                if (File.Exists(CsvBakPath))
-                    File.Delete(CsvBakPath);
-            }
-            catch (Exception ex1)
-            {
-                _logger.LogWarning(ex1, "Could not delete bak file");
-            }
-        }
-
-        if (!File.Exists(_csvPath)) return;
-
-        _logger.LogInformation("Importing legacy file cache {csvPath} into index", _csvPath);
-
-        bool success = false;
-        string[] entries = [];
-        int attempts = 0;
-        while (!success && attempts < 10)
-        {
-            try
-            {
-                entries = File.ReadAllLines(_csvPath);
-                success = true;
-            }
-            catch (Exception ex)
-            {
-                attempts++;
-                _logger.LogWarning(ex, "Could not open {file}, trying again", _csvPath);
-                Thread.Sleep(100);
-            }
-        }
-
-        if (!success)
-        {
-            _logger.LogWarning("Could not read legacy file cache {path}, skipping import", _csvPath);
-            return;
-        }
-
-        List<FileCacheEntity> imported = [];
-        HashSet<string> processedFiles = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in entries)
-        {
-            var splittedEntry = entry.Split(CsvSplit, StringSplitOptions.None);
-            try
-            {
-                var hash = splittedEntry[0];
-                if (hash.Length != 64) throw new InvalidOperationException("Expected Hash length of 64, received " + hash.Length);
-                var path = splittedEntry[1];
-                var time = splittedEntry[2];
-
-                if (!processedFiles.Add(path))
-                {
-                    _logger.LogWarning("Already processed {file}, ignoring", path);
-                    continue;
-                }
-
-                long size = -1;
-                long compressed = -1;
-                if (splittedEntry.Length > 3)
-                {
-                    if (long.TryParse(splittedEntry[3], CultureInfo.InvariantCulture, out long result))
-                    {
-                        size = result;
-                    }
-                    if (long.TryParse(splittedEntry[4], CultureInfo.InvariantCulture, out long resultCompressed))
-                    {
-                        compressed = resultCompressed;
-                    }
-                }
-                imported.Add(new FileCacheEntity(hash, path, time, size, compressed));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to import entry {entry}, ignoring", entry);
-            }
-        }
-
-        _logger.LogInformation("Importing {amount} files from {path}", imported.Count, _csvPath);
-        _index.UpsertMany(imported);
-
-        try
-        {
-            File.Delete(_csvPath);
-            if (File.Exists(CsvBakPath))
-                File.Delete(CsvBakPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not delete legacy file cache {path} after import", _csvPath);
         }
     }
 

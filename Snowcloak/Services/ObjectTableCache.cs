@@ -49,14 +49,6 @@ public sealed class ObjectTableCache
     public bool IsAnythingDrawing { get; private set; }
     public uint ClassJobId => _classJobId;
 
-    public void Initialise()
-    {
-        if (_objectTable.LocalPlayer != null)
-        {
-            _classJobId = _playerState.ClassJob.RowId;
-        }
-    }
-
     public void SetLocalClassJob(ICharacter? localPlayer)
     {
         if (localPlayer != null)
