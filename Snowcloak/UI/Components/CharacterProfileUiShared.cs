@@ -33,7 +33,12 @@ public static class CharacterProfileUiShared
         drawList.AddRectFilled(start, end, Colour.Vector4ToColour(HeaderBackground), 8f);
         if (headerImageTexture != null)
         {
-            drawList.AddImage(headerImageTexture.Handle, start, end);
+            var (uvMin, uvMax) = CalculateCoverUvs(
+                headerImageTexture.Width,
+                headerImageTexture.Height,
+                width,
+                height);
+            drawList.AddImage(headerImageTexture.Handle, start, end, uvMin, uvMax);
             drawList.AddRectFilled(start, end, Colour.Vector4ToColour(new Vector4(0f, 0f, 0f, 0.34f)), 8f);
         }
         else
@@ -90,6 +95,27 @@ public static class CharacterProfileUiShared
         }
 
         ImGui.SetCursorScreenPos(afterHeader);
+    }
+
+    private static (Vector2 Min, Vector2 Max) CalculateCoverUvs(
+        float imageWidth,
+        float imageHeight,
+        float destinationWidth,
+        float destinationHeight)
+    {
+        var sourceAspect = MathF.Max(1f, imageWidth) / MathF.Max(1f, imageHeight);
+        var destinationAspect = MathF.Max(1f, destinationWidth) / MathF.Max(1f, destinationHeight);
+
+        if (sourceAspect > destinationAspect)
+        {
+            var visibleWidth = destinationAspect / sourceAspect;
+            var horizontalInset = (1f - visibleWidth) / 2f;
+            return (new Vector2(horizontalInset, 0f), new Vector2(1f - horizontalInset, 1f));
+        }
+
+        var visibleHeight = sourceAspect / destinationAspect;
+        var verticalInset = (1f - visibleHeight) / 2f;
+        return (new Vector2(0f, verticalInset), new Vector2(1f, 1f - verticalInset));
     }
 
     public static void DrawSectionTitle(string title)
