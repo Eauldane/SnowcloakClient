@@ -167,10 +167,28 @@ internal sealed partial class CharacterApplicationPipeline
 
             while (toDownloadReplacements.Count > 0 && attempts++ <= 10 && !downloadToken.IsCancellationRequested)
             {
-                if (_handler.PairDownloadTask != null && !_handler.PairDownloadTask.IsCompleted)
+                var priorDownloadTask = _handler.PairDownloadTask;
+                if (priorDownloadTask != null)
                 {
-                    LogFinishingPriorDownload(_handler.PlayerName, updatedData);
-                    await _handler.PairDownloadTask.ConfigureAwait(false);
+                    if (!priorDownloadTask.IsCompleted)
+                    {
+                        LogFinishingPriorDownload(_handler.PlayerName, updatedData);
+                        try
+                        {
+                            await priorDownloadTask.ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (!downloadToken.IsCancellationRequested)
+                        {
+                            LogPriorDownloadCancelled(_handler.PlayerName);
+                        }
+                    }
+
+                    downloadToken.ThrowIfCancellationRequested();
+                    toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
+                    if (toDownloadReplacements.Count == 0)
+                    {
+                        break;
+                    }
                 }
 
                 LogDownloadingMissingFiles(_handler.PlayerName, updatedData);
@@ -461,6 +479,9 @@ internal sealed partial class CharacterApplicationPipeline
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Finishing prior running download task for player {name}, {kind}")]
     private partial void LogFinishingPriorDownload(string? name, object kind);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Prior download was cancelled; continuing latest application for player {name}")]
+    private partial void LogPriorDownloadCancelled(string? name);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Downloading missing files for player {name}, {kind}")]
     private partial void LogDownloadingMissingFiles(string? name, object kind);
