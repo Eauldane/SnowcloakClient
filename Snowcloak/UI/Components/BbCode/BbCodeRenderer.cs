@@ -102,6 +102,17 @@ public sealed partial class BbCodeRenderer
         }
     }
 
+    public Vector2 Measure(string text, float wrapWidth, BbCodeRenderOptions? options = null)
+    {
+        var renderOptions = options ?? new BbCodeRenderOptions();
+        var width = wrapWidth > 0 ? wrapWidth : ImGui.GetContentRegionAvail().X;
+        var segments = BuildSegments(Parse(text), renderOptions).ToList();
+        var lines = BuildLines(segments, width);
+        return new Vector2(
+            lines.Count == 0 ? 0f : lines.Max(line => line.Width),
+            lines.Sum(line => line.Height));
+    }
+
     private IEnumerable<LayoutSegment> BuildSegments(IReadOnlyList<BbCodeElement> elements, BbCodeRenderOptions options)
     {
         foreach (var element in elements)
@@ -131,20 +142,24 @@ public sealed partial class BbCodeRenderer
                     var emoteSize = GetScaledImageSize(emoteTexture, options.EmoteSize, options.EmoteSize);
                     yield return LayoutSegment.FromImage(emoteSize, emoteElement.Style with { Underline = false }, emoteTexture);
                     break;
-                case BbCodeEmoteElement emoteElement:
+                case BbCodeEmoteElement emoteElement when options.ShowDisabledMediaAsText:
                     var emoteText = $":{emoteElement.EmoteName}:";
                     var emoteTextSize = ImGui.CalcTextSize(emoteText, hideTextAfterDoubleHash: false, 0f);
                     yield return LayoutSegment.FromText(emoteText, emoteTextSize, emoteElement.Style);
+                    break;
+                case BbCodeEmoteElement:
                     break;
                 case BbCodeImageElement imageElement when options.AllowImages:
                     var texture = _textureService.GetImage(imageElement.Source);
                     var imageSize = GetScaledImageSize(texture, options.MaxImageWidth, options.MaxImageHeight);
                     yield return LayoutSegment.FromImage(imageSize, imageElement.Style with { Underline = false }, texture);
                     break;
-                case BbCodeImageElement imageElement:
+                case BbCodeImageElement imageElement when options.ShowDisabledMediaAsText:
                     var placeholderText = $"[img]{imageElement.Source}[/img]";
                     var placeholderSize = ImGui.CalcTextSize(placeholderText, hideTextAfterDoubleHash: false, 0f);
                     yield return LayoutSegment.FromText(placeholderText, placeholderSize, imageElement.Style);
+                    break;
+                case BbCodeImageElement:
                     break;
                 case BbCodeElement:
                     break;

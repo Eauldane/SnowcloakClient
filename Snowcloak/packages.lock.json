@@ -28,18 +28,18 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[15.5.8, )",
-        "resolved": "15.5.8",
-        "contentHash": "XSS+HxVyA9u0rC9uhFSEV4SsfQTisumJmYvjhbFlcsjw8ES4PcZAZndQZEo1xzogGF03l+uD/WHo09MAx29ZrA==",
+        "requested": "[15.55.0, )",
+        "resolved": "15.55.0",
+        "contentHash": "xP6dZvBIjb3FVid3ZYfNbQhcB4JBJFIbfVxbIe0uoHNilN63rxircFv+LYkT2q6HCSTj+1EqmyRtN1aToWGEsw==",
         "dependencies": {
           "Microsoft.Extensions.Logging": "10.0.9"
         }
       },
       "ElezenTools.Core": {
         "type": "Direct",
-        "requested": "[15.5.7, )",
-        "resolved": "15.5.7",
-        "contentHash": "80Kc+3rn3XeKAbGlOgjeFBF5/aYmHOyxWlh3j0ZdGpoQ8whCpFiq9GRkMgJjAMm5QsX7HN0r2MA8N+262olutA==",
+        "requested": "[15.55.0, )",
+        "resolved": "15.55.0",
+        "contentHash": "lu1y50zYgy9qOyRjIEooXdiojXRFrtD+TWhxCF7T7fagvKAMIjcQriaQ+j/42cjLvhY59Ga17ZXcMrrXUrz71w==",
         "dependencies": {
           "Microsoft.Extensions.Logging.Abstractions": "10.0.9"
         }
@@ -760,7 +760,7 @@
       "snowcloak.core": {
         "type": "Project",
         "dependencies": {
-          "ElezenTools.Core": "[15.5.7, )",
+          "ElezenTools.Core": "[15.55.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "Snowcloak.API": "[4.0.4, )"
         }

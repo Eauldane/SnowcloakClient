@@ -7,6 +7,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.Pairing;
 using Snowcloak.UI.PairingAvailability;
+using Snowcloak.UI.Components;
 using System;
 using System.Numerics;
 
@@ -22,6 +23,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase, IS
 
     public PairingAvailabilityWindow(ILogger<PairingAvailabilityWindow> logger, SnowMediator mediator,
         PairRequestService pairRequestService, DalamudUtilService dalamudUtilService,
+        BbCodeRenderService bbCodeRenderService,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Frostbrand - Open to Pairs###SnowcloakPairingAvailability", performanceCollectorService)
     {
@@ -29,7 +31,7 @@ public sealed class PairingAvailabilityWindow : WindowMediatorSubscriberBase, IS
 
         var store = pairRequestService.AvailabilityStore;
         _dispatcher = new AvailabilityDispatcher(logger, pairRequestService, dalamudUtilService, mediator);
-        _host = new StoreViewHost<AvailabilityViewState>(store, new PairingAvailabilityView(), _dispatcher,
+        _host = new StoreViewHost<AvailabilityViewState>(store, new PairingAvailabilityView(bbCodeRenderService), _dispatcher,
             state => SyncLockButton(state.Locked));
         store.RefreshState();
 

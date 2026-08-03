@@ -44,4 +44,5 @@ public sealed record BbCodeRenderOptions(
     bool AllowImages = true,
     bool AllowEmotes = true,
     bool AllowLinks = true,
-    Action<string>? OnLinkClicked = null);
+    Action<string>? OnLinkClicked = null,
+    bool ShowDisabledMediaAsText = true);

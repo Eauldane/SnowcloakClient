@@ -20,6 +20,15 @@ public sealed class BbCodeRenderService
 
     public void Render(string text, float wrapWidth, BbCodeRenderOptions? options = null)
     {
+        var renderOptions = ResolveOptions(options);
+        _bbCodeRenderer.Render(text, wrapWidth, renderOptions);
+    }
+
+    public System.Numerics.Vector2 Measure(string text, float wrapWidth, BbCodeRenderOptions? options = null)
+        => _bbCodeRenderer.Measure(text, wrapWidth, ResolveOptions(options));
+
+    private BbCodeRenderOptions ResolveOptions(BbCodeRenderOptions? options)
+    {
         var renderOptions = options ?? new BbCodeRenderOptions();
 
         if (!_configService.Current.AllowBbCodeImages)
@@ -35,6 +44,6 @@ public sealed class BbCodeRenderService
             };
         }
 
-        _bbCodeRenderer.Render(text, wrapWidth, renderOptions);
+        return renderOptions;
     }
 }

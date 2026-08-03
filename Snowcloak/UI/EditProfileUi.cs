@@ -36,6 +36,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private readonly ApiController _apiController;
     private readonly CharacterProfileBackupService _backupService;
+    private readonly BbCodeRenderService _bbCodeRenderService;
     private readonly SnowcloakConfigService _configService;
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly FileDialogManager _fileDialogManager;
@@ -82,6 +83,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         _fileDialogManager = fileDialogManager;
         _snowProfileManager = snowProfileManager;
         _backupService = backupService;
+        _bbCodeRenderService = bbCodeRenderService;
         _dalamudUtilService = dalamudUtilService;
         _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
         IsOpen = false;
@@ -129,8 +131,9 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         ApplyPendingPublishedDocument();
         EnsureImageTextures();
         var document = _session.ToDocument();
-        CharacterProfileUiShared.DrawHeader(document, "Current character", headerImageTexture: _headerImageTexture);
-        CharacterProfileUiShared.DrawProfileBadges(document, "rp-profile-editor-badges");
+        CharacterProfileUiShared.DrawHeader(document, "Current character", headerImageTexture: _headerImageTexture,
+            bbCodeRenderService: _bbCodeRenderService);
+        CharacterProfileUiShared.DrawProfileBadges(document, "rp-profile-editor-badges", _bbCodeRenderService);
 
         _editorActiveTab = ModernTabBar.Draw(
             "rp-profile-editor-tabs",

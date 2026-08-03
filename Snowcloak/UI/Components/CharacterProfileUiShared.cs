@@ -21,7 +21,7 @@ public static class CharacterProfileUiShared
     private static readonly Vector4 BadgeText = new(0.93f, 0.95f, 0.98f, 1f);
 
     public static void DrawHeader(CharacterProfileDocumentDto document, string fallbackName, bool compact = false,
-        IDalamudTextureWrap? headerImageTexture = null)
+        IDalamudTextureWrap? headerImageTexture = null, BbCodeRenderService? bbCodeRenderService = null)
     {
         var start = ImGui.GetCursorScreenPos();
         var width = MathF.Max(1f, ImGui.GetContentRegionAvail().X);
@@ -58,16 +58,25 @@ public static class CharacterProfileUiShared
         var baseFontSize = ImGui.GetFontSize();
         var lineSpacing = compact ? 2f : 4f;
         var verticalPadding = compact ? 8f : 10f;
-        var titleSize = ImGui.CalcTextSize(characterName) * titleScale;
-        var subtitleSize = string.IsNullOrWhiteSpace(subtitle) ? Vector2.Zero : ImGui.CalcTextSize(subtitle);
-        var taglineSize = !compact && !string.IsNullOrWhiteSpace(document.Tagline) ? ImGui.CalcTextSize(document.Tagline) : Vector2.Zero;
         var maxPanelWidth = MathF.Max(180f, width - 24f);
+        var maxTextWidth = MathF.Max(1f, maxPanelWidth - 28f);
+        Vector2 titleSize;
+        using (ElezenFonts.Push(baseFontSize * titleScale))
+        {
+            titleSize = MeasureProfileText(characterName, maxTextWidth, bbCodeRenderService);
+        }
+        var subtitleSize = string.IsNullOrWhiteSpace(subtitle)
+            ? Vector2.Zero
+            : MeasureProfileText(subtitle, maxTextWidth, bbCodeRenderService);
+        var taglineSize = !compact && !string.IsNullOrWhiteSpace(document.Tagline)
+            ? MeasureProfileText(document.Tagline, maxTextWidth, bbCodeRenderService)
+            : Vector2.Zero;
         var panelWidth = MathF.Min(maxPanelWidth, MathF.Max(titleSize.X, MathF.Max(subtitleSize.X, taglineSize.X)) + 28f);
-        var contentHeight = baseFontSize * titleScale;
+        var contentHeight = titleSize.Y;
         if (!string.IsNullOrWhiteSpace(subtitle))
-            contentHeight += lineSpacing + baseFontSize;
+            contentHeight += lineSpacing + subtitleSize.Y;
         if (!compact && !string.IsNullOrWhiteSpace(document.Tagline))
-            contentHeight += lineSpacing + baseFontSize;
+            contentHeight += lineSpacing + taglineSize.Y;
         var panelHeight = MathF.Max(compact ? 48f : 62f, contentHeight + verticalPadding * 2f);
         var panelStart = start + new Vector2(12f, compact ? 14f : 24f);
         var panelEnd = panelStart + new Vector2(MathF.Min(maxPanelWidth, MathF.Max(240f, panelWidth)), panelHeight);
@@ -78,20 +87,20 @@ public static class CharacterProfileUiShared
         ImGui.SetCursorScreenPos(new Vector2(textStart.X, currentY));
         using (ElezenFonts.Push(baseFontSize * titleScale))
         {
-            ImGui.TextColored(ImGuiColors.DalamudWhite, characterName);
+            DrawProfileText(characterName, panelWidth - 28f, ImGuiColors.DalamudWhite, bbCodeRenderService);
         }
-        currentY += baseFontSize * titleScale + lineSpacing;
+        currentY += titleSize.Y + lineSpacing;
 
         if (!string.IsNullOrWhiteSpace(subtitle))
         {
             ImGui.SetCursorScreenPos(new Vector2(textStart.X, currentY));
-            ImGui.TextColored(accent, subtitle);
-            currentY += baseFontSize + lineSpacing;
+            DrawProfileText(subtitle, panelWidth - 28f, accent, bbCodeRenderService);
+            currentY += subtitleSize.Y + lineSpacing;
         }
         if (!compact && !string.IsNullOrWhiteSpace(document.Tagline))
         {
             ImGui.SetCursorScreenPos(new Vector2(textStart.X, currentY));
-            ImGui.TextColored(ImGuiColors.DalamudGrey, document.Tagline);
+            DrawProfileText(document.Tagline, panelWidth - 28f, ImGuiColors.DalamudGrey, bbCodeRenderService);
         }
 
         ImGui.SetCursorScreenPos(afterHeader);
@@ -130,15 +139,16 @@ public static class CharacterProfileUiShared
         ImGui.Dummy(new Vector2(0f, 4f * ImGuiHelpers.GlobalScale));
     }
 
-    public static void DrawLabelValue(string label, string? value)
+    public static void DrawLabelValue(string label, string? value, BbCodeRenderService? bbCodeRenderService = null)
     {
         if (string.IsNullOrWhiteSpace(value)) return;
         ImGui.TextColored(ImGuiColors.DalamudGrey, label);
         ImGui.SameLine();
-        ImGui.TextWrapped(value);
+        DrawProfileText(value, ImGui.GetContentRegionAvail().X, ImGui.GetStyle().Colors[(int)ImGuiCol.Text], bbCodeRenderService);
     }
 
-    public static void DrawProfileBadges(CharacterProfileDocumentDto document, string idPrefix)
+    public static void DrawProfileBadges(CharacterProfileDocumentDto document, string idPrefix,
+        BbCodeRenderService? bbCodeRenderService = null)
     {
         var badges = BuildProfileBadges(document).ToList();
         if (badges.Count == 0)
@@ -154,7 +164,7 @@ public static class CharacterProfileUiShared
         for (var i = 0; i < badges.Count; i++)
         {
             var badge = badges[i];
-            var width = ImGui.CalcTextSize(badge).X + ImGui.GetStyle().FramePadding.X * 2f + 2f;
+            var width = MeasureBadge(badge, bbCodeRenderService).X;
             var sameLine = usedWidth > 0f;
             if (sameLine && usedWidth + spacing.X + width > lineWidth)
             {
@@ -169,7 +179,7 @@ public static class CharacterProfileUiShared
                 usedWidth += spacing.X;
             }
 
-            DrawBadge($"{idPrefix}-{i}", badge, i == 0 ? accent : mutedAccent);
+            DrawBadge($"{idPrefix}-{i}", badge, i == 0 ? accent : mutedAccent, bbCodeRenderService);
             usedWidth += width;
         }
     }
@@ -258,15 +268,51 @@ public static class CharacterProfileUiShared
         }
     }
 
-    private static void DrawBadge(string id, string label, Vector4 color)
+    private static Vector2 MeasureBadge(string label, BbCodeRenderService? bbCodeRenderService)
+    {
+        var textSize = MeasureProfileText(label, 2000f * ImGuiHelpers.GlobalScale, bbCodeRenderService);
+        var padding = ImGui.GetStyle().FramePadding;
+        return textSize + new Vector2(padding.X * 2f + 2f, padding.Y * 2f);
+    }
+
+    private static void DrawBadge(string id, string label, Vector4 color, BbCodeRenderService? bbCodeRenderService)
     {
         using var idScope = ImRaii.PushId(id);
-        using var buttonStyle = ImRaii.PushColor(ImGuiCol.Button, color);
-        using var buttonHoverStyle = ImRaii.PushColor(ImGuiCol.ButtonHovered, AdjustBrightness(color, 1.08f));
-        using var buttonActiveStyle = ImRaii.PushColor(ImGuiCol.ButtonActive, AdjustBrightness(color, 0.92f));
-        using var textStyle = ImRaii.PushColor(ImGuiCol.Text, BadgeText);
-        using var frameRounding = ImRaii.PushStyle(ImGuiStyleVar.FrameRounding, 6f);
-        ImGui.Button(label);
+        var size = MeasureBadge(label, bbCodeRenderService);
+        var min = ImGui.GetCursorScreenPos();
+        ImGui.BeginGroup();
+        ImGui.InvisibleButton("##profile-badge", size);
+        var after = ImGui.GetCursorScreenPos();
+        var fill = ImGui.IsItemActive()
+            ? AdjustBrightness(color, 0.92f)
+            : ImGui.IsItemHovered()
+                ? AdjustBrightness(color, 1.08f)
+                : color;
+        ImGui.GetWindowDrawList().AddRectFilled(min, min + size, Colour.Vector4ToColour(fill), 6f);
+
+        var padding = ImGui.GetStyle().FramePadding;
+        ImGui.SetCursorScreenPos(min + new Vector2(padding.X + 1f, padding.Y));
+        DrawProfileText(label, MathF.Max(1f, size.X - padding.X * 2f - 2f), BadgeText, bbCodeRenderService);
+        ImGui.SetCursorScreenPos(after);
+        ImGui.EndGroup();
+    }
+
+    private static Vector2 MeasureProfileText(string text, float wrapWidth, BbCodeRenderService? bbCodeRenderService)
+        => bbCodeRenderService?.Measure(text, wrapWidth, ProfileBbCodeRenderOptions.Compact)
+           ?? ImGui.CalcTextSize(StripBasicBbCode(text), hideTextAfterDoubleHash: false, wrapWidth);
+
+    private static void DrawProfileText(string text, float wrapWidth, Vector4 color,
+        BbCodeRenderService? bbCodeRenderService)
+    {
+        using var textColor = ImRaii.PushColor(ImGuiCol.Text, color);
+        if (bbCodeRenderService != null)
+        {
+            bbCodeRenderService.Render(text, wrapWidth, ProfileBbCodeRenderOptions.Compact);
+        }
+        else
+        {
+            ImGui.TextWrapped(StripBasicBbCode(text));
+        }
     }
 
     private static string StripBasicBbCode(string value)

@@ -1,5 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
+using ElezenTools.UI;
 using Snowcloak.Core.Profiles;
 using System.Numerics;
 
@@ -23,7 +24,11 @@ public static class ProfileEditorFieldControls
     {
         DrawFieldLabel(label);
         var editedValue = value;
-        if (ImGui.InputTextMultiline($"##{label}", ref editedValue, maxLength, new Vector2(ImGui.GetContentRegionAvail().X, height)))
+        if (ElezenImgui.InputTextMultilineWrapped(
+                $"##{label}",
+                ref editedValue,
+                maxLength,
+                new Vector2(ImGui.GetContentRegionAvail().X, height)))
         {
             setValue(editedValue);
             markDirty();

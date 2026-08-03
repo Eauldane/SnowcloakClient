@@ -473,62 +473,61 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     {
         var profile = entry.Profile;
         using var id = ImRaii.PushId(profile.Ident);
-        using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
-        using var padding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * ImGuiHelpers.GlobalScale);
-        var height = (entry.Boundaries == null ? 142f : 166f) * ImGuiHelpers.GlobalScale;
-        using var card = ImRaii.Child("rp-person-card", new Vector2(-1f, height), true);
-        if (!string.IsNullOrWhiteSpace(profile.ProfilePictureHash))
+        AutoSizedCard.Draw(_ =>
         {
-            DrawProfilePortrait(profile.ProfilePictureHash);
-            ImGui.SameLine(0f, 12f * ImGuiHelpers.GlobalScale);
-        }
-        ImGui.BeginGroup();
-        ImGui.TextColored(SnowcloakColours.OnlineBlue, string.IsNullOrWhiteSpace(profile.CharacterName) ? "Unnamed character" : profile.CharacterName);
-        if (!string.IsNullOrWhiteSpace(profile.RpStatus))
-        {
-            ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.HealerGreen, profile.RpStatus);
-        }
-        if (!string.IsNullOrWhiteSpace(profile.Tagline)) ImGui.TextWrapped(profile.Tagline);
-        if (!string.IsNullOrWhiteSpace(profile.Approachability)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Approach: " + profile.Approachability);
-        if (profile.CurrentHook != null)
-            ImGui.TextWrapped("Current hook: " + profile.CurrentHook.Title);
-        if (entry.Availability != null)
-            ImGui.TextColored(ImGuiColors.HealerGreen, AvailabilityStateLabel(entry.Availability.State) + " · " + string.Join(", ", entry.Availability.Themes.Select(ThemeLabel)));
-        if (profile.Tags.Count > 0)
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", profile.Tags.Take(6).Select(tag => tag.Value)));
-        if (entry.Boundaries?.Entries.Count > 0)
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Boundaries available on the full profile");
-
-        if (ImGui.Button("View profile")) Queue(_pairRequests.RequestProfileAsync(profile.Ident), string.Empty);
-        ImGui.SameLine();
-        var targetIntro = CreateIntro(profile.CurrentHook);
-        var ownIntro = CreateIntro(_roleplay.CurrentHooks.Hooks.FirstOrDefault());
-        var targetUid = profile.User?.UID;
-        var pair = string.IsNullOrWhiteSpace(targetUid)
-            ? null
-            : _pairs.DirectPairs.FirstOrDefault(candidate =>
-                string.Equals(candidate.UserData.UID, targetUid, StringComparison.Ordinal));
-        if (pair == null)
-        {
-            if (ImGui.Button(ownIntro == null ? "Register interest" : "Interest + my hook"))
-                Queue(_pairRequests.SendPairRequestAsync(profile.Ident, ownIntro, PairingRequestSource.RoleplayDirectory), "Interest request sent.");
-            ElezenImgui.AttachTooltip("Sends a pair request marked as coming from the RP directory. Direct messages become available after it is accepted.");
-        }
-        else if (!pair.IsMutualDirectPair)
-        {
-            using (ImRaii.Disabled())
+            if (!string.IsNullOrWhiteSpace(profile.ProfilePictureHash))
             {
-                ImGui.Button("Awaiting mutual pairing");
+                DrawProfilePortrait(profile.ProfilePictureHash);
+                ImGui.SameLine(0f, 12f * ImGuiHelpers.GlobalScale);
             }
-        }
-        else
-        {
-            if (ImGui.Button(targetIntro == null ? "Open DM" : "Message about hook")) OpenDirectMessage(pair, targetIntro);
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Directory, profile.Ident, profile.Revision);
-        ImGui.EndGroup();
+            ImGui.BeginGroup();
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, string.IsNullOrWhiteSpace(profile.CharacterName) ? "Unnamed character" : profile.CharacterName);
+            if (!string.IsNullOrWhiteSpace(profile.RpStatus))
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.HealerGreen, profile.RpStatus);
+            }
+            if (!string.IsNullOrWhiteSpace(profile.Tagline)) ImGui.TextWrapped(profile.Tagline);
+            if (!string.IsNullOrWhiteSpace(profile.Approachability)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Approach: " + profile.Approachability);
+            if (profile.CurrentHook != null)
+                ImGui.TextWrapped("Current hook: " + profile.CurrentHook.Title);
+            if (entry.Availability != null)
+                ImGui.TextColored(ImGuiColors.HealerGreen, AvailabilityStateLabel(entry.Availability.State) + " · " + string.Join(", ", entry.Availability.Themes.Select(ThemeLabel)));
+            if (profile.Tags.Count > 0)
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", profile.Tags.Take(6).Select(tag => tag.Value)));
+            if (entry.Boundaries?.Entries.Count > 0)
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Boundaries available on the full profile");
+
+            if (ImGui.Button("View profile")) Queue(_pairRequests.RequestProfileAsync(profile.Ident), string.Empty);
+            ImGui.SameLine();
+            var targetIntro = CreateIntro(profile.CurrentHook);
+            var ownIntro = CreateIntro(_roleplay.CurrentHooks.Hooks.FirstOrDefault());
+            var targetUid = profile.User?.UID;
+            var pair = string.IsNullOrWhiteSpace(targetUid)
+                ? null
+                : _pairs.DirectPairs.FirstOrDefault(candidate =>
+                    string.Equals(candidate.UserData.UID, targetUid, StringComparison.Ordinal));
+            if (pair == null)
+            {
+                if (ImGui.Button(ownIntro == null ? "Register interest" : "Interest + my hook"))
+                    Queue(_pairRequests.SendPairRequestAsync(profile.Ident, ownIntro, PairingRequestSource.RoleplayDirectory), "Interest request sent.");
+                ElezenImgui.AttachTooltip("Sends a pair request marked as coming from the RP directory. Direct messages become available after it is accepted.");
+            }
+            else if (!pair.IsMutualDirectPair)
+            {
+                using (ImRaii.Disabled())
+                {
+                    ImGui.Button("Awaiting mutual pairing");
+                }
+            }
+            else
+            {
+                if (ImGui.Button(targetIntro == null ? "Open DM" : "Message about hook")) OpenDirectMessage(pair, targetIntro);
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Directory, profile.Ident, profile.Revision);
+            ImGui.EndGroup();
+        });
     }
 
     private void DrawRooms()
@@ -573,18 +572,19 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         foreach (var invite in _roleplay.PendingInvites)
         {
             using var id = ImRaii.PushId(invite.Room.RoomId + invite.Inviter.UID);
-            using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
-            using var panel = ImRaii.Child("rp-room-invite", new Vector2(-1f, 92f * ImGuiHelpers.GlobalScale), true);
-            ImGui.TextColored(SnowcloakColours.OnlineBlue, "Room invitation from " + invite.Inviter.AliasOrUID);
-            if (invite.Intro != null)
-                ImGui.TextWrapped(invite.Intro.Title + " — " + invite.Intro.Description);
-            if (ImGui.Button("Join room"))
+            AutoSizedCard.Draw(_ =>
             {
-                Queue(JoinRoomAsync(invite.Room), "Room opened.");
-                _roleplay.DismissInvite(invite);
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Dismiss")) _roleplay.DismissInvite(invite);
+                ImGui.TextColored(SnowcloakColours.OnlineBlue, "Room invitation from " + invite.Inviter.AliasOrUID);
+                if (invite.Intro != null)
+                    ImGui.TextWrapped(invite.Intro.Title + " — " + invite.Intro.Description);
+                if (ImGui.Button("Join room"))
+                {
+                    Queue(JoinRoomAsync(invite.Room), "Room opened.");
+                    _roleplay.DismissInvite(invite);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Dismiss")) _roleplay.DismissInvite(invite);
+            });
             ModernSection.SoftSeparator();
         }
     }
@@ -712,80 +712,78 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         var venue = item.Venue;
         var advertisement = item.Advertisement;
         using var id = ImRaii.PushId(advertisement.Id.ToString("N"));
-        using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
-        using var padding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * ImGuiHelpers.GlobalScale);
-        var height = string.IsNullOrWhiteSpace(advertisement.BannerFileHash) ? 86f : 164f;
-        using var card = ImRaii.Child("rp-venue-event-card", new Vector2(-1f, height * ImGuiHelpers.GlobalScale), true);
-        ImGui.TextColored(SnowcloakColours.OnlineBlue, venue.VenueName);
-        ImGui.SameLine();
-        ImGui.TextColored(SnowcloakColours.CompactTextMuted, advertisement.StartsAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Upcoming venue slot");
-        if (!string.IsNullOrWhiteSpace(advertisement.BannerFileHash)) DrawBannerImage(advertisement.BannerFileHash);
-        if (!string.IsNullOrWhiteSpace(advertisement.Text)) ImGui.TextWrapped(advertisement.Text);
-        var reminder = reminded;
-        if (ImGui.Checkbox("Remind me##venue", ref reminder))
+        AutoSizedCard.Draw(_ =>
         {
-            if (reminder) _venueReminders.AddEventBookmark(venue, advertisement);
-            else _venueReminders.RemoveEventBookmark(advertisement.Id);
-        }
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, venue.VenueName);
+            ImGui.SameLine();
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, advertisement.StartsAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Upcoming venue slot");
+            if (!string.IsNullOrWhiteSpace(advertisement.BannerFileHash)) DrawBannerImage(advertisement.BannerFileHash);
+            if (!string.IsNullOrWhiteSpace(advertisement.Text)) ImGui.TextWrapped(advertisement.Text);
+            var reminder = reminded;
+            if (ImGui.Checkbox("Remind me##venue", ref reminder))
+            {
+                if (reminder) _venueReminders.AddEventBookmark(venue, advertisement);
+                else _venueReminders.RemoveEventBookmark(advertisement.Id);
+            }
+        });
     }
 
     private void DrawEventCard(RpEventDirectoryEntryDto entry, bool joined)
     {
         var shellEvent = entry.Event;
         using var id = ImRaii.PushId(EventKey(entry));
-        using var background = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanelAlt);
-        using var padding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(12f, 9f) * ImGuiHelpers.GlobalScale);
-        var height = string.IsNullOrWhiteSpace(shellEvent.BannerImageHash) ? 158f : 236f;
-        using var card = ImRaii.Child("rp-event-card", new Vector2(-1f, height * ImGuiHelpers.GlobalScale), true);
-        ImGui.TextColored(SnowcloakColours.OnlineBlue, shellEvent.Title);
-        ImGui.SameLine();
-        ImGui.TextColored(SnowcloakColours.CompactTextMuted, shellEvent.StartsAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
-        if (shellEvent.Recurrence != null)
+        AutoSizedCard.Draw(_ =>
         {
+            ImGui.TextColored(SnowcloakColours.OnlineBlue, shellEvent.Title);
             ImGui.SameLine();
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, FormatEventRecurrence(shellEvent.Recurrence));
-        }
-        if (joined)
-        {
-            ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.HealerGreen, "Joined syncshell");
-        }
-        if (!string.IsNullOrWhiteSpace(shellEvent.BannerImageHash)) DrawBannerImage(shellEvent.BannerImageHash);
-        if (!string.IsNullOrWhiteSpace(shellEvent.Description)) ImGui.TextWrapped(shellEvent.Description);
-        var location = string.Join("  •  ", new[] { shellEvent.Plot, shellEvent.WorldId?.ToString(CultureInfo.InvariantCulture) }.Where(value => !string.IsNullOrWhiteSpace(value)));
-        if (!string.IsNullOrEmpty(location)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, location);
-        if (shellEvent.ThemeTags.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", shellEvent.ThemeTags.Select(tag => "#" + tag)));
-        if (shellEvent.Hosts.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Hosts: " + string.Join(", ", shellEvent.Hosts));
-        if (shellEvent.ContentWarnings.Count > 0) ImGui.TextColored(ImGuiColors.DalamudYellow, "Warnings: " + string.Join(", ", shellEvent.ContentWarnings));
-        if (shellEvent.Capacity.HasValue) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Capacity: " + shellEvent.Capacity.Value.ToString(CultureInfo.InvariantCulture));
-        var reminder = _config.Current.RpEventReminders.Contains(shellEvent.Id);
-        if (ImGui.Checkbox("Remind me", ref reminder))
-            _config.Update(config =>
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, shellEvent.StartsAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
+            if (shellEvent.Recurrence != null)
             {
-                if (reminder) config.RpEventReminders.Add(shellEvent.Id);
-                else config.RpEventReminders.Remove(shellEvent.Id);
-            });
-        ImGui.SameLine();
-        if (ImGui.Button("Copy iCalendar"))
-        {
-            ImGui.SetClipboardText(BuildICalendar(entry));
-            _status = "iCalendar event copied to the clipboard.";
-        }
-        var group = _pairs.Groups.Values.FirstOrDefault(candidate => string.Equals(candidate.GID, entry.Group.GID, StringComparison.Ordinal));
-        if (group != null)
-        {
+                ImGui.SameLine();
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, FormatEventRecurrence(shellEvent.Recurrence));
+            }
+            if (joined)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.HealerGreen, "Joined syncshell");
+            }
+            if (!string.IsNullOrWhiteSpace(shellEvent.BannerImageHash)) DrawBannerImage(shellEvent.BannerImageHash);
+            if (!string.IsNullOrWhiteSpace(shellEvent.Description)) ImGui.TextWrapped(shellEvent.Description);
+            var location = string.Join("  •  ", new[] { shellEvent.Plot, shellEvent.WorldId?.ToString(CultureInfo.InvariantCulture) }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            if (!string.IsNullOrEmpty(location)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, location);
+            if (shellEvent.ThemeTags.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", shellEvent.ThemeTags.Select(tag => "#" + tag)));
+            if (shellEvent.Hosts.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Hosts: " + string.Join(", ", shellEvent.Hosts));
+            if (shellEvent.ContentWarnings.Count > 0) ImGui.TextColored(ImGuiColors.DalamudYellow, "Warnings: " + string.Join(", ", shellEvent.ContentWarnings));
+            if (shellEvent.Capacity.HasValue) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Capacity: " + shellEvent.Capacity.Value.ToString(CultureInfo.InvariantCulture));
+            var reminder = _config.Current.RpEventReminders.Contains(shellEvent.Id);
+            if (ImGui.Checkbox("Remind me", ref reminder))
+                _config.Update(config =>
+                {
+                    if (reminder) config.RpEventReminders.Add(shellEvent.Id);
+                    else config.RpEventReminders.Remove(shellEvent.Id);
+                });
             ImGui.SameLine();
-            if (ImGui.Button("Open syncshell events")) Mediator.Publish(new OpenSyncshellEventsWindow(group));
-        }
-        else
-        {
+            if (ImGui.Button("Copy iCalendar"))
+            {
+                ImGui.SetClipboardText(BuildICalendar(entry));
+                _status = "iCalendar event copied to the clipboard.";
+            }
+            var group = _pairs.Groups.Values.FirstOrDefault(candidate => string.Equals(candidate.GID, entry.Group.GID, StringComparison.Ordinal));
+            if (group != null)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Open syncshell events")) Mediator.Publish(new OpenSyncshellEventsWindow(group));
+            }
+            else
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Join syncshell"))
+                    Queue(JoinEventSyncshellAsync(entry), $"Joined {entry.Group.AliasOrGID}.");
+                ElezenImgui.AttachTooltip("Public events allow eligible players to join their syncshell without a password.");
+            }
             ImGui.SameLine();
-            if (ImGui.Button("Join syncshell"))
-                Queue(JoinEventSyncshellAsync(entry), $"Joined {entry.Group.AliasOrGID}.");
-            ElezenImgui.AttachTooltip("Public events allow eligible players to join their syncshell without a password.");
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Event, shellEvent.Id.ToString("D"));
+            if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Event, shellEvent.Id.ToString("D"));
+        });
     }
 
     private async Task JoinEventSyncshellAsync(RpEventDirectoryEntryDto entry)

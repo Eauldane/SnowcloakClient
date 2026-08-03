@@ -35,9 +35,10 @@ public sealed class ProfileViewComponent
     public void DrawStandalone(ProfileViewRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        CharacterProfileUiShared.DrawHeader(request.Profile.Document, request.FallbackName, headerImageTexture: request.HeaderImageTexture);
+        CharacterProfileUiShared.DrawHeader(request.Profile.Document, request.FallbackName,
+            headerImageTexture: request.HeaderImageTexture, bbCodeRenderService: _bbCodeRenderService);
         ImGui.Spacing();
-        CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges");
+        CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges", _bbCodeRenderService);
 
         request.DrawReportButton?.Invoke();
         if (request.DrawReportButton != null)
@@ -67,8 +68,9 @@ public sealed class ProfileViewComponent
             request.Profile.Document,
             request.FallbackName,
             compact: true,
-            headerImageTexture: request.HeaderImageTexture);
-        CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges");
+            headerImageTexture: request.HeaderImageTexture,
+            bbCodeRenderService: _bbCodeRenderService);
+        CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges", _bbCodeRenderService);
 
         if (!string.IsNullOrWhiteSpace(request.MoodlesData))
         {
@@ -83,10 +85,10 @@ public sealed class ProfileViewComponent
         DrawPortrait(request.ProfileImageTexture, 240f * ImGuiHelpers.GlobalScale, showEmptyLabel: false);
         if (!string.IsNullOrWhiteSpace(request.Profile.Document.Tagline))
         {
-            ImGui.TextWrapped(request.Profile.Document.Tagline);
+            DrawCompactText(request.Profile.Document.Tagline);
         }
 
-        CharacterProfileUiShared.DrawLabelValue("Approach:", request.Profile.Document.Approachability);
+        CharacterProfileUiShared.DrawLabelValue("Approach:", request.Profile.Document.Approachability, _bbCodeRenderService);
         foreach (var glance in request.Profile.Document.AtAGlance.Take(3))
         {
             DrawWrappedBullet(glance);
@@ -106,8 +108,9 @@ public sealed class ProfileViewComponent
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(tags);
-        CharacterProfileUiShared.DrawHeader(document, fallbackName, headerImageTexture: headerImageTexture);
-        CharacterProfileUiShared.DrawProfileBadges(document, $"{idPrefix}-badges");
+        CharacterProfileUiShared.DrawHeader(document, fallbackName, headerImageTexture: headerImageTexture,
+            bbCodeRenderService: _bbCodeRenderService);
+        CharacterProfileUiShared.DrawProfileBadges(document, $"{idPrefix}-badges", _bbCodeRenderService);
         ImGui.Spacing();
 
         using (var table = ImRaii.Table($"{idPrefix}-summary", 2, ImGuiTableFlags.SizingFixedFit))
@@ -123,14 +126,14 @@ public sealed class ProfileViewComponent
         }
 
         DrawAtAGlance(document.AtAGlance);
-        DrawPlainHooks(document.Hooks);
+        DrawPreviewHooks(document.Hooks, idPrefix, allowRichMedia: fullProfile);
         if (fullProfile)
         {
-            DrawPlainTextSection("Overview", document.Overview);
-            DrawPlainTextSection("OOC Notes", document.OocNotes);
+            DrawBbCodeSection("Overview", document.Overview);
+            DrawBbCodeSection("OOC Notes", document.OocNotes);
             if (document.ContentRating == ProfileContentRating.Adult)
             {
-                DrawPlainTextSection("Adult Preferences", document.AdultPreferences);
+                DrawBbCodeSection("Adult Preferences", document.AdultPreferences);
             }
             DrawBoundaries(document.Boundaries, null, 0, true,
                 document.ContentRating == ProfileContentRating.Adult, idPrefix);
@@ -156,9 +159,9 @@ public sealed class ProfileViewComponent
                 ImGui.TableNextColumn();
                 DrawPortrait(profileImageTexture, 176f, showEmptyLabel: true);
                 ImGui.TableNextColumn();
-                CharacterProfileUiShared.DrawLabelValue("Pronouns:", document.Pronouns);
-                CharacterProfileUiShared.DrawLabelValue("RP status:", document.RpStatus);
-                CharacterProfileUiShared.DrawLabelValue("Approach:", document.Approachability);
+                CharacterProfileUiShared.DrawLabelValue("Pronouns:", document.Pronouns, _bbCodeRenderService);
+                CharacterProfileUiShared.DrawLabelValue("RP status:", document.RpStatus, _bbCodeRenderService);
+                CharacterProfileUiShared.DrawLabelValue("Approach:", document.Approachability, _bbCodeRenderService);
                 DrawAtAGlance(document.AtAGlance);
             }
         }
@@ -214,7 +217,7 @@ public sealed class ProfileViewComponent
         ImGui.Image(textureWrap.Handle, new Vector2(textureWrap.Width * scale, textureWrap.Height * scale));
     }
 
-    private static void DrawAtAGlance(IReadOnlyList<string> entries)
+    private void DrawAtAGlance(IReadOnlyList<string> entries)
     {
         if (entries.Count == 0)
         {
@@ -228,12 +231,15 @@ public sealed class ProfileViewComponent
         }
     }
 
-    private static void DrawWrappedBullet(string text)
+    private void DrawWrappedBullet(string text)
     {
         ImGui.Bullet();
         ImGui.SameLine();
-        ImGui.TextWrapped(text);
+        DrawCompactText(text);
     }
+
+    private void DrawCompactText(string text)
+        => _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X, ProfileBbCodeRenderOptions.Compact);
 
     private void DrawBbCodeSection(string title, string text)
     {
@@ -244,7 +250,7 @@ public sealed class ProfileViewComponent
 
         CharacterProfileUiShared.DrawSectionTitle(title);
         using var font = _fontService.GameFont.Push();
-        _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X);
+        _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X, ProfileBbCodeRenderOptions.LongForm);
     }
 
     private void DrawBbCodeHooks(IReadOnlyList<CharacterProfileHookDto> hooks, string idPrefix)
@@ -259,22 +265,26 @@ public sealed class ProfileViewComponent
         {
             var hook = hooks[i];
             using var id = ImRaii.PushId($"{idPrefix}-hook-{i}");
-            using var card = ImRaii.Child("hook-card", new Vector2(0f, 112f), true);
-            if (!card)
+            AutoSizedCard.Draw(innerWidth =>
             {
-                continue;
-            }
-
-            ImGui.TextColored(ImGuiColors.HealerGreen, hook.Title);
-            if (!string.IsNullOrWhiteSpace(hook.Description))
-            {
-                using var font = _fontService.GameFont.Push();
-                _bbCodeRenderService.Render(hook.Description, ImGui.GetContentRegionAvail().X);
-            }
+                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+                {
+                    _bbCodeRenderService.Render(
+                        string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title,
+                        innerWidth,
+                        ProfileBbCodeRenderOptions.Compact);
+                }
+                if (!string.IsNullOrWhiteSpace(hook.Description))
+                {
+                    using var font = _fontService.GameFont.Push();
+                    _bbCodeRenderService.Render(hook.Description, innerWidth, ProfileBbCodeRenderOptions.LongForm);
+                }
+            });
+            ImGui.Spacing();
         }
     }
 
-    private static void DrawPlainHooks(IReadOnlyList<CharacterProfileHookDto> hooks)
+    private void DrawPreviewHooks(IReadOnlyList<CharacterProfileHookDto> hooks, string idPrefix, bool allowRichMedia)
     {
         if (hooks.Count == 0)
         {
@@ -282,27 +292,23 @@ public sealed class ProfileViewComponent
         }
 
         CharacterProfileUiShared.DrawSectionTitle("RP Hooks");
-        foreach (var hook in hooks)
+        for (var i = 0; i < hooks.Count; i++)
         {
-            ImGui.TextColored(ImGuiColors.HealerGreen, string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title);
+            var hook = hooks[i];
+            using var id = ImRaii.PushId($"{idPrefix}-preview-hook-{i}");
+            using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+            {
+                DrawCompactText(string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title);
+            }
             if (!string.IsNullOrWhiteSpace(hook.Description))
             {
-                ImGui.TextWrapped(hook.Description);
+                using var font = _fontService.GameFont.Push();
+                _bbCodeRenderService.Render(hook.Description, ImGui.GetContentRegionAvail().X,
+                    allowRichMedia ? ProfileBbCodeRenderOptions.LongForm : ProfileBbCodeRenderOptions.Compact);
             }
 
             ImGui.Spacing();
         }
-    }
-
-    private static void DrawPlainTextSection(string title, string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return;
-        }
-
-        CharacterProfileUiShared.DrawSectionTitle(title);
-        ImGui.TextWrapped(value);
     }
 
     private void DrawBoundaries(RpBoundariesDto? boundaries, string? uid, long revision, bool ownProfile, bool adult, string idPrefix)
@@ -318,13 +324,16 @@ public sealed class ProfileViewComponent
             && _configService.Current.RpBoundaryAcknowledgements.GetValueOrDefault(acknowledgementKey) >= revision;
         if (!acknowledged)
         {
-            using var card = ImRaii.Child(idPrefix + "-boundaries-ack", new Vector2(-1f, 82f * ImGuiHelpers.GlobalScale), true);
-            ImGui.TextWrapped("This boundaries card asks you to acknowledge it before viewing.");
-            using (ImRaii.Disabled(acknowledgementKey == null))
+            using var id = ImRaii.PushId(idPrefix + "-boundaries-ack");
+            AutoSizedCard.Draw(_ =>
             {
-                if (ImGui.Button("Acknowledge and show", new Vector2(180f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
-                    _configService.Update(config => config.RpBoundaryAcknowledgements[acknowledgementKey] = revision);
-            }
+                ImGui.TextWrapped("This boundaries card asks you to acknowledge it before viewing.");
+                using (ImRaii.Disabled(acknowledgementKey == null))
+                {
+                    if (ImGui.Button("Acknowledge and show", new Vector2(180f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
+                        _configService.Update(config => config.RpBoundaryAcknowledgements[acknowledgementKey] = revision);
+                }
+            });
             return;
         }
 
@@ -332,27 +341,33 @@ public sealed class ProfileViewComponent
             || acknowledgementKey == null || _expandedGeneralBoundaries.Contains(acknowledgementKey);
         if (!generalExpanded)
         {
-            using var collapsedCard = ImRaii.Child(idPrefix + "-boundaries-collapsed", new Vector2(-1f, 64f * ImGuiHelpers.GlobalScale), true);
-            ImGui.TextWrapped("This profile includes a boundaries card.");
-            if (ImGui.Button("Show boundaries", new Vector2(150f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
-                _expandedGeneralBoundaries.Add(acknowledgementKey);
+            using var id = ImRaii.PushId(idPrefix + "-boundaries-collapsed");
+            AutoSizedCard.Draw(_ =>
+            {
+                ImGui.TextWrapped("This profile includes a boundaries card.");
+                if (ImGui.Button("Show boundaries", new Vector2(150f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
+                    _expandedGeneralBoundaries.Add(acknowledgementKey);
+            });
             return;
         }
 
-        var height = (28f + boundaries.Entries.Select(entry => entry.Rating).Distinct().Count() * 25f
-            + (string.IsNullOrWhiteSpace(boundaries.Note) ? 0f : 48f)) * ImGuiHelpers.GlobalScale;
-        using var boundaryCard = ImRaii.Child(idPrefix + "-boundaries", new Vector2(-1f, height), true);
-        foreach (var group in boundaries.Entries.GroupBy(entry => entry.Rating).OrderBy(group => group.Key))
+        using var boundaryId = ImRaii.PushId(idPrefix + "-boundaries");
+        AutoSizedCard.Draw(_ =>
         {
-            ImGui.TextColored(BoundaryColour(group.Key), BoundaryLabel(group.Key));
-            ImGui.SameLine();
-            ImGui.TextWrapped(string.Join("  •  ", group.Select(entry => BoundaryName(entry.Key))));
-        }
-        if (!string.IsNullOrWhiteSpace(boundaries.Note))
-        {
-            ImGui.Separator();
-            ImGui.TextWrapped(boundaries.Note);
-        }
+            foreach (var group in boundaries.Entries.GroupBy(entry => entry.Rating).OrderBy(group => group.Key))
+            {
+                ImGui.TextColored(BoundaryColour(group.Key), BoundaryLabel(group.Key));
+                ImGui.SameLine();
+                ImGui.TextWrapped(string.Join("  •  ", group.Select(entry => BoundaryName(entry.Key))));
+            }
+            if (!string.IsNullOrWhiteSpace(boundaries.Note))
+            {
+                ImGui.Separator();
+                using var font = _fontService.GameFont.Push();
+                _bbCodeRenderService.Render(boundaries.Note, ImGui.GetContentRegionAvail().X,
+                    ProfileBbCodeRenderOptions.LongForm);
+            }
+        });
     }
 
     private static string BoundaryLabel(RpBoundaryRating rating) => rating switch
@@ -399,13 +414,20 @@ public sealed class ProfileViewComponent
         _ = ProfileTagChipRenderer.DrawTagChips(ProfileTagUtilities.NormalizeForStorage(tags), idPrefix);
     }
 
-    private static void DrawPreviewLabelValue(string label, string? value)
+    private void DrawPreviewLabelValue(string label, string? value)
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.TextColored(ImGuiColors.DalamudGrey, label);
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(value) ? "-" : value);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            ImGui.TextUnformatted("-");
+        }
+        else
+        {
+            DrawCompactText(value);
+        }
     }
 }
 

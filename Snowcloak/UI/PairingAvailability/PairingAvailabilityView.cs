@@ -19,6 +19,12 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
 {
     private const double HookCycleSeconds = 5.0;
     private const double HookFadeSeconds = 0.75;
+    private readonly BbCodeRenderService _bbCodeRenderService;
+
+    public PairingAvailabilityView(BbCodeRenderService bbCodeRenderService)
+    {
+        _bbCodeRenderService = bbCodeRenderService;
+    }
 
     public void Draw(AvailabilityViewState state, IDispatcher dispatch)
     {
@@ -53,7 +59,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
             DrawPlayerTable(state, dispatch);
     }
 
-    private static void DrawPlayerTable(AvailabilityViewState state, IDispatcher dispatch)
+    private void DrawPlayerTable(AvailabilityViewState state, IDispatcher dispatch)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var footerHeight = ImGui.GetTextLineHeightWithSpacing() + 12f * scale;
@@ -172,7 +178,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         drawList.AddRect(min, max, Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle), 3f * scale, ImDrawFlags.None, 1f * scale);
     }
 
-    private static void DrawPlayerCards(AvailabilityViewState state, IDispatcher dispatch)
+    private void DrawPlayerCards(AvailabilityViewState state, IDispatcher dispatch)
     {
         using var childBg = ImRaii.PushColor(ImGuiCol.ChildBg, new Vector4(0.018f, 0.048f, 0.072f, 0.22f));
         using var listPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(6f, 4f) * ImGuiHelpers.GlobalScale);
@@ -187,7 +193,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         }
     }
 
-    private static void DrawPlayerCard(AvailabilityRow row, IDispatcher dispatch)
+    private void DrawPlayerCard(AvailabilityRow row, IDispatcher dispatch)
     {
         using var id = ImRaii.PushId($"frostbrand-card-{row.Ident}");
         var scale = ImGuiHelpers.GlobalScale;
@@ -210,7 +216,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.Dummy(new Vector2(0f, 3f * scale));
 
         if (!string.IsNullOrWhiteSpace(row.Profile?.Tagline))
-            ImGui.TextWrapped(row.Profile.Tagline);
+            DrawCompactText(row.Profile.Tagline);
         else if (!AvailabilityFilter.HasMeaningfulProfile(row))
             ImGui.TextColored(ImGuiColors.DalamudGrey, "No RP profile summary published yet.");
 
@@ -256,7 +262,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
             dispatch.Dispatch(new OpenAdventurerPlateIntent(row.Ident, row.DisplayName));
     }
 
-    private static void DrawPlayerCardHeader(AvailabilityRow row, float innerWidth, IDispatcher dispatch)
+    private void DrawPlayerCardHeader(AvailabilityRow row, float innerWidth, IDispatcher dispatch)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
@@ -265,21 +271,26 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         var badgeSize = DrawJobBadge(row, min, scale);
         var textX = min.X + badgeSize.X + 12f * scale;
 
+        var status = row.Status;
+        var statusSize = _bbCodeRenderService.Measure(status, innerWidth, ProfileBbCodeRenderOptions.Compact);
+        var nameWidth = MathF.Max(1f, innerWidth - badgeSize.X - 12f * scale - statusSize.X - 16f * scale);
         var name = row.DisplayName;
-        var nameSize = ImGui.CalcTextSize(name);
+        var nameSize = _bbCodeRenderService.Measure(name, nameWidth, ProfileBbCodeRenderOptions.Compact);
         var namePos = new Vector2(textX, min.Y + 2f * scale);
-        drawList.AddText(namePos, Colour.Vector4ToColour(Vector4.One), name);
+        ImGui.SetCursorScreenPos(namePos);
+        using (ImRaii.PushColor(ImGuiCol.Text, Vector4.One))
+            _bbCodeRenderService.Render(name, nameWidth, ProfileBbCodeRenderOptions.Compact);
 
         var metadata = $"{row.GenderText}  |  {row.TribeName}  |  {row.ClassName} {row.LevelText}  |  {row.HomeWorldName}";
         drawList.AddText(new Vector2(textX, namePos.Y + nameSize.Y + 6f * scale), Colour.Vector4ToColour(SnowcloakColours.CompactTextMuted), metadata);
 
-        var status = row.Status;
-        var statusSize = ImGui.CalcTextSize(status);
         var statusTextX = min.X + innerWidth - statusSize.X;
-        drawList.AddText(new Vector2(statusTextX, namePos.Y), Colour.Vector4ToColour(ImGuiColors.HealerGreen), status);
+        ImGui.SetCursorScreenPos(new Vector2(statusTextX, namePos.Y));
+        using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+            _bbCodeRenderService.Render(status, statusSize.X, ProfileBbCodeRenderOptions.Compact);
 
         ImGui.SetCursorScreenPos(namePos);
-        ImGui.Dummy(nameSize);
+        ImGui.Dummy(new Vector2(nameWidth, MathF.Max(ImGui.GetTextLineHeight(), nameSize.Y)));
         DrawContextMenu(row, dispatch);
 
         ImGui.SetCursorScreenPos(new Vector2(min.X, min.Y + badgeSize.Y + 10f * scale));
@@ -298,6 +309,9 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         drawList.AddText(min + (size - textSize) * 0.5f, Colour.Vector4ToColour(color), label);
         return size;
     }
+
+    private void DrawCompactText(string text)
+        => _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X, ProfileBbCodeRenderOptions.Compact);
 
     private static bool DrawCardActionButton(FontAwesomeIcon icon, string label, string id)
     {
@@ -357,17 +371,17 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.Dummy(new Vector2(width, 1f * scale));
     }
 
-    private static void DrawCardLabelValue(string label, string? value)
+    private void DrawCardLabelValue(string label, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return;
 
         ImGui.TextColored(ImGuiColors.DalamudGrey, label);
         ImGui.SameLine();
-        ImGui.TextWrapped(value);
+        DrawCompactText(value);
     }
 
-    private static void DrawRotatingHook(AvailabilityRow row)
+    private void DrawRotatingHook(AvailabilityRow row)
     {
         var hooks = row.Profile?.Hooks
             .Where(hook => !string.IsNullOrWhiteSpace(hook.Title) || !string.IsNullOrWhiteSpace(hook.Description))
@@ -380,19 +394,19 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.TextColored(Colour.WithAlpha(ImGuiColors.DalamudGrey, alpha), hooks.Count == 1 ? "RP Hook:" : $"RP Hook {index + 1}/{hooks.Count}:");
         using (ImRaii.PushColor(ImGuiCol.Text, Colour.WithAlpha(ImGuiColors.HealerGreen, alpha)))
         {
-            ImGui.TextWrapped(string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title);
+            DrawCompactText(string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title);
         }
 
         if (!string.IsNullOrWhiteSpace(hook.Description))
         {
             using (ImRaii.PushColor(ImGuiCol.Text, Colour.WithAlpha(ImGuiColors.DalamudWhite, alpha)))
             {
-                ImGui.TextWrapped(hook.Description);
+                DrawCompactText(hook.Description);
             }
         }
     }
 
-    private static void DrawRpAvailability(AvailabilityRow row)
+    private void DrawRpAvailability(AvailabilityRow row)
     {
         var card = row.RpCard;
         if (card == null || card.Paused || card.ExpiresAtUtc <= DateTimeOffset.UtcNow)
@@ -408,9 +422,9 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         {
             ImGui.TextColored(ImGuiColors.DalamudGrey, "Current hook:");
             ImGui.SameLine();
-            ImGui.TextWrapped(card.CurrentHook.Title);
+            DrawCompactText(card.CurrentHook.Title);
             if (!string.IsNullOrWhiteSpace(card.CurrentHook.Description))
-                ImGui.TextWrapped(card.CurrentHook.Description);
+                DrawCompactText(card.CurrentHook.Description);
         }
     }
 
@@ -452,23 +466,26 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.TextWrapped(string.Join("   ", visibleTags));
     }
 
-    private static void DrawPlayer(AvailabilityRow row, IDispatcher dispatch)
+    private void DrawPlayer(AvailabilityRow row, IDispatcher dispatch)
     {
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "character", dispatch);
-        ImGui.TextUnformatted(row.DisplayName);
+        DrawCompactText(row.DisplayName);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "status", dispatch);
         var status = row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
             ? row.Status + " · RP: " + RpAvailabilityLabel(card.State)
             : row.Status;
-        ImGui.TextColored(ImGuiColors.HealerGreen, status);
+        using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+            DrawCompactText(status);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "tagline", dispatch);
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(row.Profile?.Tagline) ? "-" : row.Profile.Tagline);
+        if (string.IsNullOrWhiteSpace(row.Profile?.Tagline)) ImGui.TextUnformatted("-");
+        else DrawCompactText(row.Profile.Tagline);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "pronouns", dispatch);
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(row.Profile?.Pronouns) ? "-" : row.Profile.Pronouns);
+        if (string.IsNullOrWhiteSpace(row.Profile?.Pronouns)) ImGui.TextUnformatted("-");
+        else DrawCompactText(row.Profile.Pronouns);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "gender", dispatch);
         ImGui.TextUnformatted(row.GenderText);
@@ -483,13 +500,14 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.TextUnformatted(row.LevelText);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "approach", dispatch);
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(row.Profile?.Approachability) ? "-" : row.Profile.Approachability);
+        if (string.IsNullOrWhiteSpace(row.Profile?.Approachability)) ImGui.TextUnformatted("-");
+        else DrawCompactText(row.Profile.Approachability);
         ImGui.TableNextColumn();
         DrawCellContextTarget(row, "homeworld", dispatch);
         ImGui.TextUnformatted(row.HomeWorldName);
     }
 
-    private static void DrawCellContextTarget(AvailabilityRow row, string column, IDispatcher dispatch)
+    private void DrawCellContextTarget(AvailabilityRow row, string column, IDispatcher dispatch)
     {
         var cursor = ImGui.GetCursorScreenPos();
         var id = $"##availability-cell-{row.Ident}-{column}";
@@ -498,7 +516,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         ImGui.SetCursorScreenPos(cursor);
     }
 
-    private static void DrawContextMenu(AvailabilityRow row, IDispatcher dispatch, string? popupScope = null)
+    private void DrawContextMenu(AvailabilityRow row, IDispatcher dispatch, string? popupScope = null)
     {
         var worldName = string.Equals(row.HomeWorldName, "-", StringComparison.Ordinal) ? string.Empty : row.HomeWorldName;
         var scale = ImGuiHelpers.GlobalScale;
@@ -537,7 +555,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
     private const float ContextMenuGap = 10f;
     private const float ContextMenuRightPad = 14f;
 
-    private static float ComputeContextMenuWidth(AvailabilityRow row, string worldName, float scale)
+    private float ComputeContextMenuWidth(AvailabilityRow row, string worldName, float scale)
     {
         var maxText = 0f;
         foreach (var label in ContextMenuLabels)
@@ -545,7 +563,10 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
 
         var itemsWidth = (ContextMenuLeftPad + ContextMenuIconSlot + ContextMenuGap + ContextMenuRightPad) * scale + maxText;
 
-        var headerWidth = ImGui.CalcTextSize(row.DisplayName).X;
+        var headerWidth = _bbCodeRenderService.Measure(
+            row.DisplayName,
+            2000f * scale,
+            ProfileBbCodeRenderOptions.Compact).X;
         if (!string.IsNullOrWhiteSpace(worldName))
             headerWidth += 6f * scale + ImGui.CalcTextSize(worldName).X;
         headerWidth += ContextMenuRightPad * scale;
@@ -553,9 +574,9 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         return MathF.Max(itemsWidth, headerWidth);
     }
 
-    private static void DrawContextMenuHeader(AvailabilityRow row, string worldName, float menuWidth, float scale)
+    private void DrawContextMenuHeader(AvailabilityRow row, string worldName, float menuWidth, float scale)
     {
-        ImGui.TextUnformatted(row.DisplayName);
+        _bbCodeRenderService.Render(row.DisplayName, menuWidth, ProfileBbCodeRenderOptions.Compact);
         if (!string.IsNullOrWhiteSpace(worldName))
         {
             ImGui.SameLine(0f, 6f * scale);

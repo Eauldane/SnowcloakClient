@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ElezenTools.Core" Version="15.5.7" />
+    <PackageReference Include="ElezenTools.Core" Version="15.55.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageReference Include="Snowcloak.API" Version="4.0.4" />
     <PackageReference Update="Meziantou.Analyzer" Version="3.0.136">
