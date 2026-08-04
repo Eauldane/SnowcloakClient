@@ -11,6 +11,7 @@ using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.Utils;
 using Snowcloak.WebAPI;
 using Microsoft.AspNetCore.SignalR;
 
@@ -18,6 +19,7 @@ namespace Snowcloak.Services.Chat;
 
 public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHostedService
 {
+    private static readonly TimeSpan RefreshDebounceInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan HistoryRestoreInterval = TimeSpan.FromMilliseconds(500);
     private static readonly Action<ILogger, ConversationKey, Exception?> LogHistoryRestoreFailed = LoggerMessage.Define<ConversationKey>(
         LogLevel.Debug,
@@ -33,12 +35,17 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     private readonly ServerRegistry _serverRegistry;
     private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly Lock _activeRoomsLock = new();
+    private readonly Lock _queuedRefreshLock = new();
     private readonly Lock _roomTurnLock = new();
     private readonly HashSet<string> _activeRooms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RoomTurnStateDto?> _roomTurns = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly SemaphoreSlim _historyRestoreGate = new(1, 1);
     private bool _chatEnabled;
+    private bool _fullRefreshPending;
+    private bool _refreshPending;
+    private bool _refreshWorkerRunning;
+    private bool _stopping;
 
     public ChatClientService(ILogger<ChatClientService> logger, SnowMediator mediator, ApiController apiController,
         ChatStore store, ChatPreferencesStore chatPreferences, SnowcloakConfigService configService,
@@ -87,7 +94,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Mediator.Subscribe<ConnectedMessage>(this, _ => ResetConnectionState());
-        Mediator.Subscribe<ChatMembershipChangedMessage>(this, _ => QueueRefresh());
+        Mediator.Subscribe<ChatMembershipChangedMessage>(this, _ => QueueRefresh(includeRooms: false));
         Mediator.Subscribe<UserChatMsgMessage>(this, message => Receive(
             new ConversationKey(ConversationKind.Direct, message.Dto.Message.Sender.UID), message.Dto.Message));
         Mediator.Subscribe<GroupChatMsgMessage>(this, message => Receive(
@@ -146,17 +153,21 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         _chatPreferences.ConfigChanged -= OnPreferencesChanged;
         _configService.ConfigChanged -= OnGlobalConfigChanged;
         Store.MessageSent -= OnMessageSent;
         UnsubscribeAll();
-        return Task.CompletedTask;
+        if (BeginStop())
+        {
+            _backgroundTasks.StopAccepting();
+            await _backgroundTasks.StopAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public Task RefreshAsync(CancellationToken cancellationToken = default)
-        => RefreshInternalAsync(cancellationToken);
+        => RefreshInternalAsync(cancellationToken, includeRooms: true);
 
     public async Task<RoomData> CreateRoomAsync(string name, string? topic, bool isPrivate)
     {
@@ -339,9 +350,94 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     public Configuration.Models.ChatSoundOption GetSound(ConversationKey key)
         => _chatPreferences.ResolveSound(key, _configService.Current.DefaultChatSound);
 
-    private void QueueRefresh()
+    private void QueueRefresh(bool includeRooms)
     {
-        _ = _backgroundTasks.Run(() => RefreshInternalAsync(CancellationToken.None), nameof(RefreshInternalAsync));
+        var startWorker = false;
+        lock (_queuedRefreshLock)
+        {
+            if (_stopping)
+            {
+                return;
+            }
+
+            _refreshPending = true;
+            _fullRefreshPending |= includeRooms;
+            if (!_refreshWorkerRunning)
+            {
+                _refreshWorkerRunning = true;
+                startWorker = true;
+            }
+        }
+
+        if (startWorker)
+        {
+            StartRefreshWorker();
+        }
+    }
+
+    private void StartRefreshWorker()
+    {
+        _ = _backgroundTasks.Run(ProcessQueuedRefreshesAsync, nameof(ProcessQueuedRefreshesAsync));
+    }
+
+    private async Task ProcessQueuedRefreshesAsync()
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(RefreshDebounceInterval).ConfigureAwait(false);
+
+                bool includeRooms;
+                lock (_queuedRefreshLock)
+                {
+                    if (!_refreshPending)
+                    {
+                        break;
+                    }
+
+                    _refreshPending = false;
+                    includeRooms = _fullRefreshPending;
+                    _fullRefreshPending = false;
+                }
+
+                await RefreshInternalAsync(CancellationToken.None, includeRooms).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            var restartWorker = false;
+            lock (_queuedRefreshLock)
+            {
+                _refreshWorkerRunning = false;
+                if (_refreshPending && !_stopping)
+                {
+                    _refreshWorkerRunning = true;
+                    restartWorker = true;
+                }
+            }
+
+            if (restartWorker)
+            {
+                StartRefreshWorker();
+            }
+        }
+    }
+
+    private bool BeginStop()
+    {
+        lock (_queuedRefreshLock)
+        {
+            if (_stopping)
+            {
+                return false;
+            }
+
+            _stopping = true;
+            _refreshPending = false;
+            _fullRefreshPending = false;
+            return true;
+        }
     }
 
     private void ResetConnectionState()
@@ -356,10 +452,10 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         }
 
         Store.InvalidateHistory();
-        QueueRefresh();
+        QueueRefresh(includeRooms: true);
     }
 
-    private async Task RefreshInternalAsync(CancellationToken cancellationToken)
+    private async Task RefreshInternalAsync(CancellationToken cancellationToken, bool includeRooms)
     {
         await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -369,75 +465,11 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
                 return;
             }
 
-            var activeKeys = new HashSet<ConversationKey>();
-            foreach (var pair in _pairManager.DirectPairs.Where(static pair => pair.IsMutualDirectPair))
+            ReconcileChatMemberships();
+            if (includeRooms)
             {
-                var key = new ConversationKey(ConversationKind.Direct, pair.UserData.UID);
-                activeKeys.Add(key);
-                ConfigureConversation(key, pair.UserData.AliasOrUID);
+                await RefreshRoomsAsync(cancellationToken).ConfigureAwait(false);
             }
-
-            foreach (var group in _pairManager.Groups.Values)
-            {
-                var key = new ConversationKey(ConversationKind.Syncshell, group.GID);
-                activeKeys.Add(key);
-                ConfigureConversation(key, group.GroupAliasOrGID);
-                Store.ReplaceMembers(key, ProjectSyncshellMembers(group));
-                Store.ReplaceMemberLabels(key, ProjectSyncshellMemberLabels(group));
-            }
-
-            foreach (var conversation in Store.Snapshot.Conversations
-                         .Where(conversation => conversation.Key.Kind != ConversationKind.Room && !activeKeys.Contains(conversation.Key)))
-            {
-                Store.RemoveConversation(conversation.Key);
-            }
-
-            var roomList = await _apiController.RoomList().ConfigureAwait(false);
-            var counts = await _apiController.RoomListUserCounts().ConfigureAwait(false);
-            foreach (var listedRoom in roomList)
-            {
-                SeedRoomTurn(listedRoom.Room);
-            }
-            _rooms.ReplaceRooms(roomList, counts);
-
-            foreach (var roomId in _serverRegistry.CurrentServer.JoinedRooms.ToArray())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var room = roomList.FirstOrDefault(candidate => string.Equals(candidate.Room.RoomId, roomId, StringComparison.Ordinal));
-                if (room == null)
-                {
-                    _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
-                    SetRoomActive(roomId, false);
-                    continue;
-                }
-
-                if (!IsRoomActive(roomId))
-                {
-                    RoomMemberDto? joined;
-                    try
-                    {
-                        joined = await _apiController.RoomJoin(room).ConfigureAwait(false);
-                    }
-                    catch (HubException)
-                    {
-                        _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
-                        Store.RemoveConversation(new ConversationKey(ConversationKind.Room, roomId));
-                        continue;
-                    }
-                    if (joined == null)
-                    {
-                        _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
-                        continue;
-                    }
-
-                    SetRoomActive(roomId, true);
-                }
-
-                ConfigureConversation(new ConversationKey(ConversationKind.Room, roomId), room.Room.Name);
-                await RefreshRoomMembersAsync(room.Room).ConfigureAwait(false);
-            }
-
-            _serverRegistry.Save();
         }
         finally
         {
@@ -445,6 +477,82 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         }
 
         await RestoreChangedHistoriesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private void ReconcileChatMemberships()
+    {
+        var activeKeys = new HashSet<ConversationKey>();
+        foreach (var pair in _pairManager.DirectPairs.Where(static pair => pair.IsMutualDirectPair))
+        {
+            var key = new ConversationKey(ConversationKind.Direct, pair.UserData.UID);
+            activeKeys.Add(key);
+            ConfigureConversation(key, pair.UserData.AliasOrUID);
+        }
+
+        foreach (var group in _pairManager.Groups.Values)
+        {
+            var key = new ConversationKey(ConversationKind.Syncshell, group.GID);
+            activeKeys.Add(key);
+            ConfigureConversation(key, group.GroupAliasOrGID);
+            Store.ReplaceMembers(key, ProjectSyncshellMembers(group));
+            Store.ReplaceMemberLabels(key, ProjectSyncshellMemberLabels(group));
+        }
+
+        foreach (var conversation in Store.Snapshot.Conversations
+                     .Where(conversation => conversation.Key.Kind != ConversationKind.Room && !activeKeys.Contains(conversation.Key)))
+        {
+            Store.RemoveConversation(conversation.Key);
+        }
+    }
+
+    private async Task RefreshRoomsAsync(CancellationToken cancellationToken)
+    {
+        var roomList = await _apiController.RoomList().ConfigureAwait(false);
+        var counts = await _apiController.RoomListUserCounts().ConfigureAwait(false);
+        foreach (var listedRoom in roomList)
+        {
+            SeedRoomTurn(listedRoom.Room);
+        }
+        _rooms.ReplaceRooms(roomList, counts);
+
+        foreach (var roomId in _serverRegistry.CurrentServer.JoinedRooms.ToArray())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var room = roomList.FirstOrDefault(candidate => string.Equals(candidate.Room.RoomId, roomId, StringComparison.Ordinal));
+            if (room == null)
+            {
+                _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
+                SetRoomActive(roomId, false);
+                continue;
+            }
+
+            if (!IsRoomActive(roomId))
+            {
+                RoomMemberDto? joined;
+                try
+                {
+                    joined = await _apiController.RoomJoin(room).ConfigureAwait(false);
+                }
+                catch (HubException)
+                {
+                    _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
+                    Store.RemoveConversation(new ConversationKey(ConversationKind.Room, roomId));
+                    continue;
+                }
+                if (joined == null)
+                {
+                    _serverRegistry.CurrentServer.JoinedRooms.Remove(roomId);
+                    continue;
+                }
+
+                SetRoomActive(roomId, true);
+            }
+
+            ConfigureConversation(new ConversationKey(ConversationKind.Room, roomId), room.Room.Name);
+            await RefreshRoomMembersAsync(room.Room).ConfigureAwait(false);
+        }
+
+        _serverRegistry.Save();
     }
 
     private async Task RestoreChangedHistoriesAsync(CancellationToken cancellationToken)
@@ -890,7 +998,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         var enabled = _configService.Current.ChatEnabled;
         if (enabled && !_chatEnabled)
         {
-            QueueRefresh();
+            QueueRefresh(includeRooms: true);
         }
 
         _chatEnabled = enabled;
@@ -916,6 +1024,11 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         _chatPreferences.ConfigChanged -= OnPreferencesChanged;
         _configService.ConfigChanged -= OnGlobalConfigChanged;
         Store.MessageSent -= OnMessageSent;
+        if (BeginStop())
+        {
+            _backgroundTasks.StopAccepting();
+            _backgroundTasks.StopSynchronously(Logger, TimeSpan.FromSeconds(2), nameof(ChatClientService));
+        }
         _refreshGate.Dispose();
         _historyRestoreGate.Dispose();
         base.Dispose(disposing);
