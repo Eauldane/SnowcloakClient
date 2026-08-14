@@ -13,6 +13,7 @@ namespace Snowcloak.WebAPI.Files;
 
 public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 {
+    private const int MaxConfiguredDecompressionWorkers = 4;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan UntrackedRequestTimeout = TimeSpan.FromSeconds(100);
     
@@ -63,9 +64,8 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Snowcloak", version));
 
         ProcessorThreadCount = Environment.ProcessorCount;
-        DecompressionWorkerLimit = Math.Max(1, ProcessorThreadCount - 2);
         _downloadSlots = new DownloadSlotGate(snowcloakConfig.Current.ParallelDownloads);
-        _decompressionSlots = new DownloadSlotGate(DecompressionWorkerLimit);
+        _decompressionSlots = new DownloadSlotGate(GetDecompressionWorkerLimit());
         ResetOptionalPrefetchBudget();
         
         Mediator.Subscribe<FileServerInfoReceivedMessage>(this, (msg) =>
@@ -94,7 +94,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     public Uri? FilesCdnUri { private set; get; }
     public bool IsInitialized => FilesCdnUri != null;
     public int ProcessorThreadCount { get; }
-    public int DecompressionWorkerLimit { get; }
+    public int DecompressionWorkerLimit => GetDecompressionWorkerLimit();
 
     protected override void Dispose(bool disposing)
     {
@@ -157,12 +157,22 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     public async Task WaitForDecompressionSlotAsync(CancellationToken token)
     {
+        _decompressionSlots.UpdateLimit(GetDecompressionWorkerLimit());
         await _decompressionSlots.WaitAsync(token).ConfigureAwait(false);
     }
 
     public void ReleaseDecompressionSlot()
     {
         _decompressionSlots.Release();
+    }
+
+    private int GetDecompressionWorkerLimit()
+    {
+        var configuredLimit = _snowcloakConfig.Current.ParallelDecompressions;
+        if (configuredLimit <= 0)
+            return ProcessorThreadCount <= 8 ? 1 : 2;
+
+        return Math.Clamp(configuredLimit, 1, MaxConfiguredDecompressionWorkers);
     }
 
     public long DownloadLimitPerSlot()

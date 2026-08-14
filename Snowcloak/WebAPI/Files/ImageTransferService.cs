@@ -9,11 +9,16 @@ using Snowcloak.API.Routes;
 
 namespace Snowcloak.WebAPI.Files;
 
-public sealed class ImageTransferService : IDisposable
+public sealed partial class ImageTransferService : IDisposable
 {
+    private static readonly TimeSpan InitialFetchRetryDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan MaximumFetchRetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ImageRequestTimeout = TimeSpan.FromSeconds(100);
+
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly ILogger<ImageTransferService> _logger;
     private readonly ConcurrentDictionary<string, byte[]> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ImageFetchFailure> _fetchFailures = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _disposeCts = new();
 
@@ -27,21 +32,26 @@ public sealed class ImageTransferService : IDisposable
     {
         if (!_orchestrator.IsInitialized) throw new InvalidOperationException("File transfer is not initialised.");
 
+        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        requestCts.CancelAfter(ImageRequestTimeout);
+        var requestToken = requestCts.Token;
         using var content = new ByteArrayContent(imageData);
         content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         using var response = await _orchestrator.SendRequestAsync(HttpMethod.Post,
-            SnowFiles.ImageUploadFullPath(_orchestrator.FilesCdnUri!, kind), content, token).ConfigureAwait(false);
+            SnowFiles.ImageUploadFullPath(_orchestrator.FilesCdnUri!, kind), content, requestToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(requestToken).ConfigureAwait(false);
             _logger.LogWarning("Image upload failed with {status}: {body}", response.StatusCode, body);
             throw new ImageUploadException(DescribeUploadFailure(response.StatusCode, body));
         }
 
-        var reply = await response.Content.ReadFromJsonAsync<ImageUploadReplyDto>(cancellationToken: token).ConfigureAwait(false);
+        var reply = await response.Content.ReadFromJsonAsync<ImageUploadReplyDto>(cancellationToken: requestToken).ConfigureAwait(false);
         if (reply != null && !string.IsNullOrEmpty(reply.Hash))
         {
-            _cache[reply.Hash.ToUpperInvariant()] = imageData;
+            var normalized = reply.Hash.ToUpperInvariant();
+            _cache[normalized] = imageData;
+            _fetchFailures.TryRemove(normalized, out _);
         }
 
         return reply;
@@ -78,6 +88,12 @@ public sealed class ImageTransferService : IDisposable
             return cached.Length > 0;
         }
 
+        if (_fetchFailures.TryGetValue(normalized, out var failure)
+            && failure.RetryAfterUtc > DateTimeOffset.UtcNow)
+        {
+            return false;
+        }
+
         TriggerFetch(normalized);
         return false;
     }
@@ -93,12 +109,21 @@ public sealed class ImageTransferService : IDisposable
         {
             try
             {
-                _cache[hash] = await DownloadAsync(hash, _disposeCts.Token).ConfigureAwait(false) ?? [];
+                var downloaded = await DownloadAsync(hash, _disposeCts.Token).ConfigureAwait(false);
+                if (downloaded is { Length: > 0 })
+                {
+                    _cache[hash] = downloaded;
+                    _fetchFailures.TryRemove(hash, out _);
+                }
+                else
+                {
+                    RecordFetchFailure(hash);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Could not download image {hash}", hash);
-                _cache[hash] = [];
+                RecordFetchFailure(hash);
             }
             finally
             {
@@ -111,14 +136,34 @@ public sealed class ImageTransferService : IDisposable
     {
         if (!_orchestrator.IsInitialized) return null;
 
+        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        requestCts.CancelAfter(ImageRequestTimeout);
+        var requestToken = requestCts.Token;
         using var response = await _orchestrator.SendRequestAsync(HttpMethod.Get,
-            SnowFiles.ImageGetFullPath(_orchestrator.FilesCdnUri!, hash), token).ConfigureAwait(false);
+            SnowFiles.ImageGetFullPath(_orchestrator.FilesCdnUri!, hash), requestToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            LogImageDownloadFailed(_logger, hash, response.StatusCode);
             return null;
         }
 
-        return await response.Content.ReadAsByteArrayAsync(token).ConfigureAwait(false);
+        return await response.Content.ReadAsByteArrayAsync(requestToken).ConfigureAwait(false);
+    }
+
+    private void RecordFetchFailure(string hash)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _fetchFailures.AddOrUpdate(
+            hash,
+            _ => new ImageFetchFailure(1, now + InitialFetchRetryDelay),
+            (_, previous) =>
+            {
+                var attempts = Math.Min(previous.Attempts + 1, 6);
+                var delaySeconds = Math.Min(
+                    InitialFetchRetryDelay.TotalSeconds * Math.Pow(2, attempts - 1),
+                    MaximumFetchRetryDelay.TotalSeconds);
+                return new ImageFetchFailure(attempts, now + TimeSpan.FromSeconds(delaySeconds));
+            });
     }
 
     public void Dispose()
@@ -126,6 +171,11 @@ public sealed class ImageTransferService : IDisposable
         _disposeCts.Cancel();
         _disposeCts.Dispose();
     }
+
+    private readonly record struct ImageFetchFailure(int Attempts, DateTimeOffset RetryAfterUtc);
+
+    [LoggerMessage(EventId = 0, Level = LogLevel.Warning, Message = "Image download {Hash} failed with {Status}")]
+    private static partial void LogImageDownloadFailed(ILogger logger, string hash, HttpStatusCode status);
 }
 
 public sealed class ImageUploadException : Exception

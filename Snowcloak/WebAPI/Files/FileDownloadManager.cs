@@ -227,10 +227,11 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                     _orchestrator.ReleaseDownloadSlot();
                 }
 
-                groupHandle.SetStatus(DownloadStatus.Decompressing);
+                groupHandle.SetStatus(DownloadStatus.WaitingForDecompression);
                 await _orchestrator.WaitForDecompressionSlotAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    groupHandle.SetStatus(DownloadStatus.Decompressing);
                     var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024,
                         FileOptions.Asynchronous | FileOptions.SequentialScan);
                     await using (input.ConfigureAwait(false))

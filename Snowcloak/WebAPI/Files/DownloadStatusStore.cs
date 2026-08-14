@@ -7,10 +7,11 @@ public sealed class DownloadStatusStore
 {
     private readonly Lock _gate = new();
     private readonly List<DownloadTracker> _active = [];
+    private int _incompleteNetworkDownloadCount;
 
     public DownloadStatusHandle Begin(GameObjectHandler handler, string? uid)
     {
-        var tracker = new DownloadTracker(handler, uid);
+        var tracker = new DownloadTracker(handler, uid, AdjustIncompleteNetworkDownloadCount);
         lock (_gate)
         {
             _active.Add(tracker);
@@ -29,6 +30,8 @@ public sealed class DownloadStatusStore
             }
         }
     }
+
+    public bool HasIncompleteNetworkDownloads => Volatile.Read(ref _incompleteNetworkDownloadCount) > 0;
 
     public IReadOnlyList<DownloadSnapshot> Snapshot()
     {
@@ -56,19 +59,26 @@ public sealed class DownloadStatusStore
     {
         lock (_gate)
         {
-            _active.Remove(tracker);
+            if (_active.Remove(tracker))
+                tracker.StopTrackingNetworkDownloads();
         }
     }
+
+    private void AdjustIncompleteNetworkDownloadCount(int delta)
+        => Interlocked.Add(ref _incompleteNetworkDownloadCount, delta);
 
     internal sealed class DownloadTracker
     {
         private readonly Lock _gate = new();
         private readonly List<DownloadGroupState> _groups = [];
+        private readonly Action<int> _adjustIncompleteNetworkDownloadCount;
+        private bool _trackNetworkDownloads = true;
 
-        public DownloadTracker(GameObjectHandler handler, string? uid)
+        public DownloadTracker(GameObjectHandler handler, string? uid, Action<int> adjustIncompleteNetworkDownloadCount)
         {
             Handler = handler;
             Uid = uid;
+            _adjustIncompleteNetworkDownloadCount = adjustIncompleteNetworkDownloadCount;
         }
 
         public GameObjectHandler Handler { get; }
@@ -76,13 +86,13 @@ public sealed class DownloadStatusStore
 
         public DownloadGroupState AddGroup(string server, long totalBytes, int totalFiles)
         {
-            var state = new DownloadGroupState(server, totalBytes, totalFiles);
             lock (_gate)
             {
+                var state = new DownloadGroupState(server, totalBytes, totalFiles,
+                    _trackNetworkDownloads ? _adjustIncompleteNetworkDownloadCount : null);
                 _groups.Add(state);
+                return state;
             }
-
-            return state;
         }
 
         public DownloadSnapshot Snapshot()
@@ -94,6 +104,18 @@ public sealed class DownloadStatusStore
             }
 
             return new DownloadSnapshot(Handler, Uid, Array.ConvertAll(groups, g => g.Snapshot()));
+        }
+
+        public void StopTrackingNetworkDownloads()
+        {
+            lock (_gate)
+            {
+                if (!_trackNetworkDownloads) return;
+                _trackNetworkDownloads = false;
+
+                foreach (var group in _groups)
+                    group.StopTrackingNetworkDownload();
+            }
         }
     }
 
@@ -107,12 +129,19 @@ public sealed class DownloadStatusStore
         private long _totalBytes;
         private int _transferredFiles;
         private string? _statusMessage;
+        private Action<int>? _adjustIncompleteNetworkDownloadCount;
+        private bool _networkDownloadIncomplete;
 
-        public DownloadGroupState(string server, long totalBytes, int totalFiles)
+        public DownloadGroupState(string server, long totalBytes, int totalFiles,
+            Action<int>? adjustIncompleteNetworkDownloadCount)
         {
             _server = server;
             _totalBytes = totalBytes;
             _totalFiles = totalFiles;
+            _adjustIncompleteNetworkDownloadCount = adjustIncompleteNetworkDownloadCount;
+            _networkDownloadIncomplete = IsNetworkDownloadIncomplete();
+            if (_networkDownloadIncomplete)
+                _adjustIncompleteNetworkDownloadCount?.Invoke(1);
         }
 
         public void SetStatus(DownloadStatus status)
@@ -137,6 +166,7 @@ public sealed class DownloadStatusStore
             lock (_gate)
             {
                 _totalBytes = totalBytes;
+                UpdateNetworkDownloadState();
             }
         }
 
@@ -145,6 +175,7 @@ public sealed class DownloadStatusStore
             lock (_gate)
             {
                 _transferredBytes += bytes;
+                UpdateNetworkDownloadState();
             }
         }
 
@@ -163,6 +194,28 @@ public sealed class DownloadStatusStore
                 return new DownloadGroupSnapshot(_server, _status, _transferredBytes, _totalBytes, _transferredFiles,
                     _totalFiles, _statusMessage);
             }
+        }
+
+        public void StopTrackingNetworkDownload()
+        {
+            lock (_gate)
+            {
+                if (_adjustIncompleteNetworkDownloadCount == null) return;
+                if (_networkDownloadIncomplete)
+                    _adjustIncompleteNetworkDownloadCount(-1);
+                _adjustIncompleteNetworkDownloadCount = null;
+            }
+        }
+
+        private bool IsNetworkDownloadIncomplete() => _totalBytes > 0 && _transferredBytes < _totalBytes;
+
+        private void UpdateNetworkDownloadState()
+        {
+            var incomplete = IsNetworkDownloadIncomplete();
+            if (incomplete == _networkDownloadIncomplete) return;
+
+            _networkDownloadIncomplete = incomplete;
+            _adjustIncompleteNetworkDownloadCount?.Invoke(incomplete ? 1 : -1);
         }
     }
 

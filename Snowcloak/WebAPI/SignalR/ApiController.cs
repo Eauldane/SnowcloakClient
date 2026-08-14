@@ -23,6 +23,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 {
     private const string TransientAuthenticationMessage = "Previous session is still closing on the server. Snowcloak will reconnect automatically.";
     private static readonly TimeSpan TransientAuthenticationRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan TransportStartTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ConnectionBootstrapTimeout = TimeSpan.FromSeconds(40);
+    private static readonly TimeSpan HealthInvocationTimeout = TimeSpan.FromSeconds(15);
 
     // Dev builds should most likely be run against a dev server, so we define that here. 
     // Most of the time this'll be local or at least on LAN (and if not, VPNed)
@@ -132,7 +135,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             return false;
         }
 
-        return await hub.InvokeAsync<bool>(nameof(CheckClientHealth), cancellationToken).ConfigureAwait(false);
+        using var timeoutCts = new CancellationTokenSource(HealthInvocationTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        return await hub.InvokeAsync<bool>(nameof(CheckClientHealth), linkedCts.Token).ConfigureAwait(false);
     }
 
     public async Task CreateConnections()
@@ -222,10 +227,14 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 var hub = await _connectionLifecycle.GetOrCreateHub(token).ConfigureAwait(false);
                 InitializeApiHooks();
 
-                await hub.StartAsync(token).ConfigureAwait(false);
+                using (var startTimeoutCts = new CancellationTokenSource(TransportStartTimeout))
+                using (var startCts = CancellationTokenSource.CreateLinkedTokenSource(token, startTimeoutCts.Token))
+                {
+                    await hub.StartAsync(startCts.Token).ConfigureAwait(false);
+                }
 
                 _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
-                var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+                var connectionDto = await GetConnectionDto(publishConnected: false, token).ConfigureAwait(false);
                 _connectionContext = ConnectionContext.From(connectionDto);
 
                 if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
@@ -239,7 +248,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
 
-                await CheckClientHealth().ConfigureAwait(false);
+                await CheckClientHealth(token).ConfigureAwait(false);
 
                 ServerState = ServerState.Connected;
                 TriggerSystemInfoRefresh();
@@ -283,7 +292,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 Logger.LogWarning(ex, "Connection attempt timed out, retrying");
                 ServerState = ServerState.Reconnecting;
                 await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
-                return;
+                continue;
             }
             catch (HttpRequestException ex)
             {
@@ -370,11 +379,15 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         await UserSetPairPermissions(new UserPermissionsDto(userData, perm)).ConfigureAwait(false);
     }
 
-    public Task<ConnectionDto> GetConnectionDto() => GetConnectionDto(true);
+    public Task<ConnectionDto> GetConnectionDto() => GetConnectionDto(true, CancellationToken.None);
 
-    public async Task<ConnectionDto> GetConnectionDto(bool publishConnected)
+    public Task<ConnectionDto> GetConnectionDto(bool publishConnected) => GetConnectionDto(publishConnected, CancellationToken.None);
+
+    private async Task<ConnectionDto> GetConnectionDto(bool publishConnected, CancellationToken cancellationToken)
     {
-        var dto = await _snowHub!.InvokeAsync<ConnectionDto>(nameof(GetConnectionDto)).ConfigureAwait(false);
+        using var timeoutCts = new CancellationTokenSource(ConnectionBootstrapTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var dto = await _snowHub!.InvokeAsync<ConnectionDto>(nameof(GetConnectionDto), linkedCts.Token).ConfigureAwait(false);
         if (publishConnected) Mediator.Publish(new ConnectedMessage(dto));
         return dto;
     }
@@ -509,7 +522,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         {
             InitializeApiHooks();
             _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
-            var connectionDto = await GetConnectionDto(publishConnected: false).ConfigureAwait(false);
+            var connectionDto = await GetConnectionDto(publishConnected: false, _connectionLifecycle.ConnectionToken).ConfigureAwait(false);
             _connectionContext = ConnectionContext.From(connectionDto);
             Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
             if (connectionDto.ServerVersion != ISnowHub.ApiVersion)

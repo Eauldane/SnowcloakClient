@@ -88,8 +88,7 @@ internal sealed class PairVisibilityTracker
                 {
                     Logger.LogDebug("Visibility update skipped for {this}, player not found yet; rearming tracking", _handler);
                 }
-                _visibilityService.StopTracking(Pair.Ident);
-                _visibilityService.StartTracking(Pair.Ident);
+                _visibilityService.RearmTracking(Pair.Ident);
                 return;
             }
             _initLookupMisses = 0;

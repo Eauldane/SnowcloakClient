@@ -40,14 +40,16 @@ internal class ReportPopupHandler : IPopupHandler
     public void DrawContent()
     {
         using (_fontService.UidFont.Push())
-            ElezenImgui.WrappedText($"Report {_reportedUser!.AliasOrUID} Profile");
+            ElezenImgui.WrappedText($"Report {_reportedUser!.AliasOrUID}");
         
         ImGui.InputTextMultiline("##reportReason", ref _reportReason, 500, new Vector2(500 - ImGui.GetStyle().ItemSpacing.X * 2, 200));
         ElezenImgui.ColouredWrappedText("Report spam and wrong reports will not be tolerated and can lead to permanent account suspension.", ImGuiColors.DalamudRed);
-        ElezenImgui.ColouredWrappedText("This is for reporting misbehaviour but solely for the actual profile. Reports that are not solely for the profile will be ignored.", ImGuiColors.DalamudYellow);
+        ElezenImgui.ColouredWrappedText("Describe the behaviour or content you are reporting and include enough context for a moderator to review it.", ImGuiColors.DalamudYellow);
         ImGui.Checkbox("Also block this UID", ref _blockUser);
         ElezenImgui.DrawHelpText("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
-        using (ImRaii.Disabled(string.IsNullOrEmpty(_reportReason) || !_apiController.SupportsOpenRpSafety))
+        var reportSupported = _apiController.SupportsOpenRpSafety
+            && (_surface != ProfileReportSurface.User || _apiController.SupportsUnpairedUserReporting);
+        using (ImRaii.Disabled(string.IsNullOrEmpty(_reportReason) || !reportSupported))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Send Report"))
             {
@@ -61,7 +63,8 @@ internal class ReportPopupHandler : IPopupHandler
     private async Task SubmitAsync(string reason, bool blockUser)
     {
         await _apiController.CharacterProfileReport(new CharacterProfileReportDto(
-            _reportedIdent, _reportedVisibility, _reportedRevision, reason, _surface, blockUser)).ConfigureAwait(false);
+            _reportedIdent, _reportedVisibility, _reportedRevision, reason, _surface, blockUser,
+            _reportedUser?.UID ?? string.Empty)).ConfigureAwait(false);
         if (blockUser)
             _safetyStore.Refresh();
     }

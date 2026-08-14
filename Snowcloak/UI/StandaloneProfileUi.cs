@@ -107,11 +107,14 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     private void DrawReportButton(SnowProfileData profile)
     {
-        var canReport = profile.User != null && profile.Revision > 0 && !profile.IsOwnProfile;
+        var reportedUser = profile.User ?? (!string.IsNullOrWhiteSpace(UserData.UID) ? UserData : null);
+        var canReport = reportedUser != null && !profile.IsOwnProfile;
         ImGui.BeginDisabled(!canReport);
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block this user") && profile.User != null)
-            Mediator.Publish(new OpenReportPopupMessage(profile.User, profile.Ident, profile.Visibility, profile.Revision,
-                Pair == null ? ProfileReportSurface.PairingAvailability : ProfileReportSurface.Profile));
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block this user") && reportedUser != null)
+            Mediator.Publish(new OpenReportPopupMessage(reportedUser, profile.Ident, profile.Visibility, profile.Revision,
+                profile.Revision <= 0
+                    ? ProfileReportSurface.User
+                    : Pair == null ? ProfileReportSurface.PairingAvailability : ProfileReportSurface.Profile));
         ImGui.EndDisabled();
     }
 

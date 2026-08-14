@@ -64,6 +64,7 @@ public sealed class TransferSettingsPanel
     private void DrawDownloadSettings()
     {
         var maxParallelDownloads = _configService.Current.ParallelDownloads;
+        var maxParallelDecompressions = _configService.Current.ParallelDecompressions;
         var downloadSpeedLimit = _configService.Current.DownloadSpeedLimitInBytes;
 
         ImGui.AlignTextToFramePadding();
@@ -102,6 +103,14 @@ public sealed class TransferSettingsPanel
             _configService.Update(c => c.ParallelDownloads = maxParallelDownloads);
         }
 
+        ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt("Maximum Parallel Decompressions", ref maxParallelDecompressions, 0, 4))
+        {
+            _configService.Update(c => c.ParallelDecompressions = maxParallelDecompressions);
+        }
+        ElezenImgui.DrawHelpText($"0 = Automatic ({_fileTransferOrchestrator.DecompressionWorkerLimit} currently). "
+            + "Higher values finish decompression sooner but may cause game hitches.");
+
 #if DEBUG
         ImGui.TextDisabled(
             $"Logical processor threads detected: {_fileTransferOrchestrator.ProcessorThreadCount}; "
@@ -119,10 +128,12 @@ public sealed class TransferSettingsPanel
             _configService.Update(c => c.ShowTransferWindow = showTransferWindow);
         }
         ElezenImgui.DrawHelpText($"The download window will show the current progress of outstanding downloads.{Environment.NewLine}{Environment.NewLine}"
-            + $"What do W/Q/P/D stand for?{Environment.NewLine}W = Waiting for Slot (see Maximum Parallel Downloads){Environment.NewLine}"
+            + $"What do W/Q/P/E/D/U stand for?{Environment.NewLine}W = Waiting for Slot (see Maximum Parallel Downloads){Environment.NewLine}"
             + $"Q = Queued on Server, waiting for queue ready signal{Environment.NewLine}"
             + $"P = Processing download (aka downloading){Environment.NewLine}"
-            + "D = Decompressing download");
+            + $"E = Waiting for a local extraction slot{Environment.NewLine}"
+            + $"D = Decompressing download{Environment.NewLine}"
+            + "U = Unavailable");
 
         if (!_configService.Current.ShowTransferWindow)
         {

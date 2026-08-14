@@ -6,6 +6,7 @@ public enum DownloadStatus
     WaitingForSlot,
     WaitingForQueue,
     Downloading,
+    WaitingForDecompression,
     Decompressing,
     Unavailable,
 }

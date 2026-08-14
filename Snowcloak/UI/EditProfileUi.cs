@@ -52,6 +52,9 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ImageTransferService _imageTransferService;
     private readonly AsyncOp<PublishedProfileResult> _publishOperation = new();
     private readonly AsyncOp _deleteOperation = new();
+    private int _pendingImageUploads;
+    private int _headerUploadGeneration;
+    private int _portraitUploadGeneration;
     private CharacterProfileDocumentDto? _pendingPublishedDocument;
     private string _pendingPublishedIdent = string.Empty;
     private long _pendingPublishedRevision;
@@ -90,7 +93,12 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         SetScaledSizeConstraints(new Vector2(620f, 600f), new Vector2(860f, 2000f));
         Mediator.Subscribe<GposeStartMessage>(this, _ => { _wasOpen = IsOpen; IsOpen = false; });
         Mediator.Subscribe<GposeEndMessage>(this, _ => IsOpen = _wasOpen);
-        Mediator.Subscribe<DisconnectedMessage>(this, _ => { _wasOpen = false; IsOpen = false; });
+        Mediator.Subscribe<DisconnectedMessage>(this, _ =>
+        {
+            InvalidatePendingImageSelections();
+            _wasOpen = false;
+            IsOpen = false;
+        });
         Mediator.Subscribe<ClearCharacterProfileDataMessage>(this, message =>
         {
             if (string.IsNullOrEmpty(message.Ident)
@@ -325,8 +333,13 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         var busy = IsBusy;
+        var publishLabel = _publishOperation.IsRunning
+            ? "Publishing..."
+            : HasPendingImageUploads
+                ? "Waiting for image uploads..."
+                : "Publish profile";
         ImGui.BeginDisabled(busy);
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, busy ? "Publishing..." : "Publish profile"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Save, publishLabel))
         {
             PublishDraft();
         }
@@ -341,6 +354,11 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void LoadDraft(SnowProfileData profile)
     {
+        if (!string.IsNullOrEmpty(_session.LoadedIdent)
+            && !string.Equals(_session.LoadedIdent, profile.Ident, StringComparison.Ordinal))
+        {
+            InvalidatePendingImageSelections();
+        }
         _session.Load(profile.Ident, profile.Revision, profile.Document);
     }
 
@@ -353,11 +371,18 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void LoadDocument(CharacterProfileDocumentDto document, bool markDirty)
     {
+        InvalidatePendingImageSelections();
         _session.ReplaceDocument(document, markDirty);
     }
 
     private void PublishDraft()
     {
+        if (HasPendingImageUploads)
+        {
+            SetStatus("Wait for the selected profile images to finish uploading before publishing.", true);
+            return;
+        }
+
         var validation = _session.Validate();
         if (!validation.IsValid)
         {
@@ -504,15 +529,24 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         SetStatus(kind == ProfileImageKind.Header ? "Uploading header image..." : "Uploading portrait...");
-        _ = UploadImageAsync(bytes, kind);
+        var generation = kind == ProfileImageKind.Header
+            ? Interlocked.Increment(ref _headerUploadGeneration)
+            : Interlocked.Increment(ref _portraitUploadGeneration);
+        var ident = _session.LoadedIdent;
+        Interlocked.Increment(ref _pendingImageUploads);
+        _ = UploadImageAsync(bytes, kind, ident, generation);
     }
 
-    private async Task UploadImageAsync(byte[] bytes, ProfileImageKind kind)
+    private async Task UploadImageAsync(byte[] bytes, ProfileImageKind kind, string ident, int generation)
     {
         try
         {
             var apiKind = kind == ProfileImageKind.Header ? ImageKind.ProfileHeader : ImageKind.ProfilePortrait;
             var reply = await _imageTransferService.UploadImageAsync(bytes, apiKind, CancellationToken.None).ConfigureAwait(false);
+            if (!IsCurrentImageSelection(kind, ident, generation))
+            {
+                return;
+            }
             if (reply == null || string.IsNullOrEmpty(reply.Hash))
             {
                 SetStatus(kind == ProfileImageKind.Header ? "Could not upload that header image." : "Could not upload that portrait.", true);
@@ -534,23 +568,35 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         }
         catch (ImageUploadException ex)
         {
-            SetStatus(ex.Message, true);
+            if (IsCurrentImageSelection(kind, ident, generation))
+            {
+                SetStatus(ex.Message, true);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not upload RP profile image");
-            SetStatus(kind == ProfileImageKind.Header ? "Could not upload that header image." : "Could not upload that portrait.", true);
+            if (IsCurrentImageSelection(kind, ident, generation))
+            {
+                SetStatus(kind == ProfileImageKind.Header ? "Could not upload that header image." : "Could not upload that portrait.", true);
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _pendingImageUploads);
         }
     }
 
     private void RemoveHeaderImage()
     {
+        Interlocked.Increment(ref _headerUploadGeneration);
         _session.HeaderImageHash = string.Empty;
         MarkDirty();
     }
 
     private void RemovePortrait()
     {
+        Interlocked.Increment(ref _portraitUploadGeneration);
         _session.ProfileImageHash = string.Empty;
         MarkDirty();
     }
@@ -620,7 +666,28 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         _lastDraftAutosaveUtc = now;
     }
 
-    private bool IsBusy => _publishOperation.IsRunning || _deleteOperation.IsRunning;
+    private bool HasPendingImageUploads => Volatile.Read(ref _pendingImageUploads) > 0;
+
+    private bool IsBusy => _publishOperation.IsRunning || _deleteOperation.IsRunning || HasPendingImageUploads;
+
+    private bool IsCurrentImageSelection(ProfileImageKind kind, string ident, int generation)
+    {
+        if (!string.Equals(_session.LoadedIdent, ident, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var currentGeneration = kind == ProfileImageKind.Header
+            ? Volatile.Read(ref _headerUploadGeneration)
+            : Volatile.Read(ref _portraitUploadGeneration);
+        return generation == currentGeneration;
+    }
+
+    private void InvalidatePendingImageSelections()
+    {
+        Interlocked.Increment(ref _headerUploadGeneration);
+        Interlocked.Increment(ref _portraitUploadGeneration);
+    }
 
     private static bool ImagesDiffer(string? left, string? right)
     {

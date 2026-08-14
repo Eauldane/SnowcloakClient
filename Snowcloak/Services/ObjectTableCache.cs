@@ -48,6 +48,7 @@ public sealed class ObjectTableCache
 
     public bool IsAnythingDrawing { get; private set; }
     public uint ClassJobId => _classJobId;
+    public IReadOnlyDictionary<string, PlayerCharacterData> PlayerCharactersSnapshot => Volatile.Read(ref _snapshot);
 
     public void SetLocalClassJob(ICharacter? localPlayer)
     {
@@ -99,7 +100,7 @@ public sealed class ObjectTableCache
         }
 
         _notUpdatedCharas.Clear();
-        _snapshot = new Dictionary<string, PlayerCharacterData>(_playerCharas, StringComparer.Ordinal);
+        Volatile.Write(ref _snapshot, new Dictionary<string, PlayerCharacterData>(_playerCharas, StringComparer.Ordinal));
     }
 
     public void FinishDrawingPass()
@@ -398,7 +399,7 @@ public sealed class ObjectTableCache
 
     public PlayerCharacterData FindPlayerByNameHash(string ident)
     {
-        _snapshot.TryGetValue(ident, out var result);
+        PlayerCharactersSnapshot.TryGetValue(ident, out var result);
         return result;
     }
 

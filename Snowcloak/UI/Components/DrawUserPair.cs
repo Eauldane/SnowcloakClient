@@ -224,6 +224,14 @@ public class DrawUserPair : DrawPairBase
             }
             ElezenImgui.AttachTooltip("Opens the profile for this user in a new window");
         }
+        if (ApiController.SupportsUnpairedUserReporting
+            && ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block"))
+        {
+            _mediator.Publish(new OpenReportPopupMessage(entry.UserData, entry.Ident,
+                Snowcloak.API.Data.Enum.ProfileVisibility.Public, 0,
+                Snowcloak.API.Data.Enum.ProfileReportSurface.User));
+            ImGui.CloseCurrentPopup();
+        }
         if (_configService.Current.EnableDebugFeatures
             && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
         {

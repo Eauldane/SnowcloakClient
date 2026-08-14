@@ -59,17 +59,15 @@ public sealed class DownloadSlotGate
     {
         lock (_gate)
         {
-            while (_waiters.TryDequeue(out var waiter))
-            {
-                if (waiter.TryHandOff())
-                {
-                    return;
-                }
-            }
-
             if (_inUse > 0)
             {
                 _inUse--;
+            }
+
+            while (_inUse < _limit && _waiters.TryDequeue(out var waiter))
+            {
+                if (waiter.TryHandOff())
+                    _inUse++;
             }
         }
     }

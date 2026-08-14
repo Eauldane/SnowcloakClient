@@ -1,31 +1,26 @@
 using Microsoft.Extensions.Logging;
 using Snowcloak.Core.Scheduling;
 using Snowcloak.Game.Scheduling;
-using Snowcloak.Interop.Ipc;
 using Snowcloak.Services.Mediator;
-using System.Collections.Concurrent;
 
 namespace Snowcloak.Services;
 
 // Detect when players of interest are visible
 public class VisibilityService : DisposableMediatorSubscriberBase
 {
-    private enum TrackedPlayerStatus
-    {
-        NotVisible,
-        Visible
-    };
-
-    private readonly DalamudUtilService _dalamudUtil;
+    private readonly ObjectTableCache _objectTableCache;
     private readonly IFrameTickHandle _tick;
-    private readonly ConcurrentDictionary<string, TrackedPlayerStatus> _trackedPlayerVisibility = new(StringComparer.Ordinal);
-    private readonly List<string> _makeVisibleNextFrame = new();
+    private readonly Lock _trackingGate = new();
+    private readonly HashSet<string> _trackedPlayers = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _visiblePending = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _visiblePlayers = new(StringComparer.Ordinal);
+    private readonly List<string> _noLongerVisible = [];
 
-    public VisibilityService(ILogger<VisibilityService> logger, SnowMediator mediator, DalamudUtilService dalamudUtil, IFrameScheduler frameScheduler)
+    public VisibilityService(ILogger<VisibilityService> logger, SnowMediator mediator, ObjectTableCache objectTableCache, IFrameScheduler frameScheduler)
         : base(logger, mediator)
     {
-        _dalamudUtil = dalamudUtil;
-        _tick = frameScheduler.Register("Visibility", TickInterval.EveryFrame, TickPriority.Critical, FrameworkUpdate,
+        _objectTableCache = objectTableCache;
+        _tick = frameScheduler.Register("Visibility", TickInterval.EveryMilliseconds(100), TickPriority.High, FrameworkUpdate,
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
     }
 
@@ -37,49 +32,75 @@ public class VisibilityService : DisposableMediatorSubscriberBase
 
     public void StartTracking(string ident)
     {
-        _trackedPlayerVisibility.TryAdd(ident, TrackedPlayerStatus.NotVisible);
+        lock (_trackingGate)
+            _trackedPlayers.Add(ident);
     }
 
     public void StopTracking(string ident)
     {
         // No PairVisibilityMessage is emitted if the player was visible when removed
-        _trackedPlayerVisibility.TryRemove(ident, out _);
+        lock (_trackingGate)
+        {
+            _trackedPlayers.Remove(ident);
+            _visiblePending.Remove(ident);
+            _visiblePlayers.Remove(ident);
+        }
+    }
+
+    public void RearmTracking(string ident)
+    {
+        lock (_trackingGate)
+        {
+            _trackedPlayers.Add(ident);
+            _visiblePending.Remove(ident);
+            _visiblePlayers.Remove(ident);
+        }
     }
 
     private void FrameworkUpdate()
     {
-        List<(string Ident, bool Visible)>? toPublish = null;
+        var snapshot = _objectTableCache.PlayerCharactersSnapshot;
 
-        foreach (var player in _trackedPlayerVisibility)
+        lock (_trackingGate)
         {
-            string ident = player.Key;
-            var findResult = _dalamudUtil.FindPlayerByNameHash(ident);
-            var isVisible = findResult.EntityId != 0;
-
-            if (player.Value == TrackedPlayerStatus.NotVisible && isVisible)
+            foreach (var (ident, player) in snapshot)
             {
-                if (_makeVisibleNextFrame.Contains(ident))
+                if (player.EntityId == 0 || !_trackedPlayers.Contains(ident) || _visiblePlayers.Contains(ident))
+                    continue;
+
+                if (_visiblePending.Remove(ident))
                 {
-                    if (_trackedPlayerVisibility.TryUpdate(ident, newValue: TrackedPlayerStatus.Visible, comparisonValue: TrackedPlayerStatus.NotVisible))
-                        (toPublish ??= new()).Add((ident, true));
+                    _visiblePlayers.Add(ident);
+                    Mediator.Publish<PlayerVisibilityMessage>(new(ident, IsVisible: true, Invalidate: false));
                 }
                 else
-                    _makeVisibleNextFrame.Add(ident);
+                {
+                    _visiblePending.Add(ident);
+                }
             }
-            else if (player.Value == TrackedPlayerStatus.Visible && !isVisible)
+
+            _noLongerVisible.Clear();
+            foreach (var ident in _visiblePending)
             {
-                if (_trackedPlayerVisibility.TryUpdate(ident, newValue: TrackedPlayerStatus.NotVisible, comparisonValue: TrackedPlayerStatus.Visible))
-                    (toPublish ??= new()).Add((ident, false));
+                if (!snapshot.TryGetValue(ident, out var player) || player.EntityId == 0)
+                    _noLongerVisible.Add(ident);
             }
 
-            if (!isVisible)
-                _makeVisibleNextFrame.Remove(ident);
+            foreach (var ident in _noLongerVisible)
+                _visiblePending.Remove(ident);
+
+            _noLongerVisible.Clear();
+            foreach (var ident in _visiblePlayers)
+            {
+                if (!snapshot.TryGetValue(ident, out var player) || player.EntityId == 0)
+                    _noLongerVisible.Add(ident);
+            }
+
+            foreach (var ident in _noLongerVisible)
+            {
+                _visiblePlayers.Remove(ident);
+                Mediator.Publish<PlayerVisibilityMessage>(new(ident, IsVisible: false, Invalidate: false));
+            }
         }
-
-        if (toPublish == null)
-            return;
-
-        foreach (var (ident, visible) in toPublish)
-            Mediator.Publish<PlayerVisibilityMessage>(new(ident, IsVisible: visible, Invalidate: false));
     }
 }

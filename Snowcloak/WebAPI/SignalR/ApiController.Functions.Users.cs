@@ -15,6 +15,9 @@ public partial class ApiController
     public bool SupportsOpenRpSafety => IsConnected
         && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.OpenRpSafety) is true;
 
+    public bool SupportsUnpairedUserReporting => IsConnected
+        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.UnpairedUserReporting) is true;
+
     public async Task PushCharacterData(CharacterData data, List<UserData> visibleCharacters)
     {
         if (!IsConnected) return;

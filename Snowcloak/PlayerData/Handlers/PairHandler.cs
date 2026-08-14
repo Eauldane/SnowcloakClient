@@ -111,6 +111,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             _downloadFlight.Cancel();
             _reverter.QueueClearPlayerScopedOptionalData(Guid.NewGuid());
             _charaHandler?.Invalidate();
+            RearmVisibilityTracking();
             IsVisible = false;
         });
         Mediator.Subscribe<PenumbraInitializedMessage>(this, (_) =>
@@ -198,6 +199,8 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     internal Task? PairDownloadTask { get => _pairDownloadTask; set => _pairDownloadTask = value; }
     internal Guid ApplicationId { get => _applicationId; set => _applicationId = value; }
     internal CharacterReverter Reverter => _reverter;
+
+    internal void RearmVisibilityTracking() => _visibilityService.RearmTracking(Pair.Ident);
 
     public void UndoApplication(Guid applicationId = default)
     {

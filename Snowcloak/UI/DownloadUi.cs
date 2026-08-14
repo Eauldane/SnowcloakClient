@@ -107,6 +107,7 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
                     var dlSlot = item.CountByStatus(DownloadStatus.WaitingForSlot);
                     var dlQueue = item.CountByStatus(DownloadStatus.WaitingForQueue);
                     var dlProg = item.CountByStatus(DownloadStatus.Downloading);
+                    var dlExtractQueue = item.CountByStatus(DownloadStatus.WaitingForDecompression);
                     var dlDecomp = item.CountByStatus(DownloadStatus.Decompressing);
                     var dlUnavailable = item.CountByStatus(DownloadStatus.Unavailable);
                     var totalFiles = item.TotalFiles;
@@ -118,7 +119,7 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
                     ElezenImgui.DrawOutlinedFont(
-                        $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/D:{dlDecomp}/U:{dlUnavailable}]",
+                        $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/E:{dlExtractQueue}/D:{dlDecomp}/U:{dlUnavailable}]",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();
                     ImGui.SameLine(xDistance);
@@ -146,6 +147,8 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
 
             foreach (var transfer in currentDownloads)
             {
+                if (transfer.TotalBytes <= 0 || transfer.TransferredBytes >= transfer.TotalBytes) continue;
+
                 var handler = transfer.Handler;
                 if (handler == null) continue;
 
@@ -229,7 +232,10 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
     {
         if (_transferOverlayState.EditTrackerPosition) return true;
         if (!_configService.Current.ShowTransferWindow && !_configService.Current.ShowTransferBars) return false;
-        if (!_statusStore.HasActiveDownloads && !_fileTransferManager.IsUploading && !_transferOverlayState.HasUploadingPlayers) return false;
+        var hasDownloadsToDraw = _configService.Current.ShowTransferWindow
+            ? _statusStore.HasActiveDownloads
+            : _statusStore.HasIncompleteNetworkDownloads;
+        if (!hasDownloadsToDraw && !_fileTransferManager.IsUploading && !_transferOverlayState.HasUploadingPlayers) return false;
         if (!IsOpen) return false;
         return true;
     }

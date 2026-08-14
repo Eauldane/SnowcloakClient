@@ -44,6 +44,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool OpenGposeImportOnGposeStart { get; set; } = false;
     public bool OpenPopupOnAdd { get; set; } = true;
     public int ParallelDownloads { get; set; } = 10;
+    public int ParallelDecompressions { get; set; } = 0;
     public long OptionalPrefetchByteBudget { get; set; } = 64L * 1024 * 1024;
     public int DownloadSpeedLimitInBytes { get; set; } = 0;
     public DownloadSpeeds DownloadSpeedType { get; set; } = DownloadSpeeds.MBps;

@@ -349,6 +349,7 @@ internal sealed partial class CharacterApplicationPipeline
             {
                 // The character object went away mid-application: mark invisible so it is
                 // re-detected, force a re-apply, and keep the data cached for the retry.
+                _handler.RearmVisibilityTracking();
                 _handler.IsVisible = false;
                 _appliedState.ForceApplyMods = true;
                 _appliedState.CachedData = charaData;
