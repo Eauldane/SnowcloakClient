@@ -66,7 +66,6 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         var avail = ImGui.GetContentRegionAvail();
         var tableHeight = MathF.Max(ImGui.GetTextLineHeightWithSpacing() * 2f, avail.Y - footerHeight);
         var cellPadY = 8f * scale;
-        var rowHeight = ImGui.GetTextLineHeight() + cellPadY * 2f;
 
         using var cellPadding = ImRaii.PushStyle(ImGuiStyleVar.CellPadding, new Vector2(ImGui.GetStyle().CellPadding.X, cellPadY));
         using (var table = ImRaii.Table("pairing-availability-table", 10,
@@ -87,7 +86,15 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
                 ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthStretch, 0.12f);
                 ImGui.TableSetupScrollFreeze(0, 1);
                 ImGui.TableHeadersRow();
-                ImGuiClip.ClippedDraw(state.VisibleRows, row => DrawPlayer(row, dispatch), rowHeight);
+
+                var clipper = new ImGuiListClipper();
+                clipper.Begin(state.VisibleRows.Count);
+                while (clipper.Step())
+                {
+                    for (var i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                        DrawPlayer(state.VisibleRows[i], dispatch);
+                }
+                clipper.End();
             }
         }
 
@@ -468,52 +475,69 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
 
     private void DrawPlayer(AvailabilityRow row, IDispatcher dispatch)
     {
+        ImGui.TableNextRow();
+
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "character", dispatch);
+        DrawCellContextTarget(row, "character", dispatch, row.DisplayName, isBbCode: true);
         DrawCompactText(row.DisplayName);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "status", dispatch);
-        var status = row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
-            ? row.Status + " · RP: " + RpAvailabilityLabel(card.State)
-            : row.Status;
+        DrawCellContextTarget(row, "status", dispatch, GetStatusText(row), isBbCode: true);
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
-            DrawCompactText(status);
+            DrawCompactText(GetStatusText(row));
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "tagline", dispatch);
+        DrawCellContextTarget(row, "tagline", dispatch, row.Profile?.Tagline, isBbCode: true);
         if (string.IsNullOrWhiteSpace(row.Profile?.Tagline)) ImGui.TextUnformatted("-");
         else DrawCompactText(row.Profile.Tagline);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "pronouns", dispatch);
+        DrawCellContextTarget(row, "pronouns", dispatch, row.Profile?.Pronouns, isBbCode: true);
         if (string.IsNullOrWhiteSpace(row.Profile?.Pronouns)) ImGui.TextUnformatted("-");
         else DrawCompactText(row.Profile.Pronouns);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "gender", dispatch);
+        DrawCellContextTarget(row, "gender", dispatch, row.GenderText);
         ImGui.TextUnformatted(row.GenderText);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "tribe", dispatch);
+        DrawCellContextTarget(row, "tribe", dispatch, row.TribeName);
         ImGui.TextUnformatted(row.TribeName);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "class", dispatch);
+        DrawCellContextTarget(row, "class", dispatch, row.ClassName);
         ImGui.TextColored(row.ClassColor, row.ClassName);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "level", dispatch);
+        DrawCellContextTarget(row, "level", dispatch, row.LevelText);
         ImGui.TextUnformatted(row.LevelText);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "approach", dispatch);
+        DrawCellContextTarget(row, "approach", dispatch, row.Profile?.Approachability, isBbCode: true);
         if (string.IsNullOrWhiteSpace(row.Profile?.Approachability)) ImGui.TextUnformatted("-");
         else DrawCompactText(row.Profile.Approachability);
         ImGui.TableNextColumn();
-        DrawCellContextTarget(row, "homeworld", dispatch);
+        DrawCellContextTarget(row, "homeworld", dispatch, row.HomeWorldName);
         ImGui.TextUnformatted(row.HomeWorldName);
     }
 
-    private void DrawCellContextTarget(AvailabilityRow row, string column, IDispatcher dispatch)
+    private static string GetStatusText(AvailabilityRow row)
+        => row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
+            ? row.Status + " · RP: " + RpAvailabilityLabel(card.State)
+            : row.Status;
+
+    private void DrawCellContextTarget(AvailabilityRow row, string column, IDispatcher dispatch, string? text, bool isBbCode = false)
     {
         var cursor = ImGui.GetCursorScreenPos();
         var id = $"##availability-cell-{row.Ident}-{column}";
-        ImGui.InvisibleButton(id, new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeight()));
+        ImGui.InvisibleButton(id, new Vector2(ImGui.GetContentRegionAvail().X, MeasureCellContentHeight(text, isBbCode)));
         DrawContextMenu(row, dispatch, column);
         ImGui.SetCursorScreenPos(cursor);
+    }
+
+    private float MeasureCellContentHeight(string? text, bool isBbCode)
+    {
+        var lineHeight = ImGui.GetTextLineHeight();
+        if (!isBbCode || string.IsNullOrWhiteSpace(text))
+            return lineHeight;
+        
+        var width = ImGui.GetContentRegionAvail().X;
+        if (width <= 0f)
+            return lineHeight;
+
+        return MathF.Max(lineHeight, _bbCodeRenderService.Measure(text, width, ProfileBbCodeRenderOptions.Compact).Y);
     }
 
     private void DrawContextMenu(AvailabilityRow row, IDispatcher dispatch, string? popupScope = null)
