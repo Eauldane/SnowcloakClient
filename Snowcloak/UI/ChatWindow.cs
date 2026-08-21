@@ -13,6 +13,7 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.Configuration;
 using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
@@ -21,6 +22,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
+using Snowcloak.WebAPI.Files;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
@@ -38,6 +40,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ApiController _apiController;
     private readonly NotesStore _notesStore;
     private readonly TextureService _textureService;
+    private readonly SnowProfileManager _profileManager;
+    private readonly ImageTransferService _imageTransferService;
+    private readonly SnowcloakConfigService _configService;
+    private readonly Dictionary<string, IDalamudTextureWrap> _scenePortraitTextures = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _failedScenePortraits = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _requestedSceneProfiles = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<Action> _uiUpdates = new();
     private bool _sidebarCollapsed;
     private float _sidebarWidth = ModernSidebar.ExpandedWidth - 15f;
@@ -60,11 +68,13 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private string _sceneNicknameDraft = string.Empty;
     private int _sceneRoleIconIdDraft;
     private string _sceneRoleLabelDraft = string.Empty;
+    private bool _sceneUseCurrentCharacter;
 
     public ChatWindow(ILogger<ChatWindow> logger, SnowMediator mediator, ChatClientService chatService,
         ImGuiChatRenderer renderer, UiFontService fontService, PairManager pairManager, ChatIdentityResolver identityResolver,
-        ApiController apiController, NotesStore notesStore, TextureService textureService, FileDialogManager fileDialogManager,
-        PerformanceCollectorService performanceCollectorService)
+        ApiController apiController, NotesStore notesStore, TextureService textureService, SnowProfileManager profileManager,
+        ImageTransferService imageTransferService, FileDialogManager fileDialogManager,
+        PerformanceCollectorService performanceCollectorService, SnowcloakConfigService configService)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChat", performanceCollectorService)
     {
         _backgroundTasks = new BackgroundTaskTracker(logger);
@@ -76,6 +86,9 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         _apiController = apiController;
         _notesStore = notesStore;
         _textureService = textureService;
+        _profileManager = profileManager;
+        _imageTransferService = imageTransferService;
+        _configService = configService;
         Mediator.Subscribe<OpenChatConversationMessage>(this, message =>
         {
             IsOpen = true;
@@ -84,6 +97,19 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         SetScaledSizeConstraints(new Vector2(720, 440), new Vector2(1800, 1800));
         Size = new Vector2(1040, 680);
         SizeCondition = ImGuiCond.FirstUseEver;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            foreach (var texture in _scenePortraitTextures.Values)
+                texture.Dispose();
+            _scenePortraitTextures.Clear();
+            _failedScenePortraits.Clear();
+            _requestedSceneProfiles.Clear();
+        }
+        base.Dispose(disposing);
     }
 
     protected override void DrawInternal()
@@ -860,6 +886,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var height = 32f * scale;
         var min = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton($"##member-{user.UID}", new Vector2(width, height));
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
         var hovered = ImGui.IsItemHovered();
         if (hovered)
         {
@@ -867,9 +894,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
                 Colour.Vector4ToColour(new Vector4(0.090f, 0.150f, 0.220f, 0.54f)), 3f * scale);
         }
 
-        DrawMemberContextMenu(user, role, room, actorRole, syncshell);
+        DrawMemberContextMenu(user, role, room, actorRole, syncshell, roomMember);
         var drawList = ImGui.GetWindowDrawList();
         var badgeX = min.X + 7f * scale;
+        var sceneCharacter = ResolveSceneCharacter(roomMember?.SceneCharacterIdent);
+        var hasScenePortrait = sceneCharacter?.ProfilePictureHash is { Length: > 0 } portraitHash
+                               && DrawScenePortraitBadge(drawList, min, height, scale, ref badgeX, portraitHash);
         var hasPermissionBadge = role != RoomRole.Member;
         if (role != RoomRole.Member)
         {
@@ -888,7 +918,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var hasSceneRoleIcon = roomMember?.SceneRoleIconId is uint sceneRoleIconId
                                && DrawSceneRoleIconBadge(drawList, min, height, scale, ref badgeX, sceneRoleIconId);
 
-        if (!hasPermissionBadge && !hasMemberLabel && !hasSceneRoleIcon)
+        if (!hasPermissionBadge && !hasMemberLabel && !hasSceneRoleIcon && !hasScenePortrait)
         {
             DrawMemberBadge(drawList, min, height, scale, ref badgeX, FontAwesomeIcon.User,
                 SnowcloakColours.CompactTextMuted);
@@ -896,7 +926,11 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         var display = _identityResolver.Resolve(user.UID) ?? _identityResolver.Resolve(user);
         var canonicalName = display.Name;
-        if (!string.IsNullOrWhiteSpace(roomMember?.SceneNickname))
+        if (!string.IsNullOrWhiteSpace(sceneCharacter?.CharacterName))
+        {
+            display = display with { Name = sceneCharacter.CharacterName };
+        }
+        else if (!string.IsNullOrWhiteSpace(roomMember?.SceneNickname))
         {
             display = display with { Name = roomMember.SceneNickname };
         }
@@ -907,6 +941,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         ElezenImgui.ColouredText(display.Name, display.Colour, display.Glow);
         ImGui.PopClipRect();
         ImGui.SetCursorPos(cursor);
+
+        if (clicked && !string.IsNullOrWhiteSpace(roomMember?.SceneCharacterIdent))
+        {
+            Mediator.Publish(new ProfileOpenStandaloneMessage(user, _pairManager.GetPairByUID(user.UID),
+                Ident: roomMember.SceneCharacterIdent, FallbackName: display.Name));
+        }
 
         var statusColour = online ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactOffline;
         drawList.AddCircleFilled(new Vector2(min.X + width - 7f * scale, min.Y + height * 0.5f), 3f * scale,
@@ -931,8 +971,55 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             {
                 tooltip += $"\n{(string.IsNullOrWhiteSpace(roomMember?.SceneRoleLabel) ? $"Role icon {roomMember?.SceneRoleIconId}" : roomMember.SceneRoleLabel)}";
             }
+            if (!string.IsNullOrWhiteSpace(roomMember?.SceneCharacterIdent))
+                tooltip += $"\nPlaying as: {sceneCharacter?.CharacterName ?? roomMember.SceneCharacterIdent}\nClick to open character profile";
+            if (roomMember?.IsNarrator == true)
+                tooltip += "\nNarrator";
             ImGui.SetTooltip(tooltip);
         }
+    }
+
+    private Snowcloak.API.Dto.User.CharacterProfileSummaryDto? ResolveSceneCharacter(string? ident)
+    {
+        if (string.IsNullOrWhiteSpace(ident))
+            return null;
+        var summary = _profileManager.GetSummary(ident);
+        if (summary != null || !_requestedSceneProfiles.Add(ident))
+            return summary;
+        _ = _backgroundTasks.Run(async () =>
+        {
+            await _profileManager.RefreshSummaryAsync(ident).ConfigureAwait(false);
+        }, nameof(SnowProfileManager.RefreshSummaryAsync));
+        return null;
+    }
+
+    private bool DrawScenePortraitBadge(ImDrawListPtr drawList, Vector2 min, float height, float scale,
+        ref float badgeX, string imageHash)
+    {
+        if (!_scenePortraitTextures.TryGetValue(imageHash, out var texture))
+        {
+            if (_failedScenePortraits.Contains(imageHash)
+                || !_imageTransferService.TryGetImage(imageHash, out var bytes) || bytes.Length == 0)
+                return false;
+            try
+            {
+                texture = _textureService.LoadImage(bytes);
+                _scenePortraitTextures[imageHash] = texture;
+            }
+            catch (Exception ex) when (ex is AggregateException or InvalidDataException or IOException
+                                       or UnauthorizedAccessException or NotSupportedException or ArgumentException
+                                       or ObjectDisposedException or InvalidOperationException)
+            {
+                _failedScenePortraits.Add(imageHash);
+                return false;
+            }
+        }
+
+        var size = 22f * scale;
+        var topLeft = new Vector2(badgeX, min.Y + (height - size) * 0.5f);
+        drawList.AddImage(texture.Handle, topLeft, topLeft + new Vector2(size));
+        badgeX += size + 6f * scale;
+        return true;
     }
 
     private bool DrawSceneRoleIconBadge(ImDrawListPtr drawList, Vector2 min, float height, float scale,
@@ -964,7 +1051,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     }
 
     private void DrawMemberContextMenu(UserData user, RoomRole role, RoomData? room, RoomRole actorRole,
-        GroupFullInfoDto? syncshell)
+        GroupFullInfoDto? syncshell, Snowcloak.API.Dto.Chat.RoomMemberDto? roomMember)
     {
         if (!ImGui.BeginPopupContextItem($"member-actions-{user.UID}"))
         {
@@ -972,6 +1059,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         var pair = _pairManager.GetPairByUID(user.UID);
+        if (!string.IsNullOrWhiteSpace(roomMember?.SceneCharacterIdent)
+            && ImGui.MenuItem("Open scene character profile"))
+        {
+            Mediator.Publish(new ProfileOpenStandaloneMessage(user, pair,
+                Ident: roomMember.SceneCharacterIdent, FallbackName: roomMember.SceneNickname));
+        }
         if (pair != null && ImGui.MenuItem("Open profile"))
         {
             Mediator.Publish(new ProfileOpenStandaloneMessage(user, pair));
@@ -1119,6 +1212,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         _sceneNicknameDraft = member.SceneNickname ?? string.Empty;
         _sceneRoleIconIdDraft = member.SceneRoleIconId is uint iconId && iconId <= int.MaxValue ? (int)iconId : 0;
         _sceneRoleLabelDraft = member.SceneRoleLabel ?? string.Empty;
+        _sceneUseCurrentCharacter = !string.IsNullOrWhiteSpace(member.SceneCharacterIdent);
         _openSceneIdentityEditor = true;
     }
 
@@ -1136,6 +1230,13 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         var scale = ImGuiHelpers.GlobalScale;
+        var ownProfile = _profileManager.GetOwnProfile(ProfileVisibility.Public);
+        var hasCurrentProfile = _apiController.SupportsRoleplayEnhancements
+                                && ownProfile.Revision > 0 && !string.IsNullOrWhiteSpace(ownProfile.Ident);
+        using (ImRaii.Disabled(!hasCurrentProfile))
+            ImGui.Checkbox(hasCurrentProfile
+                ? $"Play as {(!string.IsNullOrWhiteSpace(ownProfile.Document.CharacterName) ? ownProfile.Document.CharacterName : ownProfile.Ident)}"
+                : "Play as current character (publish a profile first)", ref _sceneUseCurrentCharacter);
         ImGui.SetNextItemWidth(360f * scale);
         ImGui.InputText("Scene nickname", ref _sceneNicknameDraft, 40);
         ImGui.SetNextItemWidth(180f * scale);
@@ -1169,7 +1270,8 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
                 if (room != null)
                 {
                     var iconId = _sceneRoleIconIdDraft == 0 ? null : (uint?)_sceneRoleIconIdDraft;
-                    Queue(_chatService.SetSceneIdentityAsync(room, _sceneNicknameDraft, iconId, _sceneRoleLabelDraft),
+                    Queue(_chatService.SetSceneIdentityAsync(room, _sceneNicknameDraft, iconId, _sceneRoleLabelDraft,
+                            _sceneUseCurrentCharacter && hasCurrentProfile ? ownProfile.Ident : null),
                         nameof(ChatClientService.SetSceneIdentityAsync));
                 }
                 _sceneIdentityRoomId = null;
@@ -1183,6 +1285,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             _sceneNicknameDraft = string.Empty;
             _sceneRoleIconIdDraft = 0;
             _sceneRoleLabelDraft = string.Empty;
+            _sceneUseCurrentCharacter = false;
         }
 
         ImGui.SameLine();
@@ -1372,6 +1475,8 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         using var list = ImRaii.Child("room-directory-list", new Vector2(-1f, -1f), false);
         var rooms = _chatService.ListRooms()
+            .Where(room => _configService.Current.ProfilesAllowNsfw
+                           || room.Discovery?.ContentRating != ProfileContentRating.Adult)
             .Where(room => string.IsNullOrWhiteSpace(_roomSearch)
                            || room.Name.Contains(_roomSearch, StringComparison.OrdinalIgnoreCase)
                            || (room.Topic?.Contains(_roomSearch, StringComparison.OrdinalIgnoreCase) ?? false))

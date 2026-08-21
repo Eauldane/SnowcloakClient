@@ -229,6 +229,7 @@ public sealed partial class InterfaceSettingsPanel
     private void DrawProfiles()
     {
         var showProfiles = _configService.Current.ProfilesShow;
+        var showNsfwProfiles = _configService.Current.ProfilesAllowNsfw;
         var profileDelay = _configService.Current.ProfileDelay;
         var profileOnRight = _configService.Current.ProfilePopoutRight;
         var allowBbCodeImages = _configService.Current.AllowBbCodeImages;
@@ -268,6 +269,13 @@ public sealed partial class InterfaceSettingsPanel
         }
         ImGui.Unindent();
 
+        if (ImGui.Checkbox("Show profiles marked as NSFW", ref showNsfwProfiles))
+        {
+            _mediator.Publish(new ClearProfileDataMessage());
+            _configService.Update(c => c.ProfilesAllowNsfw = showNsfwProfiles);
+        }
+        ElezenImgui.DrawHelpText("Will show profiles that have the NSFW tag enabled; Adult-rated profiles remain behind a per-profile confirmation.");
+
         if (ImGui.Checkbox("Render BBCode images", ref allowBbCodeImages))
         {
             _configService.Update(c => c.AllowBbCodeImages = allowBbCodeImages);
@@ -279,15 +287,8 @@ public sealed partial class InterfaceSettingsPanel
     {
         _safetyStore.EnsureLoaded();
         ImGui.Separator();
-        _fontService.BigText("Safety and Content");
+        _fontService.BigText("Blocking");
 
-        var adultContent = _safetyStore.State.AdultContentEnabled;
-        using (ImRaii.Disabled(_safetyStore.IsBusy || !_safetyStore.IsAvailable))
-        {
-            if (ImGui.Checkbox("Allow Adult-rated RP content for this UID", ref adultContent))
-                _safetyStore.SetAdultContent(adultContent);
-        }
-        ElezenImgui.DrawHelpText("Adult-rated profiles and kink tags are shared only when both UIDs have explicitly enabled this setting.");
         if (!_safetyStore.IsAvailable)
             ElezenImgui.ColouredWrappedText("The connected server does not advertise open-RP safety controls.", ImGuiColors.DalamudGrey);
 

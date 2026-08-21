@@ -53,6 +53,7 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
     private string _localPlayerIdent = string.Empty;
     private bool _availabilityChannelActive;
     private bool _locked;
+    private bool _allowNsfw;
     private AvailabilityViewState? _lockedState;
     private int _disposed;
 
@@ -70,6 +71,8 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
         _dalamudUtil = dalamudUtil;
         _cacheSnapshot = cacheSnapshot;
         _filter = filter;
+        _allowNsfw = configService.Current.ProfilesAllowNsfw;
+        _configService.ConfigChanged += OnConfigChanged;
     }
 
     public IReadOnlyCollection<string> AvailableIdents
@@ -402,6 +405,7 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
         var snapshot = GetFilterSnapshot();
         var viewerTags = GetViewerProfileTags();
         var pending = GetPendingSnapshot();
+        var config = _configService.Current;
 
         var rows = new List<AvailabilityRow>(snapshot.Accepted.Count);
         foreach (var ident in snapshot.Accepted)
@@ -411,12 +415,16 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
                 continue;
 
             _cacheSnapshot(ident, pc.Name, pc.HomeWorldId, pc.ClassJobId, pc.Level, pc.Sex, pc.RaceId, pc.TribeId);
-            rows.Add(BuildRow(ident, pc, viewerTags));
+            var row = BuildRow(ident, pc, viewerTags);
+            if (!config.ProfilesAllowNsfw
+                && (row.Profile?.ContentRating == ProfileContentRating.Adult
+                    || row.RpCard?.Themes.Contains(RpTheme.Mature) == true))
+                continue;
+            rows.Add(row);
         }
 
         rows.Sort(static (left, right) => string.CompareOrdinal(left.CharacterName, right.CharacterName));
 
-        var config = _configService.Current;
         var visible = AvailabilityFilter.Apply(rows, config.FrostbrandOnlyWithProfiles,
             config.FrostbrandProfileSearch, config.FrostbrandRequiredTag);
 
@@ -542,11 +550,21 @@ internal sealed class PairingAvailabilityStore : Store<AvailabilityViewState>, I
 
     public void Cancel() => _filterRebuild.Cancel();
 
+    private void OnConfigChanged()
+    {
+        var allowNsfw = _configService.Current.ProfilesAllowNsfw;
+        if (allowNsfw == _allowNsfw)
+            return;
+        _allowNsfw = allowNsfw;
+        RequestStateRefresh(publishImmediately: true);
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        _configService.ConfigChanged -= OnConfigChanged;
         _filterRebuild.Dispose();
         _stateRefresh.Dispose();
     }

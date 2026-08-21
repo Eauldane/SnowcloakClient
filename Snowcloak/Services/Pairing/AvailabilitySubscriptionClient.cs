@@ -75,7 +75,8 @@ internal sealed class AvailabilitySubscriptionClient : IDisposable
 
     public async Task<bool> UpdateAsync(LocationInfo location,
         IReadOnlyCollection<string> nearbySnapshot, IReadOnlyCollection<string> entered,
-        IReadOnlyCollection<string> left, bool force = false, bool forceFullSnapshot = false,
+        IReadOnlyCollection<string> left, IReadOnlyCollection<string> proximitySnapshot,
+        bool proximityChanged, bool force = false, bool forceFullSnapshot = false,
         CancellationToken cancellationToken = default)
     {
         if (force)
@@ -99,12 +100,21 @@ internal sealed class AvailabilitySubscriptionClient : IDisposable
             var nearbyPayload = sendFullSnapshot ? nearbySnapshot : Array.Empty<string>();
             var addedPayload = sendFullSnapshot ? nearbySnapshot : entered;
             var removedPayload = left;
+            IReadOnlyCollection<string>? proximityPayload = sendFullSnapshot || proximityChanged
+                ? proximitySnapshot
+                : null;
 
             if (sendFullSnapshot && nearbyPayload.Count > MaxSubscriptionSnapshot)
             {
                 LogSnapshotTrimmed(_logger, MaxSubscriptionSnapshot, nearbyPayload.Count, null);
                 nearbyPayload = nearbyPayload.Take(MaxSubscriptionSnapshot).ToArray();
                 addedPayload = addedPayload.Take(MaxSubscriptionSnapshot).ToArray();
+            }
+
+            if (proximityPayload?.Count > MaxSubscriptionSnapshot)
+            {
+                LogSnapshotTrimmed(_logger, MaxSubscriptionSnapshot, proximityPayload.Count, null);
+                proximityPayload = proximityPayload.Take(MaxSubscriptionSnapshot).ToArray();
             }
 
             if (!IsChannelActive)
@@ -115,7 +125,10 @@ internal sealed class AvailabilitySubscriptionClient : IDisposable
                 location.TerritoryId,
                 nearbyPayload,
                 addedPayload,
-                removedPayload);
+                removedPayload)
+            {
+                ProximityIdents = proximityPayload,
+            };
 
             var subscribed = await _apiController.Value.UserSubscribePairingAvailability(subscription)
                 .ConfigureAwait(false);

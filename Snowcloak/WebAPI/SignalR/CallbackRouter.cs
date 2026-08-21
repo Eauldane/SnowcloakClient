@@ -38,6 +38,7 @@ internal static class RoleplayCallbacks
         hub.On<RpAvailabilityChangedDto>(nameof(ApiController.Client_RpAvailabilityChanged), api.Client_RpAvailabilityChanged);
         hub.On<RoomDto>(nameof(ApiController.Client_RpRoomUpdated), api.Client_RpRoomUpdated);
         hub.On<RoomInviteReceivedDto>(nameof(ApiController.Client_RpRoomInviteReceived), api.Client_RpRoomInviteReceived);
+        hub.On<RpPingDto>(nameof(ApiController.Client_RpPingReceived), api.Client_RpPingReceived);
     }
 }
 

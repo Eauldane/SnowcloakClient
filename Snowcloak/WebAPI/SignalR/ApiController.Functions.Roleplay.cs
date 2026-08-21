@@ -14,6 +14,12 @@ public sealed partial class ApiController
     public bool SupportsRoleplaySceneIdentity => IsConnected
         && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplaySceneIdentity) is true;
 
+    public bool SupportsRoleplayEnhancements => IsConnected
+        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplayEnhancements) is true;
+
+    public bool SupportsRoleplaySceneToolkit => IsConnected
+        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplaySceneToolkit) is true;
+
     public Task<RpProfileDirectoryConsentDto> RpProfileDirectoryGetConsent() => Invoke<RpProfileDirectoryConsentDto>(nameof(RpProfileDirectoryGetConsent));
     public Task<RpProfileDirectoryConsentDto> RpProfileDirectorySetConsent(RpProfileDirectoryConsentDto dto) => Invoke<RpProfileDirectoryConsentDto>(nameof(RpProfileDirectorySetConsent), dto);
     public Task<RpProfileDirectoryListResponseDto> RpProfileDirectoryList(RpProfileDirectoryQueryDto query) => Invoke<RpProfileDirectoryListResponseDto>(nameof(RpProfileDirectoryList), query);
@@ -26,10 +32,24 @@ public sealed partial class ApiController
     public Task<RoomDto> RpRoomSetDiscovery(RoomDiscoveryUpdateDto dto) => Invoke<RoomDto>(nameof(RpRoomSetDiscovery), dto);
     public Task<RoomDto> RpRoomSetScene(RoomSceneMetadataUpdateDto dto) => Invoke<RoomDto>(nameof(RpRoomSetScene), dto);
     public Task<RoomMemberDto> RpRoomSetParticipantIdentity(RoomParticipantIdentityUpdateDto dto) => Invoke<RoomMemberDto>(nameof(RpRoomSetParticipantIdentity), dto);
+    public Task<RoomMemberDto> RpRoomSetNarrator(RoomNarratorUpdateDto dto) => Invoke<RoomMemberDto>(nameof(RpRoomSetNarrator), dto);
     public Task<RoomSceneHistoryDto> RpRoomFinishScene(RoomDto room) => Invoke<RoomSceneHistoryDto>(nameof(RpRoomFinishScene), room);
+    public Task<RoomSceneHistoryDto> RpRoomFinishSceneOptions(RoomSceneFinishOptionsDto dto) => Invoke<RoomSceneHistoryDto>(nameof(RpRoomFinishSceneOptions), dto);
     public Task<List<RoomSceneHistorySummaryDto>> RpRoomSceneHistoryList(RoomDto room) => Invoke<List<RoomSceneHistorySummaryDto>>(nameof(RpRoomSceneHistoryList), room);
     public Task<RoomSceneHistoryDto> RpRoomSceneHistoryGet(RoomSceneHistoryRequestDto dto) => Invoke<RoomSceneHistoryDto>(nameof(RpRoomSceneHistoryGet), dto);
     public Task<ChatMessageDto> RpRoomRollDice(RoomDiceRollRequestDto dto) => Invoke<ChatMessageDto>(nameof(RpRoomRollDice), dto);
+    public Task<List<RoomDicePresetDto>> RpRoomDicePresetList(RoomDto room) => Invoke<List<RoomDicePresetDto>>(nameof(RpRoomDicePresetList), room);
+    public Task<RoomDicePresetDto> RpRoomDicePresetAdd(RoomDicePresetUpsertDto dto) => Invoke<RoomDicePresetDto>(nameof(RpRoomDicePresetAdd), dto);
+    public Task RpRoomDicePresetRemove(RoomDicePresetRemoveDto dto) => Invoke(nameof(RpRoomDicePresetRemove), dto);
+    public Task<List<RoomSceneTemplateDto>> RpRoomSceneTemplateList(RoomDto room) => Invoke<List<RoomSceneTemplateDto>>(nameof(RpRoomSceneTemplateList), room);
+    public Task<RoomSceneTemplateDto> RpRoomSceneTemplateSave(RoomSceneTemplateUpsertDto dto) => Invoke<RoomSceneTemplateDto>(nameof(RpRoomSceneTemplateSave), dto);
+    public Task RpRoomSceneTemplateRemove(RoomSceneTemplateRemoveDto dto) => Invoke(nameof(RpRoomSceneTemplateRemove), dto);
+    public Task<RoomDto> RpRoomSceneTemplateApply(RoomSceneTemplateApplyDto dto) => Invoke<RoomDto>(nameof(RpRoomSceneTemplateApply), dto);
+    public Task RpSendPing(RpPingRequestDto dto) => Invoke(nameof(RpSendPing), dto);
+    public Task<RoomScenePlanDto> RpRoomScenePlanSave(RoomScenePlanUpsertDto dto) => Invoke<RoomScenePlanDto>(nameof(RpRoomScenePlanSave), dto);
+    public Task<List<RoomScenePlanDto>> RpRoomScenePlanList(RoomScenePlanQueryDto dto) => Invoke<List<RoomScenePlanDto>>(nameof(RpRoomScenePlanList), dto);
+    public Task<RoomScenePlanDto> RpRoomScenePlanRsvp(RoomScenePlanRsvpDto dto) => Invoke<RoomScenePlanDto>(nameof(RpRoomScenePlanRsvp), dto);
+    public Task RpRoomScenePlanRemove(RoomScenePlanRemoveDto dto) => Invoke(nameof(RpRoomScenePlanRemove), dto);
     public Task<RoomDto> RpRoomSetTurnOrder(RoomTurnOrderUpdateDto dto) => Invoke<RoomDto>(nameof(RpRoomSetTurnOrder), dto);
     public Task<RoomDto> RpRoomAdvanceTurn(RoomTurnAdvanceDto dto) => Invoke<RoomDto>(nameof(RpRoomAdvanceTurn), dto);
     public Task<RpEventDirectoryListResponseDto> RpEventDirectoryList(RpEventDirectoryQueryDto query) => Invoke<RpEventDirectoryListResponseDto>(nameof(RpEventDirectoryList), query);

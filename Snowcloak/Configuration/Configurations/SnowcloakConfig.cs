@@ -104,8 +104,12 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public string FrostbrandProfileSearch { get; set; } = string.Empty;
     public string FrostbrandRequiredTag { get; set; } = string.Empty;
     public bool RoleplayDtrEntry { get; set; } = true;
+    public Dictionary<string, long> RpAdultProfileAcknowledgements { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, long> RpBoundaryAcknowledgements { get; set; } = new(StringComparer.Ordinal);
     public HashSet<Guid> RpEventReminders { get; set; } = [];
+    public bool RemindAvailabilityExpiry { get; set; } = true;
+    public bool RemindHookExpiry { get; set; } = true;
+    public int RpReminderWindowMinutes { get; set; } = 30;
     public int PairRequestMinimumLevel { get; set; } = 15;
     public bool PairRequestFriendsOnly { get; set; } = false;
 }

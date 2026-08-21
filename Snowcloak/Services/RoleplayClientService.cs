@@ -5,10 +5,12 @@ using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Venue;
+using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.Chat;
 using Snowcloak.Services.Mediator;
 using Snowcloak.WebAPI;
+using Snowcloak.Configuration.Models;
 
 namespace Snowcloak.Services;
 
@@ -19,23 +21,38 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
     private readonly ApiController _apiController;
     private readonly PairManager _pairManager;
     private readonly ChatRoomRegistry _rooms;
+    private readonly DalamudUtilService _dalamudUtilService;
+    private readonly SnowcloakConfigService _configService;
     private readonly Lock _sync = new();
     private int _generation;
+    private int _peopleGeneration;
+    private int _roomGeneration;
+    private int _eventGeneration;
     private RpAvailabilityCardDto? _localAvailability;
     private RpAvailabilityCardDto? _ownAvailability;
+    private RpCurrentHooksDto _currentHooks = new();
     private readonly List<RoomInviteReceivedDto> _pendingInvites = [];
+    private readonly List<RpPingDto> _pendingPings = [];
     private RpProfileDirectoryQueryDto _lastPeopleQuery = new();
+    private bool _allowNsfw;
 
     public RoleplayClientService(ILogger<RoleplayClientService> logger, SnowMediator mediator,
-        ApiController apiController, PairManager pairManager, ChatRoomRegistry rooms) : base(logger, mediator)
+        ApiController apiController, PairManager pairManager, ChatRoomRegistry rooms,
+        DalamudUtilService dalamudUtilService, SnowcloakConfigService configService) : base(logger, mediator)
     {
         _apiController = apiController;
         _pairManager = pairManager;
         _rooms = rooms;
+        _dalamudUtilService = dalamudUtilService;
+        _configService = configService;
+        _allowNsfw = configService.Current.ProfilesAllowNsfw;
+        _configService.ConfigChanged += OnConfigChanged;
         Mediator.Subscribe<ConnectedMessage>(this, message => _ = RefreshAsync());
         Mediator.Subscribe<DisconnectedMessage>(this, _ => Clear());
         Mediator.Subscribe<RpAvailabilityChangedMessage>(this, message => ApplyAvailability(message.Dto));
         Mediator.Subscribe<OpenRpSafetyChangedMessage>(this, message => ApplySafetyChange(message.State));
+        Mediator.Subscribe<ClearCharacterProfileDataMessage>(this, message =>
+            _ = RefreshCurrentHooksAfterProfileChangeAsync(message.Ident));
         Mediator.Subscribe<RpRoomUpdatedMessage>(this, message =>
         {
             _rooms.Upsert(message.Dto.Room);
@@ -52,6 +69,26 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
             }
             Changed?.Invoke();
         });
+        Mediator.Subscribe<RpPingReceivedMessage>(this, message =>
+        {
+            lock (_sync)
+            {
+                _pendingPings.RemoveAll(ping => ping.IssuedAtUtc == message.Dto.IssuedAtUtc
+                    && string.Equals(ping.FromUid, message.Dto.FromUid, StringComparison.Ordinal)
+                    && string.Equals(ping.RefId, message.Dto.RefId, StringComparison.Ordinal));
+                _pendingPings.Insert(0, message.Dto);
+                if (_pendingPings.Count > 50) _pendingPings.RemoveRange(50, _pendingPings.Count - 50);
+            }
+            Mediator.Publish(new NotificationMessage(message.Dto.Subject ?? "Roleplay ping",
+                $"{message.Dto.Message} (from {message.Dto.FromUid})",
+                NotificationType.Info, TimeSpan.FromSeconds(8),
+                string.Equals(message.Dto.RefKind, "scene-plan", StringComparison.Ordinal)
+                    ? () => Mediator.Publish(new OpenRoleplayPlansMessage(message.Dto.RefId))
+                    : null));
+            if (string.Equals(message.Dto.RefKind, "scene-plan", StringComparison.Ordinal))
+                _ = RefreshPlansAsync();
+            Changed?.Invoke();
+        });
     }
 
     public event Action? Changed;
@@ -59,7 +96,17 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
     public string Status { get; private set; } = string.Empty;
     public RpProfileDirectoryConsentDto Consent { get; private set; } = new();
     public RpAvailabilityCardDto? OwnAvailability => _ownAvailability?.ExpiresAtUtc > DateTimeOffset.UtcNow ? _ownAvailability : null;
-    public RpCurrentHooksDto CurrentHooks { get; private set; } = new();
+    public RpCurrentHooksDto CurrentHooks
+    {
+        get
+        {
+            lock (_sync)
+            {
+                var now = DateTimeOffset.UtcNow;
+                return _currentHooks with { Hooks = _currentHooks.Hooks.Where(hook => hook.ExpiresAtUtc > now).ToList() };
+            }
+        }
+    }
     public RpProfileDirectoryListResponseDto People { get; private set; } = new();
     public RoomDirectoryListResponseDto Rooms { get; private set; } = new();
     public RpEventDirectoryListResponseDto PublicEvents { get; private set; } = new();
@@ -71,8 +118,13 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         get
         {
             lock (_sync)
-                return [.. _pendingInvites];
+                return [.. _pendingInvites.Where(invite => AllowsAdult(invite.Room.Discovery?.ContentRating))];
         }
+    }
+    public IReadOnlyList<RoomScenePlanDto> ScenePlans { get; private set; } = [];
+    public IReadOnlyList<RpPingDto> PendingPings
+    {
+        get { lock (_sync) return [.. _pendingPings]; }
     }
 
     public async Task RefreshAsync()
@@ -86,6 +138,9 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         }
 
         var generation = Interlocked.Increment(ref _generation);
+        var peopleGeneration = Interlocked.Increment(ref _peopleGeneration);
+        var roomGeneration = Interlocked.Increment(ref _roomGeneration);
+        var eventGeneration = Interlocked.Increment(ref _eventGeneration);
         IsBusy = true;
         Status = string.Empty;
         Changed?.Invoke();
@@ -106,7 +161,10 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
                 IncludeAds = true,
                 IncludeUnlisted = false,
             });
-            await Task.WhenAll(consentTask, availabilityTask, hooksTask, peopleTask, roomsTask, publicEventsTask, joinedEventsTask, venuesTask).ConfigureAwait(false);
+            var plansTask = _apiController.SupportsRoleplaySceneToolkit
+                ? _apiController.RpRoomScenePlanList(new RoomScenePlanQueryDto { ForMe = true, Take = 100 })
+                : Task.FromResult(new List<RoomScenePlanDto>());
+            await Task.WhenAll(consentTask, availabilityTask, hooksTask, peopleTask, roomsTask, publicEventsTask, joinedEventsTask, venuesTask, plansTask).ConfigureAwait(false);
             var consent = await consentTask.ConfigureAwait(false);
             var availability = await availabilityTask.ConfigureAwait(false);
             var hooks = await hooksTask.ConfigureAwait(false);
@@ -115,6 +173,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
             var publicEvents = await publicEventsTask.ConfigureAwait(false);
             var joinedEvents = await joinedEventsTask.ConfigureAwait(false);
             var venues = await venuesTask.ConfigureAwait(false);
+            var plans = await plansTask.ConfigureAwait(false);
             if (generation != Volatile.Read(ref _generation))
                 return;
 
@@ -128,20 +187,26 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
                     _localAvailability = null;
                     _ownAvailability = availability;
                 }
-                CurrentHooks = hooks;
-                People = people;
-                VisibleCards = People.Entries
-                    .Where(entry => entry.Availability != null && !string.IsNullOrWhiteSpace(entry.Profile.Ident))
-                    .ToDictionary(entry => entry.Profile.Ident, entry => entry.Availability!, StringComparer.Ordinal);
-                Rooms = rooms;
-                PublicEvents = publicEvents;
-                JoinedEvents = joinedEvents;
+                _currentHooks = hooks;
+                if (peopleGeneration == Volatile.Read(ref _peopleGeneration))
+                {
+                    People = FilterPeople(people);
+                    VisibleCards = People.Entries
+                        .Where(entry => entry.Availability != null && !string.IsNullOrWhiteSpace(entry.Profile.Ident))
+                        .ToDictionary(entry => entry.Profile.Ident, entry => entry.Availability!, StringComparer.Ordinal);
+                }
+                if (roomGeneration == Volatile.Read(ref _roomGeneration))
+                    Rooms = FilterRooms(rooms);
+                if (eventGeneration == Volatile.Read(ref _eventGeneration))
+                    PublicEvents = FilterEvents(publicEvents);
+                JoinedEvents = joinedEvents.Where(entry => AllowsAdult(entry.Event.ContentRating)).ToList();
                 VisibleVenueEvents = venues.Registries
                     .SelectMany(venue => venue.Advertisements
                         .Where(ad => ad.IsActive && ad.StartsAt.HasValue && ad.EndsAt.GetValueOrDefault(ad.StartsAt.Value.AddHours(3)) >= DateTime.UtcNow)
                         .Select(ad => new RoleplayVenueEvent(venue, ad)))
                     .OrderBy(item => item.Advertisement.StartsAt)
                     .ToList();
+                ScenePlans = plans;
             }
         }
         catch (Exception ex)
@@ -162,9 +227,13 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
     public async Task SearchPeopleAsync(RpProfileDirectoryQueryDto query)
     {
         _lastPeopleQuery = query;
-        People = await _apiController.RpProfileDirectoryList(query).ConfigureAwait(false);
+        var generation = Interlocked.Increment(ref _peopleGeneration);
+        var people = await _apiController.RpProfileDirectoryList(query).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _peopleGeneration))
+            return;
         lock (_sync)
         {
+            People = FilterPeople(people);
             var cards = new Dictionary<string, RpAvailabilityCardDto>(VisibleCards, StringComparer.Ordinal);
             foreach (var entry in People.Entries.Where(entry => entry.Availability != null && !string.IsNullOrWhiteSpace(entry.Profile.Ident)))
                 cards[entry.Profile.Ident] = entry.Availability!;
@@ -176,14 +245,22 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
 
     public async Task SearchRoomsAsync(RoomDirectoryQueryDto query)
     {
-        Rooms = await _apiController.RpRoomDirectoryList(query).ConfigureAwait(false);
+        var generation = Interlocked.Increment(ref _roomGeneration);
+        var rooms = await _apiController.RpRoomDirectoryList(query).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _roomGeneration))
+            return;
+        Rooms = FilterRooms(rooms);
         Changed?.Invoke();
         Mediator.Publish(new NameplateRedrawMessage());
     }
 
     public async Task SearchEventsAsync(RpEventDirectoryQueryDto query)
     {
-        PublicEvents = await _apiController.RpEventDirectoryList(query).ConfigureAwait(false);
+        var generation = Interlocked.Increment(ref _eventGeneration);
+        var events = await _apiController.RpEventDirectoryList(query).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _eventGeneration))
+            return;
+        PublicEvents = FilterEvents(events);
         Changed?.Invoke();
     }
 
@@ -229,7 +306,9 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
 
     public async Task SetCurrentHooksAsync(RpCurrentHooksUpdateDto update)
     {
-        CurrentHooks = await _apiController.RpCurrentHooksSet(update).ConfigureAwait(false);
+        var hooks = await _apiController.RpCurrentHooksSet(update).ConfigureAwait(false);
+        lock (_sync)
+            _currentHooks = hooks;
         Changed?.Invoke();
     }
 
@@ -238,6 +317,60 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         lock (_sync)
             _pendingInvites.Remove(invite);
         Changed?.Invoke();
+    }
+
+    public void DismissPing(RpPingDto ping)
+    {
+        lock (_sync) _pendingPings.Remove(ping);
+        Changed?.Invoke();
+    }
+
+    public async Task RefreshPlansAsync()
+    {
+        if (!_apiController.SupportsRoleplaySceneToolkit) return;
+        ScenePlans = await _apiController.RpRoomScenePlanList(new RoomScenePlanQueryDto { ForMe = true, Take = 100 }).ConfigureAwait(false);
+        Changed?.Invoke();
+    }
+
+    public async Task SaveScenePlanAsync(RoomScenePlanUpsertDto dto)
+    {
+        await _apiController.RpRoomScenePlanSave(dto).ConfigureAwait(false);
+        await RefreshPlansAsync().ConfigureAwait(false);
+    }
+
+    public async Task RsvpScenePlanAsync(string planId, int status)
+    {
+        await _apiController.RpRoomScenePlanRsvp(new RoomScenePlanRsvpDto { Id = planId, Status = status }).ConfigureAwait(false);
+        await RefreshPlansAsync().ConfigureAwait(false);
+    }
+
+    public async Task RemoveScenePlanAsync(string planId)
+    {
+        await _apiController.RpRoomScenePlanRemove(new RoomScenePlanRemoveDto { Id = planId }).ConfigureAwait(false);
+        await RefreshPlansAsync().ConfigureAwait(false);
+    }
+
+    public Task SendPingAsync(UserData target, string subject, string? message = null)
+        => _apiController.RpSendPing(new RpPingRequestDto { TargetUid = target.UID, Subject = subject, Message = message ?? subject });
+
+    private async Task RefreshCurrentHooksAfterProfileChangeAsync(string? ident)
+    {
+        if (!_apiController.SupportsRpFeatures || string.IsNullOrWhiteSpace(ident))
+            return;
+        try
+        {
+            var ownIdent = await _dalamudUtilService.GetPlayerNameHashedAsync().ConfigureAwait(false);
+            if (!string.Equals(ident, ownIdent, StringComparison.Ordinal))
+                return;
+            var hooks = await _apiController.RpCurrentHooksGetOwn().ConfigureAwait(false);
+            lock (_sync)
+                _currentHooks = hooks;
+            Changed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to reconcile current RP hooks after a profile change");
+        }
     }
 
     private async Task<List<RpEventDirectoryEntryDto>> LoadJoinedEventsAsync()
@@ -266,7 +399,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         lock (_sync)
         {
             var cards = new Dictionary<string, RpAvailabilityCardDto>(VisibleCards, StringComparer.Ordinal);
-            if (dto.Card == null)
+            if (dto.Card == null || !_allowNsfw && dto.Card.Themes.Contains(RpTheme.Mature))
                 cards.Remove(dto.Ident);
             else
                 cards[dto.Ident] = dto.Card;
@@ -281,8 +414,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         lock (_sync)
         {
             var removedIdents = People.Entries
-                .Where(entry => entry.Profile.User != null && blockedUids.Contains(entry.Profile.User.UID)
-                                || !state.AdultContentEnabled && entry.Profile.ContentRating == ProfileContentRating.Adult)
+                .Where(entry => entry.Profile.User != null && blockedUids.Contains(entry.Profile.User.UID))
                 .Select(entry => entry.Profile.Ident)
                 .ToHashSet(StringComparer.Ordinal);
             People = People with
@@ -302,17 +434,22 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
     private void Clear()
     {
         Interlocked.Increment(ref _generation);
+        Interlocked.Increment(ref _peopleGeneration);
+        Interlocked.Increment(ref _roomGeneration);
+        Interlocked.Increment(ref _eventGeneration);
         lock (_sync)
         {
             Consent = new();
             _ownAvailability = null;
-            CurrentHooks = new();
+            _currentHooks = new();
             People = new();
             Rooms = new();
             PublicEvents = new();
             JoinedEvents = [];
             VisibleVenueEvents = [];
             VisibleCards = new Dictionary<string, RpAvailabilityCardDto>(StringComparer.Ordinal);
+            ScenePlans = [];
+            _pendingPings.Clear();
         }
         IsBusy = false;
         Status = string.Empty;
@@ -325,7 +462,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
         {
             var entries = Rooms.Entries.ToList();
             var index = entries.FindIndex(entry => string.Equals(entry.Room.RoomId, room.RoomId, StringComparison.Ordinal));
-            if (room.Discovery?.IsListed == true)
+            if (room.Discovery?.IsListed == true && AllowsAdult(room.Discovery.ContentRating))
             {
                 if (index >= 0)
                     entries[index] = entries[index] with { Room = room };
@@ -336,8 +473,64 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
             {
                 entries.RemoveAt(index);
             }
-            Rooms = Rooms with { Entries = entries, TotalCount = Math.Max(entries.Count, Rooms.TotalCount + (index < 0 && room.Discovery?.IsListed == true ? 1 : index >= 0 && room.Discovery?.IsListed != true ? -1 : 0)) };
+            var visible = room.Discovery?.IsListed == true && AllowsAdult(room.Discovery.ContentRating);
+            Rooms = Rooms with { Entries = entries, TotalCount = Math.Max(entries.Count, Rooms.TotalCount + (index < 0 && visible ? 1 : index >= 0 && !visible ? -1 : 0)) };
         }
+    }
+
+    private bool AllowsAdult(ProfileContentRating? rating)
+        => _allowNsfw || rating != ProfileContentRating.Adult;
+
+    private RpProfileDirectoryListResponseDto FilterPeople(RpProfileDirectoryListResponseDto response)
+    {
+        if (_allowNsfw)
+            return response;
+        var entries = response.Entries.Where(entry => entry.Profile.ContentRating != ProfileContentRating.Adult).ToList();
+        return response with
+        {
+            Entries = entries,
+            TotalCount = Math.Max(0, response.TotalCount - (response.Entries.Count - entries.Count)),
+        };
+    }
+
+    private RoomDirectoryListResponseDto FilterRooms(RoomDirectoryListResponseDto response)
+    {
+        if (_allowNsfw)
+            return response;
+        var entries = response.Entries.Where(entry => entry.Room.Discovery?.ContentRating != ProfileContentRating.Adult).ToList();
+        return response with
+        {
+            Entries = entries,
+            TotalCount = Math.Max(0, response.TotalCount - (response.Entries.Count - entries.Count)),
+        };
+    }
+
+    private RpEventDirectoryListResponseDto FilterEvents(RpEventDirectoryListResponseDto response)
+    {
+        if (_allowNsfw)
+            return response;
+        var entries = response.Entries.Where(entry => entry.Event.ContentRating != ProfileContentRating.Adult).ToList();
+        return response with
+        {
+            Entries = entries,
+            TotalCount = Math.Max(0, response.TotalCount - (response.Entries.Count - entries.Count)),
+        };
+    }
+
+    private void OnConfigChanged()
+    {
+        var allowNsfw = _configService.Current.ProfilesAllowNsfw;
+        if (allowNsfw == _allowNsfw)
+            return;
+        _allowNsfw = allowNsfw;
+        _ = RefreshAsync();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _configService.ConfigChanged -= OnConfigChanged;
+        base.Dispose(disposing);
     }
 
     private static IEnumerable<GroupEventDto> ExpandEvent(GroupEventDto source, DateTime fromUtc, DateTime toUtc, int limit = 512)

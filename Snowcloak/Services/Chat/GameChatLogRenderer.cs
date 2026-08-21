@@ -59,6 +59,7 @@ public sealed class GameChatLogRenderer
             RpChatMode.InCharacter => " (IC): " + flattened,
             RpChatMode.OutOfCharacter => ": " + flattened + "))",
             RpChatMode.Action => " " + flattened,
+            RpChatMode.Narration => " narrates: " + flattened,
             _ => ": " + flattened,
         });
 

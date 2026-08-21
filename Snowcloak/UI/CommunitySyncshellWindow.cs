@@ -9,6 +9,7 @@ using Snowcloak.API.Data.Comparer;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
+using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
@@ -23,6 +24,7 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
     private readonly ApiController _apiController;
     private readonly PairManager _pairManager;
     private readonly DalamudUtilService _dalamudUtilService;
+    private readonly SnowcloakConfigService _configService;
     private GroupDirectoryListResponseDto? _directoryResults;
     private string _directorySearch = string.Empty;
     private string _directoryStatus = string.Empty;
@@ -31,12 +33,13 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
 
     public CommunitySyncshellWindow(ILogger<CommunitySyncshellWindow> logger, SnowMediator mediator,
         ApiController apiController, PairManager pairManager, DalamudUtilService dalamudUtilService,
-        PerformanceCollectorService performanceCollectorService)
+        PerformanceCollectorService performanceCollectorService, SnowcloakConfigService configService)
         : base(logger, mediator, "Community Syncshells###SnowcloakCommunitySyncshells", performanceCollectorService)
     {
         _apiController = apiController;
         _pairManager = pairManager;
         _dalamudUtilService = dalamudUtilService;
+        _configService = configService;
         SetScaledSizeConstraints(new Vector2(480, 400), new Vector2(900, 1600));
     }
 
@@ -264,7 +267,10 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
             ElezenImgui.WrappedText(entry.Motd);
         }
 
-        foreach (var shellEvent in entry.Events.OrderBy(e => e.StartsAtUtc).Take(2))
+        foreach (var shellEvent in entry.Events
+                     .Where(e => _configService.Current.ProfilesAllowNsfw
+                                 || e.ContentRating != ProfileContentRating.Adult)
+                     .OrderBy(e => e.StartsAtUtc).Take(2))
         {
             ImGui.AlignTextToFramePadding();
             ElezenImgui.ShowIcon(FontAwesomeIcon.Calendar, SnowcloakColours.CompactTextMuted);

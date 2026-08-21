@@ -11,6 +11,13 @@ public sealed class ProfileIdentityEditorSection
         ProfileEditorFieldControls.DrawShortInput("Title or epithet", session.Title, value => session.Title = value, markDirty);
         ProfileEditorFieldControls.DrawShortInput("Pronouns", session.Pronouns, value => session.Pronouns = value, markDirty);
         ProfileEditorFieldControls.DrawShortInput("Tagline", session.Tagline, value => session.Tagline = value, markDirty);
+        ProfileEditorFieldControls.DrawMultiline(
+            "Public bio teaser",
+            session.BioTeaser,
+            ProfileEditSession.MaxBioTeaserLength,
+            58f,
+            value => session.BioTeaser = value,
+            markDirty);
         ProfileEditorFieldControls.DrawShortInput("RP status", session.RpStatus, value => session.RpStatus = value, markDirty);
         ProfileEditorFieldControls.DrawShortInput("Approachability", session.Approachability, value => session.Approachability = value, markDirty);
         ProfileEditorFieldControls.DrawMultiline(

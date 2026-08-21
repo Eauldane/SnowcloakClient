@@ -223,7 +223,7 @@ internal sealed partial class CharaDataHubUi : WindowMediatorSubscriberBase, ISt
             }
             if (_charaDataManager.DataApplication.IsRunning)
             {
-                CharaDataHubCard.Warning("Avoid interacting with this actor while data is being applied — doing so can cause crashes.");
+                CharaDataHubCard.Warning("Avoid interacting with this actor while data is being applied - doing so can cause crashes.");
                 ImGuiHelpers.ScaledDummy(5);
                 ImGui.Separator();
             }

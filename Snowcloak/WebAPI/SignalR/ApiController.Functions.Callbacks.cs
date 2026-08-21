@@ -32,6 +32,12 @@ public partial class ApiController
         return Task.CompletedTask;
     }
 
+    public Task Client_RpPingReceived(RpPingDto dto)
+    {
+        ExecuteSafely(() => Mediator.Publish(new RpPingReceivedMessage(dto)));
+        return Task.CompletedTask;
+    }
+
     public Task Client_UserChatMsg(UserChatMsgDto dto)
     {
         ExecuteSafely(() => Mediator.Publish(new UserChatMsgMessage(dto)));

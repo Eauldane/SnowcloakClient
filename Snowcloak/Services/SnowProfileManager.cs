@@ -279,6 +279,7 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
             Title = profile.Document.Title,
             Pronouns = profile.Document.Pronouns,
             Tagline = profile.Document.Tagline,
+            BioTeaser = profile.Document.BioTeaser,
             RpStatus = profile.Document.RpStatus,
             Approachability = profile.Document.Approachability,
             Hooks = profile.Document.Hooks,

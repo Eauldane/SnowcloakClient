@@ -122,6 +122,8 @@ public partial class ApiController
         return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserSafetyGet)).ConfigureAwait(false);
     }
 
+    // Compatibility-only implementation of the shared safety contract. Current clients use the
+    // local ProfilesAllowNsfw preference and do not call this operation.
     public async Task<UserSafetyStateDto> UserSafetySetAdultContent(AdultContentOptInDto dto)
     {
         CheckConnection();

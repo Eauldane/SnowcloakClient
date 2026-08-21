@@ -176,7 +176,7 @@ public sealed class PairingAvailabilityDtrEntry : DtrEntryBase
             {
                 var name = string.IsNullOrWhiteSpace(row.CharacterName) ? "Unnamed character" : row.CharacterName;
                 return row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
-                    ? name + " — RP: " + AvailabilityLabel(card.State)
+                    ? name + " - RP: " + AvailabilityLabel(card.State)
                     : name;
             })
             .OrderBy(name => name, StringComparer.Ordinal)

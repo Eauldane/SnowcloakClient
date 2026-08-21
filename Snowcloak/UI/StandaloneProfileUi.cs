@@ -2,6 +2,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Textures.TextureWraps;
+using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
@@ -29,6 +30,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private readonly Lock _moodlesLock = new();
     private readonly ProfileVisibility? _requestedVisibility;
     private readonly SnowProfileManager _snowProfileManager;
+    private readonly UserSafetyStore _userSafetyStore;
     private readonly TextureService _textureService;
     private readonly ImageTransferService _imageTransferService;
     private readonly ProfileViewComponent _profileView;
@@ -46,7 +48,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         Snowcloak.Configuration.SnowcloakConfigService configService,
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, Pair? pair, UserData userData, ProfileVisibility? requestedVisibility,
         string? ident, string? fallbackName, DalamudUtilService dalamudUtilService,
-        IpcManager ipcManager, PerformanceCollectorService performanceCollectorService)
+        IpcManager ipcManager, UserSafetyStore userSafetyStore, PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator,
             BuildWindowName(ResolveFallbackName(userData, fallbackName, pair), ident ?? pair?.Ident ?? userData.UID, requestedVisibility),
             performanceCollectorService)
@@ -55,6 +57,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
         _imageTransferService = imageTransferService;
         _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
         _snowProfileManager = snowProfileManager;
+        _userSafetyStore = userSafetyStore;
         _dalamudUtilService = dalamudUtilService;
         _ipcManager = ipcManager;
         _fallbackName = ResolveFallbackName(userData, fallbackName, pair);
@@ -93,6 +96,11 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private void DrawProfile(SnowProfileData profile)
     {
         UpdateWindowTitle(profile);
+        var viewerPrivateDocument = profile.IsOwnProfile
+            ? null
+            : _snowProfileManager.GetOwnProfile(ProfileVisibility.Private) is { Revision: > 0 } ownProfile
+                ? ownProfile.Document
+                : null;
         _profileView.DrawStandalone(new ProfileViewRequest(
             profile,
             _fallbackName,
@@ -101,21 +109,30 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
             GetVisibleTagsForViewer(profile),
             GetMoodlesData(profile),
             "standalone-profile",
-            DrawReportButton: () => DrawReportButton(profile),
-            DrawPairingDetails: DrawPairingDetails));
+            DrawReportButton: () => DrawSafetyActions(profile),
+            DrawPairingDetails: DrawPairingDetails,
+            ViewerPrivateDocument: viewerPrivateDocument));
     }
 
-    private void DrawReportButton(SnowProfileData profile)
+    private void DrawSafetyActions(SnowProfileData profile)
     {
         var reportedUser = profile.User ?? (!string.IsNullOrWhiteSpace(UserData.UID) ? UserData : null);
-        var canReport = reportedUser != null && !profile.IsOwnProfile;
-        ImGui.BeginDisabled(!canReport);
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block this user") && reportedUser != null)
+        var canAct = reportedUser != null && !profile.IsOwnProfile;
+        ImGui.BeginDisabled(!canAct);
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report this user") && reportedUser != null)
             Mediator.Publish(new OpenReportPopupMessage(reportedUser, profile.Ident, profile.Visibility, profile.Revision,
                 profile.Revision <= 0
                     ? ProfileReportSurface.User
                     : Pair == null ? ProfileReportSurface.PairingAvailability : ProfileReportSurface.Profile));
         ImGui.EndDisabled();
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!canAct || !_userSafetyStore.IsAvailable || _userSafetyStore.IsBusy))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserSlash, "Block all contact with this user") && reportedUser != null)
+                _userSafetyStore.Block(reportedUser.UID);
+        }
+        ElezenImgui.AttachTooltip("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
     }
 
     private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)

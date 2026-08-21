@@ -44,6 +44,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly IpcManager _ipcManager;
     private readonly PairManager _pairManager;
+    private readonly SnowProfileManager _snowProfileManager;
     private readonly ConcurrentDictionary<string, PairRequesterCharacterSnapshot> _requesterCharacterSnapshots = new(StringComparer.Ordinal);
     private readonly IContextMenu _contextMenu;
     private readonly NotesStore _notesStore;
@@ -72,6 +73,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         _ipcManager = ipcManager;
         _contextMenu = contextMenu;
         _pairManager = pairManager;
+        _snowProfileManager = snowProfileManager;
         _safetyStore = new Lazy<UserSafetyStore>(() => serviceProvider.GetRequiredService<UserSafetyStore>());
         _notesStore = notesStore;
         _availabilityStore = new PairingAvailabilityStore(logger, configService, snowProfileManager, mediator,
@@ -452,6 +454,22 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         await _apiController.Value.UserBlock(new UserBlockRequestDto(uid)).ConfigureAwait(false);
         _requestInbox.Remove(requestId);
         await _safetyStore.Value.RefreshAsync().ConfigureAwait(false);
+    }
+
+    public async Task BlockUserAsync(string ident, UserData? knownUser = null)
+    {
+        var uid = knownUser?.UID;
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            var profile = await _snowProfileManager.GetSnowProfileAsync(
+                ident, ProfileVisibility.Public, forceRefresh: true).ConfigureAwait(false);
+            uid = profile.User?.UID;
+        }
+
+        if (string.IsNullOrWhiteSpace(uid))
+            throw new InvalidOperationException("Could not resolve this character's Snowcloak UID.");
+
+        await _safetyStore.Value.BlockAsync(uid).ConfigureAwait(false);
     }
 
     public Task DeclineAllPendingRequestsAsync(string? reason = null)

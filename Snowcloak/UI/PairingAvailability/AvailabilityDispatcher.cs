@@ -55,6 +55,9 @@ public sealed class AvailabilityDispatcher : IDispatcher
                     Snowcloak.API.Data.Enum.ProfileVisibility.Public, report.Revision,
                     Snowcloak.API.Data.Enum.ProfileReportSurface.PairingAvailability));
                 break;
+            case BlockUserIntent blockUser:
+                Run(() => _pairRequestService.BlockUserAsync(blockUser.Ident, blockUser.User));
+                break;
             case ExaminePlayerIntent examine:
                 Run(() => ExamineAsync(examine.Ident, examine.DisplayName));
                 break;

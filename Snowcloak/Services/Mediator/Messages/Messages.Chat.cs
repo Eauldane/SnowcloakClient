@@ -14,6 +14,7 @@ public record RoomMemberLeftMessage(RoomMemberLeftDto Dto) : MessageBase;
 public record RpAvailabilityChangedMessage(RpAvailabilityChangedDto Dto) : MessageBase;
 public record RpRoomUpdatedMessage(RoomDto Dto) : MessageBase;
 public record RpRoomInviteReceivedMessage(RoomInviteReceivedDto Dto) : MessageBase;
+public record RpPingReceivedMessage(RpPingDto Dto) : MessageBase;
 public record ChatMembershipChangedMessage : MessageBase;
 public record ChatIncomingAppendedMessage(ConversationKey Key, ChatEntry Entry) : MessageBase;
 public record OpenChatPopoutMessage(ConversationKey Key) : SameThreadMessage;

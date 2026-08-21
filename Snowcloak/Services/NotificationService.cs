@@ -116,7 +116,7 @@ public partial class NotificationService : DisposableMediatorSubscriberBase, IHo
 
     private void ShowToast(NotificationMessage msg, NotificationRoute route)
     {
-        _notificationManager.AddNotification(new Notification()
+        var notification = _notificationManager.AddNotification(new Notification()
         {
             Content = msg.Message ?? string.Empty,
             Title = msg.Title,
@@ -124,6 +124,8 @@ public partial class NotificationService : DisposableMediatorSubscriberBase, IHo
             Minimized = false,
             InitialDuration = msg.TimeShownOnScreen ?? TimeSpan.FromSeconds(3)
         });
+        if (msg.ClickAction != null)
+            notification.Click += _ => msg.ClickAction();
     }
 
     private sealed record NotificationRoute(

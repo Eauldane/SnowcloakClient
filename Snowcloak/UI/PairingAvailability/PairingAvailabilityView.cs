@@ -569,11 +569,13 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         if (DrawContextMenuItem(FontAwesomeIcon.Handshake, "Send Snowcloak Pair Request", "pair-request", menuWidth))
             dispatch.Dispatch(new SendPairRequestIntent(row.Ident));
         if (row.Profile?.User != null && row.Profile.Revision > 0
-            && DrawContextMenuItem(FontAwesomeIcon.ExclamationTriangle, "Report or block", "report", menuWidth))
+            && DrawContextMenuItem(FontAwesomeIcon.ExclamationTriangle, "Report", "report", menuWidth))
             dispatch.Dispatch(new ReportProfileIntent(row.Profile.User, row.Ident, row.Profile.Revision));
+        if (DrawContextMenuItem(FontAwesomeIcon.UserSlash, "Block all contact", "block", menuWidth))
+            dispatch.Dispatch(new BlockUserIntent(row.Ident, row.Profile?.User));
     }
 
-    private static readonly string[] ContextMenuLabels = { "Examine", "Adventurer Plate", "View Snowcloak Profile", "Send Snowcloak Pair Request", "Report or block" };
+    private static readonly string[] ContextMenuLabels = { "Examine", "Adventurer Plate", "View Snowcloak Profile", "Send Snowcloak Pair Request", "Report", "Block all contact" };
     private const float ContextMenuLeftPad = 6f;
     private const float ContextMenuIconSlot = 20f;
     private const float ContextMenuGap = 10f;

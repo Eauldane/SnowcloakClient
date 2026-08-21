@@ -52,7 +52,7 @@ public sealed class ProfilePublishEditorSection
             markDirty();
         }
 
-        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult public views require explicit adult-content opt-in.");
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult public views are controlled by each viewer's local NSFW setting and confirmation.");
     }
 
     private static void DrawRatingCombo(string label, ProfileContentRating value, Action<ProfileContentRating> setValue, Action markDirty)

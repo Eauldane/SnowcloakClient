@@ -108,6 +108,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ChatNotifier _chatNotifier;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly RoleplayClientService _roleplayClientService;
+    private readonly UserSafetyStore _userSafetyStore;
     private readonly Dictionary<string, object> _selectedComboItems = new(StringComparer.Ordinal);
 
     public CompactUi(ILogger<CompactUi> logger, UiFontService fontService,
@@ -117,7 +118,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PairingFilterConfigService pairingFilterConfigService,
         DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier, SnowProfileManager snowProfileManager,
-        RoleplayClientService roleplayClientService)
+        RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _fontService = fontService;
@@ -137,6 +138,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _chatNotifier = chatNotifier;
         _snowProfileManager = snowProfileManager;
         _roleplayClientService = roleplayClientService;
+        _userSafetyStore = userSafetyStore;
         _tagHandler = new TagHandler(tagStore);
         _availabilityDispatcher = new AvailabilityDispatcher(logger, _pairRequestService, _dalamudUtilService, mediator);
         _frostbrandPanel = new FrostbrandPanel(_configService, pairingFilterConfigService, _fontService,

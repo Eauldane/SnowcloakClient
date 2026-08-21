@@ -32,6 +32,7 @@ public sealed class ProfileEditSession
     public const int MaxShortTextLength = 160;
     public const int MaxLongTextLength = 8000;
     public const int MaxAtAGlanceTextLength = 500;
+    public const int MaxBioTeaserLength = 200;
     public const int MaxAtAGlanceEntries = 32;
     public const int MaxHooks = 32;
     public const string DefaultHeaderAccentColorHex = "#2E94D1";
@@ -45,6 +46,7 @@ public sealed class ProfileEditSession
     public string Title { get; set; } = string.Empty;
     public string Pronouns { get; set; } = string.Empty;
     public string Tagline { get; set; } = string.Empty;
+    public string BioTeaser { get; set; } = string.Empty;
     public string RpStatus { get; set; } = string.Empty;
     public string Approachability { get; set; } = string.Empty;
     public string HeaderAccentColorHex { get; set; } = DefaultHeaderAccentColorHex;
@@ -81,6 +83,7 @@ public sealed class ProfileEditSession
         Title = document.Title;
         Pronouns = document.Pronouns;
         Tagline = document.Tagline;
+        BioTeaser = document.BioTeaser ?? string.Empty;
         RpStatus = document.RpStatus;
         Approachability = document.Approachability;
         HeaderAccentColorHex = string.IsNullOrWhiteSpace(document.HeaderAccentColorHex)
@@ -149,6 +152,7 @@ public sealed class ProfileEditSession
             Title = Title.Trim(),
             Pronouns = Pronouns.Trim(),
             Tagline = Tagline.Trim(),
+            BioTeaser = string.IsNullOrWhiteSpace(BioTeaser) ? null : BioTeaser.Trim(),
             RpStatus = RpStatus.Trim(),
             Approachability = Approachability.Trim(),
             HeaderAccentColorHex = string.IsNullOrWhiteSpace(HeaderAccentColorHex)
@@ -187,6 +191,7 @@ public sealed class ProfileEditSession
         AddTextIssue(issues, nameof(Title), Title, MaxShortTextLength);
         AddTextIssue(issues, nameof(Pronouns), Pronouns, MaxShortTextLength);
         AddTextIssue(issues, nameof(Tagline), Tagline, MaxShortTextLength);
+        AddTextIssue(issues, nameof(BioTeaser), BioTeaser, MaxBioTeaserLength);
         AddTextIssue(issues, nameof(RpStatus), RpStatus, MaxShortTextLength);
         AddTextIssue(issues, nameof(Approachability), Approachability, MaxShortTextLength);
         AddTextIssue(issues, nameof(AtAGlanceText), AtAGlanceText, MaxAtAGlanceTextLength);

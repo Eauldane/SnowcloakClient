@@ -259,7 +259,7 @@ public partial class CompactUi
         if (!_pairRowCache.TryGetValue(id, out var row) || !ReferenceEquals(row.Pair, pair))
         {
             row = new DrawUserPair(id, pair, _uidDisplayHandler, _apiController, Mediator, _selectGroupForPairUi,
-                _charaDataManager, _configService);
+                _charaDataManager, _configService, _userSafetyStore);
             _pairRowCache[id] = row;
         }
 

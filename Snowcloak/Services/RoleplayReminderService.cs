@@ -9,13 +9,12 @@ namespace Snowcloak.Services;
 public sealed class RoleplayReminderService : IHostedService, IDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan ReminderWindow = TimeSpan.FromMinutes(30);
     private readonly ILogger<RoleplayReminderService> _logger;
     private readonly RoleplayClientService _roleplay;
     private readonly SnowcloakConfigService _config;
     private readonly IChatGui _chat;
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly Dictionary<Guid, DateTime> _sent = [];
+    private readonly Dictionary<ReminderKey, long> _sent = [];
     private Task? _runTask;
     private DateTimeOffset _lastRefresh;
 
@@ -74,23 +73,66 @@ public sealed class RoleplayReminderService : IHostedService, IDisposable
 
     private void CheckReminders()
     {
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        var window = TimeSpan.FromMinutes(Math.Clamp(_config.Current.RpReminderWindowMinutes, 5, 1440));
         var reminders = _config.Current.RpEventReminders;
         foreach (var entry in _roleplay.JoinedEvents.Concat(_roleplay.PublicEvents.Entries)
                      .GroupBy(item => item.Event.Id)
                      .Select(group => group.First()))
         {
             var item = entry.Event;
-            if (!reminders.Contains(item.Id) || item.StartsAtUtc < now || item.StartsAtUtc - now > ReminderWindow) continue;
-            if (_sent.TryGetValue(item.Id, out var sentStart) && sentStart == item.StartsAtUtc) continue;
-            _sent[item.Id] = item.StartsAtUtc;
-            _chat.Print(new XivChatEntry
-            {
-                Type = XivChatType.SystemMessage,
-                Message = $"[Snowcloak] Event reminder: {item.Title} starts at {item.StartsAtUtc.ToLocalTime():g}.",
-            });
+            var startsAt = new DateTimeOffset(DateTime.SpecifyKind(item.StartsAtUtc, DateTimeKind.Utc));
+            if (!reminders.Contains(item.Id)) continue;
+            TrySendReminder(new ReminderKey(ReminderKind.Event, item.Id.ToString("D")), startsAt, now, window,
+                $"Event reminder: {item.Title} starts at {startsAt.ToLocalTime():g}.");
         }
-        foreach (var stale in _sent.Where(item => item.Value < now.AddDays(-2)).Select(item => item.Key).ToArray())
+
+        var availability = _roleplay.OwnAvailability;
+        if (_config.Current.RemindAvailabilityExpiry && availability is { Paused: false })
+        {
+            TrySendReminder(new ReminderKey(ReminderKind.Availability, "own"), availability.ExpiresAtUtc, now, window,
+                $"Your RP availability expires in {FormatRemaining(availability.ExpiresAtUtc - now)} - refresh it to stay listed.");
+        }
+
+        if (_config.Current.RemindHookExpiry)
+        {
+            foreach (var hook in _roleplay.CurrentHooks.Hooks)
+            {
+                TrySendReminder(new ReminderKey(ReminderKind.Hook, hook.HookId), hook.ExpiresAtUtc, now, window,
+                    $"Your RP hook '{hook.Title}' expires in {FormatRemaining(hook.ExpiresAtUtc - now)}.");
+            }
+        }
+
+        var staleEpoch = now.AddDays(-2).ToUnixTimeSeconds();
+        foreach (var stale in _sent.Where(item => item.Value < staleEpoch).Select(item => item.Key).ToArray())
             _sent.Remove(stale);
     }
+
+    private void TrySendReminder(ReminderKey key, DateTimeOffset dueAt, DateTimeOffset now, TimeSpan window, string message)
+    {
+        if (dueAt < now || dueAt - now > window) return;
+        var epoch = dueAt.ToUnixTimeSeconds();
+        if (_sent.TryGetValue(key, out var sentEpoch) && sentEpoch == epoch) return;
+        _sent[key] = epoch;
+        _chat.Print(new XivChatEntry
+        {
+            Type = XivChatType.SystemMessage,
+            Message = "[Snowcloak] " + message,
+        });
+    }
+
+    private static string FormatRemaining(TimeSpan remaining)
+    {
+        var minutes = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+        return minutes == 1 ? "about 1 minute" : $"about {minutes} minutes";
+    }
+
+    private enum ReminderKind
+    {
+        Event,
+        Availability,
+        Hook,
+    }
+
+    private readonly record struct ReminderKey(ReminderKind Kind, string Id);
 }

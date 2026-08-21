@@ -13,7 +13,7 @@ public record OpenSettingsUiMessage : SameThreadMessage;
 public record OpenPluginIntegrationsSettingsMessage : SameThreadMessage;
 public record OpenPairRequestConfirmationMessage(string Ident, string CharacterName, string PluginName) : SameThreadMessage;
 public record NotificationMessage
-    (string Title, string Message, NotificationType Type, TimeSpan? TimeShownOnScreen = null) : MessageBase;
+    (string Title, string Message, NotificationType Type, TimeSpan? TimeShownOnScreen = null, Action? ClickAction = null) : MessageBase;
 public record UiToggleMessage(Type UiType) : SameThreadMessage;
 public record ProfilePopoutToggle(Pair? Pair) : SameThreadMessage;
 public record CompactUiChange(Vector2 Size, Vector2 Position) : MessageBase;
@@ -31,5 +31,6 @@ public record OpenPairAnalysisWindow(Pair Pair) : SameThreadMessage;
 public record OpenSyncTroubleshootingWindow(Pair Pair) : SameThreadMessage;
 public record OpenBbCodeLinkPopupMessage(string Url) : SameThreadMessage;
 public record OpenFrostbrandUiMessage : SameThreadMessage;
+public record OpenRoleplayPlansMessage(string? PlanId = null) : SameThreadMessage;
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name

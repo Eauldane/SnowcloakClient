@@ -21,6 +21,8 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
 {
     private static readonly TimeSpan RefreshDebounceInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan HistoryRestoreInterval = TimeSpan.FromMilliseconds(500);
+
+    public string SelfUid => _identityResolver.SelfUid;
     private static readonly Action<ILogger, ConversationKey, Exception?> LogHistoryRestoreFailed = LoggerMessage.Define<ConversationKey>(
         LogLevel.Debug,
         new EventId(1, nameof(EnsureHistoryAsync)),
@@ -68,6 +70,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
 
     public ChatStore Store { get; }
     public bool CanSend => _configService.Current.ChatEnabled && _apiController.IsConnected;
+    public bool SupportsRoleplaySceneToolkit => _apiController.SupportsRoleplaySceneToolkit;
     public IReadOnlyList<RoomData> ListRooms() => _rooms.ListRooms();
     public IReadOnlyDictionary<string, int> SnapshotRoomCounts() => _rooms.SnapshotCounts();
 
@@ -250,7 +253,8 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         return updated.Room;
     }
 
-    public async Task<RoomMemberDto> SetSceneIdentityAsync(RoomData room, string? nickname, uint? roleIconId, string? roleLabel)
+    public async Task<RoomMemberDto> SetSceneIdentityAsync(RoomData room, string? nickname, uint? roleIconId, string? roleLabel,
+        string? characterIdent)
     {
         ArgumentNullException.ThrowIfNull(room);
         var updated = await _apiController.RpRoomSetParticipantIdentity(new RoomParticipantIdentityUpdateDto
@@ -259,16 +263,35 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
             Nickname = nickname,
             RoleIconId = roleIconId,
             RoleLabel = roleLabel,
+            CharacterIdent = characterIdent,
         }).ConfigureAwait(false);
         _rooms.SetMember(updated);
         Store.SetMember(new ConversationKey(ConversationKind.Room, room.RoomId), updated.User.UID, updated.Role);
         return updated;
     }
 
-    public async Task<RoomSceneHistoryDto> FinishSceneAsync(RoomData room)
+    public async Task<RoomMemberDto> SetNarratorAsync(RoomData room, UserData user, bool isNarrator)
+    {
+        var updated = await _apiController.RpRoomSetNarrator(new RoomNarratorUpdateDto
+        {
+            Room = room,
+            User = user,
+            IsNarrator = isNarrator,
+        }).ConfigureAwait(false);
+        _rooms.SetMember(updated);
+        return updated;
+    }
+
+    public async Task<RoomSceneHistoryDto> FinishSceneAsync(RoomData room, bool includeOutOfCharacter = false)
     {
         ArgumentNullException.ThrowIfNull(room);
-        var history = await _apiController.RpRoomFinishScene(new RoomDto(room)).ConfigureAwait(false);
+        var history = _apiController.SupportsRoleplaySceneToolkit
+            ? await _apiController.RpRoomFinishSceneOptions(new RoomSceneFinishOptionsDto
+            {
+                Room = room,
+                IncludeOutOfCharacter = includeOutOfCharacter,
+            }).ConfigureAwait(false)
+            : await _apiController.RpRoomFinishScene(new RoomDto(room)).ConfigureAwait(false);
         Store.ResetConversation(new ConversationKey(ConversationKind.Room, room.RoomId));
         return history;
     }
@@ -276,11 +299,12 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     public Task<List<RoomSceneHistorySummaryDto>> ListSceneHistoryAsync(RoomData room)
         => _apiController.RpRoomSceneHistoryList(new RoomDto(room));
 
-    public Task<RoomSceneHistoryDto> GetSceneHistoryAsync(RoomData room, string historyId)
+    public Task<RoomSceneHistoryDto> GetSceneHistoryAsync(RoomData room, string historyId, bool showAllModes = false)
         => _apiController.RpRoomSceneHistoryGet(new RoomSceneHistoryRequestDto
         {
             Room = room,
             HistoryId = historyId,
+            ShowAllModes = _apiController.SupportsRoleplaySceneToolkit ? showAllModes : null,
         });
 
     public async Task RollDiceAsync(RoomData room, int count, int sides, int modifier, string? label)
@@ -300,6 +324,47 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         {
             Mediator.Publish(new ChatOutgoingStampedMessage(key, entry));
         }
+    }
+
+    public async Task RollDiceExpressionAsync(RoomData room, string? expression, string? presetId, string? label)
+    {
+        ArgumentNullException.ThrowIfNull(room);
+        var stamped = await _apiController.RpRoomRollDice(new RoomDiceRollRequestDto
+        {
+            Room = room,
+            Expression = string.IsNullOrWhiteSpace(expression) ? null : expression.Trim(),
+            PresetId = string.IsNullOrWhiteSpace(presetId) ? null : presetId,
+            Label = string.IsNullOrWhiteSpace(label) ? null : label.Trim(),
+        }).ConfigureAwait(false);
+        var key = new ConversationKey(ConversationKind.Room, room.RoomId);
+        var entry = Store.AppendServerStamped(key, stamped, countUnread: false);
+        if (entry != null)
+            Mediator.Publish(new ChatOutgoingStampedMessage(key, entry));
+    }
+
+    public Task<List<RoomDicePresetDto>> ListDicePresetsAsync(RoomData room)
+        => _apiController.RpRoomDicePresetList(new RoomDto(room));
+
+    public Task<RoomDicePresetDto> SaveDicePresetAsync(RoomData room, string name, string expression)
+        => _apiController.RpRoomDicePresetAdd(new RoomDicePresetUpsertDto { Room = room, Name = name, Expression = expression });
+
+    public Task RemoveDicePresetAsync(RoomData room, string id)
+        => _apiController.RpRoomDicePresetRemove(new RoomDicePresetRemoveDto { Room = room, Id = id });
+
+    public Task<List<RoomSceneTemplateDto>> ListSceneTemplatesAsync(RoomData room)
+        => _apiController.RpRoomSceneTemplateList(new RoomDto(room));
+
+    public Task<RoomSceneTemplateDto> SaveSceneTemplateAsync(RoomData room, string? id, string name, RoomSceneMetadataDto scene)
+        => _apiController.RpRoomSceneTemplateSave(new RoomSceneTemplateUpsertDto { Room = room, Id = id, Name = name, Scene = scene });
+
+    public Task RemoveSceneTemplateAsync(RoomData room, string id)
+        => _apiController.RpRoomSceneTemplateRemove(new RoomSceneTemplateRemoveDto { Room = room, Id = id });
+
+    public async Task<RoomData> ApplySceneTemplateAsync(RoomData room, string id)
+    {
+        var updated = await _apiController.RpRoomSceneTemplateApply(new RoomSceneTemplateApplyDto { Room = room, TemplateId = id }).ConfigureAwait(false);
+        ApplyRoomUpdate(updated.Room);
+        return updated.Room;
     }
 
     public async Task<RoomData> SetTurnOrderAsync(RoomData room, bool enabled, IReadOnlyCollection<string> userUids)

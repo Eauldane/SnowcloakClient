@@ -31,6 +31,7 @@ public class UiFactory
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
     private readonly SnowProfileManager _snowProfileManager;
+    private readonly UserSafetyStore _userSafetyStore;
     private readonly PerformanceCollectorService _performanceCollectorService;
     private readonly SyncTroubleshootingService _syncTroubleshootingService;
     private readonly SyncshellBudgetService _syncshellBudgetService;
@@ -47,7 +48,7 @@ public class UiFactory
         SnowProfileManager snowProfileManager, ImageTransferService imageTransferService, PerformanceCollectorService performanceCollectorService,
         SyncshellBudgetService syncshellBudgetService, SyncTroubleshootingService syncTroubleshootingService,
         ChatClientService chatService, ChatIdentityResolver chatIdentityResolver, ImGuiChatRenderer chatRenderer,
-        FileDialogManager fileDialogManager, RoleplayClientService roleplayClientService)
+        FileDialogManager fileDialogManager, RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore)
     {
         _loggerFactory = loggerFactory;
         _snowMediator = snowMediator;
@@ -62,6 +63,7 @@ public class UiFactory
         _pairManager = pairManager;
         _pairRequestService = pairRequestService;
         _snowProfileManager = snowProfileManager;
+        _userSafetyStore = userSafetyStore;
         _performanceCollectorService = performanceCollectorService;
         _syncTroubleshootingService = syncTroubleshootingService;
         _syncshellBudgetService = syncshellBudgetService;
@@ -95,7 +97,7 @@ public class UiFactory
             pair = _pairManager.GetPairByUID(userData.UID);
         return new StandaloneProfileUi(_loggerFactory.CreateLogger<StandaloneProfileUi>(), _snowMediator,
             _fontService, _bbCodeRenderService, _textureService, _configService, _snowProfileManager, _imageTransferService, pair, userData, requestedVisibility, ident, fallbackName,
-            _dalamudUtilService, _ipcManager, _performanceCollectorService);
+            _dalamudUtilService, _ipcManager, _userSafetyStore, _performanceCollectorService);
     }
 
     public PermissionWindowUI CreatePermissionPopupUi(Pair pair)

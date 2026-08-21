@@ -37,16 +37,13 @@ public sealed class UserSafetyStore : DisposableMediatorSubscriberBase
         return GetOrStartLoad();
     }
 
-    public void SetAdultContent(bool enabled)
-    {
-        Start(() => _apiController.UserSafetySetAdultContent(new AdultContentOptInDto(enabled)),
-            enabled ? "Adult content is enabled for this UID." : "Adult content is disabled for this UID.");
-    }
-
     public void Block(string uid)
+        => _ = BlockAsync(uid);
+
+    public Task BlockAsync(string uid)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(uid);
-        Start(() => _apiController.UserBlock(new UserBlockRequestDto(uid)), $"Blocked {uid.Trim().ToUpperInvariant()}.");
+        return StartAsync(() => _apiController.UserBlock(new UserBlockRequestDto(uid)), $"Blocked {uid.Trim().ToUpperInvariant()}.");
     }
 
     public void Unblock(string uid)
@@ -56,11 +53,14 @@ public sealed class UserSafetyStore : DisposableMediatorSubscriberBase
     }
 
     private void Start(Func<Task<UserSafetyStateDto>> operation, string success)
+        => _ = StartAsync(operation, success);
+
+    private Task StartAsync(Func<Task<UserSafetyStateDto>> operation, string success)
     {
         lock (_sync)
         {
-            if (IsBusy) return;
-            _loadTask = RunAsync(operation, success, _generation);
+            if (IsBusy) return Task.CompletedTask;
+            return _loadTask = RunAsync(operation, success, _generation);
         }
     }
 

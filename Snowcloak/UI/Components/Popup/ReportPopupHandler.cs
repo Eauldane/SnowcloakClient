@@ -17,20 +17,17 @@ internal class ReportPopupHandler : IPopupHandler
 {
     private readonly ApiController _apiController;
     private readonly UiFontService _fontService;
-    private readonly UserSafetyStore _safetyStore;
     private UserData? _reportedUser;
     private string _reportedIdent = string.Empty;
     private ProfileVisibility _reportedVisibility;
     private long _reportedRevision;
     private ProfileReportSurface _surface;
     private string _reportReason = string.Empty;
-    private bool _blockUser;
 
-    public ReportPopupHandler(ApiController apiController, UiFontService fontService, UserSafetyStore safetyStore)
+    public ReportPopupHandler(ApiController apiController, UiFontService fontService)
     {
         _apiController = apiController;
         _fontService = fontService;
-        _safetyStore = safetyStore;
     }
 
     public Vector2 PopupSize => new(500, 500);
@@ -45,8 +42,6 @@ internal class ReportPopupHandler : IPopupHandler
         ImGui.InputTextMultiline("##reportReason", ref _reportReason, 500, new Vector2(500 - ImGui.GetStyle().ItemSpacing.X * 2, 200));
         ElezenImgui.ColouredWrappedText("Report spam and wrong reports will not be tolerated and can lead to permanent account suspension.", ImGuiColors.DalamudRed);
         ElezenImgui.ColouredWrappedText("Describe the behaviour or content you are reporting and include enough context for a moderator to review it.", ImGuiColors.DalamudYellow);
-        ImGui.Checkbox("Also block this UID", ref _blockUser);
-        ElezenImgui.DrawHelpText("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
         var reportSupported = _apiController.SupportsOpenRpSafety
             && (_surface != ProfileReportSurface.User || _apiController.SupportsUnpairedUserReporting);
         using (ImRaii.Disabled(string.IsNullOrEmpty(_reportReason) || !reportSupported))
@@ -55,18 +50,16 @@ internal class ReportPopupHandler : IPopupHandler
             {
                 ImGui.CloseCurrentPopup();
                 var reason = _reportReason;
-                _ = SubmitAsync(reason, _blockUser);
+                _ = SubmitAsync(reason);
             }
         }
     }
 
-    private async Task SubmitAsync(string reason, bool blockUser)
+    private Task SubmitAsync(string reason)
     {
-        await _apiController.CharacterProfileReport(new CharacterProfileReportDto(
-            _reportedIdent, _reportedVisibility, _reportedRevision, reason, _surface, blockUser,
-            _reportedUser?.UID ?? string.Empty)).ConfigureAwait(false);
-        if (blockUser)
-            _safetyStore.Refresh();
+        return _apiController.CharacterProfileReport(new CharacterProfileReportDto(
+            _reportedIdent, _reportedVisibility, _reportedRevision, reason, _surface, false,
+            _reportedUser?.UID ?? string.Empty));
     }
 
     public void Open(OpenReportPopupMessage msg)
@@ -77,6 +70,5 @@ internal class ReportPopupHandler : IPopupHandler
         _reportedRevision = msg.Revision;
         _surface = msg.Surface;
         _reportReason = string.Empty;
-        _blockUser = false;
     }
 }

@@ -92,6 +92,8 @@ public sealed class ChatRoomRegistry
             SceneNickname = member.SceneNickname,
             SceneRoleIconId = member.SceneRoleIconId,
             SceneRoleLabel = member.SceneRoleLabel,
+            SceneCharacterIdent = member.SceneCharacterIdent,
+            IsNarrator = member.IsNarrator,
         });
     }
 

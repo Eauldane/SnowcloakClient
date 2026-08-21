@@ -10,6 +10,7 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.CharaData;
+using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI.Handlers;
 using Snowcloak.Utils;
@@ -24,11 +25,12 @@ public class DrawUserPair : DrawPairBase
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly CharaDataManager _charaDataManager;
     private readonly SnowcloakConfigService _configService;
+    private readonly UserSafetyStore _userSafetyStore;
     public long VramUsage { get; set; }
 
     public DrawUserPair(string id, Pair entry, UidDisplayHandler displayHandler, ApiController apiController,
         SnowMediator snowMediator, SelectGroupForPairUi selectGroupForPairUi,
-        CharaDataManager charaDataManager, SnowcloakConfigService configService)
+        CharaDataManager charaDataManager, SnowcloakConfigService configService, UserSafetyStore userSafetyStore)
         : base(id, entry, apiController, displayHandler)
     {
         if (PairEntry.UserPair == null) throw new ArgumentException("Pair must be UserPair", nameof(entry));
@@ -37,6 +39,7 @@ public class DrawUserPair : DrawPairBase
         _mediator = snowMediator;
         _charaDataManager = charaDataManager;
         _configService = configService;
+        _userSafetyStore = userSafetyStore;
     }
 
     public bool IsOnline => PairEntry.IsOnline;
@@ -225,13 +228,22 @@ public class DrawUserPair : DrawPairBase
             ElezenImgui.AttachTooltip("Opens the profile for this user in a new window");
         }
         if (ApiController.SupportsUnpairedUserReporting
-            && ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report or block"))
+            && ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report"))
         {
             _mediator.Publish(new OpenReportPopupMessage(entry.UserData, entry.Ident,
                 Snowcloak.API.Data.Enum.ProfileVisibility.Public, 0,
                 Snowcloak.API.Data.Enum.ProfileReportSurface.User));
             ImGui.CloseCurrentPopup();
         }
+        using (ImRaii.Disabled(!_userSafetyStore.IsAvailable || _userSafetyStore.IsBusy))
+        {
+            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserSlash, "Block all contact"))
+            {
+                _userSafetyStore.Block(entry.UserData.UID);
+                ImGui.CloseCurrentPopup();
+            }
+        }
+        ElezenImgui.AttachTooltip("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
         if (_configService.Current.EnableDebugFeatures
             && ElezenImgui.ShowIconButton(FontAwesomeIcon.QuestionCircle, "Why am I not seeing this user?"))
         {

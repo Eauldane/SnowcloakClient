@@ -39,6 +39,7 @@ internal sealed class NearbyPresenceScanner : IDisposable
     private readonly Func<HashSet<string>, Task> _evaluatePendingRequests;
     private readonly SemaphoreSlim _scanGate = new(1, 1);
     private readonly HashSet<string> _lastNearbyIdentSnapshot = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _lastProximityIdentSnapshot = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _scanCts = new();
     private DateTime _lastNearbyAvailabilityCheck = DateTime.MinValue;
     private int _emptyNearbySnapshotCount;
@@ -87,6 +88,10 @@ internal sealed class NearbyPresenceScanner : IDisposable
         lock (_lastNearbyIdentSnapshot)
         {
             _lastNearbyIdentSnapshot.Clear();
+        }
+        lock (_lastProximityIdentSnapshot)
+        {
+            _lastProximityIdentSnapshot.Clear();
         }
         _emptyNearbySnapshotCount = 0;
     }
@@ -157,7 +162,8 @@ internal sealed class NearbyPresenceScanner : IDisposable
                     .ConfigureAwait(false);
                 var location = await _dalamudUtilService.GetMapDataAsync().ConfigureAwait(false);
 
-                nearbySet = BuildNearbySet(nearby, localIdent);
+                var proximitySet = BuildProximitySet(nearby, localIdent);
+                nearbySet = BuildPairingCandidateSet(proximitySet);
                 if (ShouldHoldEmptyNearbySnapshot(nearbySet, force))
                 {
                     await _evaluatePendingRequests(GetLastNearbySnapshot().ToHashSet(StringComparer.Ordinal)).ConfigureAwait(false);
@@ -165,6 +171,7 @@ internal sealed class NearbyPresenceScanner : IDisposable
                 }
 
                 var (entered, left) = ApplyNearbySnapshot(nearbySet, force);
+                var proximityChanged = ApplyProximitySnapshot(proximitySet, force);
 
                 if (left.Count > 0)
                     _availabilityStore.ApplyDelta(Array.Empty<string>(), left, publishImmediately: true);
@@ -172,7 +179,8 @@ internal sealed class NearbyPresenceScanner : IDisposable
                 if (nearbySet.Count == 0)
                     _availabilityStore.Clear();
 
-                var subscribed = await _subscriptionClient.UpdateAsync(location, nearbySet, entered, left, force, cancellationToken: _scanCts.Token)
+                var subscribed = await _subscriptionClient.UpdateAsync(location, nearbySet, entered, left,
+                        proximitySet, proximityChanged, force, cancellationToken: _scanCts.Token)
                     .ConfigureAwait(false);
                 _availabilityStore.SetAvailabilityChannelActive(subscribed);
 
@@ -229,8 +237,10 @@ internal sealed class NearbyPresenceScanner : IDisposable
             _availabilityStore.SetLocalPlayerIdent(localIdent);
             var nearby = await _dalamudUtilService.GetNearbyPlayerNameHashesAsync(MaxNearbySnapshot)
                 .ConfigureAwait(false);
-            var nearbySet = BuildNearbySet(nearby, localIdent);
+            var proximitySet = BuildProximitySet(nearby, localIdent);
+            var nearbySet = BuildPairingCandidateSet(proximitySet);
             ReplaceNearbySnapshot(nearbySet);
+            ApplyProximitySnapshot(proximitySet, force: true);
 
             var location = await GetResumeLocationAsync(resumeRequest).ConfigureAwait(false);
             _lastNearbyAvailabilityCheck = DateTime.UtcNow;
@@ -240,6 +250,8 @@ internal sealed class NearbyPresenceScanner : IDisposable
                     nearbySet,
                     nearbySet,
                     Array.Empty<string>(),
+                    proximitySet,
+                    proximityChanged: true,
                     force: true,
                     forceFullSnapshot: true,
                     cancellationToken: _scanCts.Token)
@@ -286,10 +298,16 @@ internal sealed class NearbyPresenceScanner : IDisposable
         }
     }
 
-    private HashSet<string> BuildNearbySet(IEnumerable<string> nearby, string localIdent)
+    private static HashSet<string> BuildProximitySet(IEnumerable<string> nearby, string localIdent)
     {
         var nearbySet = new HashSet<string>(nearby, StringComparer.Ordinal);
         nearbySet.Remove(localIdent);
+        return nearbySet;
+    }
+
+    private HashSet<string> BuildPairingCandidateSet(HashSet<string> proximitySet)
+    {
+        var nearbySet = new HashSet<string>(proximitySet, StringComparer.Ordinal);
         nearbySet.ExceptWith(_pairManager.DirectPairs
             .Select(pair => pair.Ident)
             .Where(ident => !string.IsNullOrEmpty(ident)));
@@ -344,6 +362,17 @@ internal sealed class NearbyPresenceScanner : IDisposable
             _lastNearbyIdentSnapshot.Clear();
             foreach (var ident in nearbySet)
                 _lastNearbyIdentSnapshot.Add(ident);
+        }
+    }
+
+    private bool ApplyProximitySnapshot(HashSet<string> proximitySet, bool force)
+    {
+        lock (_lastProximityIdentSnapshot)
+        {
+            var changed = force || !_lastProximityIdentSnapshot.SetEquals(proximitySet);
+            _lastProximityIdentSnapshot.Clear();
+            _lastProximityIdentSnapshot.UnionWith(proximitySet);
+            return changed;
         }
     }
 

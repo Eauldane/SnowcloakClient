@@ -10,6 +10,11 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <LocalSnowcloakApiPackageSource>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../Snowcloak.API/Snowcloak.API/bin/Release'))</LocalSnowcloakApiPackageSource>
+    <RestoreAdditionalProjectSources Condition="Exists('$(LocalSnowcloakApiPackageSource)')">$(RestoreAdditionalProjectSources);$(LocalSnowcloakApiPackageSource)</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>

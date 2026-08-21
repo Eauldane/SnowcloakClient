@@ -9,6 +9,8 @@ public sealed record ViewProfileIntent(string Ident) : IIntent;
 
 public sealed record ReportProfileIntent(UserData User, string Ident, long Revision) : IIntent;
 
+public sealed record BlockUserIntent(string Ident, UserData? User = null) : IIntent;
+
 public sealed record ExaminePlayerIntent(string Ident, string DisplayName) : IIntent;
 
 public sealed record OpenAdventurerPlateIntent(string Ident, string DisplayName) : IIntent;

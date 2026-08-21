@@ -28,6 +28,11 @@ public sealed class ChatConversationView
     private readonly SnowMediator _mediator;
     private readonly FileDialogManager _fileDialogManager;
     private readonly Dictionary<string, RpChatMode> _roomModes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<RpChatMode>> _roomModeFilters = new(StringComparer.Ordinal);
+    private Task<List<RoomDicePresetDto>>? _dicePresetLoad;
+    private List<RoomDicePresetDto> _dicePresets = [];
+    private string _dicePresetRoomId = string.Empty;
+    private string _diceExpression = "1d20";
     private string _draft = string.Empty;
     private ConversationKey? _draftKey;
     private string _commandStatus = string.Empty;
@@ -37,6 +42,7 @@ public sealed class ChatConversationView
     private List<RoomSceneHistorySummaryDto> _sceneHistory = [];
     private string _sceneHistoryStatus = string.Empty;
     private SceneExportRequest? _sceneExportRequest;
+    private bool _sceneHistoryShowAllModes;
 
     public ChatConversationView(ILogger logger, ChatClientService chatService, ImGuiChatRenderer renderer,
         SnowMediator mediator, FileDialogManager fileDialogManager)
@@ -73,13 +79,16 @@ public sealed class ChatConversationView
             : null;
         var scene = room?.Scene?.IsScene == true;
         var inputHeight = ImGui.GetFrameHeightWithSpacing() + ImGui.GetStyle().ItemSpacing.Y
-            + (scene ? ImGui.GetFrameHeightWithSpacing() : 0f)
+            + (scene ? ImGui.GetFrameHeightWithSpacing() * 3f : 0f)
             + (string.IsNullOrWhiteSpace(_commandStatus) ? 0f : ImGui.GetTextLineHeightWithSpacing());
         using (var log = ImRaii.Child($"chat-log-{key}", new Vector2(-1, -inputHeight), false))
         {
             DateTime? currentDate = null;
+            var visibleModes = room == null ? null : _roomModeFilters.GetValueOrDefault(room.RoomId);
             foreach (var entry in conversation.Entries)
             {
+                if (visibleModes != null && !visibleModes.Contains(entry.RpMode))
+                    continue;
                 var localDate = entry.Timestamp.ToLocalTime().Date;
                 if (currentDate != localDate)
                 {
@@ -137,7 +146,10 @@ public sealed class ChatConversationView
     private void DrawSceneComposer(Snowcloak.API.Data.RoomData room)
     {
         var mode = _roomModes.GetValueOrDefault(room.RoomId, RpChatMode.InCharacter);
-        if (mode == RpChatMode.Standard)
+        var self = _chatService.GetRoomMembers(room.RoomId)
+            .FirstOrDefault(member => string.Equals(member.User.UID, _chatService.SelfUid, StringComparison.Ordinal));
+        var canNarrate = self?.IsNarrator == true;
+        if (mode == RpChatMode.Standard || mode == RpChatMode.Narration && !canNarrate)
         {
             mode = RpChatMode.OutOfCharacter;
             _roomModes[room.RoomId] = mode;
@@ -153,6 +165,11 @@ public sealed class ChatConversationView
                     _roomModes[room.RoomId] = option;
                 }
             }
+            if (canNarrate && ImGui.Selectable(ModeLabel(RpChatMode.Narration), mode == RpChatMode.Narration))
+            {
+                mode = RpChatMode.Narration;
+                _roomModes[room.RoomId] = mode;
+            }
             ImGui.EndCombo();
         }
         ImGui.SameLine();
@@ -160,6 +177,47 @@ public sealed class ChatConversationView
             room.Scene?.TurnState is { Enabled: true, UserUids.Count: > 0 } turn
                 ? "Scene active  ·  " + CurrentTurnLabel(room.RoomId, turn) + "  ·  /snowturn will end the turn"
                 : "Scene active");
+
+        var filters = _roomModeFilters.GetValueOrDefault(room.RoomId);
+        if (filters == null)
+        {
+            filters = AllRoomModes();
+            _roomModeFilters[room.RoomId] = filters;
+        }
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Show:");
+        foreach (var filterMode in new[] { RpChatMode.Standard, RpChatMode.InCharacter, RpChatMode.Action, RpChatMode.OutOfCharacter, RpChatMode.Narration })
+        {
+            ImGui.SameLine();
+            var visible = filters.Contains(filterMode);
+            if (ImGui.Checkbox(ModeShortLabel(filterMode) + "##filter-" + filterMode, ref visible))
+            {
+                if (visible) filters.Add(filterMode);
+                else filters.Remove(filterMode);
+            }
+        }
+
+        if (_chatService.SupportsRoleplaySceneToolkit)
+        {
+            CompleteDicePresetLoad(room);
+            ImGui.SetNextItemWidth(180f * ImGuiHelpers.GlobalScale);
+            ImGui.InputTextWithHint("##dice-expression", "4d6kh3+2", ref _diceExpression, 64);
+            ImGui.SameLine();
+            var validExpression = IsValidDiceExpression(_diceExpression);
+            using (ImRaii.Disabled(!validExpression || !_chatService.CanSend))
+            {
+                if (ImGui.Button("Roll##dice-expression"))
+                    Queue(_chatService.RollDiceExpressionAsync(room, _diceExpression, null, null), nameof(ChatClientService.RollDiceExpressionAsync));
+            }
+            ImGui.SameLine();
+            ImGui.TextColored(validExpression ? ImGuiColors.HealerGreen : ImGuiColors.DalamudRed,
+                validExpression ? "valid" : "Use NdS, kh/kl, and an optional modifier");
+            foreach (var preset in _dicePresets)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton(preset.Name + "##preset-" + preset.Id))
+                    Queue(_chatService.RollDiceExpressionAsync(room, null, preset.Id, preset.Name), nameof(ChatClientService.RollDiceExpressionAsync));
+            }
+        }
     }
 
     private async Task SubmitWithFeedbackAsync(ConversationKey key, Snowcloak.API.Data.RoomData? room, string input)
@@ -191,18 +249,26 @@ public sealed class ChatConversationView
 
             if (command.Equals("/snowroll", StringComparison.OrdinalIgnoreCase))
             {
-                var match = Regex.Match(arguments, @"^(?<count>\d{1,2})?d(?<sides>\d{1,4})(?<modifier>[+-]\d{1,5})?(?:\s+(?<label>.*))?$",
-                    RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
-                if (!match.Success)
+                var expression = arguments.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (expression.Length == 0 || !IsValidDiceExpression(expression[0]))
                 {
-                    _commandStatus = "Use /snowroll NdS, optionally followed by +M or -M and a label.";
+                    _commandStatus = "Use /snowroll NdS, optionally with khK/klK, a modifier, and a label.";
                     return;
                 }
-                var count = match.Groups["count"].Success ? int.Parse(match.Groups["count"].Value, CultureInfo.InvariantCulture) : 1;
-                var sides = int.Parse(match.Groups["sides"].Value, CultureInfo.InvariantCulture);
-                var modifier = match.Groups["modifier"].Success ? int.Parse(match.Groups["modifier"].Value, CultureInfo.InvariantCulture) : 0;
-                await _chatService.RollDiceAsync(room, count, sides, modifier,
-                    match.Groups["label"].Success ? match.Groups["label"].Value : null).ConfigureAwait(false);
+                if (_chatService.SupportsRoleplaySceneToolkit)
+                {
+                    await _chatService.RollDiceExpressionAsync(room, expression[0], null,
+                        expression.Length > 1 ? expression[1] : null).ConfigureAwait(false);
+                }
+                else if (TryParseLegacyDiceExpression(expression[0], out var count, out var sides, out var modifier))
+                {
+                    await _chatService.RollDiceAsync(room, count, sides, modifier,
+                        expression.Length > 1 ? expression[1] : null).ConfigureAwait(false);
+                }
+                else
+                {
+                    _commandStatus = "This server supports only NdS with an optional modifier; kh/kl requires the scene toolkit.";
+                }
                 return;
             }
 
@@ -222,6 +288,7 @@ public sealed class ChatConversationView
                 "/SNOWIC" => RpChatMode.InCharacter,
                 "/SNOWOOC" => RpChatMode.OutOfCharacter,
                 "/SNOWEMOTE" => RpChatMode.Action,
+                "/SNOWNARRATE" => RpChatMode.Narration,
                 _ => (RpChatMode?)null,
             };
             if (commandMode == null)
@@ -277,8 +344,68 @@ public sealed class ChatConversationView
         RpChatMode.InCharacter => "In character",
         RpChatMode.OutOfCharacter => "Out of character",
         RpChatMode.Action => "Action",
+        RpChatMode.Narration => "Narration",
         _ => "Standard chat",
     };
+
+    private static string ModeShortLabel(RpChatMode mode) => mode switch
+    {
+        RpChatMode.InCharacter => "IC",
+        RpChatMode.OutOfCharacter => "OOC",
+        RpChatMode.Narration => "Narration",
+        _ => mode.ToString(),
+    };
+
+    private static HashSet<RpChatMode> AllRoomModes() => Enum.GetValues<RpChatMode>().ToHashSet();
+
+    private static bool IsValidDiceExpression(string value)
+    {
+        var match = Regex.Match(value, @"^(?<count>\d{1,2})[dD](?<sides>\d{1,4})(?:(?<keep>kh|kl)(?<keepCount>\d{1,2}))?(?<modifier>[+-]\d{1,5})?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        if (!match.Success
+            || !int.TryParse(match.Groups["count"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+            || !int.TryParse(match.Groups["sides"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var sides)
+            || count is < 1 or > 20 || sides is < 2 or > 1000)
+            return false;
+        if (match.Groups["keep"].Success
+            && (!int.TryParse(match.Groups["keepCount"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var keep) || keep < 1 || keep > count))
+            return false;
+        return !match.Groups["modifier"].Success
+            || int.TryParse(match.Groups["modifier"].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var modifier)
+            && modifier is >= -10000 and <= 10000;
+    }
+
+    private static bool TryParseLegacyDiceExpression(string value, out int count, out int sides, out int modifier)
+    {
+        count = 0;
+        sides = 0;
+        modifier = 0;
+        var match = Regex.Match(value, @"^(?<count>\d{1,2})[dD](?<sides>\d{1,4})(?<modifier>[+-]\d{1,5})?$",
+            RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        return match.Success
+            && int.TryParse(match.Groups["count"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out count)
+            && int.TryParse(match.Groups["sides"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out sides)
+            && count is >= 1 and <= 20
+            && sides is >= 2 and <= 1000
+            && (!match.Groups["modifier"].Success
+                || int.TryParse(match.Groups["modifier"].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out modifier)
+                && modifier is >= -10000 and <= 10000);
+    }
+
+    private void CompleteDicePresetLoad(Snowcloak.API.Data.RoomData room)
+    {
+        if (!string.Equals(_dicePresetRoomId, room.RoomId, StringComparison.Ordinal))
+        {
+            _dicePresetRoomId = room.RoomId;
+            _dicePresets = [];
+            _dicePresetLoad = _chatService.ListDicePresetsAsync(room);
+        }
+        if (_dicePresetLoad?.IsCompleted == true)
+        {
+            if (_dicePresetLoad.IsCompletedSuccessfully) _dicePresets = _dicePresetLoad.Result;
+            _dicePresetLoad = null;
+        }
+    }
 
     private static void DrawDateSeparator(DateTime date)
     {
@@ -361,6 +488,7 @@ public sealed class ChatConversationView
     {
         CompleteSceneHistoryOperations();
         if (!ImGui.BeginPopup("scene-history-download")) return;
+        ImGui.Checkbox("Show OOC and standard chat", ref _sceneHistoryShowAllModes);
         if (_sceneHistoryLoad != null)
         {
             ImGui.TextDisabled("Loading scene history...");
@@ -412,7 +540,7 @@ public sealed class ChatConversationView
         var room = _chatService.ListRooms().FirstOrDefault(candidate => string.Equals(candidate.RoomId, roomId, StringComparison.Ordinal));
         if (room == null) return;
         _sceneExportRequest = new SceneExportRequest(markdown);
-        _sceneExportLoad = _chatService.GetSceneHistoryAsync(room, historyId);
+        _sceneExportLoad = _chatService.GetSceneHistoryAsync(room, historyId, _sceneHistoryShowAllModes);
     }
 
     private void CompleteSceneHistoryOperations()
@@ -488,7 +616,8 @@ public sealed class ChatConversationView
             if (markdown)
             {
                 builder.Append("- `").Append(time).Append("` ");
-                if (message.Message.RpMode == RpChatMode.Action) builder.Append('*').Append(name).Append(' ').Append(text).Append('*');
+                if (message.Message.RpMode == RpChatMode.Narration) builder.Append("***Narration - ").Append(name).Append(":*** ").Append(text);
+                else if (message.Message.RpMode == RpChatMode.Action) builder.Append('*').Append(name).Append(' ').Append(text).Append('*');
                 else if (message.Message.RpMode == RpChatMode.OutOfCharacter) builder.Append("**").Append(name).Append(" (OOC):** ").Append(text);
                 else builder.Append("**").Append(name).Append(message.Message.RpMode == RpChatMode.InCharacter ? " (IC):** " : ":** ").Append(text);
                 builder.AppendLine();
@@ -496,7 +625,8 @@ public sealed class ChatConversationView
             else
             {
                 builder.Append('[').Append(time).Append("] ");
-                if (message.Message.RpMode == RpChatMode.Action) builder.Append("* ").Append(name).Append(' ').Append(text);
+                if (message.Message.RpMode == RpChatMode.Narration) builder.Append("[Narration - ").Append(name).Append("] ").Append(text);
+                else if (message.Message.RpMode == RpChatMode.Action) builder.Append("* ").Append(name).Append(' ').Append(text);
                 else if (message.Message.RpMode == RpChatMode.OutOfCharacter) builder.Append("((").Append(name).Append(": ").Append(text).Append("))");
                 else builder.Append(name).Append(message.Message.RpMode == RpChatMode.InCharacter ? " (IC): " : ": ").Append(text);
                 builder.AppendLine();
@@ -542,7 +672,8 @@ public sealed class ChatConversationView
             if (markdown)
             {
                 builder.Append("- `").Append(time).Append("` ");
-                if (entry.RpMode == RpChatMode.Action) builder.Append('*').Append(entry.Display.Name).Append(' ').Append(text).Append('*');
+                if (entry.RpMode == RpChatMode.Narration) builder.Append("***Narration - ").Append(entry.Display.Name).Append(":*** ").Append(text);
+                else if (entry.RpMode == RpChatMode.Action) builder.Append('*').Append(entry.Display.Name).Append(' ').Append(text).Append('*');
                 else if (entry.RpMode == RpChatMode.OutOfCharacter) builder.Append("**").Append(entry.Display.Name).Append(" (OOC):** ").Append(text);
                 else builder.Append("**").Append(entry.Display.Name).Append(entry.RpMode == RpChatMode.InCharacter ? " (IC):** " : ":** ").Append(text);
                 builder.AppendLine();
@@ -550,7 +681,8 @@ public sealed class ChatConversationView
             else
             {
                 builder.Append('[').Append(time).Append("] ");
-                if (entry.RpMode == RpChatMode.Action) builder.Append("* ").Append(entry.Display.Name).Append(' ').Append(text);
+                if (entry.RpMode == RpChatMode.Narration) builder.Append("[Narration - ").Append(entry.Display.Name).Append("] ").Append(text);
+                else if (entry.RpMode == RpChatMode.Action) builder.Append("* ").Append(entry.Display.Name).Append(' ').Append(text);
                 else if (entry.RpMode == RpChatMode.OutOfCharacter) builder.Append("((").Append(entry.Display.Name).Append(": ").Append(text).Append("))");
                 else builder.Append(entry.Display.Name).Append(entry.RpMode == RpChatMode.InCharacter ? " (IC): " : ": ").Append(text);
                 builder.AppendLine();

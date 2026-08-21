@@ -9,6 +9,7 @@ using Snowcloak.Core.Chat;
 using Snowcloak.Services.Chat;
 using Snowcloak.Services.Mediator;
 using System.Numerics;
+using System.Globalization;
 
 namespace Snowcloak.UI.Components;
 
@@ -68,7 +69,12 @@ public sealed class ImGuiChatRenderer
 
         if (entry.DiceRoll != null)
         {
-            DrawMemberBadge(FontAwesomeIcon.DiceD20, ImGuiColors.DalamudYellow, "Server-stamped dice roll");
+            var roll = entry.DiceRoll;
+            var counted = roll.Results.Select((value, index) => roll.Counted != null && index < roll.Counted.Count && !roll.Counted[index]
+                ? $"{value} (dropped)"
+                : value.ToString(CultureInfo.InvariantCulture));
+            DrawMemberBadge(FontAwesomeIcon.DiceD20, ImGuiColors.DalamudYellow,
+                $"Server-stamped {roll.PresetName ?? roll.Expression ?? $"{roll.Count}d{roll.Sides}"}: {string.Join(", ", counted)} = {roll.Total}");
         }
         else if (entry.RpMode == RpChatMode.InCharacter)
         {
@@ -78,12 +84,17 @@ public sealed class ImGuiChatRenderer
         {
             DrawMemberBadge(FontAwesomeIcon.Comment, SnowcloakColours.CompactTextMuted, "Out of character");
         }
+        else if (entry.RpMode == RpChatMode.Narration)
+        {
+            DrawMemberBadge(FontAwesomeIcon.BookOpen, ImGuiColors.DalamudYellow, "Scene narration");
+        }
 
         var senderLabel = entry.RpMode switch
         {
             RpChatMode.Action => $"* {name}",
             RpChatMode.InCharacter => $"{name} (IC):",
             RpChatMode.OutOfCharacter => $"(({name}:",
+            RpChatMode.Narration => $"Narration - {name}:",
             _ when entry.IsEmote => $"* {name}",
             _ => $"{name}:",
         };

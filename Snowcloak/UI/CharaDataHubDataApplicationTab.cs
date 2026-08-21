@@ -631,7 +631,7 @@ internal sealed class CharaDataHubDataApplicationTab
 
     private static void DrawMcdfFailure()
     {
-        CharaDataHubCard.Error("Failed to read the MCDF file — it may be corrupt. Re-export it and try again.");
+        CharaDataHubCard.Error("Failed to read the MCDF file - it may be corrupt. Re-export it and try again.");
         CharaDataHubCard.Info("If this is your MCDF, try redrawing yourself, wait a moment, then re-export. If someone sent it to you, ask them to do the same.");
     }
 

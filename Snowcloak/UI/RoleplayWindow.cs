@@ -35,6 +35,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private const string PeopleTab = "People";
     private const string RoomsTab = "Rooms";
     private const string EventsTab = "Events";
+    private const string PlansTab = "Scene plans";
     private readonly RoleplayClientService _roleplay;
     private readonly PairRequestService _pairRequests;
     private readonly ChatClientService _chat;
@@ -74,13 +75,15 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly HashSet<RpAvailabilityState> _peopleAvailabilityStates = [];
     private readonly HashSet<RpTheme> _peopleThemes = [];
     private readonly HashSet<string> _selectedCurrentHooks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, RpCurrentHookDto> _initialCurrentHooks = new(StringComparer.Ordinal);
+    private string? _interestHookId;
     private int _currentHookTtl = 120;
     private RpAvailabilityAudience _currentHookAudience = RpAvailabilityAudience.Pairs;
+    private bool _currentHookSettingsDirty;
     private ProfileReportSurface _reportSurface;
     private string _reportTarget = string.Empty;
     private long _reportRevision;
     private string _reportReason = string.Empty;
-    private bool _reportBlockOwner;
     private bool _openReportPopup;
     private bool _hooksInitialised;
     private string _status = string.Empty;
@@ -88,6 +91,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private int _roomPage;
     private int _eventPage;
     private Task<SnowProfileData>? _profileEligibilityTask;
+    private string _planRoomId = string.Empty;
+    private string? _editingPlanId;
+    private string _planTitle = string.Empty;
+    private string _planStartsAt = DateTime.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+    private string _planEndsAt = string.Empty;
+    private readonly HashSet<string> _planAttendees = new(StringComparer.Ordinal);
     private const int PageSize = 50;
 
     public RoleplayWindow(ILogger<RoleplayWindow> logger, SnowMediator mediator,
@@ -109,6 +118,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         _safety = safety;
         _textureService = textureService;
         _imageTransferService = imageTransferService;
+        Mediator.Subscribe<OpenRoleplayPlansMessage>(this, message =>
+        {
+            _activeTab = PlansTab;
+            IsOpen = true;
+            _ = _roleplay.RefreshPlansAsync();
+        });
         SetScaledSizeConstraints(new Vector2(700f, 520f), new Vector2(1400f, 1800f));
         Size = new Vector2(900f, 720f);
         SizeCondition = ImGuiCond.FirstUseEver;
@@ -128,31 +143,37 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
 
     public override void OnOpen()
     {
-        LoadAvailabilityDraft();
         _hooksInitialised = false;
         _selectedCurrentHooks.Clear();
+        _initialCurrentHooks.Clear();
+        _interestHookId = null;
         StartEligibilityCheck();
         _safety.EnsureLoaded();
-        _ = _roleplay.RefreshAsync();
+        _ = RefreshOnOpenAsync();
     }
 
     protected override void DrawInternal()
     {
         SnowcloakUi.AccentColor = SnowcloakColours.OnlineBlue;
         if (!DrawEligibility()) return;
-        _activeTab = ModernTabBar.Draw("roleplay-tabs", [AvailabilityTab, PeopleTab, RoomsTab, EventsTab], _activeTab);
+        var tabs = _api.SupportsRoleplaySceneToolkit
+            ? new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, PlansTab }
+            : new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab };
+        _activeTab = ModernTabBar.Draw("roleplay-tabs", tabs, _activeTab);
         ImGuiHelpers.ScaledDummy(6f);
         if (!string.IsNullOrWhiteSpace(_roleplay.Status))
             ImGui.TextColored(ImGuiColors.DalamudYellow, _roleplay.Status);
         if (!string.IsNullOrWhiteSpace(_status))
             ImGui.TextColored(SnowcloakColours.CompactTextMuted, _status);
-        using var disabled = ImRaii.Disabled(!_roleplay.IsBusy && !_roleplayIsSupported());
+        using var disabled = ImRaii.Disabled(_roleplay.IsBusy || !_roleplayIsSupported());
         if (string.Equals(_activeTab, AvailabilityTab, StringComparison.Ordinal))
             DrawAvailabilityCard();
         else if (string.Equals(_activeTab, PeopleTab, StringComparison.Ordinal))
             DrawPeople();
         else if (string.Equals(_activeTab, RoomsTab, StringComparison.Ordinal))
             DrawRooms();
+        else if (string.Equals(_activeTab, PlansTab, StringComparison.Ordinal))
+            DrawScenePlans();
         else
             DrawEvents();
         DrawReportPopup();
@@ -234,7 +255,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         DrawChoiceChipRow("rp-availability-theme", Enum.GetValues<RpTheme>(), ThemeLabel,
             _availabilityThemes.Contains, theme => ToggleSetValue(_availabilityThemes, theme));
 
-        var hooks = _roleplay.CurrentHooks.Hooks;
+        var hooks = GetAvailableCurrentHooks();
         ImGui.SetNextItemWidth(MathF.Min(340f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().X));
         var hookLabel = hooks.FirstOrDefault(hook => string.Equals(hook.HookId, _availabilityHookId, StringComparison.Ordinal))?.Title ?? "No current hook";
         if (ImGui.BeginCombo("##rp-availability-hook", hookLabel))
@@ -259,6 +280,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         using (ImRaii.Disabled(_roleplay.OwnAvailability == null))
             if (ImGui.Button("Clear")) Queue(_roleplay.ClearAvailabilityAsync(), "RP availability cleared.", LoadAvailabilityDraft);
 
+        DrawReminderSettings();
         DrawCurrentHookEditor();
     }
 
@@ -280,7 +302,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     {
         var profile = _profiles.GetOwnProfile(ProfileVisibility.Public);
         var document = profile.Document;
-        var hook = _roleplay.CurrentHooks.Hooks.FirstOrDefault(candidate =>
+        var hook = GetAvailableCurrentHooks().FirstOrDefault(candidate =>
             string.Equals(candidate.HookId, _availabilityHookId, StringComparison.Ordinal));
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
@@ -356,14 +378,53 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         ElezenImgui.AttachTooltip("How long this availability card remains visible before it expires automatically.");
     }
 
+    private void DrawReminderSettings()
+    {
+        ImGuiHelpers.ScaledDummy(4f);
+        if (!ImGui.CollapsingHeader("Expiry reminders"))
+            return;
+
+        var availability = _config.Current.RemindAvailabilityExpiry;
+        if (ImGui.Checkbox("Availability expiry", ref availability))
+            _config.Update(config => config.RemindAvailabilityExpiry = availability);
+        ImGui.SameLine();
+        var hooks = _config.Current.RemindHookExpiry;
+        if (ImGui.Checkbox("Hook expiry", ref hooks))
+            _config.Update(config => config.RemindHookExpiry = hooks);
+
+        var minutes = Math.Clamp(_config.Current.RpReminderWindowMinutes, 5, 1440);
+        ImGui.SetNextItemWidth(120f * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputInt("Reminder window (minutes)", ref minutes, 5, 15))
+        {
+            minutes = Math.Clamp(minutes, 5, 1440);
+            _config.Update(config => config.RpReminderWindowMinutes = minutes);
+        }
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted,
+            "Each event, availability card, or hook is announced once per start or expiry time.");
+    }
+
     private void DrawCurrentHookEditor()
     {
-        if (!_hooksInitialised && _roleplay.CurrentHooks.Hooks.Count > 0)
+        var profile = _profiles.GetOwnProfile(ProfileVisibility.Private);
+        var profileHookIds = profile.Document.Hooks.Select(hook => hook.HookId).ToHashSet(StringComparer.Ordinal);
+        var currentHooks = _roleplay.CurrentHooks.Hooks.Where(hook => profileHookIds.Contains(hook.HookId)).ToList();
+        if (!_hooksInitialised)
         {
-            _selectedCurrentHooks.UnionWith(_roleplay.CurrentHooks.Hooks.Select(hook => hook.HookId));
+            _selectedCurrentHooks.Clear();
+            _selectedCurrentHooks.UnionWith(currentHooks.Select(hook => hook.HookId));
+            _initialCurrentHooks.Clear();
+            foreach (var hook in currentHooks)
+                _initialCurrentHooks[hook.HookId] = hook;
+            if (currentHooks.Count > 0)
+            {
+                var first = currentHooks[0];
+                _currentHookTtl = Math.Clamp((int)Math.Ceiling((first.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalMinutes), 5, 1440);
+                _currentHookAudience = first.Audience;
+            }
+            _currentHookSettingsDirty = false;
             _hooksInitialised = true;
         }
-        var profile = _profiles.GetOwnProfile(ProfileVisibility.Private);
+        _selectedCurrentHooks.IntersectWith(profileHookIds);
         if (profile.Document.Hooks.Count == 0) return;
         ImGuiHelpers.ScaledDummy(4f);
         if (!ImGui.CollapsingHeader("Share profile hooks"))
@@ -371,23 +432,42 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         DrawChoiceChipRow("rp-current-hook", profile.Document.Hooks.Take(8).ToArray(), hook => hook.Title,
             hook => _selectedCurrentHooks.Contains(hook.HookId), hook => ToggleSetValue(_selectedCurrentHooks, hook.HookId));
         ImGui.SetNextItemWidth(110f * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt("Hook TTL", ref _currentHookTtl, 15, 60);
+        if (ImGui.InputInt("Hook TTL", ref _currentHookTtl, 15, 60))
+            _currentHookSettingsDirty = true;
         _currentHookTtl = Math.Clamp(_currentHookTtl, 5, 1440);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(130f * ImGuiHelpers.GlobalScale);
+        var previousAudience = _currentHookAudience;
         DrawEnumCombo("##current-hook-audience", ref _currentHookAudience, AudienceLabel,
             audience => audience != RpAvailabilityAudience.LocalOnly);
+        if (_currentHookAudience != previousAudience)
+            _currentHookSettingsDirty = true;
         ImGui.SameLine();
         if (ImGui.Button("Publish current hooks"))
+        {
+            var now = DateTimeOffset.UtcNow;
             Queue(_roleplay.SetCurrentHooksAsync(new RpCurrentHooksUpdateDto
             {
-                Hooks = _selectedCurrentHooks.Select(id => new RpCurrentHookSelectionDto
+                Hooks = _selectedCurrentHooks.Select(id =>
                 {
-                    HookId = id,
-                    TtlMinutes = _currentHookTtl,
-                    Audience = _currentHookAudience,
+                    if (!_currentHookSettingsDirty && _initialCurrentHooks.TryGetValue(id, out var existing))
+                    {
+                        return new RpCurrentHookSelectionDto
+                        {
+                            HookId = id,
+                            TtlMinutes = Math.Clamp((int)Math.Ceiling((existing.ExpiresAtUtc - now).TotalMinutes), 5, 1440),
+                            Audience = existing.Audience,
+                        };
+                    }
+                    return new RpCurrentHookSelectionDto
+                    {
+                        HookId = id,
+                        TtlMinutes = _currentHookTtl,
+                        Audience = _currentHookAudience,
+                    };
                 }).ToList(),
-            }), "Current hooks published.");
+            }), "Current hooks published.", () => _hooksInitialised = false);
+        }
     }
 
     private void DrawPeopleFilters()
@@ -472,6 +552,11 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private void DrawPersonCard(RpProfileDirectoryEntryDto entry)
     {
         var profile = entry.Profile;
+        var targetUid = profile.User?.UID;
+        var pair = string.IsNullOrWhiteSpace(targetUid)
+            ? null
+            : _pairs.DirectPairs.FirstOrDefault(candidate =>
+                string.Equals(candidate.UserData.UID, targetUid, StringComparison.Ordinal));
         using var id = ImRaii.PushId(profile.Ident);
         AutoSizedCard.Draw(_ =>
         {
@@ -487,7 +572,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                 ImGui.SameLine();
                 ImGui.TextColored(ImGuiColors.HealerGreen, profile.RpStatus);
             }
-            if (!string.IsNullOrWhiteSpace(profile.Tagline)) ImGui.TextWrapped(profile.Tagline);
+            if (!string.IsNullOrWhiteSpace(profile.BioTeaser))
+                ImGui.TextWrapped(profile.BioTeaser);
+            else if (!string.IsNullOrWhiteSpace(profile.Tagline))
+                ImGui.TextWrapped(profile.Tagline);
+            if (profile.HasDetailedBio && pair?.IsMutualDirectPair != true)
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Detailed bio available when paired");
             if (!string.IsNullOrWhiteSpace(profile.Approachability)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Approach: " + profile.Approachability);
             if (profile.CurrentHook != null)
                 ImGui.TextWrapped("Current hook: " + profile.CurrentHook.Title);
@@ -496,22 +586,45 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             if (profile.Tags.Count > 0)
                 ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", profile.Tags.Take(6).Select(tag => tag.Value)));
             if (entry.Boundaries?.Entries.Count > 0)
-                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Boundaries available on the full profile");
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Open the profile to compare boundaries");
 
             if (ImGui.Button("View profile")) Queue(_pairRequests.RequestProfileAsync(profile.Ident), string.Empty);
             ImGui.SameLine();
             var targetIntro = CreateIntro(profile.CurrentHook);
-            var ownIntro = CreateIntro(_roleplay.CurrentHooks.Hooks.FirstOrDefault());
-            var targetUid = profile.User?.UID;
-            var pair = string.IsNullOrWhiteSpace(targetUid)
-                ? null
-                : _pairs.DirectPairs.FirstOrDefault(candidate =>
-                    string.Equals(candidate.UserData.UID, targetUid, StringComparison.Ordinal));
+            var ownHooks = GetAvailableCurrentHooks();
+            var ownHook = ownHooks.FirstOrDefault(candidate =>
+                string.Equals(candidate.HookId, _interestHookId, StringComparison.Ordinal));
+            if (ownHook == null)
+                _interestHookId = null;
+            var ownIntro = CreateIntro(ownHook);
             if (pair == null)
             {
-                if (ImGui.Button(ownIntro == null ? "Register interest" : "Interest + my hook"))
+                if (ownHooks.Count > 0)
+                {
+                    ImGui.SetNextItemWidth(230f * ImGuiHelpers.GlobalScale);
+                    var introLabel = ownHook == null
+                        ? "No introduction hook"
+                        : $"{ownHook.Title} ({AudienceLabel(ownHook.Audience)})";
+                    if (ImGui.BeginCombo("##rp-introduction-hook", introLabel))
+                    {
+                        if (ImGui.Selectable("No introduction hook", ownHook == null))
+                            _interestHookId = null;
+                        foreach (var hook in ownHooks)
+                        {
+                            var label = $"{hook.Title} ({AudienceLabel(hook.Audience)})";
+                            if (ImGui.Selectable(label,
+                                    string.Equals(hook.HookId, _interestHookId, StringComparison.Ordinal)))
+                                _interestHookId = hook.HookId;
+                        }
+                        ImGui.EndCombo();
+                    }
+                    ImGui.SameLine();
+                }
+                if (ImGui.Button("Register interest"))
                     Queue(_pairRequests.SendPairRequestAsync(profile.Ident, ownIntro, PairingRequestSource.RoleplayDirectory), "Interest request sent.");
-                ElezenImgui.AttachTooltip("Sends a pair request marked as coming from the RP directory. Direct messages become available after it is accepted.");
+                ElezenImgui.AttachTooltip(ownHook == null
+                    ? "Sends a pair request without an introduction hook. Direct messages become available after it is accepted."
+                    : $"Explicitly shares '{ownHook.Title}' with this recipient. Its {AudienceLabel(ownHook.Audience)} audience still controls passive visibility; Adult-rated content is presented according to the recipient's local NSFW setting.");
             }
             else if (!pair.IsMutualDirectPair)
             {
@@ -525,7 +638,14 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                 if (ImGui.Button(targetIntro == null ? "Open DM" : "Message about hook")) OpenDirectMessage(pair, targetIntro);
             }
             ImGui.SameLine();
-            if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Directory, profile.Ident, profile.Revision);
+            if (ImGui.Button("Report")) OpenReport(ProfileReportSurface.Directory, profile.Ident, profile.Revision);
+            ImGui.SameLine();
+            using (ImRaii.Disabled(string.IsNullOrWhiteSpace(targetUid) || !_safety.IsAvailable || _safety.IsBusy))
+            {
+                if (ImGui.Button("Block all contact") && targetUid != null)
+                    _safety.Block(targetUid);
+            }
+            ElezenImgui.AttachTooltip("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
             ImGui.EndGroup();
         });
     }
@@ -576,12 +696,9 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             {
                 ImGui.TextColored(SnowcloakColours.OnlineBlue, "Room invitation from " + invite.Inviter.AliasOrUID);
                 if (invite.Intro != null)
-                    ImGui.TextWrapped(invite.Intro.Title + " — " + invite.Intro.Description);
+                    ImGui.TextWrapped(invite.Intro.Title + " - " + invite.Intro.Description);
                 if (ImGui.Button("Join room"))
-                {
-                    Queue(JoinRoomAsync(invite.Room), "Room opened.");
-                    _roleplay.DismissInvite(invite);
-                }
+                    Queue(JoinInvitedRoomAsync(invite), "Room opened.");
                 ImGui.SameLine();
                 if (ImGui.Button("Dismiss")) _roleplay.DismissInvite(invite);
             });
@@ -632,7 +749,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
         if (ImGui.Button("Join and open")) Queue(JoinRoomAsync(room), "Room opened.");
         ImGui.SameLine();
-        if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Room, room.RoomId);
+        if (ImGui.Button("Report")) OpenReport(ProfileReportSurface.Room, room.RoomId);
 
         ImGui.PopTextWrapPos();
         ImGui.EndGroup();
@@ -649,12 +766,164 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
 
     private async Task JoinRoomAsync(Snowcloak.API.Data.RoomData room)
     {
-        if (await _chat.JoinRoomAsync(room).ConfigureAwait(false))
-        {
-            var key = new ConversationKey(ConversationKind.Room, room.RoomId);
-            Mediator.Publish(new OpenChatConversationMessage(key));
-        }
+        if (!await _chat.JoinRoomAsync(room).ConfigureAwait(false))
+            throw new InvalidOperationException("The room could not be joined.");
+        var key = new ConversationKey(ConversationKind.Room, room.RoomId);
+        Mediator.Publish(new OpenChatConversationMessage(key));
     }
+
+    private async Task JoinInvitedRoomAsync(RoomInviteReceivedDto invite)
+    {
+        await JoinRoomAsync(invite.Room).ConfigureAwait(false);
+        _roleplay.DismissInvite(invite);
+    }
+
+    private void DrawScenePlans()
+    {
+        ModernSection.Header(FontAwesomeIcon.CalendarPlus, $"Scene plans ({_roleplay.ScenePlans.Count})");
+        foreach (var ping in _roleplay.PendingPings)
+        {
+            using var id = ImRaii.PushId($"ping-{ping.FromUid}-{ping.IssuedAtUtc}-{ping.RefId}");
+            AutoSizedCard.Draw(_ =>
+            {
+                ImGui.TextColored(SnowcloakColours.OnlineBlue, ping.Subject);
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "From " + ping.FromUid);
+                ImGui.TextWrapped(ping.Message);
+                if (ImGui.SmallButton("Open plans") && string.Equals(ping.RefKind, "scene-plan", StringComparison.Ordinal))
+                    Queue(_roleplay.RefreshPlansAsync(), "Scene plans refreshed.");
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Dismiss")) _roleplay.DismissPing(ping);
+            });
+            ImGuiHelpers.ScaledDummy(4f);
+        }
+
+        var rooms = _chat.ListRooms().OrderBy(room => room.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var selectedRoom = rooms.FirstOrDefault(room => string.Equals(room.RoomId, _planRoomId, StringComparison.Ordinal));
+        ImGui.SetNextItemWidth(260f * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo("Room##scene-plan", selectedRoom?.Name ?? "Choose a joined room"))
+        {
+            foreach (var room in rooms)
+            {
+                if (ImGui.Selectable(room.Name, room.RoomId == _planRoomId))
+                {
+                    _planRoomId = room.RoomId;
+                    _planAttendees.Clear();
+                }
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##scene-plan-title", "Scene title", ref _planTitle, 100);
+        ImGui.SetNextItemWidth(210f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##scene-plan-start", "YYYY-MM-DD HH:MM", ref _planStartsAt, 32);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(210f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##scene-plan-end", "Optional end", ref _planEndsAt, 32);
+        if (selectedRoom != null)
+        {
+            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Invite active room members");
+            foreach (var member in _chat.GetRoomMembers(selectedRoom.RoomId).Where(member => member.User.UID != _chat.SelfUid))
+            {
+                var selected = _planAttendees.Contains(member.User.UID);
+                if (ImGui.Checkbox(member.User.AliasOrUID + "##plan-attendee-" + member.User.UID, ref selected))
+                {
+                    if (selected) _planAttendees.Add(member.User.UID);
+                    else _planAttendees.Remove(member.User.UID);
+                }
+            }
+        }
+        var validStart = DateTime.TryParse(_planStartsAt, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out var startsAt);
+        var validEnd = string.IsNullOrWhiteSpace(_planEndsAt)
+            || DateTime.TryParse(_planEndsAt, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out _);
+        using (ImRaii.Disabled(selectedRoom == null || string.IsNullOrWhiteSpace(_planTitle) || !validStart || !validEnd))
+        {
+            if (ImGui.Button(_editingPlanId == null ? "Schedule scene" : "Update scene plan"))
+            {
+                DateTime? endsAt = DateTime.TryParse(_planEndsAt, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out var parsedEnd) ? parsedEnd : null;
+                Queue(_roleplay.SaveScenePlanAsync(new RoomScenePlanUpsertDto
+                {
+                    Room = selectedRoom!,
+                    Id = _editingPlanId,
+                    Title = _planTitle.Trim(),
+                    StartsAtUtc = new DateTimeOffset(startsAt).ToUnixTimeSeconds(),
+                    EndsAtUtc = endsAt.HasValue ? new DateTimeOffset(endsAt.Value).ToUnixTimeSeconds() : null,
+                    AttendeeUids = _planAttendees.ToList(),
+                }), _editingPlanId == null ? "Scene scheduled." : "Scene plan updated.", ClearPlanDraft);
+            }
+        }
+        if (_editingPlanId != null)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel edit")) ClearPlanDraft();
+        }
+
+        ModernSection.SoftSeparator();
+        foreach (var plan in _roleplay.ScenePlans.OrderBy(plan => plan.StartsAtUtc))
+        {
+            using var id = ImRaii.PushId("plan-" + plan.Id);
+            AutoSizedCard.Draw(_ =>
+            {
+                ImGui.TextColored(SnowcloakColours.OnlineBlue, plan.Title);
+                ImGui.SameLine();
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted,
+                    DateTimeOffset.FromUnixTimeSeconds(plan.StartsAtUtc).ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, plan.Room.Name + " · organizer " + plan.OrganizerUid);
+                foreach (var attendee in plan.Attendees)
+                    ImGui.BulletText($"{attendee.Uid}: {PlanStatusLabel(attendee.Status)}");
+                foreach (var option in new[] { 1, 2, 3 })
+                {
+                    if (option > 1) ImGui.SameLine();
+                    if (ImGui.SmallButton(PlanStatusLabel(option) + "##rsvp-" + option))
+                        Queue(_roleplay.RsvpScenePlanAsync(plan.Id, option), "RSVP updated.");
+                }
+                if (string.Equals(plan.OrganizerUid, _chat.SelfUid, StringComparison.Ordinal))
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Edit")) LoadPlanDraft(plan);
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Remove")) Queue(_roleplay.RemoveScenePlanAsync(plan.Id), "Scene plan removed.");
+                    foreach (var attendee in plan.Attendees.Where(attendee => attendee.Uid != _chat.SelfUid))
+                    {
+                        ImGui.SameLine();
+                        if (ImGui.SmallButton("Ping " + attendee.Uid + "##ping-plan-" + attendee.Uid))
+                            Queue(_roleplay.SendPingAsync(new Snowcloak.API.Data.UserData(attendee.Uid), plan.Title,
+                                "Your scheduled scene starts " + DateTimeOffset.FromUnixTimeSeconds(plan.StartsAtUtc).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)), "Ping sent.");
+                    }
+                }
+            });
+            ImGuiHelpers.ScaledDummy(6f);
+        }
+        if (_roleplay.ScenePlans.Count == 0)
+            DrawEmpty("No scheduled scenes", FontAwesomeIcon.CalendarTimes);
+    }
+
+    private void LoadPlanDraft(RoomScenePlanDto plan)
+    {
+        _editingPlanId = plan.Id;
+        _planRoomId = plan.Room.RoomId;
+        _planTitle = plan.Title;
+        _planStartsAt = DateTimeOffset.FromUnixTimeSeconds(plan.StartsAtUtc).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+        _planEndsAt = plan.EndsAtUtc.HasValue ? DateTimeOffset.FromUnixTimeSeconds(plan.EndsAtUtc.Value).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) : string.Empty;
+        _planAttendees.Clear();
+        _planAttendees.UnionWith(plan.Attendees.Where(attendee => attendee.Uid != _chat.SelfUid).Select(attendee => attendee.Uid));
+    }
+
+    private void ClearPlanDraft()
+    {
+        _editingPlanId = null;
+        _planTitle = string.Empty;
+        _planStartsAt = DateTime.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+        _planEndsAt = string.Empty;
+        _planAttendees.Clear();
+    }
+
+    private static string PlanStatusLabel(int status) => status switch
+    {
+        1 => "Going",
+        2 => "Maybe",
+        3 => "Declined",
+        _ => "Invited",
+    };
 
     private void DrawEvents()
     {
@@ -782,7 +1051,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                 ElezenImgui.AttachTooltip("Public events allow eligible players to join their syncshell without a password.");
             }
             ImGui.SameLine();
-            if (ImGui.Button("Report / block")) OpenReport(ProfileReportSurface.Event, shellEvent.Id.ToString("D"));
+            if (ImGui.Button("Report")) OpenReport(ProfileReportSurface.Event, shellEvent.Id.ToString("D"));
         });
     }
 
@@ -945,7 +1214,6 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         _reportTarget = target;
         _reportRevision = revision;
         _reportReason = string.Empty;
-        _reportBlockOwner = false;
         _openReportPopup = true;
     }
 
@@ -957,10 +1225,9 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             ImGui.OpenPopup("Report RP content");
         }
         if (!ImGui.BeginPopupModal("Report RP content", ImGuiWindowFlags.AlwaysAutoResize)) return;
-        ImGui.TextWrapped("Describe the issue for moderators. You can also block the owner from RP discovery and invitations.");
+        ImGui.TextWrapped("Describe the issue for moderators.");
         ImGui.SetNextItemWidth(420f * ImGuiHelpers.GlobalScale);
         ImGui.InputTextMultiline("##rp-report-reason", ref _reportReason, 1000, new Vector2(420f, 90f) * ImGuiHelpers.GlobalScale);
-        ImGui.Checkbox("Block the owner", ref _reportBlockOwner);
         using (ImRaii.Disabled(string.IsNullOrWhiteSpace(_reportReason)))
         {
             if (ImGui.Button("Submit report"))
@@ -970,7 +1237,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                     Surface = _reportSurface,
                     TargetId = _reportTarget,
                     Reason = _reportReason.Trim(),
-                    BlockOwner = _reportBlockOwner,
+                    BlockOwner = false,
                 }), "Report submitted.");
                 ImGui.CloseCurrentPopup();
             }
@@ -986,14 +1253,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         {
             await _api.CharacterProfileReport(new CharacterProfileReportDto(
                 report.TargetId, ProfileVisibility.Public, _reportRevision, report.Reason,
-                ProfileReportSurface.Directory, report.BlockOwner)).ConfigureAwait(false);
+                ProfileReportSurface.Directory, false)).ConfigureAwait(false);
         }
         else
         {
             await _api.RpContentReport(report).ConfigureAwait(false);
         }
-        if (report.BlockOwner)
-            await _safety.RefreshAsync().ConfigureAwait(false);
     }
 
     private void StartEligibilityCheck()
@@ -1050,14 +1315,43 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private void LoadAvailabilityDraft()
     {
         var card = _roleplay.OwnAvailability;
-        if (card == null) return;
+        if (card == null)
+        {
+            _availabilityState = RpAvailabilityState.OpenToWalkUps;
+            _availabilityAudience = RpAvailabilityAudience.Pairs;
+            _availabilityPaused = false;
+            _availabilityTtl = 120;
+            _availabilityHookId = null;
+            _availabilityThemes.Clear();
+            return;
+        }
         _availabilityState = card.State;
         _availabilityAudience = card.Audience;
         _availabilityPaused = card.Paused;
         _availabilityTtl = Math.Clamp((int)Math.Ceiling((card.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalMinutes), 5, 1440);
-        _availabilityHookId = card.CurrentHook?.HookId;
+        var currentHookId = card.CurrentHook?.HookId;
+        _availabilityHookId = GetAvailableCurrentHooks().Any(hook => string.Equals(hook.HookId, currentHookId, StringComparison.Ordinal))
+            ? currentHookId
+            : null;
         _availabilityThemes.Clear();
         _availabilityThemes.UnionWith(card.Themes);
+    }
+
+    private async Task RefreshOnOpenAsync()
+    {
+        await _roleplay.RefreshAsync().ConfigureAwait(false);
+        LoadAvailabilityDraft();
+        _hooksInitialised = false;
+    }
+
+    private List<RpCurrentHookDto> GetAvailableCurrentHooks()
+    {
+        var profileHookIds = _profiles.GetOwnProfile(ProfileVisibility.Private).Document.Hooks
+            .Select(hook => hook.HookId)
+            .ToHashSet(StringComparer.Ordinal);
+        return _roleplay.CurrentHooks.Hooks
+            .Where(hook => profileHookIds.Contains(hook.HookId))
+            .ToList();
     }
 
     private void Queue(Task task, string success, Action? after = null)
@@ -1241,13 +1535,18 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     }
     private static string AudienceLabel(RpAvailabilityAudience audience) => audience switch { RpAvailabilityAudience.Owner => "Only me", RpAvailabilityAudience.Syncshells => "Syncshells", RpAvailabilityAudience.LocalOnly => "Local only", _ => audience.ToString() };
     private static string AvailabilityStateLabel(RpAvailabilityState state) => state switch { RpAvailabilityState.OpenToWalkUps => "Open to walk-ups", RpAvailabilityState.SeekingHooks => "Seeking hooks", RpAvailabilityState.InScene => "In a scene", RpAvailabilityState.OutOfCharacter => "OOC", RpAvailabilityState.Away => "AFK", _ => "Closed" };
-    private static string BoundaryLabel(RpBoundaryRating rating) => rating switch { RpBoundaryRating.AskFirst => "Ask first", RpBoundaryRating.HardNo => "Hard no", _ => "Willing" };
     private static readonly string[] BoundaryKeys =
     [
         "romance", "sexual-themes", "violence", "injury-gore", "horror", "death",
         "captivity-restraint", "power-imbalance", "substance-use", "discrimination",
         "pregnancy-family", "lore-divergence",
     ];
+    private static string BoundaryLabel(RpBoundaryRating rating) => rating switch
+    {
+        RpBoundaryRating.AskFirst => "Ask first",
+        RpBoundaryRating.HardNo => "Hard no",
+        _ => "Willing",
+    };
     private static string BoundaryKeyLabel(string key) => key switch
     {
         "sexual-themes" => "Sexual themes",

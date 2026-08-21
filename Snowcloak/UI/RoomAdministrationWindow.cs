@@ -36,6 +36,8 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     private readonly AsyncOp _sceneOperation = new();
     private readonly AsyncOp _finishSceneOperation = new();
     private readonly AsyncOp _turnOperation = new();
+    private readonly AsyncOp _narratorOperation = new();
+    private readonly AsyncOp _toolkitOperation = new();
     private readonly PairManager _pairManager;
     private readonly RoleplayClientService _roleplayService;
     private readonly AsyncOp _topicOperation = new();
@@ -74,6 +76,20 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     private string _turnSource = string.Empty;
     private string _turnStatus = string.Empty;
     private bool _turnStatusIsError;
+    private string _narratorStatus = string.Empty;
+    private bool _narratorStatusIsError;
+    private bool _includeOutOfCharacter;
+    private string _dicePresetName = string.Empty;
+    private string _dicePresetExpression = "1d20";
+    private string _sceneTemplateName = string.Empty;
+    private string? _editingSceneTemplateId;
+    private string _toolkitStatus = string.Empty;
+    private bool _toolkitStatusIsError;
+    private Task<List<RoomDicePresetDto>>? _dicePresetsLoad;
+    private Task<List<RoomSceneTemplateDto>>? _sceneTemplatesLoad;
+    private List<RoomDicePresetDto> _dicePresets = [];
+    private List<RoomSceneTemplateDto> _sceneTemplates = [];
+    private bool _toolkitLoaded;
 
     public RoomAdministrationWindow(ILogger<RoomAdministrationWindow> logger, SnowMediator mediator,
         ApiController apiController, ChatClientService chatService, PairManager pairManager, ChatIdentityResolver identityResolver,
@@ -376,17 +392,165 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
                 "Finishing preserves this scene for its participants and clears the live room transcript.");
             using (ImRaii.Disabled(_finishSceneOperation.IsRunning))
             {
+                if (_apiController.SupportsRoleplaySceneToolkit)
+                    ImGui.Checkbox("Include OOC and standard chat in the default archive view", ref _includeOutOfCharacter);
                 if (ImGui.Button("Finish and archive scene"))
                 {
                     _sceneStatus = string.Empty;
                     _sceneStatusIsError = false;
-                    _ = _finishSceneOperation.Run(() => _chatService.FinishSceneAsync(room));
+                    _ = _finishSceneOperation.Run(() => _chatService.FinishSceneAsync(room, _includeOutOfCharacter));
                 }
             }
             DrawOperationStatus(_finishSceneOperation, _sceneStatus, _sceneStatusIsError, "Finishing scene...");
         }
         ImGuiHelpers.ScaledDummy(6f);
         DrawTurnOrder(room, members);
+        if (_apiController.SupportsRoleplayEnhancements)
+        {
+            ImGuiHelpers.ScaledDummy(6f);
+            DrawNarrators(room, members);
+        }
+        if (_apiController.SupportsRoleplaySceneToolkit)
+        {
+            ImGuiHelpers.ScaledDummy(8f);
+            DrawSceneToolkit(room);
+        }
+    }
+
+    private void DrawSceneToolkit(RoomData room)
+    {
+        CompleteToolkitLoads();
+        if (!_toolkitLoaded)
+            BeginToolkitLoad(room);
+
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Dice presets");
+        ImGui.SetNextItemWidth(150f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##dice-preset-name", "Preset name", ref _dicePresetName, 40);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(145f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##dice-preset-expression", "4d6kh3+2", ref _dicePresetExpression, 64);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_toolkitOperation.IsRunning || string.IsNullOrWhiteSpace(_dicePresetName) || string.IsNullOrWhiteSpace(_dicePresetExpression)))
+            if (ImGui.Button("Save preset"))
+                _ = _toolkitOperation.Run(() => SaveDicePresetAndReloadAsync(room));
+        foreach (var preset in _dicePresets)
+        {
+            using var id = ImRaii.PushId("dice-" + preset.Id);
+            ImGui.BulletText($"{preset.Name}: {preset.Expression}");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Edit"))
+            {
+                _dicePresetName = preset.Name;
+                _dicePresetExpression = preset.Expression;
+            }
+            ImGui.SameLine();
+            using (ImRaii.Disabled(_toolkitOperation.IsRunning))
+                if (ImGui.SmallButton("Delete"))
+                    _ = _toolkitOperation.Run(() => RemoveDicePresetAndReloadAsync(room, preset.Id));
+        }
+
+        ImGuiHelpers.ScaledDummy(5f);
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Scene templates");
+        ImGui.SetNextItemWidth(220f * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##scene-template-name", "Template name", ref _sceneTemplateName, 60);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(_toolkitOperation.IsRunning || string.IsNullOrWhiteSpace(_sceneTemplateName)))
+            if (ImGui.Button(_editingSceneTemplateId == null ? "Save current metadata" : "Update template"))
+                _ = _toolkitOperation.Run(() => SaveSceneTemplateAndReloadAsync(room));
+        if (_editingSceneTemplateId != null)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Cancel edit")) _editingSceneTemplateId = null;
+        }
+        foreach (var template in _sceneTemplates)
+        {
+            using var id = ImRaii.PushId("template-" + template.Id);
+            ImGui.BulletText(template.Name);
+            ImGui.SameLine();
+            using (ImRaii.Disabled(_toolkitOperation.IsRunning || room.Scene?.IsScene == true))
+                if (ImGui.SmallButton("Apply"))
+                    _ = _toolkitOperation.Run(() => ApplySceneTemplateAndReloadAsync(room, template.Id));
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Edit"))
+            {
+                _editingSceneTemplateId = template.Id;
+                _sceneTemplateName = template.Name;
+                _sceneEnabled = false;
+                _sceneTitle = template.Scene.Title;
+                _sceneCast = string.Join(", ", template.Scene.Cast);
+                _sceneSetting = template.Scene.Setting;
+                _sceneWarnings = string.Join(", ", template.Scene.ContentWarnings);
+                _sceneTone = template.Scene.ExpectedTone;
+            }
+            ImGui.SameLine();
+            using (ImRaii.Disabled(_toolkitOperation.IsRunning))
+                if (ImGui.SmallButton("Delete"))
+                    _ = _toolkitOperation.Run(() => RemoveSceneTemplateAndReloadAsync(room, template.Id));
+        }
+        DrawOperationStatus(_toolkitOperation, _toolkitStatus, _toolkitStatusIsError, "Updating scene tools...");
+    }
+
+    private RoomSceneMetadataDto BuildSceneDraft() => new()
+    {
+        IsScene = false,
+        Title = _sceneTitle.Trim(),
+        Cast = SplitValues(_sceneCast),
+        Setting = _sceneSetting.Trim(),
+        ContentWarnings = SplitValues(_sceneWarnings),
+        ExpectedTone = _sceneTone.Trim(),
+        TurnState = new RoomTurnStateDto(),
+    };
+
+    private void BeginToolkitLoad(RoomData room)
+    {
+        _toolkitLoaded = true;
+        _dicePresetsLoad = _chatService.ListDicePresetsAsync(room);
+        _sceneTemplatesLoad = _chatService.ListSceneTemplatesAsync(room);
+    }
+
+    private void CompleteToolkitLoads()
+    {
+        if (_dicePresetsLoad?.IsCompleted == true)
+        {
+            if (_dicePresetsLoad.IsCompletedSuccessfully) _dicePresets = _dicePresetsLoad.Result;
+            _dicePresetsLoad = null;
+        }
+        if (_sceneTemplatesLoad?.IsCompleted == true)
+        {
+            if (_sceneTemplatesLoad.IsCompletedSuccessfully) _sceneTemplates = _sceneTemplatesLoad.Result;
+            _sceneTemplatesLoad = null;
+        }
+    }
+
+    private async Task SaveDicePresetAndReloadAsync(RoomData room)
+    {
+        await _chatService.SaveDicePresetAsync(room, _dicePresetName.Trim(), _dicePresetExpression.Trim()).ConfigureAwait(false);
+        _dicePresets = await _chatService.ListDicePresetsAsync(room).ConfigureAwait(false);
+    }
+
+    private async Task RemoveDicePresetAndReloadAsync(RoomData room, string id)
+    {
+        await _chatService.RemoveDicePresetAsync(room, id).ConfigureAwait(false);
+        _dicePresets = await _chatService.ListDicePresetsAsync(room).ConfigureAwait(false);
+    }
+
+    private async Task SaveSceneTemplateAndReloadAsync(RoomData room)
+    {
+        await _chatService.SaveSceneTemplateAsync(room, _editingSceneTemplateId, _sceneTemplateName.Trim(), BuildSceneDraft()).ConfigureAwait(false);
+        _editingSceneTemplateId = null;
+        _sceneTemplates = await _chatService.ListSceneTemplatesAsync(room).ConfigureAwait(false);
+    }
+
+    private async Task RemoveSceneTemplateAndReloadAsync(RoomData room, string id)
+    {
+        await _chatService.RemoveSceneTemplateAsync(room, id).ConfigureAwait(false);
+        _sceneTemplates = await _chatService.ListSceneTemplatesAsync(room).ConfigureAwait(false);
+    }
+
+    private async Task ApplySceneTemplateAndReloadAsync(RoomData room, string id)
+    {
+        await _chatService.ApplySceneTemplateAsync(room, id).ConfigureAwait(false);
+        _sceneTemplates = await _chatService.ListSceneTemplatesAsync(room).ConfigureAwait(false);
     }
 
     private void DrawTurnOrder(RoomData room, IReadOnlyList<Snowcloak.API.Dto.Chat.RoomMemberDto> members)
@@ -450,6 +614,27 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
     private string ResolveMemberName(Snowcloak.API.Dto.Chat.RoomMemberDto member)
         => member.SceneNickname ?? _identityResolver.Resolve(member.User).Name;
 
+    private void DrawNarrators(RoomData room, IReadOnlyList<Snowcloak.API.Dto.Chat.RoomMemberDto> members)
+    {
+        ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Narrators");
+        ImGui.TextWrapped("Narrators can post scene-level narration independently of turn order. Moderators and owners always have access.");
+        foreach (var member in members.Where(member => member.Role == RoomRole.Member))
+        {
+            using var id = ImRaii.PushId("narrator-" + member.User.UID);
+            var selected = member.IsNarrator;
+            using (ImRaii.Disabled(_narratorOperation.IsRunning))
+            {
+                if (ImGui.Checkbox(ResolveMemberName(member), ref selected))
+                {
+                    _narratorStatus = string.Empty;
+                    _narratorStatusIsError = false;
+                    _ = _narratorOperation.Run(() => _chatService.SetNarratorAsync(room, member.User, selected));
+                }
+            }
+        }
+        DrawOperationStatus(_narratorOperation, _narratorStatus, _narratorStatusIsError, "Updating narrator access...");
+    }
+
     private static List<string> SplitValues(string value)
         => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -469,7 +654,7 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
         var roomName = chatService.ListRooms()
             .FirstOrDefault(room => string.Equals(room.RoomId, roomId, StringComparison.Ordinal))?.Name
             ?? "Room";
-        return string.Format(CultureInfo.InvariantCulture, "Room Administration — {0}###SnowcloakRoomAdmin_{1}", roomName, roomId);
+        return string.Format(CultureInfo.InvariantCulture, "Room Administration - {0}###SnowcloakRoomAdmin_{1}", roomName, roomId);
     }
 
     private static void DrawRoomSummary(RoomData room, int memberCount, RoomRole actorRole)
@@ -691,6 +876,10 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
             "Unable to update scene metadata.", "Scene metadata updated.");
         ConsumeRoleplayOperation(_turnOperation, ref _turnStatus, ref _turnStatusIsError,
             "Unable to update the turn order.", "Turn order updated.");
+        ConsumeRoleplayOperation(_narratorOperation, ref _narratorStatus, ref _narratorStatusIsError,
+            "Unable to update narrator access.", "Narrator access updated.");
+        ConsumeRoleplayOperation(_toolkitOperation, ref _toolkitStatus, ref _toolkitStatusIsError,
+            "Unable to update scene tools.", "Scene tools updated.");
     }
 
     private static void ConsumeRoleplayOperation(AsyncOp operation, ref string status, ref bool isError,
