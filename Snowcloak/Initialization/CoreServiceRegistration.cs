@@ -58,6 +58,7 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<SyncshellBudgetService>();
         collection.AddSingleton<CrowdPriorityController>();
         collection.AddSingleton<ApplicationAdmissionController>();
+        collection.AddSingleton<DeferredApplicationRetryCoordinator>();
         collection.AddSingleton<TextureShrinkService>();
         collection.AddSingleton<SnowProfileManager>();
         collection.AddSingleton<UserSafetyStore>();

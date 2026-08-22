@@ -17,9 +17,15 @@ namespace Snowcloak.PlayerData.Pairs;
 
 public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDisposable
 {
+    private const int MaxPendingCharacterDataEntries = 256;
+    private const int MaxPendingStateEntries = 2048;
     private const string PanicHoldSource = "Panic";
+    private static readonly TimeSpan PendingStateLifetime = TimeSpan.FromMinutes(2);
     private readonly ConcurrentDictionary<string, Pair> _allClientPairs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<GroupData, GroupFullInfoDto> _allGroups = new(GroupDataComparer.Instance);
+    private readonly ConcurrentDictionary<(string Gid, string Uid), PendingGroupPair> _pendingGroupPairs = [];
+    private readonly ConcurrentDictionary<string, PendingOnlineUser> _pendingOnlineUsers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PendingCharacterData> _pendingCharacterData = new(StringComparer.Ordinal);
     private readonly SnowcloakConfigService _configurationService;
     private readonly PairFactory _pairFactory;
     private readonly Lock _projectionLock = new();
@@ -57,15 +63,30 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
     public void AddGroup(GroupFullInfoDto dto)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+
         _allGroups[dto.Group] = dto;
         InvalidateProjections();
+
+        foreach (var pending in _pendingGroupPairs
+                     .Where(entry => string.Equals(entry.Key.Gid, dto.Group.GID, StringComparison.Ordinal))
+                     .ToList())
+        {
+            if (_pendingGroupPairs.TryRemove(pending.Key, out var queued)
+                && !IsExpired(queued.ReceivedUtc))
+            {
+                AddGroupPair(queued.Dto);
+            }
+        }
     }
 
     public void AddGroupPair(GroupPairFullInfoDto dto)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+
         if (!_allGroups.TryGetValue(dto.Group, out var group))
         {
-            Logger.LogWarning("AddGroupPair: no group found for {dto}", dto);
+            BufferGroupPair(dto);
             return;
         }
 
@@ -75,6 +96,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         _allClientPairs[dto.User.UID].GroupPair[group] = dto;
         ApplyPanicHold(_allClientPairs[dto.User.UID]);
         InvalidateProjections();
+        DrainPendingPairState(_allClientPairs[dto.User.UID]);
     }
 
     public Pair? GetPairByUID(string uid)
@@ -116,6 +138,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         }
         _allClientPairs[dto.User.UID].ApplyLastReceivedData();
         InvalidateProjections();
+        DrainPendingPairState(_allClientPairs[dto.User.UID]);
     }
 
     public void UpdateUserProfile(UserDto dto)
@@ -153,6 +176,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         DisposePairs();
         _allClientPairs.Clear();
         _allGroups.Clear();
+        _pendingGroupPairs.Clear();
+        _pendingOnlineUsers.Clear();
+        _pendingCharacterData.Clear();
         InvalidateProjections();
     }
 
@@ -272,6 +298,9 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     
     public void MarkPairOffline(UserData user)
     {
+        _pendingOnlineUsers.TryRemove(user.UID, out _);
+        _pendingCharacterData.TryRemove(user.UID, out _);
+
         if (_allClientPairs.TryGetValue(user.UID, out var pair))
         {
             Mediator.Publish(new ClearProfileDataMessage(pair.UserData));
@@ -286,9 +315,16 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     {
         if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
-            Logger.LogWarning("MarkPairOnline: no user found for {dto}", dto);
+            BufferOnlineUser(dto, sendNotif);
             return;
         }
+
+        MarkPairOnline(pair, dto, sendNotif);
+        ApplyPendingCharacterData(pair);
+    }
+
+    private void MarkPairOnline(Pair pair, OnlineUserIdentDto dto, bool sendNotif)
+    {
 
         Mediator.Publish(new ClearProfileDataMessage(dto.User));
 
@@ -315,12 +351,24 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
     public void ReceiveCharaData(OnlineUserCharaDataDto dto, string? manifestHash = null)
     {
-        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair))
+        if (!_allClientPairs.TryGetValue(dto.User.UID, out var pair) || !pair.IsOnline)
         {
-            Logger.LogWarning("ReceiveCharaData: no user found for {dto}", dto.User);
+            BufferCharacterData(dto, manifestHash);
+
+            // Close the check-then-buffer race with online player creation. Pair membership and
+            // online identity callbacks also drain the buffer, so exactly one side applies it.
+            if (_allClientPairs.TryGetValue(dto.User.UID, out pair) && pair.IsOnline)
+            {
+                ApplyPendingCharacterData(pair);
+            }
             return;
         }
 
+        ApplyCharacterData(pair, dto, manifestHash);
+    }
+
+    private void ApplyCharacterData(Pair pair, OnlineUserCharaDataDto dto, string? manifestHash)
+    {
         Mediator.Publish(new EventMessage(new Event(pair.UserData, nameof(PairManager), EventSeverity.Informational, "Received Character Data")));
         pair.ApplyData(dto, manifestHash);
         Mediator.Publish(new PairDataReceivedMessage(pair.UserData.UID, dto.CharaData));
@@ -329,6 +377,10 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     public void RemoveGroup(GroupData data)
     {
         _allGroups.TryRemove(data, out _);
+        foreach (var pending in _pendingGroupPairs.Keys.Where(key => string.Equals(key.Gid, data.GID, StringComparison.Ordinal)).ToList())
+        {
+            _pendingGroupPairs.TryRemove(pending, out _);
+        }
 
         foreach (var item in _allClientPairs.ToList())
         {
@@ -349,6 +401,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
     public void RemoveGroupPair(GroupPairDto dto)
     {
+        _pendingGroupPairs.TryRemove((dto.Group.GID, dto.User.UID), out _);
         if (_allClientPairs.TryGetValue(dto.User.UID, out var pair))
         {
             if (_allGroups.TryGetValue(dto.Group, out var group))
@@ -491,6 +544,102 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
             }
         }
     }
+
+    private void BufferGroupPair(GroupPairFullInfoDto dto)
+    {
+        PruneExpiredPendingState();
+        if (_pendingGroupPairs.Count >= MaxPendingStateEntries)
+        {
+            Logger.LogWarning("Discarding out-of-order group membership because the pending-state limit was reached");
+            return;
+        }
+
+        _pendingGroupPairs[(dto.Group.GID, dto.User.UID)] = new(dto, DateTime.UtcNow);
+        Logger.LogDebug("Queued group membership until its group state is available");
+    }
+
+    private void BufferOnlineUser(OnlineUserIdentDto dto, bool sendNotif)
+    {
+        PruneExpiredPendingState();
+        if (_pendingOnlineUsers.Count >= MaxPendingStateEntries)
+        {
+            Logger.LogWarning("Discarding out-of-order online state because the pending-state limit was reached");
+            return;
+        }
+
+        _pendingOnlineUsers[dto.User.UID] = new(dto, sendNotif, DateTime.UtcNow);
+        Logger.LogDebug("Queued online state until its pair state is available");
+    }
+
+    private void BufferCharacterData(OnlineUserCharaDataDto dto, string? manifestHash)
+    {
+        PruneExpiredPendingState();
+        if (_pendingCharacterData.Count >= MaxPendingCharacterDataEntries
+            && !_pendingCharacterData.ContainsKey(dto.User.UID))
+        {
+            Logger.LogWarning("Discarding out-of-order character data because the pending-state limit was reached");
+            return;
+        }
+
+        var incoming = new PendingCharacterData(dto, manifestHash, DateTime.UtcNow);
+        _pendingCharacterData.AddOrUpdate(dto.User.UID, incoming, (_, current) => SelectNewest(current, incoming));
+        Logger.LogDebug("Queued character data until its pair state is available");
+    }
+
+    private void DrainPendingPairState(Pair pair)
+    {
+        if (_pendingOnlineUsers.TryRemove(pair.UserData.UID, out var online)
+            && !IsExpired(online.ReceivedUtc))
+        {
+            MarkPairOnline(pair, online.Dto, online.SendNotification);
+        }
+
+        ApplyPendingCharacterData(pair);
+    }
+
+    private void ApplyPendingCharacterData(Pair pair)
+    {
+        if (!pair.IsOnline)
+        {
+            return;
+        }
+
+        if (_pendingCharacterData.TryRemove(pair.UserData.UID, out var pending)
+            && !IsExpired(pending.ReceivedUtc))
+        {
+            ApplyCharacterData(pair, pending.Dto, pending.ManifestHash);
+        }
+    }
+
+    private void PruneExpiredPendingState()
+    {
+        foreach (var entry in _pendingGroupPairs.Where(entry => IsExpired(entry.Value.ReceivedUtc)).ToList())
+        {
+            _pendingGroupPairs.TryRemove(entry.Key, out _);
+        }
+
+        foreach (var entry in _pendingOnlineUsers.Where(entry => IsExpired(entry.Value.ReceivedUtc)).ToList())
+        {
+            _pendingOnlineUsers.TryRemove(entry.Key, out _);
+        }
+
+        foreach (var entry in _pendingCharacterData.Where(entry => IsExpired(entry.Value.ReceivedUtc)).ToList())
+        {
+            _pendingCharacterData.TryRemove(entry.Key, out _);
+        }
+    }
+
+    private static PendingCharacterData SelectNewest(PendingCharacterData current, PendingCharacterData incoming)
+    {
+        if (current.Dto.DataVersion > 0 && incoming.Dto.DataVersion > 0)
+        {
+            return incoming.Dto.DataVersion >= current.Dto.DataVersion ? incoming : current;
+        }
+
+        return incoming;
+    }
+
+    private static bool IsExpired(DateTime receivedUtc) => DateTime.UtcNow - receivedUtc > PendingStateLifetime;
     
     private bool TryGetGroupPairInfo(GroupData groupData, UserData user,
         [NotNullWhen(true)] out Pair? pair, [NotNullWhen(true)] out GroupPairFullInfoDto? info,
@@ -691,6 +840,10 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
             _projectionsDirty = false;
         }
     }
+
+    private sealed record PendingCharacterData(OnlineUserCharaDataDto Dto, string? ManifestHash, DateTime ReceivedUtc);
+    private sealed record PendingGroupPair(GroupPairFullInfoDto Dto, DateTime ReceivedUtc);
+    private sealed record PendingOnlineUser(OnlineUserIdentDto Dto, bool SendNotification, DateTime ReceivedUtc);
 }
 
 public readonly record struct PanicModeResult(bool Enabled, int AffectedPairs);

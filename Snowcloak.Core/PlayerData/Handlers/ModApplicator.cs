@@ -34,8 +34,6 @@ public sealed partial class ModApplicator
         Func<Task<ushort?>> resolveObjectIndex, Guid applicationId, bool updateModdedPaths, bool updateManip,
         Dictionary<string, string> moddedPaths, string manipulationData, CancellationToken token)
     {
-        var objIndex = ushort.MaxValue;
-
         if (target.PenumbraCollection == Guid.Empty)
         {
             var index = await resolveObjectIndex().ConfigureAwait(false);
@@ -45,9 +43,8 @@ public sealed partial class ModApplicator
                 return false;
             }
 
-            objIndex = index.Value;
             target.PenumbraCollection = await _penumbra.CreateTemporaryCollectionAsync(logger, collectionOwnerUid).ConfigureAwait(false);
-            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, objIndex).ConfigureAwait(false);
+            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, index.Value).ConfigureAwait(false);
         }
 
         await _gameState.WaitWhileCharacterIsDrawing(logger, handle, applicationId, 30000, token).ConfigureAwait(false);
@@ -55,19 +52,6 @@ public sealed partial class ModApplicator
 
         if (updateModdedPaths)
         {
-            if (objIndex == ushort.MaxValue)
-            {
-                var index = await resolveObjectIndex().ConfigureAwait(false);
-                if (index == null)
-                {
-                    LogAbortingNoObjectIndexBeforeMods(logger);
-                    return false;
-                }
-
-                objIndex = index.Value;
-            }
-
-            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, objIndex).ConfigureAwait(false);
             await _penumbra.SetTemporaryModsAsync(logger, applicationId, target.PenumbraCollection, moddedPaths).ConfigureAwait(false);
         }
 
@@ -98,6 +82,7 @@ public sealed partial class ModApplicator
         await _gameState.WaitWhileCharacterIsDrawing(logger, handle, applicationId, 30000, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
 
+        var glamourerApplied = false;
         foreach (var change in CharacterDataChangeSet.GetOrderedChanges(changes))
         {
             LogProcessingChange(logger, change, kind);
@@ -127,6 +112,7 @@ public sealed partial class ModApplicator
                     if (charaData.GlamourerData.TryGetValue(kind, out var glamourerData))
                     {
                         await _glamourer.ApplyAllAsync(logger, handle, glamourerData, applicationId, token).ConfigureAwait(false);
+                        glamourerApplied = true;
                     }
                     break;
 
@@ -139,7 +125,10 @@ public sealed partial class ModApplicator
                     break;
 
                 case PlayerChanges.ForcedRedraw:
-                    await _penumbra.RedrawAsync(logger, handle, applicationId, token).ConfigureAwait(false);
+                    if (!glamourerApplied)
+                    {
+                        await _penumbra.RedrawAsync(logger, handle, applicationId, token).ConfigureAwait(false);
+                    }
                     break;
 
                 default:
@@ -155,6 +144,4 @@ public sealed partial class ModApplicator
     [LoggerMessage(Level = LogLevel.Information, Message = "Aborting application task, unable to obtain object index")]
     private static partial void LogAbortingNoObjectIndex(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Aborting application task, unable to obtain object index before applying mods")]
-    private static partial void LogAbortingNoObjectIndexBeforeMods(ILogger logger);
 }

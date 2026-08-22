@@ -338,7 +338,7 @@ public sealed class SnapshotBuilder
         {
             ct.ThrowIfCancellationRequested();
 
-            var skeletonIndices = await Service.RunOnFrameworkAsync(() => _modelAnalyzer.GetBoneIndicesFromPap(file.Hash)).ConfigureAwait(false);
+            var skeletonIndices = await Task.Run(() => _modelAnalyzer.GetBoneIndicesFromPap(file.Hash), ct).ConfigureAwait(false);
             bool validationFailed = false;
             if (skeletonIndices != null)
             {

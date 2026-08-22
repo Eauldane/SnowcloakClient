@@ -23,6 +23,7 @@ public record PetNamesMessage(string PetNicknamesData) : MessageBase;
 public record MoodlesMessage(IntPtr Address) : MessageBase;
 public record HonorificReadyMessage : MessageBase;
 public record IpcStatusChangedMessage(IpcStatus Status) : MessageBase;
+public record RequiredIpcAvailabilityChangedMessage(bool IsAvailable) : MessageBase;
 public record OptionalIpcAvailabilityChangedMessage(string IpcName, bool IsAvailable) : MessageBase;
 public record ExtensionDataChangedMessage(string PluginKey) : KeyedMessage(PluginKey);
 public record ProfileCacheUpdatedMessage(string Ident) : KeyedMessage(Ident);

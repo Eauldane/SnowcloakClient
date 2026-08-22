@@ -235,7 +235,10 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
 
             var currentIdent = _onlineUserIdentDto?.Ident ?? string.Empty;
             var incomingIdent = dto?.Ident ?? currentIdent;
-            var identChanged = dto != null && !string.Equals(currentIdent, incomingIdent, StringComparison.Ordinal);
+            // Data can arrive before the first online callback during bootstrap
+            var identChanged = dto != null
+                && _onlineUserIdentDto != null
+                && !string.Equals(currentIdent, incomingIdent, StringComparison.Ordinal);
 
             if (identChanged)
             {

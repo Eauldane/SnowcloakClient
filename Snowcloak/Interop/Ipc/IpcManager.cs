@@ -17,6 +17,7 @@ public sealed partial class IpcManager : DisposableMediatorSubscriberBase
     private readonly Dictionary<string, IpcStatus> _statusByName = new(StringComparer.Ordinal);
     private readonly IIpcCaller[] _ipcCallers;
     private readonly IFrameTickHandle _tick;
+    private bool _requiredIpcAvailable;
 
     public IpcManager(ILogger<IpcManager> logger, SnowMediator mediator,
         IPenumbraIpc penumbraIpc, IGlamourerIpc glamourerIpc, ICustomizePlusIpc customizeIpc, IHeelsIpc heelsIpc,
@@ -118,6 +119,13 @@ public sealed partial class IpcManager : DisposableMediatorSubscriberBase
         foreach (var caller in _ipcCallers)
         {
             ReportApiState(caller.Status);
+        }
+
+        var requiredIpcAvailable = Initialized;
+        if (_requiredIpcAvailable != requiredIpcAvailable)
+        {
+            _requiredIpcAvailable = requiredIpcAvailable;
+            Mediator.Publish(new RequiredIpcAvailabilityChangedMessage(requiredIpcAvailable));
         }
     }
 
