@@ -134,18 +134,6 @@ internal sealed class PairVisibilityTracker
             else
             {
                 Logger.LogTrace("{this} visibility changed, now: {visi}, no cached data exists", _handler, _handler.IsVisible);
-                if (Pair.LastReceivedCharacterData != null)
-                {
-                    _ = _backgroundTasks.Run(() =>
-                    {
-                        Pair.ApplyLastReceivedData(forced: true);
-                        return Task.CompletedTask;
-                    }, nameof(Pair.ApplyLastReceivedData));
-                }
-                else
-                {
-                    Mediator.Publish(new RequestPairDataMessage(Pair.UserData));
-                }
             }
         }
         else if (_handler.IsVisible && !nowVisible)

@@ -66,10 +66,10 @@ public class PluginWatcherService : MediatorSubscriberBase, IHostedService
     {
         _pluginInterface = pluginInterface;
 
-        _tick = frameScheduler.Register("PluginWatcher", TickInterval.EveryMilliseconds(500), TickPriority.Normal, SafeUpdate,
+        _tick = frameScheduler.Register("PluginWatcher", TickInterval.EveryFrame, TickPriority.Normal, SafeUpdate,
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
         // Continue scanning plugins during gpose as well
-        _cutsceneTick = frameScheduler.RegisterGated("PluginWatcherCutscene", TickInterval.EveryMilliseconds(500), TickPriority.Normal, SafeUpdate,
+        _cutsceneTick = frameScheduler.RegisterGated("PluginWatcherCutscene", TickInterval.EveryFrame, TickPriority.Normal, SafeUpdate,
             [FrameGates.Dead], [FrameGates.Cutscene]);
 
         Update(publish: false);

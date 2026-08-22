@@ -671,7 +671,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void DisposeOwnedResources()
     {
-        _manifestFetchGate.Dispose();
         _connectionLifecycle.Dispose();
         _systemInfoPollFlight.Dispose();
         _sessionGraceFlight.Dispose();

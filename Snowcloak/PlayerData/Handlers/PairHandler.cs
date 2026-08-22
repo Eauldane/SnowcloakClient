@@ -11,6 +11,8 @@ using Snowcloak.PlayerData.Data;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Core.PlayerData;
+using Snowcloak.Core.Scheduling;
+using Snowcloak.Game.Scheduling;
 using Snowcloak.Services;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
@@ -58,11 +60,8 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     private readonly CharacterReverter _reverter;
     private readonly CharacterApplicationPipeline _pipeline;
     private readonly PairVisibilityTracker _tracker;
-    private readonly IDisposable _retryRegistration;
+    private readonly IFrameTickHandle _tick;
     private Task? _pairDownloadTask;
-    private int _modRecoveryRetryAttempt;
-    private int _modRecoveryRetryScheduled;
-    private int _requiredIpcRecoveryScheduled;
     private int _disposed;
 
     public PairHandler(ILogger<PairHandler> logger, Pair pair, PairAnalyzer pairAnalyzer,
@@ -74,12 +73,9 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         PlayerPerformanceService playerPerformanceService,
         NotesStore notesStore,
         SnowcloakConfigService configService, VisibilityService visibilityService, DatabaseService databaseService,
-        ModNullificationService modNullificationService, UsageStatisticsService usageStatisticsService,
-        ApplicationAdmissionController applicationAdmissionController,
-        DeferredApplicationRetryCoordinator retryCoordinator) : base(logger, mediator)
+        ModNullificationService modNullificationService, IFrameScheduler frameScheduler, UsageStatisticsService usageStatisticsService,
+        ApplicationAdmissionController applicationAdmissionController) : base(logger, mediator)
     {
-        ArgumentNullException.ThrowIfNull(retryCoordinator);
-
         Pair = pair;
         _backgroundTasks = new BackgroundTaskTracker(logger);
         PairAnalyzer = pairAnalyzer;
@@ -94,6 +90,8 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         _configService = configService;
         _visibilityService = visibilityService;
         _databaseService = databaseService;
+
+        ArgumentNullException.ThrowIfNull(frameScheduler);
 
         _reverter = new CharacterReverter(this, Logger, Pair, _appliedState, _ipcManager, _dalamudUtil,
             _gameObjectHandlerFactory, _backgroundTasks, _runtimeCts, _applicationFlight, _downloadFlight);
@@ -119,23 +117,11 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         Mediator.Subscribe<PenumbraInitializedMessage>(this, (_) =>
         {
             _penumbraCollection = Guid.Empty;
-            if (_appliedState.CachedData != null || Pair.LastReceivedCharacterData != null)
-            {
-                _appliedState.RequireModRecovery();
-            }
             if (!IsVisible && _charaHandler != null)
             {
                 PlayerName = string.Empty;
                 _charaHandler.Dispose();
                 _charaHandler = null;
-            }
-            ScheduleRequiredIpcRecovery();
-        });
-        Mediator.Subscribe<RequiredIpcAvailabilityChangedMessage>(this, message =>
-        {
-            if (message.IsAvailable)
-            {
-                ScheduleRequiredIpcRecovery();
             }
         });
         Mediator.Subscribe<ClassJobChangedMessage>(this, (msg) =>
@@ -173,7 +159,8 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             pair.ApplyLastReceivedData(forced: true);
         });
 
-        _retryRegistration = retryCoordinator.Register(_tracker.RetryDeferredApplicationIfReady);
+        _tick = frameScheduler.Register("PairHandlerRetry", TickInterval.EveryFrame, TickPriority.Normal,
+            _tracker.RetryDeferredApplicationIfReady, FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
 
         LastAppliedDataBytes = -1;
     }
@@ -214,61 +201,6 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     internal CharacterReverter Reverter => _reverter;
 
     internal void RearmVisibilityTracking() => _visibilityService.RearmTracking(Pair.Ident);
-
-    internal void ResetModRecoveryRetry()
-        => Volatile.Write(ref _modRecoveryRetryAttempt, 0);
-
-    internal void ScheduleModRecoveryRetry()
-    {
-        if (Interlocked.Exchange(ref _modRecoveryRetryScheduled, 1) != 0)
-        {
-            return;
-        }
-
-        var attempt = Interlocked.Increment(ref _modRecoveryRetryAttempt);
-        if (attempt > 5)
-        {
-            Volatile.Write(ref _modRecoveryRetryScheduled, 0);
-            return;
-        }
-
-        var delay = attempt switch
-        {
-            1 => TimeSpan.FromMilliseconds(500),
-            2 => TimeSpan.FromSeconds(1),
-            3 => TimeSpan.FromSeconds(2),
-            4 => TimeSpan.FromSeconds(5),
-            _ => TimeSpan.FromSeconds(10),
-        };
-
-        _ = _backgroundTasks.Run(async () =>
-        {
-            var ownsScheduledFlag = true;
-            try
-            {
-                await Task.Delay(delay, _runtimeCts.Token).ConfigureAwait(false);
-                if (_appliedState.ForceApplyMods
-                    && _ipcManager.Initialized
-                    && IsVisible
-                    && Pair.LastReceivedCharacterData != null)
-                {
-                    Volatile.Write(ref _modRecoveryRetryScheduled, 0);
-                    ownsScheduledFlag = false;
-                    Pair.ApplyLastReceivedData(forced: true);
-                }
-            }
-            catch (OperationCanceledException) when (_runtimeCts.IsCancellationRequested)
-            {
-            }
-            finally
-            {
-                if (ownsScheduledFlag)
-                {
-                    Volatile.Write(ref _modRecoveryRetryScheduled, 0);
-                }
-            }
-        }, nameof(ScheduleModRecoveryRetry));
-    }
 
     public void UndoApplication(Guid applicationId = default)
     {
@@ -329,15 +261,10 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             return;
         }
 
-        var modRecoveryGeneration = _appliedState.CaptureModRecoveryGeneration();
-        var forceApplyMods = modRecoveryGeneration != 0;
-
-        LogApplyingData(Logger, this, forceApplyCustomization, forceApplyMods);
+        LogApplyingData(Logger, this, forceApplyCustomization, _appliedState.ForceApplyMods);
         LogHashForData(Logger, characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? "NODATA");
 
-        if (string.Equals(characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? string.Empty, StringComparison.Ordinal)
-            && !forceApplyCustomization
-            && !forceApplyMods)
+        if (string.Equals(characterData.DataHash.Value, _appliedState.CachedData?.DataHash.Value ?? string.Empty, StringComparison.Ordinal) && !forceApplyCustomization)
         {
             Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, SnowcloakApplicationState.Applied));
             return;
@@ -355,9 +282,15 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         Mediator.Publish(new EventMessage(new Event(PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Informational,
             "Applying Character Data")));
 
+        _appliedState.ForceApplyMods |= forceApplyCustomization;
+
         var charaDataToUpdate = CharacterDataDiffer.Diff(_appliedState.CachedData, characterData);
-        CharacterApplicationPlanner.ApplyForceModifiers(charaDataToUpdate, _appliedState.CachedData, characterData,
-            forceApplyCustomization, forceApplyMods);
+        ApplyForceModifiers(charaDataToUpdate, _appliedState.CachedData, characterData, forceApplyCustomization, _appliedState.ForceApplyMods);
+
+        if (_charaHandler != null && _appliedState.ForceApplyMods)
+        {
+            _appliedState.ForceApplyMods = false;
+        }
 
         if (_appliedState.RedrawOnNextApplication && charaDataToUpdate.TryGetValue(ObjectKind.Player, out _))
         {
@@ -381,40 +314,12 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
 
         LogDownloadingAndApplying(Logger, this);
 
-        _pipeline.DownloadAndApplyCharacter(characterData.Clone(), charaDataToUpdate, modRecoveryGeneration);
+        _pipeline.DownloadAndApplyCharacter(characterData.Clone(), charaDataToUpdate);
     }
 
     private bool ShouldHoldApplicationForCombatOrPerformance()
         => ApplicationHoldPolicy.ShouldHoldForCombatOrPerformance(_configService.Current.HoldCombatApplication,
             _dalamudUtil.IsInCombatOrPerforming);
-
-    private void ScheduleRequiredIpcRecovery()
-    {
-        if (Interlocked.Exchange(ref _requiredIpcRecoveryScheduled, 1) != 0)
-        {
-            return;
-        }
-
-        _ = _backgroundTasks.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), _runtimeCts.Token).ConfigureAwait(false);
-                if (_ipcManager.Initialized && IsVisible && Pair.LastReceivedCharacterData != null)
-                {
-                    Pair.ApplyLastReceivedData(forced: true);
-                }
-            }
-            catch (OperationCanceledException) when (_runtimeCts.IsCancellationRequested)
-            {
-                // Runtime teardown owns cancellation.
-            }
-            finally
-            {
-                Volatile.Write(ref _requiredIpcRecoveryScheduled, 0);
-            }
-        }, nameof(ScheduleRequiredIpcRecovery));
-    }
 
     // Shared by the "invalid state" and "download blocked" defer paths: recompute the force-mods
     // flag, cache the latest data, and notify. Does not itself apply anything.
@@ -422,10 +327,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     {
         var hasDiffMods = CharacterDataDiffer.Diff(_appliedState.CachedData, characterData)
             .ContainsAny(PlayerChanges.ModManip, PlayerChanges.ModFiles);
-        if (hasDiffMods || _appliedState.ForceApplyMods || (PlayerCharacter == IntPtr.Zero && _appliedState.CachedData == null))
-        {
-            _appliedState.RequireModRecovery();
-        }
+        _appliedState.ForceApplyMods = hasDiffMods || _appliedState.ForceApplyMods || (PlayerCharacter == IntPtr.Zero && _appliedState.CachedData == null);
         _appliedState.CachedData = characterData;
         Mediator.Publish(new PairDataAppliedMessage(Pair.UserData.UID, characterData));
         LogSettingData(Logger, _appliedState.CachedData.DataHash.Value, _appliedState.ForceApplyMods);
@@ -451,6 +353,62 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             _ => status.Name + " unavailable",
         };
 
+    private static void ApplyForceModifiers(CharacterDataChangeSet changes, CharacterData? oldData, CharacterData newData, bool forceApplyCustomization, bool forceApplyMods)
+    {
+        oldData ??= new CharacterData();
+
+        if (forceApplyMods)
+            ApplyForcedModChanges(changes, oldData, newData);
+
+        if (forceApplyCustomization)
+            ApplyForcedCustomizationChanges(changes, oldData, newData);
+    }
+
+    private static void ApplyForcedModChanges(CharacterDataChangeSet changes, CharacterData oldData, CharacterData newData)
+    {
+        foreach (var objectKind in Enum.GetValues<ObjectKind>())
+        {
+            if (oldData.FileReplacements.ContainsKey(objectKind) && newData.FileReplacements.ContainsKey(objectKind))
+            {
+                changes.Add(objectKind, PlayerChanges.ModFiles);
+                changes.Add(objectKind, PlayerChanges.ForcedRedraw);
+            }
+        }
+
+        changes.Add(ObjectKind.Player, PlayerChanges.ModManip);
+        changes.Add(ObjectKind.Player, PlayerChanges.ForcedRedraw);
+    }
+
+    private static void ApplyForcedCustomizationChanges(CharacterDataChangeSet changes, CharacterData oldData, CharacterData newData)
+    {
+        foreach (var objectKind in Enum.GetValues<ObjectKind>())
+        {
+            if (oldData.GlamourerData.ContainsKey(objectKind) && newData.GlamourerData.ContainsKey(objectKind))
+                changes.Add(objectKind, PlayerChanges.Glamourer);
+
+            newData.CustomizePlusData.TryGetValue(objectKind, out var customizePlusData);
+            if (!string.IsNullOrEmpty(customizePlusData))
+                changes.Add(objectKind, PlayerChanges.Customize);
+        }
+
+        AddForcedPlayerCustomization(changes, newData);
+    }
+
+    private static void AddForcedPlayerCustomization(CharacterDataChangeSet changes, CharacterData newData)
+    {
+        if (!string.IsNullOrEmpty(newData.HeelsData))
+            changes.Add(ObjectKind.Player, PlayerChanges.Heels);
+
+        if (!string.IsNullOrEmpty(newData.HonorificData))
+            changes.Add(ObjectKind.Player, PlayerChanges.Honorific);
+
+        if (!string.IsNullOrEmpty(newData.PetNamesData))
+            changes.Add(ObjectKind.Player, PlayerChanges.PetNames);
+
+        if (!string.IsNullOrEmpty(newData.MoodlesData))
+            changes.Add(ObjectKind.Player, PlayerChanges.Moodles);
+    }
+
     public override string ToString()
     {
         return Pair == null
@@ -474,7 +432,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             return;
         }
 
-        _retryRegistration.Dispose();
+        _tick.Dispose();
         base.Dispose(disposing);
 
         if (!disposing) return;
@@ -489,7 +447,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
             return;
         }
 
-        _retryRegistration.Dispose();
+        _tick.Dispose();
         base.Dispose(disposing: true);
         await DisposeCoreAsync(synchronous: false).ConfigureAwait(false);
         GC.SuppressFinalize(this);

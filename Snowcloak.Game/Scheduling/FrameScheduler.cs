@@ -7,11 +7,9 @@ using Snowcloak.Core.Scheduling;
 
 namespace Snowcloak.Game.Scheduling;
 
-public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
+public sealed class FrameScheduler : IFrameScheduler, IHostedService
 {
     public const double DefaultBudgetMs = 2.0;
-    private const double SlowTickerWarningMs = 8.0;
-    private const double SlowTickerWarningIntervalMs = 10000.0;
 
     private static readonly string[] NoGates = [];
 
@@ -27,7 +25,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
     private readonly ConcurrentDictionary<int, Registration> _registrations = new();
     private readonly Dictionary<string, HashSet<string>> _gateReasons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<int>> _gateMembers = new(StringComparer.Ordinal);
-    private readonly Dictionary<int, double> _lastSlowTickerWarningMs = [];
 
     private readonly List<DueTicker> _frameDue = [];
     private readonly List<int> _frameRan = [];
@@ -154,23 +151,8 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
             }
 
             var elapsedMs = _clock.Elapsed.TotalMilliseconds - startMs;
-            var logSlowTicker = false;
             lock (_gate)
-            {
                 _budget.Record(elapsedMs);
-                if (elapsedMs >= SlowTickerWarningMs
-                    && (!_lastSlowTickerWarningMs.TryGetValue(due.Id, out var lastWarningMs)
-                        || startMs - lastWarningMs >= SlowTickerWarningIntervalMs))
-                {
-                    _lastSlowTickerWarningMs[due.Id] = startMs;
-                    logSlowTicker = true;
-                }
-            }
-
-            if (logSlowTicker)
-            {
-                LogSlowTicker(_logger, registration.Name, elapsedMs);
-            }
             _frameRan.Add(due.Id);
         }
 
@@ -190,7 +172,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
         {
             if (_registrations.TryRemove(id, out var registration))
             {
-                _lastSlowTickerWarningMs.Remove(id);
                 foreach (var gate in EnumerateGates(registration.PauseGates, registration.RunOnlyGates))
                 {
                     if (_gateMembers.TryGetValue(gate, out var members))
@@ -249,10 +230,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
         foreach (var gate in runOnlyGates)
             yield return gate;
     }
-
-    [LoggerMessage(Level = LogLevel.Warning,
-        Message = "Frame ticker {Name} took {ElapsedMs:F2}ms; the frame budget cannot pre-empt a running ticker")]
-    private static partial void LogSlowTicker(ILogger logger, string name, double elapsedMs);
 
     private sealed class Handle : IFrameTickHandle
     {

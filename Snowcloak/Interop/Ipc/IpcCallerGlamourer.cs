@@ -7,17 +7,15 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
-using System.Diagnostics;
 
 using ElezenTools.Services;
 
 namespace Snowcloak.Interop.Ipc;
 
-public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IGlamourerIpc
+public sealed class IpcCallerGlamourer : DisposableMediatorSubscriberBase, IGlamourerIpc
 {
     private const string IpcName = "Glamourer";
     private const string RequiredVersion = "plugin 1.6.1.7, IPC 1.1";
-    private const double SlowFrameworkIpcThresholdMs = 8.0;
     private static readonly Version MinimumPluginVersion = new(1, 6, 1, 7);
     private const IpcCapability SupportedCapabilities = IpcCapability.Appearance;
 
@@ -144,9 +142,7 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
             try
             {
                 logger.LogDebug("[{appid}] Calling appearance apply on {backend}", applicationId, _backend);
-                var started = Stopwatch.GetTimestamp();
                 _glamourerApplyAll.Invoke(customization, chara.ObjectIndex, LockCode);
-                WarnIfSlow(logger, "ApplyState", started);
             }
             catch (Exception ex)
             {
@@ -154,18 +150,6 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
             }
         }, token).ConfigureAwait(false);
     }
-
-    private static void WarnIfSlow(ILogger logger, string operation, long started)
-    {
-        var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        if (elapsedMs >= SlowFrameworkIpcThresholdMs)
-        {
-            LogSlowFrameworkIpc(logger, operation, elapsedMs);
-        }
-    }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Slow Glamourer framework IPC {Operation}: {ElapsedMs:F2}ms")]
-    private static partial void LogSlowFrameworkIpc(ILogger logger, string operation, double elapsedMs);
 
     public async Task<string> GetCharacterCustomizationAsync(IntPtr character)
     {
