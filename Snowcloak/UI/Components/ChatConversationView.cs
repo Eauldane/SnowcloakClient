@@ -54,7 +54,7 @@ public sealed class ChatConversationView
         _fileDialogManager = fileDialogManager;
     }
 
-    public void Draw(ConversationKey key, bool showHeader = true)
+    public void Draw(ConversationKey key, bool showHeader = true, bool wrapMessages = false)
     {
         var conversation = _chatService.Store.Snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == key);
         if (conversation == null)
@@ -100,7 +100,7 @@ public sealed class ChatConversationView
                 var role = conversation.Members.GetValueOrDefault(entry.SenderUid);
                 var labels = conversation.MemberLabels.GetValueOrDefault(entry.SenderUid);
                 _renderer.Render(entry, ImGui.GetContentRegionAvail().X,
-                    role is RoomRole.Owner or RoomRole.Moderator ? role : null, labels);
+                    role is RoomRole.Owner or RoomRole.Moderator ? role : null, labels, wrapMessages);
                 if (entry.State == DeliveryState.Failed)
                 {
                     ImGui.SameLine();

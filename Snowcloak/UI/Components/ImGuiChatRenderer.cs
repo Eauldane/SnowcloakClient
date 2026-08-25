@@ -27,7 +27,8 @@ public sealed class ImGuiChatRenderer
         _mediator = mediator;
     }
 
-    public void Render(ChatEntry entry, float width, RoomRole? role = null, IReadOnlyList<string>? memberLabels = null)
+    public void Render(ChatEntry entry, float width, RoomRole? role = null,
+        IReadOnlyList<string>? memberLabels = null, bool wrapMessage = false)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var name = entry.Display.Name;
@@ -102,33 +103,51 @@ public sealed class ImGuiChatRenderer
             entry.Display.Colour ?? ImGuiColors.DalamudWhite, entry.Display.Glow);
 
         ImGui.SameLine();
-        var first = true;
-        foreach (var segment in entry.Segments)
+        if (wrapMessage)
         {
-            if (!first)
+            ImGui.PushTextWrapPos(startX + width);
+        }
+
+        try
+        {
+            var first = true;
+            foreach (var segment in entry.Segments)
             {
-                ImGui.SameLine(0f, 0f);
+                if (!first)
+                {
+                    ImGui.SameLine(0f, 0f);
+                }
+
+                var segmentWidth = wrapMessage
+                    ? Math.Max(0f, startX + width - ImGui.GetCursorPosX())
+                    : width;
+                RenderSegment(segment, segmentWidth);
+                first = false;
             }
 
-            RenderSegment(segment, width);
-            first = false;
-        }
+            if (entry.RpMode == RpChatMode.OutOfCharacter)
+            {
+                ImGui.SameLine(0f, 0f);
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "))");
+            }
 
-        if (entry.RpMode == RpChatMode.OutOfCharacter)
-        {
-            ImGui.SameLine(0f, 0f);
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "))");
+            if (entry.State == DeliveryState.Pending)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, "sending");
+            }
+            else if (entry.State == DeliveryState.Failed)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudRed, "failed");
+            }
         }
-
-        if (entry.State == DeliveryState.Pending)
+        finally
         {
-            ImGui.SameLine();
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted, "sending");
-        }
-        else if (entry.State == DeliveryState.Failed)
-        {
-            ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.DalamudRed, "failed");
+            if (wrapMessage)
+            {
+                ImGui.PopTextWrapPos();
+            }
         }
 
         DrawEntryContextMenu(entry);

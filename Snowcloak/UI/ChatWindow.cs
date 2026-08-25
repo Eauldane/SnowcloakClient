@@ -324,7 +324,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         using (var centre = ImRaii.Child("chat-centre", new Vector2(centreWidth, -1), false))
         {
             DrawConversationHeader(conversation, hasMemberList);
-            _conversationView.Draw(conversation.Key, showHeader: false);
+            _conversationView.Draw(conversation.Key, showHeader: false, wrapMessages: true);
         }
 
         if (drawMembers)
