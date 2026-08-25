@@ -620,6 +620,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             var groups = await GroupsGetAll().ConfigureAwait(false);
             var groupUsers = await Task.WhenAll(groups.Select(GroupsGetUsersInGroup)).ConfigureAwait(false);
             _pairManager.ReconcileServerState(userPairs, groups, groupUsers.SelectMany(users => users).ToList(), online);
+            _sessionResumeState.CommitFullResync();
         }
 
         var visible = _pairManager.GetVisibleUsers()
@@ -671,6 +672,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void DisposeOwnedResources()
     {
+        _manifestFetchGate.Dispose();
         _connectionLifecycle.Dispose();
         _systemInfoPollFlight.Dispose();
         _sessionGraceFlight.Dispose();

@@ -8,15 +8,17 @@ using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 using ElezenTools.Services;
 
 namespace Snowcloak.Interop.Ipc;
 
-public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenumbraIpc
+public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenumbraIpc
 {
     private const string IpcName = "Penumbra";
     private const string RequiredVersion = "1.6.1.10";
+    private const double SlowFrameworkIpcThresholdMs = 8.0;
     private static readonly Version MinimumPluginVersion = new(1, 6, 1, 10);
     private const IpcCapability SupportedCapabilities = IpcCapability.ModFiles
         | IpcCapability.MetaManipulations
@@ -66,7 +68,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
     private readonly GetPlayerMetaManipulations _penumbraGetMetaManipulations;
     private readonly RedrawObject _penumbraRedraw;
     private readonly DeleteTemporaryCollection _penumbraRemoveTemporaryCollection;
-    private readonly RemoveTemporaryMod _penumbraRemoveTemporaryMod;
     private readonly GetModDirectory _penumbraResolveModDir;
     private readonly ResolvePlayerPathsAsync _penumbraResolvePaths;
     private readonly GetGameObjectResourcePaths _penumbraResourcePaths;
@@ -91,7 +92,6 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
             }
         });
         _penumbraGetMetaManipulations = new GetPlayerMetaManipulations(pi);
-        _penumbraRemoveTemporaryMod = new RemoveTemporaryMod(pi);
         _penumbraAddTemporaryMod = new AddTemporaryMod(pi);
         _penumbraCreateNamedTemporaryCollection = new CreateTemporaryCollection(pi);
         _penumbraRemoveTemporaryCollection = new DeleteTemporaryCollection(pi);
@@ -202,7 +202,9 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             var retAssign = _penumbraAssignTemporaryCollection.Invoke(collName, idx, forceAssignment: true);
+            WarnIfSlow(logger, "AssignTemporaryCollection", started, 1);
             logger.LogTrace("Assigning Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
             return collName;
         }).ConfigureAwait(false);
@@ -269,11 +271,13 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         return await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             var random = new Random();
             var collName = "Snowcloak_" + uid + random.Next();
 
             Guid collId;
             var penumbraEc = _penumbraCreateNamedTemporaryCollection.Invoke(uid + random.Next(), collName, out collId);
+            WarnIfSlow(logger, "CreateTemporaryCollection", started, 1);
             logger.LogTrace("Creating Temp Collection {collName}, GUID: {collId}", collName, collId);
             if (penumbraEc != PenumbraApiEc.Success)
             {
@@ -293,6 +297,7 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         return await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             logger.LogTrace("Calling resource path IPC via {backend}", _backend);
             var idx = handler.ObjectIndex;
             if (idx == null)
@@ -300,7 +305,9 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
                 return null;
             }
 
-            return _penumbraResourcePaths.Invoke(idx.Value)[0];
+            var paths = _penumbraResourcePaths.Invoke(idx.Value)[0];
+            WarnIfSlow(logger, "GetGameObjectResourcePaths", started, paths?.Count ?? 0);
+            return paths;
         }).ConfigureAwait(false);
     }
 
@@ -324,7 +331,9 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
         await _redrawManager.RunWithRedrawSlotAsync(logger, (GameObjectHandler)handler, applicationId, chara =>
         {
             logger.LogDebug("[{appid}] Calling redraw on {backend}", applicationId, _backend);
+            var started = Stopwatch.GetTimestamp();
             InvokeRedraw(chara.ObjectIndex, RedrawType.Redraw);
+            WarnIfSlow(logger, "RedrawObject", started, 1);
         }, token).ConfigureAwait(false);
     }
 
@@ -337,9 +346,11 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
             logger.LogTrace("Removing temp collection for {collId}", collId);
             var ret = _penumbraRemoveTemporaryCollection.Invoke(collId);
+            WarnIfSlow(logger, "DeleteTemporaryCollection", started, 1);
             logger.LogTrace("RemoveTemporaryCollection: {ret}", ret);
         }).ConfigureAwait(false);
     }
@@ -356,9 +367,10 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
-            logger.LogTrace("Manip: {data}", manipulationData);
             var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Meta", collId, [], manipulationData, 0);
+            WarnIfSlow(logger, "AddTemporaryMod.Meta", started, 1);
             logger.LogTrace("Setting temp meta mod for {collId}, Success: {ret}", collId, retAdd);
         }).ConfigureAwait(false);
     }
@@ -372,18 +384,34 @@ public sealed class IpcCallerPenumbra : DisposableMediatorSubscriberBase, IPenum
 
         await Service.RunOnFrameworkAsync(() =>
         {
+            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
-            foreach (var mod in modPaths)
+            if (logger.IsEnabled(LogLevel.Trace))
             {
-                logger.LogTrace("Change: {from} => {to}", mod.Key, mod.Value);
+                foreach (var mod in modPaths)
+                {
+                    logger.LogTrace("Change: {from} => {to}", mod.Key, mod.Value);
+                }
             }
 
-            var retRemove = _penumbraRemoveTemporaryMod.Invoke("SnowChara_Files", collId, 0);
-            logger.LogTrace("Removing temp files mod for {collId}, Success: {ret}", collId, retRemove);
             var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Files", collId, modPaths, string.Empty, 0);
+            WarnIfSlow(logger, "AddTemporaryMod.Files", started, modPaths.Count);
             logger.LogTrace("Setting temp files mod for {collId}, Success: {ret}", collId, retAdd);
         }).ConfigureAwait(false);
     }
+
+    private static void WarnIfSlow(ILogger logger, string operation, long started, int itemCount)
+    {
+        var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (elapsedMs >= SlowFrameworkIpcThresholdMs)
+        {
+            LogSlowFrameworkIpc(logger, operation, elapsedMs, itemCount);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Slow Penumbra framework IPC {Operation}: {ElapsedMs:F2}ms for {ItemCount} items")]
+    private static partial void LogSlowFrameworkIpc(ILogger logger, string operation, double elapsedMs, int itemCount);
 
     private void InvokeRedraw(int? objectIndex, RedrawType setting)
     {

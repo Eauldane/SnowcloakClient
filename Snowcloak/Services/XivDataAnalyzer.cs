@@ -15,6 +15,7 @@ namespace Snowcloak.Services;
 
 public sealed class XivDataAnalyzer
 {
+    private readonly Lock _papAnalysisLock = new();
     private readonly ILogger<XivDataAnalyzer> _logger;
     private readonly FileCacheManager _fileCacheManager;
     private readonly XivDataStorageService _configService;
@@ -65,7 +66,15 @@ public sealed class XivDataAnalyzer
         return (outputIndices.Count != 0 && outputIndices.Values.All(u => u.Count > 0)) ? outputIndices : null;
     }
 
-    public unsafe Dictionary<string, List<ushort>>? GetBoneIndicesFromPap(string hash)
+    public Dictionary<string, List<ushort>>? GetBoneIndicesFromPap(string hash)
+    {
+        lock (_papAnalysisLock)
+        {
+            return GetBoneIndicesFromPapCore(hash);
+        }
+    }
+
+    private unsafe Dictionary<string, List<ushort>>? GetBoneIndicesFromPapCore(string hash)
     {
         if (_configService.Current.BonesDictionary.TryGetValue(hash, out var bones)) return bones;
 

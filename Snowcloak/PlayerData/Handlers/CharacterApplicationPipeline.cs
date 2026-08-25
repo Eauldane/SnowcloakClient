@@ -107,7 +107,7 @@ internal sealed partial class CharacterApplicationPipeline
         return data;
     }
 
-    public void DownloadAndApplyCharacter(CharacterData charaData, CharacterDataChangeSet updatedData)
+    public void DownloadAndApplyCharacter(CharacterData charaData, CharacterDataChangeSet updatedData, int modRecoveryGeneration)
     {
         if (updatedData.Count == 0)
         {
@@ -124,19 +124,20 @@ internal sealed partial class CharacterApplicationPipeline
         var downloadScope = _downloadFlight.Begin(_runtimeCts.Token);
 
         _ = _backgroundTasks.Track(
-            DownloadAndApplyCharacterAsync(downloadScope, charaData, updatedData, updateModdedPaths, updateManip),
+            DownloadAndApplyCharacterAsync(downloadScope, charaData, updatedData, updateModdedPaths, updateManip, modRecoveryGeneration),
             nameof(DownloadAndApplyCharacterAsync));
     }
 
     private async Task DownloadAndApplyCharacterAsync(SingleFlightCts.Scope downloadScope, CharacterData charaData, CharacterDataChangeSet updatedData,
-        bool updateModdedPaths, bool updateManip)
+        bool updateModdedPaths, bool updateManip, int modRecoveryGeneration)
     {
         using var downloadLifetime = downloadScope;
         var downloadToken = downloadScope.Token;
 
         try
         {
-            await DownloadAndApplyCharacterInternalAsync(charaData, updatedData, updateModdedPaths, updateManip, downloadToken).ConfigureAwait(false);
+            await DownloadAndApplyCharacterInternalAsync(charaData, updatedData, updateModdedPaths, updateManip,
+                modRecoveryGeneration, downloadToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex) when (string.Equals(ex.Message, "FileTransferManager is not initialized", StringComparison.Ordinal))
         {
@@ -152,10 +153,17 @@ internal sealed partial class CharacterApplicationPipeline
             PublishApplicationState(SnowcloakApplicationState.Failed, "The appearance application failed.");
             throw;
         }
+        finally
+        {
+            if (modRecoveryGeneration != 0 && _appliedState.ForceApplyMods)
+            {
+                _handler.ScheduleModRecoveryRetry();
+            }
+        }
     }
 
     private async Task DownloadAndApplyCharacterInternalAsync(CharacterData charaData, CharacterDataChangeSet updatedData,
-        bool updateModdedPaths, bool updateManip, CancellationToken downloadToken)
+        bool updateModdedPaths, bool updateManip, int modRecoveryGeneration, CancellationToken downloadToken)
     {
         Dictionary<(string GamePath, string? Hash), string> moddedPaths = [];
         Dictionary<string, long> moddedFileSizes = new(StringComparer.OrdinalIgnoreCase);
@@ -243,7 +251,8 @@ internal sealed partial class CharacterApplicationPipeline
             var token = appScope.Token;
 
             PublishApplicationState(SnowcloakApplicationState.Applying);
-            _handler.ApplicationTask = ApplyCharacterDataAsync(charaData, updatedData, updateModdedPaths, updateManip, moddedPaths, moddedFileSizes, token);
+            _handler.ApplicationTask = ApplyCharacterDataAsync(charaData, updatedData, updateModdedPaths, updateManip,
+                moddedPaths, moddedFileSizes, modRecoveryGeneration, token);
             _ = _backgroundTasks.Track(_handler.ApplicationTask, nameof(ApplyCharacterDataAsync));
             await _handler.ApplicationTask.ConfigureAwait(false);
         }
@@ -254,7 +263,8 @@ internal sealed partial class CharacterApplicationPipeline
     }
 
     private async Task ApplyCharacterDataAsync(CharacterData charaData, CharacterDataChangeSet updatedData, bool updateModdedPaths, bool updateManip,
-        Dictionary<(string GamePath, string? Hash), string> moddedPaths, Dictionary<string, long> moddedFileSizes, CancellationToken token)
+        Dictionary<(string GamePath, string? Hash), string> moddedPaths, Dictionary<string, long> moddedFileSizes,
+        int modRecoveryGeneration, CancellationToken token)
     {
         _handler.ApplicationId = Guid.NewGuid();
         using var appScope = Logger.BeginScope("{ApplicationId}", _handler.ApplicationId);
@@ -328,6 +338,12 @@ internal sealed partial class CharacterApplicationPipeline
                 token.ThrowIfCancellationRequested();
             }
 
+            // Keep forced Penumbra recovery armed through download, admission and every IPC
+            // mutation. Only the generation that planned a fully committed application may clear it.
+            if (_appliedState.CompleteModRecovery(modRecoveryGeneration))
+            {
+                _handler.ResetModRecoveryRetry();
+            }
             _appliedState.CachedData = charaData;
             if (updateModdedPaths)
             {
@@ -351,7 +367,7 @@ internal sealed partial class CharacterApplicationPipeline
                 // re-detected, force a re-apply, and keep the data cached for the retry.
                 _handler.RearmVisibilityTracking();
                 _handler.IsVisible = false;
-                _appliedState.ForceApplyMods = true;
+                _appliedState.RequireModRecovery();
                 _appliedState.CachedData = charaData;
                 Mediator.Publish(new PairDataAppliedMessage(Pair.UserData.UID, charaData));
                 PublishApplicationState(SnowcloakApplicationState.Idle);

@@ -23,7 +23,7 @@ public sealed class ApplicationAdmissionController : IDisposable
         ArgumentNullException.ThrowIfNull(frameScheduler);
 
         _dalamudUtilService = dalamudUtilService;
-        _tick = frameScheduler.Register("PairApplicationAdmission", TickInterval.EveryFrame, TickPriority.High, ReleaseQueuedApplications,
+        _tick = frameScheduler.Register("PairApplicationAdmission", TickInterval.EveryFrame, TickPriority.Critical, ReleaseQueuedApplications,
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
     }
 
@@ -78,6 +78,15 @@ public sealed class ApplicationAdmissionController : IDisposable
 
     private void ReleaseQueuedApplications()
     {
+        lock (_sync)
+        {
+            _queue.RemoveAll(request => request.IsCompleted);
+            if (_queue.Count == 0)
+            {
+                return;
+            }
+        }
+
         HashSet<uint> partyMemberIds = _dalamudUtilService.GetPartyPlayerCharacters()
             .Select(member => member.EntityId)
             .Where(id => id != uint.MaxValue)
@@ -173,6 +182,7 @@ public sealed class ApplicationAdmissionController : IDisposable
     {
         private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private CancellationTokenRegistration _cancellation;
+        private CancellationToken _cancellationToken;
         private int _completed;
 
         public ApplicationAdmissionRequest(Pair pair, bool requiresRedraw, long sequence)
@@ -190,7 +200,13 @@ public sealed class ApplicationAdmissionController : IDisposable
 
         public void AttachCancellation(CancellationToken token)
         {
-            _cancellation = token.Register(static state => ((ApplicationAdmissionRequest)state!).Cancel(), this);
+            _cancellationToken = token;
+            var cancellation = token.Register(static state => ((ApplicationAdmissionRequest)state!).Cancel(), this);
+            _cancellation = cancellation;
+            if (IsCompleted)
+            {
+                _cancellation.Dispose();
+            }
         }
 
         public void Release()
@@ -211,8 +227,8 @@ public sealed class ApplicationAdmissionController : IDisposable
                 return;
             }
 
+            _completion.TrySetCanceled(_cancellationToken);
             _cancellation.Dispose();
-            _completion.TrySetCanceled();
         }
     }
 }

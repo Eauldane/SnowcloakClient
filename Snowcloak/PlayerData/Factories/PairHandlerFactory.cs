@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.FileCache;
-using Snowcloak.Game.Scheduling;
 using Snowcloak.Interop.Ipc;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Handlers;
@@ -32,9 +31,9 @@ public class PairHandlerFactory
     private readonly VisibilityService _visibilityService;
     private readonly DatabaseService _databaseService;
     private readonly ModNullificationService _modNullificationService;
-    private readonly IFrameScheduler _frameScheduler;
     private readonly UsageStatisticsService _usageStatisticsService;
     private readonly ApplicationAdmissionController _applicationAdmissionController;
+    private readonly DeferredApplicationRetryCoordinator _retryCoordinator;
 
     public PairHandlerFactory(ILoggerFactory loggerFactory, GameObjectHandlerFactory gameObjectHandlerFactory, IpcManager ipcManager,
         FileDownloadManagerFactory fileDownloadManagerFactory, DalamudUtilService dalamudUtilService,
@@ -42,8 +41,8 @@ public class PairHandlerFactory
         FileCacheManager fileCacheManager, SnowMediator snowMediator, PlayerPerformanceService playerPerformanceService,
         NotesStore notesStore, PairAnalyzerFactory pairAnalyzerFactory,
         SnowcloakConfigService configService, VisibilityService visibilityService, DatabaseService databaseService,
-        ModNullificationService modNullificationService, IFrameScheduler frameScheduler, UsageStatisticsService usageStatisticsService,
-        ApplicationAdmissionController applicationAdmissionController)
+        ModNullificationService modNullificationService, UsageStatisticsService usageStatisticsService,
+        ApplicationAdmissionController applicationAdmissionController, DeferredApplicationRetryCoordinator retryCoordinator)
     {
         _loggerFactory = loggerFactory;
         _gameObjectHandlerFactory = gameObjectHandlerFactory;
@@ -61,9 +60,9 @@ public class PairHandlerFactory
         _visibilityService = visibilityService;
         _databaseService = databaseService;
         _modNullificationService = modNullificationService;
-        _frameScheduler = frameScheduler;
         _usageStatisticsService = usageStatisticsService;
         _applicationAdmissionController = applicationAdmissionController;
+        _retryCoordinator = retryCoordinator;
     }
 
     public PairHandler Create(Pair pair)
@@ -71,6 +70,6 @@ public class PairHandlerFactory
         return new PairHandler(_loggerFactory.CreateLogger<PairHandler>(), pair, _pairAnalyzerFactory.Create(pair), _gameObjectHandlerFactory,
             _ipcManager, _fileDownloadManagerFactory.Create(), _pluginWarningNotificationManager, _dalamudUtilService, _hostApplicationLifetime,
             _fileCacheManager, _snowMediator, _playerPerformanceService, _notesStore, _configService, _visibilityService, _databaseService,
-            _modNullificationService, _frameScheduler, _usageStatisticsService, _applicationAdmissionController);
+            _modNullificationService, _usageStatisticsService, _applicationAdmissionController, _retryCoordinator);
     }
 }

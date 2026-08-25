@@ -135,8 +135,8 @@ public static unsafe class DrawStateReader
             return GameObjectDrawCondition.DrawObjectZero;
         }
 
-        var renderFlags = ((GameObject*)address)->RenderFlags != VisibilityFlags.None;
-        if (renderFlags)
+        var modelHidden = (((GameObject*)address)->RenderFlags & VisibilityFlags.Model) != 0;
+        if (modelHidden)
         {
             return GameObjectDrawCondition.RenderFlags;
         }

@@ -1,5 +1,6 @@
 using MessagePack;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Manifest;
@@ -59,12 +60,21 @@ public partial class ApiController
         if (response.Result != SessionResumeResult.Resumed)
         {
             ServerState = ConnectionServerState.Connected;
-            _sessionResumeState.AbandonBuffer();
-            _sessionResumeState.Establish(connection.SessionId);
+            _sessionResumeState.BeginFullResync(connection.SessionId, response.ReplayThrough);
             return false;
         }
 
-        await _sessionResumeState.CompleteAsync(response, ApplyReplayEventAsync).ConfigureAwait(false);
+        try
+        {
+            await _sessionResumeState.CompleteAsync(response, ApplyReplayEventAsync).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Session replay failed; falling back to a full authoritative resynchronization");
+            _sessionResumeState.BeginFullResync(connection.SessionId, response.ReplayThrough);
+            ServerState = ConnectionServerState.Connected;
+            return false;
+        }
         _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.Resynced);
         ServerState = ConnectionServerState.Connected;
         return true;

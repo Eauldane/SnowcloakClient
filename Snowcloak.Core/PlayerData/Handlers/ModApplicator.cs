@@ -34,8 +34,6 @@ public sealed partial class ModApplicator
         Func<Task<ushort?>> resolveObjectIndex, Guid applicationId, bool updateModdedPaths, bool updateManip,
         Dictionary<string, string> moddedPaths, string manipulationData, CancellationToken token)
     {
-        var objIndex = ushort.MaxValue;
-
         if (target.PenumbraCollection == Guid.Empty)
         {
             var index = await resolveObjectIndex().ConfigureAwait(false);
@@ -45,9 +43,8 @@ public sealed partial class ModApplicator
                 return false;
             }
 
-            objIndex = index.Value;
             target.PenumbraCollection = await _penumbra.CreateTemporaryCollectionAsync(logger, collectionOwnerUid).ConfigureAwait(false);
-            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, objIndex).ConfigureAwait(false);
+            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, index.Value).ConfigureAwait(false);
         }
 
         await _gameState.WaitWhileCharacterIsDrawing(logger, handle, applicationId, 30000, token).ConfigureAwait(false);
@@ -55,19 +52,6 @@ public sealed partial class ModApplicator
 
         if (updateModdedPaths)
         {
-            if (objIndex == ushort.MaxValue)
-            {
-                var index = await resolveObjectIndex().ConfigureAwait(false);
-                if (index == null)
-                {
-                    LogAbortingNoObjectIndexBeforeMods(logger);
-                    return false;
-                }
-
-                objIndex = index.Value;
-            }
-
-            await _penumbra.AssignTemporaryCollectionAsync(logger, target.PenumbraCollection, objIndex).ConfigureAwait(false);
             await _penumbra.SetTemporaryModsAsync(logger, applicationId, target.PenumbraCollection, moddedPaths).ConfigureAwait(false);
         }
 
@@ -139,6 +123,9 @@ public sealed partial class ModApplicator
                     break;
 
                 case PlayerChanges.ForcedRedraw:
+                    // Glamourer only redraws for changes that its own state diff considers redraw-worthy.
+                    // A successful IPC invocation therefore cannot satisfy Snowcloak's independent redraw
+                    // obligation for newly installed Penumbra file redirects such as skeleton replacements.
                     await _penumbra.RedrawAsync(logger, handle, applicationId, token).ConfigureAwait(false);
                     break;
 
@@ -155,6 +142,4 @@ public sealed partial class ModApplicator
     [LoggerMessage(Level = LogLevel.Information, Message = "Aborting application task, unable to obtain object index")]
     private static partial void LogAbortingNoObjectIndex(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Aborting application task, unable to obtain object index before applying mods")]
-    private static partial void LogAbortingNoObjectIndexBeforeMods(ILogger logger);
 }
