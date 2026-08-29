@@ -54,6 +54,13 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly PairRequestService _pairRequestService;
     private readonly ServerRegistry _serverManager;
     private readonly TokenProvider _tokenProvider;
+    public Snowcloak.API.Dto.CharacterIdentityMigrationDto? PendingIdentityMigration => _tokenProvider.PendingMigration;
+    public void ResolveIdentityMigration(Guid? profileId, bool separate)
+    {
+        _tokenProvider.ResolveMigration(profileId, separate);
+        _ = CreateConnections();
+    }
+
     private readonly SingleFlightCts _systemInfoPollFlight = new();
     private readonly SingleFlightCts _sessionGraceFlight = new();
     private readonly SessionResumeState _sessionResumeState = new();

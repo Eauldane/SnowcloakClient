@@ -157,15 +157,6 @@ public partial class CompactUi
 
     private void AssignCurrentCharacterToKey(ServerStorage server, int secretKeyIdx)
     {
-        var characterName = _dalamudUtilService.GetPlayerName();
-        var worldId = _dalamudUtilService.GetHomeWorldId();
-        server.Authentications.RemoveAll(item => string.Equals(item.CharacterName, characterName, StringComparison.Ordinal) && item.WorldId == worldId);
-        server.Authentications.Add(new Configuration.Models.Authentication()
-        {
-            CharacterName = characterName,
-            WorldId = worldId,
-            SecretKeyIdx = secretKeyIdx
-        });
-        _serverManager.Save();
+        _serverManager.AssignCharacterToSecretKey(server, _dalamudUtilService.GetCurrentCharacterIdentity(), secretKeyIdx);
     }
 }

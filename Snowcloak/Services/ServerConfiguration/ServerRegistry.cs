@@ -1,23 +1,28 @@
+using Snowcloak.API.Protocol;
 ﻿using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
 using Snowcloak.WebAPI;
 using System.Diagnostics;
+using Snowcloak.Core.PlayerData;
 
 namespace Snowcloak.Services.ServerConfiguration;
 
 public sealed class ServerRegistry
 {
     private readonly ServerConfigService _configService;
+    private readonly CharacterIdentityConfigService _identityConfig;
     private readonly DalamudUtilService _dalamudUtil;
     private readonly ILogger<ServerRegistry> _logger;
     private string? _realApiUrl;
 
-    public ServerRegistry(ILogger<ServerRegistry> logger, ServerConfigService configService, DalamudUtilService dalamudUtil)
+    public ServerRegistry(ILogger<ServerRegistry> logger, ServerConfigService configService, DalamudUtilService dalamudUtil,
+        CharacterIdentityConfigService identityConfig)
     {
         _logger = logger;
         _configService = configService;
+        _identityConfig = identityConfig;
         _dalamudUtil = dalamudUtil;
 
         EnsureMainExists();
@@ -61,20 +66,16 @@ public sealed class ServerRegistry
             return;
         }
 
-        var characterName = _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult();
-        var worldId = _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult();
-        if (server.Authentications.Any(c => string.Equals(c.CharacterName, characterName, StringComparison.Ordinal) && c.WorldId == worldId))
-        {
+        var character = GetCurrentCharacterIdentity();
+        if (!character.IsValid)
             return;
-        }
-
-        server.Authentications.Add(new Authentication
-        {
-            CharacterName = characterName,
-            WorldId = worldId,
-            SecretKeyIdx = secretKeyIdx ?? server.SecretKeys.Last().Key
-        });
-
+        var assignment = GetCharacterAssignment(server, character, out var ambiguous);
+        if (ambiguous)
+            return;
+        if (assignment == null)
+            AssignCharacterToSecretKey(server, character, secretKeyIdx ?? server.SecretKeys.Last().Key, save: false);
+        else if (secretKeyIdx.HasValue)
+            assignment.SecretKeyIdx = secretKeyIdx.Value;
         if (save)
         {
             Save();
@@ -143,41 +144,34 @@ public sealed class ServerRegistry
             Save();
         }
 
-        var charaName = _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult();
-        var worldId = _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult();
+        var character = GetCurrentCharacterIdentity();
+        if (!character.IsValid)
+            return null;
         if (!currentServer.Authentications.Any() && currentServer.SecretKeys.Any())
         {
-            currentServer.Authentications.Add(new Authentication
-            {
-                CharacterName = charaName,
-                WorldId = worldId,
-                SecretKeyIdx = currentServer.SecretKeys.Last().Key
-            });
-
-            Save();
+            AssignCharacterToSecretKey(currentServer, character, currentServer.SecretKeys.Last().Key);
         }
 
-        var auth = currentServer.Authentications.FindAll(f => string.Equals(f.CharacterName, charaName, StringComparison.Ordinal) && f.WorldId == worldId);
-        if (auth.Count >= 2)
+        var auth = GetCharacterAssignment(currentServer, character, out hasMulti);
+        if (hasMulti)
         {
-            _logger.LogTrace("GetSecretKey accessed, returning null because multiple ({count}) identical characters.", auth.Count);
-            hasMulti = true;
+            _logger.LogTrace("Secret key selection rejected ambiguous character assignments.");
             return null;
         }
 
-        if (auth.Count == 0)
+        if (auth == null)
         {
-            _logger.LogTrace("GetSecretKey accessed, returning null because no set up characters for {chara} on {world}", charaName, worldId);
+            _logger.LogTrace("No assignment exists for the current character.");
             return null;
         }
 
-        if (currentServer.SecretKeys.TryGetValue(auth.Single().SecretKeyIdx, out var secretKey))
+        if (currentServer.SecretKeys.TryGetValue(auth.SecretKeyIdx, out var secretKey))
         {
-            _logger.LogTrace("GetSecretKey accessed, returning {key} ({keyValue}) for {chara} on {world}", secretKey.FriendlyName, string.Join("", secretKey.Key.Take(10)), charaName, worldId);
+            _logger.LogTrace("Selected the current character's assigned secret key.");
             return secretKey.Key;
         }
 
-        _logger.LogTrace("GetSecretKey accessed, returning null because no fitting key found for {chara} on {world} for idx {idx}.", charaName, worldId, auth.Single().SecretKeyIdx);
+        _logger.LogTrace("The current character's assignment references a missing secret key.");
         return null;
     }
 
@@ -189,9 +183,79 @@ public sealed class ServerRegistry
         }
 
         var server = GetServerByIndex(serverSelectionIndex);
-        var playerName = _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult();
-        var worldId = _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult();
-        return server.Authentications.Any(c => string.Equals(c.CharacterName, playerName, StringComparison.Ordinal) && c.WorldId == worldId);
+        return GetCharacterAssignment(server, GetCurrentCharacterIdentity(), out _) != null;
+    }
+
+    public CharacterIdentity GetCurrentCharacterIdentity()
+        => _dalamudUtil.GetCurrentCharacterIdentityAsync().GetAwaiter().GetResult();
+
+    public Authentication? GetCurrentCharacterAssignment(ServerStorage server)
+        => GetCharacterAssignment(server, GetCurrentCharacterIdentity(), out _);
+
+    public Authentication? GetCharacterAssignment(ServerStorage server, CharacterIdentity character, out bool ambiguous)
+    {
+        ambiguous = false;
+        if (!character.IsValid)
+            return null;
+
+        var restored = false;
+        if (_identityConfig.Current.Servers.TryGetValue(server.ServerUri, out var remembered))
+        {
+            foreach (var legacy in server.Authentications.Where(a => a.ContentId == 0))
+            {
+                var identities = remembered.Where(i => i.IsValid && CharacterAssignmentResolver.MatchesLegacy(legacy, i))
+                    .Select(i => i.ContentId).Distinct().Take(2).ToArray();
+                if (identities.Length == 1)
+                {
+                    legacy.ContentId = identities[0];
+                    restored = true;
+                }
+                else if (identities.Length > 1 && CharacterAssignmentResolver.MatchesLegacy(legacy, character))
+                {
+                    ambiguous = true;
+                    return null;
+                }
+            }
+        }
+        var assignment = CharacterAssignmentResolver.Resolve(server.Authentications, character, out ambiguous);
+        if (assignment != null)
+        {
+            if (_identityConfig.Current.CompletedBindings.TryGetValue(server.ServerUri, out var bindings)
+                && bindings.TryGetValue(character.ContentId, out var bindingId))
+                assignment.IdentityBindingId = bindingId;
+            if (!assignment.IdentityBindingId.HasValue && assignment.PendingLegacyIdents.Count == 0)
+            {
+                assignment.PendingLegacyIdents.Add(CharacterIdentityProtocol.LegacyIdent(assignment.CharacterName, assignment.WorldId));
+                restored = true;
+            }
+        }
+
+        if (assignment != null && _identityConfig.Current.PendingLegacyIdents.TryGetValue(server.ServerUri, out var pending)
+            && pending.TryGetValue(character.ContentId, out var aliases))
+            assignment.PendingLegacyIdents = assignment.PendingLegacyIdents.Concat(aliases).Distinct(StringComparer.Ordinal).ToList();
+
+        if ((assignment != null && CharacterAssignmentResolver.UpdateIdentity(assignment, character)) || restored)
+            Save();
+        return assignment;
+    }
+
+    public void AssignCharacterToSecretKey(ServerStorage server, CharacterIdentity character, int secretKeyIdx, bool save = true)
+    {
+        if (!character.IsValid || !server.SecretKeys.ContainsKey(secretKeyIdx))
+            throw new InvalidOperationException("A loaded character and an existing secret key are required for assignment.");
+
+        var assignment = GetCharacterAssignment(server, character, out var ambiguous);
+        if (ambiguous)
+            throw new InvalidOperationException("Remove duplicate character assignments before selecting a secret key.");
+        if (assignment == null)
+        {
+            assignment = new Authentication();
+            CharacterAssignmentResolver.UpdateIdentity(assignment, character);
+            server.Authentications.Add(assignment);
+        }
+        assignment.SecretKeyIdx = secretKeyIdx;
+        if (save)
+            Save();
     }
 
     public bool HasValidConfig()
@@ -211,6 +275,66 @@ public sealed class ServerRegistry
         var caller = new StackTrace().GetFrame(1)?.GetMethod()?.ReflectedType?.Name ?? "Unknown";
         _logger.LogDebug("{caller} Calling config save", caller);
         _configService.Update(_ => { });
+        RememberCharacterIdentities();
+    }
+
+    private void RememberCharacterIdentities()
+    {
+        foreach (var server in _configService.Current.ServerStorage)
+        {
+            var known = _identityConfig.Current.Servers.GetValueOrDefault(server.ServerUri) ?? [];
+            var pending = _identityConfig.Current.PendingLegacyIdents.GetValueOrDefault(server.ServerUri) ?? [];
+            var updatedPending = pending.ToDictionary(p => p.Key, p => p.Value.ToList());
+            var updated = known.ToList();
+            foreach (var group in server.Authentications.Where(a => a.ContentId != 0).GroupBy(a => a.ContentId))
+            {
+                if (group.Count() != 1)
+                    continue;
+                var assignment = group.Single();
+                var identity = new CharacterIdentity(assignment.ContentId, assignment.CharacterName, assignment.WorldId);
+                if (!identity.IsValid)
+                    continue;
+                updated.RemoveAll(i => i.ContentId == identity.ContentId);
+                updated.Add(identity);
+                updatedPending[identity.ContentId] = assignment.PendingLegacyIdents.ToList();
+            }
+            updated.Sort((a, b) => a.ContentId.CompareTo(b.ContentId));
+            if (!updated.SequenceEqual(known) || updatedPending.Count != pending.Count
+                || updatedPending.Any(p => !pending.TryGetValue(p.Key, out var old) || !p.Value.SequenceEqual(old)))
+                _identityConfig.Update(c =>
+                {
+                    c.Servers[server.ServerUri] = updated;
+                    c.PendingLegacyIdents[server.ServerUri] = updatedPending;
+                });
+        }
+    }
+
+    public string[] GetPendingIdentityAliases(string apiUrl, ulong contentId, string secretKey)
+    {
+        var server = _configService.Current.ServerStorage.SingleOrDefault(s => s.ServerUri == apiUrl);
+        var assignment = server?.Authentications.SingleOrDefault(a => a.ContentId == contentId);
+        if (assignment == null || !server!.SecretKeys.TryGetValue(assignment.SecretKeyIdx, out var key) || key.Key != secretKey)
+            throw new InvalidOperationException("The character key assignment changed during authentication.");
+        return assignment.PendingLegacyIdents.ToArray();
+    }
+
+    public void AcknowledgeIdentityAliases(string apiUrl, ulong contentId, string secretKey, Guid bindingId, string[] aliases)
+    {
+        var server = _configService.Current.ServerStorage.SingleOrDefault(s => s.ServerUri == apiUrl);
+        var assignment = server?.Authentications.SingleOrDefault(a => a.ContentId == contentId);
+        if (assignment == null || !server!.SecretKeys.TryGetValue(assignment.SecretKeyIdx, out var key) || key.Key != secretKey)
+            return;
+        assignment.PendingLegacyIdents.RemoveAll(aliases.Contains);
+        assignment.IdentityBindingId = bindingId;
+        _identityConfig.Update(c =>
+        {
+            if (!c.CompletedBindings.TryGetValue(apiUrl, out var bindings))
+                c.CompletedBindings[apiUrl] = bindings = [];
+            bindings[contentId] = bindingId;
+        });
+        if (_identityConfig.Current.PendingLegacyIdents.TryGetValue(apiUrl, out var pending))
+            _identityConfig.Update(_ => pending[contentId] = assignment.PendingLegacyIdents.ToList());
+        Save();
     }
 
     public void SelectServer(int idx)

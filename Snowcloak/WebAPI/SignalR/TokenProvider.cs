@@ -1,3 +1,4 @@
+using Snowcloak.API.Protocol;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto;
 using Snowcloak.API.Routes;
@@ -20,8 +21,6 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(90);
     private static readonly Action<ILogger, Exception?> LogIdentityUnavailable =
         LoggerMessage.Define(LogLevel.Error, new EventId(1, nameof(LogIdentityUnavailable)), "Unable to resolve an authentication identity");
-    private static readonly Action<ILogger, Exception?> LogIdentityReused =
-        LoggerMessage.Define(LogLevel.Warning, new EventId(2, nameof(LogIdentityReused)), "Unable to refresh the authentication identity; using the last resolved identity");
     private readonly DalamudUtilService _dalamudUtil;
     private readonly HttpClient _httpClient;
     private readonly ILogger<TokenProvider> _logger;
@@ -29,7 +28,31 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     private readonly ConcurrentDictionary<JwtIdentifier, CachedTokenBundle> _tokenCache = new();
     private readonly ConcurrentDictionary<string, string?> _wellKnownCache = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private JwtIdentifier? _lastJwtIdentifier;
+    private sealed record MigrationPrompt(JwtIdentifier Identifier, CharacterIdentityMigrationDto Response);
+    private MigrationPrompt? _migrationPrompt;
+    private readonly ConcurrentDictionary<JwtIdentifier, (Guid? ProfileId, bool Separate)> _migrationChoices = new();
+
+    public CharacterIdentityMigrationDto? PendingMigration
+    {
+        get
+        {
+            var prompt = Volatile.Read(ref _migrationPrompt);
+            var character = _serverManager.GetCurrentCharacterIdentity();
+            return prompt != null && character.IsValid && prompt.Identifier.ContentId == character.ContentId
+                && prompt.Identifier.ApiUrl == _serverManager.CurrentApiUrl ? prompt.Response : null;
+        }
+    }
+
+    public void ResolveMigration(Guid? profileId, bool separate)
+    {
+        var prompt = Volatile.Read(ref _migrationPrompt);
+        if (prompt == null || PendingMigration == null
+            || (separate ? !prompt.Response.CanCreateSeparateIdentity : !prompt.Response.Profiles.Any(p => p.ProfileId == profileId)))
+            return;
+        _migrationChoices[prompt.Identifier] = (profileId, separate);
+        Remove(prompt.Identifier);
+        Volatile.Write(ref _migrationPrompt, null);
+    }
     private bool _disposed;
 
     public TokenProvider(ILogger<TokenProvider> logger, ServerRegistry serverManager,
@@ -112,15 +135,24 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     {
         try
         {
-            var tokenUri = SnowAuth.AuthV2FullPath(new Uri(_serverManager.CurrentApiUrl
+            var tokenUri = SnowAuth.AuthContentIdFullPath(new Uri(identifier.ApiUrl
                 .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
                 .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase)));
-            var secretKey = _serverManager.GetSecretKey(out _)!;
-            using var formContent = new FormUrlEncodedContent([
-                new("auth", secretKey.GetHash256()),
-                new("charaIdent", await _dalamudUtil.GetPlayerNameHashedAsync().ConfigureAwait(false))
-            ]);
-            using var result = await _httpClient.PostAsync(tokenUri, formContent, cancellationToken).ConfigureAwait(false);
+            var aliases = _serverManager.GetPendingIdentityAliases(identifier.ApiUrl, identifier.ContentId, identifier.SecretKey);
+            _migrationChoices.TryGetValue(identifier, out var choice);
+            var request = new CharacterIdentityLoginDto
+            {
+                Auth = identifier.SecretKey.GetHash256(), CharacterIdent = identifier.CharaHash,
+                LegacyIdents = aliases, RecoverProfileId = choice.ProfileId, CreateSeparateIdentity = choice.Separate
+            };
+            using var result = await _httpClient.PostAsJsonAsync(tokenUri, request, cancellationToken).ConfigureAwait(false);
+            if (result.StatusCode == HttpStatusCode.Conflict)
+            {
+                var migration = await result.Content.ReadFromJsonAsync<CharacterIdentityMigrationDto>(cancellationToken).ConfigureAwait(false)
+                    ?? new() { Message = "Character identity migration needs attention." };
+                Volatile.Write(ref _migrationPrompt, new MigrationPrompt(identifier, migration));
+                throw new SnowAuthFailureException(migration.Message + " Open Settings > Service to resolve the profile migration.");
+            }
             if (!result.IsSuccessStatusCode)
             {
                 var textResponse = await result.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false) ?? string.Empty;
@@ -134,6 +166,14 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
             }
 
             var response = await result.Content.ReadFromJsonAsync<AuthReplyDto>(cancellationToken).ConfigureAwait(false) ?? new();
+            if (!response.CharacterIdentityId.HasValue)
+                throw new SnowAuthFailureException("The server did not acknowledge the ContentID binding. API 4203 is required.");
+            if (await GetIdentifier().ConfigureAwait(false) != identifier)
+                throw new OperationCanceledException("The active character or key changed during authentication.");
+            _serverManager.AcknowledgeIdentityAliases(identifier.ApiUrl, identifier.ContentId, identifier.SecretKey,
+                response.CharacterIdentityId.Value, response.AcknowledgedLegacyIdents.Intersect(aliases, StringComparer.Ordinal).ToArray());
+            _migrationChoices.TryRemove(identifier, out _);
+            Volatile.Write(ref _migrationPrompt, null);
             var accessTokens = response.AccessTokens;
             var fallback = response.Token;
             var bundle = new CachedTokenBundle(
@@ -141,7 +181,7 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
                 CachedToken.Create(string.IsNullOrWhiteSpace(accessTokens.FilesToken) ? fallback : accessTokens.FilesToken),
                 CachedToken.Create(string.IsNullOrWhiteSpace(accessTokens.AuthToken) ? fallback : accessTokens.AuthToken));
             _tokenCache[identifier] = bundle;
-            _wellKnownCache[_serverManager.CurrentApiUrl] = response.WellKnown;
+            _wellKnownCache[identifier.ApiUrl] = response.WellKnown;
             return bundle;
         }
         catch (HttpRequestException ex)
@@ -160,15 +200,14 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     {
         try
         {
-            var playerIdentifier = await _dalamudUtil.GetPlayerNameHashedAsync().ConfigureAwait(false);
-            if (string.IsNullOrEmpty(playerIdentifier))
-            {
-                return _lastJwtIdentifier;
-            }
-
-            var identifier = new JwtIdentifier(_serverManager.CurrentApiUrl, playerIdentifier, _serverManager.GetSecretKey(out _)!);
-            _lastJwtIdentifier = identifier;
-            return identifier;
+            var character = await _dalamudUtil.GetCurrentCharacterIdentityAsync().ConfigureAwait(false);
+            if (!character.IsValid)
+                return null;
+            var server = _serverManager.CurrentServer;
+            var assignment = _serverManager.GetCharacterAssignment(server, character, out var ambiguous);
+            if (ambiguous || assignment == null || !server.SecretKeys.TryGetValue(assignment.SecretKeyIdx, out var key))
+                return null;
+            return new JwtIdentifier(server.ServerUri, CharacterIdentityProtocol.FromContentId(character.ContentId), key.Key, character.ContentId);
         }
         catch (InvalidOperationException ex)
         {
@@ -186,14 +225,8 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
 
     private JwtIdentifier? HandleIdentifierFailure(Exception ex)
     {
-        if (_lastJwtIdentifier == null)
-        {
-            LogIdentityUnavailable(_logger, ex);
-            return null;
-        }
-
-        LogIdentityReused(_logger, ex);
-        return _lastJwtIdentifier;
+        LogIdentityUnavailable(_logger, ex);
+        return null;
     }
 
     private void Remove(JwtIdentifier identifier)
@@ -204,7 +237,8 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
 
     private void Clear()
     {
-        _lastJwtIdentifier = null;
+        Volatile.Write(ref _migrationPrompt, null);
+        _migrationChoices.Clear();
         _tokenCache.Clear();
         _wellKnownCache.Clear();
     }

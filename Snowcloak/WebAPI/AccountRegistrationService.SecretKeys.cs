@@ -105,6 +105,7 @@ public sealed partial class AccountRegistrationService
             });
         }
 
+        _serverManager.Save();
         if (assignCurrentCharacter)
         {
             await AssignCurrentCharacterToSecretKeyAsync(server, keyIdx.Value).ConfigureAwait(false);
@@ -155,6 +156,9 @@ public sealed partial class AccountRegistrationService
             }
         }
 
+        if (newKeyCount > 0)
+            _serverManager.Save();
+
         if (assignCurrentCharacter && assignmentKeyIdx.HasValue)
         {
             await AssignCurrentCharacterToSecretKeyAsync(server, assignmentKeyIdx.Value).ConfigureAwait(false);
@@ -170,25 +174,8 @@ public sealed partial class AccountRegistrationService
 
     private async Task AssignCurrentCharacterToSecretKeyAsync(ServerStorage server, int secretKeyIdx)
     {
-        var currentPlayerName = await _dalamudUtilService.GetPlayerNameAsync().ConfigureAwait(false);
-        var currentPlayerWorldId = await _dalamudUtilService.GetHomeWorldIdAsync().ConfigureAwait(false);
-        var assignedCharacter = server.Authentications.Find(a =>
-            string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
-            && a.WorldId == currentPlayerWorldId);
-
-        if (assignedCharacter == null)
-        {
-            server.Authentications.Add(new Authentication
-            {
-                CharacterName = currentPlayerName,
-                WorldId = currentPlayerWorldId,
-                SecretKeyIdx = secretKeyIdx
-            });
-        }
-        else
-        {
-            assignedCharacter.SecretKeyIdx = secretKeyIdx;
-        }
+        var character = await _dalamudUtilService.GetCurrentCharacterIdentityAsync().ConfigureAwait(false);
+        _serverManager.AssignCharacterToSecretKey(server, character, secretKeyIdx, save: false);
     }
 
     private static string[] GetLocalSecretKeys(ServerStorage server)

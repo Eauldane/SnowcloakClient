@@ -8,6 +8,7 @@ using Snowcloak.API.Dto.Account;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
+using Snowcloak.Core.PlayerData;
 
 namespace Snowcloak.UI.Components.Account;
 
@@ -19,8 +20,7 @@ public sealed class CharacterKeyAssignmentFlow
     private readonly AsyncOp<RegisterReplyDto> _operation = new();
 
     private ServerStorage? _server;
-    private string _playerName = string.Empty;
-    private uint _worldId;
+    private CharacterIdentity _character;
     private bool _removeInvalidSecretKey;
     private int? _invalidSecretKeyIdx;
     private string _successMessage = string.Empty;
@@ -42,8 +42,11 @@ public sealed class CharacterKeyAssignmentFlow
         string successMessage, string failureLogMessage)
     {
         _server = server;
-        _playerName = playerName;
-        _worldId = worldId;
+        _character = _serverRegistry.GetCurrentCharacterIdentity();
+        if (!_character.IsValid
+            || !string.Equals(_character.Name, playerName, StringComparison.Ordinal)
+            || _character.HomeWorldId != worldId)
+            throw new InvalidOperationException("The character changed before key registration started.");
         _removeInvalidSecretKey = removeInvalidSecretKey;
         _invalidSecretKeyIdx = invalidSecretKeyIdx;
         _successMessage = successMessage;
@@ -86,11 +89,19 @@ public sealed class CharacterKeyAssignmentFlow
             var reply = _operation.Result;
             if (reply is { Success: true } && _server != null)
             {
-                AssignRegisteredKeyToCurrentCharacter(_server, _playerName, _worldId, reply, _removeInvalidSecretKey, _invalidSecretKeyIdx);
-                _serverRegistry.Save();
-                _ = _apiController.CreateConnections();
-                _success = true;
-                _message = _successMessage;
+                try
+                {
+                    AssignRegisteredKeyToCurrentCharacter(_server, _character, reply, _removeInvalidSecretKey, _invalidSecretKeyIdx);
+                    _serverRegistry.Save();
+                    _ = _apiController.CreateConnections();
+                    _success = true;
+                    _message = _successMessage;
+                }
+                catch (InvalidOperationException)
+                {
+                    _success = false;
+                    _message = "The new key was saved, but the character assignment is ambiguous. Remove duplicate assignments and select the saved key.";
+                }
             }
             else
             {
@@ -105,13 +116,9 @@ public sealed class CharacterKeyAssignmentFlow
         _operation.Reset();
     }
 
-    private static void AssignRegisteredKeyToCurrentCharacter(ServerStorage server, string currentPlayerName, uint currentPlayerWorldId,
+    private void AssignRegisteredKeyToCurrentCharacter(ServerStorage server, CharacterIdentity character,
         RegisterReplyDto reply, bool removeInvalidSecretKey, int? invalidSecretKeyIdx)
     {
-        var assignedCharacter = server.Authentications.Find(a =>
-            string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
-            && a.WorldId == currentPlayerWorldId);
-
         var newSecretKeyIdx = server.SecretKeys.Any() ? server.SecretKeys.Max(p => p.Key) + 1 : 0;
         server.SecretKeys.Add(newSecretKeyIdx, new SecretKey()
         {
@@ -119,6 +126,8 @@ public sealed class CharacterKeyAssignmentFlow
                 string.Format(CultureInfo.InvariantCulture, "(registered {0:yyyy-MM-dd})", DateTime.Now)),
             Key = reply.SecretKey ?? string.Empty
         });
+        // Preserve the generated credential even if assigning it is rejected.
+        _serverRegistry.Save();
 
         if (removeInvalidSecretKey && invalidSecretKeyIdx.HasValue)
         {
@@ -128,18 +137,6 @@ public sealed class CharacterKeyAssignmentFlow
             }
             server.SecretKeys.Remove(invalidSecretKeyIdx.Value);
         }
-        else if (assignedCharacter == null)
-        {
-            server.Authentications.Add(new Authentication()
-            {
-                CharacterName = currentPlayerName,
-                WorldId = currentPlayerWorldId,
-                SecretKeyIdx = newSecretKeyIdx
-            });
-        }
-        else
-        {
-            assignedCharacter.SecretKeyIdx = newSecretKeyIdx;
-        }
+        _serverRegistry.AssignCharacterToSecretKey(server, character, newSecretKeyIdx, save: false);
     }
 }

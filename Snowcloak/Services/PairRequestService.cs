@@ -266,7 +266,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
         if (!_configService.Current.EnableRightClickMenus) return;
         if (!_configService.Current.PairingSystemEnabled) return;
         if (args.MenuType == ContextMenuType.Inventory) return;
-        if (!PlayerInteractionService.TryGetIdentFromMenuTarget(args, out var ident)) return;
+        if (!PlayerInteractionService.TryGetIdentFromMenuTarget(args, _dalamudUtilService, out var ident)) return;
         if (!_availabilityStore.Contains(ident)) return;
         if (_configService.Current.PairRequestFriendsOnly && !_dalamudUtilService.IsFriendByIdent(ident))
             return;

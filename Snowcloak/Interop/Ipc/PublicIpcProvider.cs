@@ -2114,7 +2114,8 @@ public sealed class PublicIpcProvider : IHostedService, IMediatorSubscriber, IDi
             return Serialize(OperationFailure(SnowcloakOperationCode.NotFound, "The target player is not available."));
         }
 
-        var ident = (target.Name.TextValue + target.HomeWorld.RowId.ToString(CultureInfo.InvariantCulture)).GetHash256();
+        if (!_dalamudUtil.TryGetIdentByNameWorld(target.Name.TextValue, target.HomeWorld.RowId, out var ident))
+            return Serialize(OperationFailure(SnowcloakOperationCode.NotFound, "The target character identity is unavailable."));
         if (_pairManager.GetPairsSnapshot().Any(pair => string.Equals(pair.Ident, ident, StringComparison.Ordinal)))
         {
             return Serialize(OperationFailure(SnowcloakOperationCode.InvalidState, "The target is already a Snowcloak pair."));

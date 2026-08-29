@@ -120,7 +120,7 @@ public sealed class PlayerInteractionService
         }).ConfigureAwait(false);
     }
 
-    public static bool TryGetIdentFromMenuTarget(IMenuOpenedArgs args, out string ident)
+    public static bool TryGetIdentFromMenuTarget(IMenuOpenedArgs args, DalamudUtilService dalamud, out string ident)
     {
         ArgumentNullException.ThrowIfNull(args);
         ident = string.Empty;
@@ -135,8 +135,7 @@ public sealed class PlayerInteractionService
             return false;
         }
 
-        ident = (name + target.TargetHomeWorld.RowId).GetHash256();
-        return true;
+        return dalamud.TryGetIdentByNameWorld(name, target.TargetHomeWorld.RowId, out ident);
     }
 
     public LocationInfo GetMapData()

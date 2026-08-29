@@ -188,12 +188,8 @@ public partial class IntroUi : WindowMediatorSubscriberBase, IStaticWindow
             });
         }
 
-        var playerName = _dalamudUtilService.GetPlayerName();
-        var playerWorldId = _dalamudUtilService.GetHomeWorldId();
-        server.Authentications.RemoveAll(item =>
-            string.Equals(item.CharacterName, playerName, StringComparison.OrdinalIgnoreCase)
-            && item.WorldId == playerWorldId);
-        _serverConfigurationManager.AddCurrentCharacterToServer(secretKeyIdx: keyIndex, save: false);
+        _serverConfigurationManager.AssignCharacterToSecretKey(server,
+            _dalamudUtilService.GetCurrentCharacterIdentity(), keyIndex, save: false);
         _serverConfigurationManager.Save();
         _ = Task.Run(() => _apiController.CreateConnections());
     }

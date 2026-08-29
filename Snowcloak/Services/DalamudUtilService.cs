@@ -206,6 +206,21 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
 
     public Task<string> GetPlayerNameAsync() => _objectTableCache.GetPlayerNameAsync();
 
+    public Snowcloak.Core.PlayerData.CharacterIdentity GetCurrentCharacterIdentity()
+        => _objectTableCache.GetCurrentCharacterIdentity();
+
+    public Task<Snowcloak.Core.PlayerData.CharacterIdentity> GetCurrentCharacterIdentityAsync()
+        => _objectTableCache.GetCurrentCharacterIdentityAsync();
+
+    public IReadOnlyDictionary<ulong, ElezenPlayerCharacterData> PlayerCharactersByContentId
+        => _objectTableCache.PlayerCharactersByContentId;
+
+    public bool TryGetPlayerByContentId(ulong contentId, out ElezenPlayerCharacterData player)
+        => _objectTableCache.TryGetPlayerByContentId(contentId, out player);
+
+    public bool TryGetIdentByNameWorld(string name, uint world, out string ident)
+        => _objectTableCache.TryGetIdentByNameWorld(name, world, out ident);
+
     public Task<string> GetPlayerNameHashedAsync() => _objectTableCache.GetPlayerNameHashedAsync();
 
     public Task<IReadOnlyList<string>> GetNearbyPlayerNameHashesAsync(int maxPlayers = 0)

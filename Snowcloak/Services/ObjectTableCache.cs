@@ -1,3 +1,4 @@
+using Snowcloak.API.Protocol;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Snowcloak.Game.Interop;
 using Snowcloak.PlayerData.Handlers;
 using Snowcloak.Utils;
+using Snowcloak.Core.PlayerData;
 using System.Globalization;
 using DalamudGameObject = Dalamud.Game.ClientState.Objects.Types.IGameObject;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
@@ -27,9 +29,11 @@ public sealed class ObjectTableCache
     private readonly IObjectTable _objectTable;
     private readonly IPlayerState _playerState;
     private readonly BlockedCharacterHandler _blockedCharacterHandler;
-    private readonly Dictionary<string, PlayerCharacterData> _playerCharas = new(StringComparer.Ordinal);
-    private readonly List<string> _notUpdatedCharas = [];
-    private IReadOnlyDictionary<string, PlayerCharacterData> _snapshot = new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal);
+    private readonly Dictionary<ulong, PlayerInfo> _playerCharas = [];
+    private readonly List<ulong> _notUpdatedCharas = [];
+    private readonly HashSet<ulong> _capturedContentIds = [];
+    private PlayerSnapshot _snapshot = new(new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal),
+        new Dictionary<ulong, PlayerCharacterData>());
     private string _lastGlobalBlockPlayer = string.Empty;
     private string _lastGlobalBlockReason = string.Empty;
     private uint _classJobId;
@@ -48,7 +52,8 @@ public sealed class ObjectTableCache
 
     public bool IsAnythingDrawing { get; private set; }
     public uint ClassJobId => _classJobId;
-    public IReadOnlyDictionary<string, PlayerCharacterData> PlayerCharactersSnapshot => Volatile.Read(ref _snapshot);
+    public IReadOnlyDictionary<string, PlayerCharacterData> PlayerCharactersSnapshot => Volatile.Read(ref _snapshot).ByIdent;
+    public IReadOnlyDictionary<ulong, PlayerCharacterData> PlayerCharactersByContentId => Volatile.Read(ref _snapshot).ByContentId;
 
     public void SetLocalClassJob(ICharacter? localPlayer)
     {
@@ -60,6 +65,7 @@ public sealed class ObjectTableCache
 
     public void Refresh(bool skipUpdate)
     {
+        Service.EnsureOnFramework();
         IsAnythingDrawing = false;
 
         if (skipUpdate)
@@ -68,6 +74,7 @@ public sealed class ObjectTableCache
         }
 
         _notUpdatedCharas.AddRange(_playerCharas.Keys);
+        _capturedContentIds.Clear();
 
         for (var i = 0; i < _objectTable.Length; i++)
         {
@@ -84,14 +91,21 @@ public sealed class ObjectTableCache
             }
 
             var info = GetPlayerInfo(chara);
-
             if (!IsAnythingDrawing)
-            {
                 CheckCharacterForDrawing(info.Character);
+
+            var contentId = info.Character.ContentId;
+            if (contentId == 0)
+                continue;
+            if (!_capturedContentIds.Add(contentId))
+            {
+                _playerCharas.Remove(contentId);
+                _notUpdatedCharas.Remove(contentId);
+                continue;
             }
 
-            _notUpdatedCharas.Remove(info.Hash);
-            _playerCharas[info.Hash] = info.Character;
+            _notUpdatedCharas.Remove(contentId);
+            _playerCharas[contentId] = info;
         }
 
         foreach (var notUpdatedChara in _notUpdatedCharas)
@@ -100,7 +114,20 @@ public sealed class ObjectTableCache
         }
 
         _notUpdatedCharas.Clear();
-        Volatile.Write(ref _snapshot, new Dictionary<string, PlayerCharacterData>(_playerCharas, StringComparer.Ordinal));
+        var byContentId = _playerCharas.ToDictionary(p => p.Key, p => p.Value.Character);
+        var byIdent = new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal);
+        var duplicateAliases = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var info in _playerCharas.Values)
+        {
+            if (duplicateAliases.Contains(info.Hash))
+                continue;
+            if (!byIdent.TryAdd(info.Hash, info.Character))
+            {
+                byIdent.Remove(info.Hash);
+                duplicateAliases.Add(info.Hash);
+            }
+        }
+        Volatile.Write(ref _snapshot, new PlayerSnapshot(byIdent, byContentId));
     }
 
     public void FinishDrawingPass()
@@ -218,7 +245,7 @@ public sealed class ObjectTableCache
 
     public IntPtr GetPlayerCharacterFromCachedTableByName(string characterName)
     {
-        foreach (var c in _snapshot.Values)
+        foreach (var c in PlayerCharactersSnapshot.Values)
         {
             if (c.Name.Equals(characterName, StringComparison.Ordinal))
             {
@@ -231,7 +258,7 @@ public sealed class ObjectTableCache
 
     public IntPtr GetPlayerCharacterFromCachedTableByIdent(string characterName)
     {
-        return _snapshot.TryGetValue(characterName, out var pchar) ? pchar.Address : IntPtr.Zero;
+        return PlayerCharactersSnapshot.TryGetValue(characterName, out var pchar) ? pchar.Address : IntPtr.Zero;
     }
 
     public bool IsFriendByIdent(string ident)
@@ -268,16 +295,38 @@ public sealed class ObjectTableCache
         return await Service.RunOnFrameworkAsync(GetPlayerName).ConfigureAwait(false);
     }
 
+    public CharacterIdentity GetCurrentCharacterIdentity()
+    {
+        Service.EnsureOnFramework();
+        return GetIsPlayerPresent()
+            ? new CharacterIdentity(_playerState.ContentId, GetPlayerName(), GetHomeWorldId())
+            : default;
+    }
+
+    public Task<CharacterIdentity> GetCurrentCharacterIdentityAsync()
+        => Service.RunOnFrameworkAsync(GetCurrentCharacterIdentity);
+
+    public bool TryGetIdentByNameWorld(string name, uint world, out string ident)
+    {
+        var players = PlayerCharactersByContentId.Values.Where(p => p.Name == name && p.HomeWorldId == world).Take(2).ToArray();
+        ident = players.Length == 1 ? CharacterIdentityProtocol.FromContentId(players[0].ContentId) : string.Empty;
+        return ident.Length != 0;
+    }
+
+    public bool TryGetPlayerByContentId(ulong contentId, out PlayerCharacterData player)
+        => PlayerCharactersByContentId.TryGetValue(contentId, out player);
+
     public async Task<string> GetPlayerNameHashedAsync()
     {
-        return await Service.RunOnFrameworkAsync(() => (GetPlayerName() + GetHomeWorldId()).GetHash256()).ConfigureAwait(false);
+        return await Service.RunOnFrameworkAsync(() => GetCurrentCharacterIdentity() is { IsValid: true } character
+            ? CharacterIdentityProtocol.FromContentId(character.ContentId) : string.Empty).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<string>> GetNearbyPlayerNameHashesAsync(int maxPlayers = 0)
     {
         return await Service.RunOnFrameworkAsync(() =>
         {
-            var hashes = _snapshot.Keys;
+            var hashes = PlayerCharactersSnapshot.Keys;
             return maxPlayers > 0
                 ? hashes.Take(maxPlayers).ToList()
                 : hashes.ToList();
@@ -417,7 +466,7 @@ public sealed class ObjectTableCache
         var playerData = new PlayerCharacterData(
             chara.GameObjectId,
             chara.EntityId,
-            _objectTable.LocalPlayer?.Address == chara.Address ? _playerState.ContentId : 0,
+            _objectTable.LocalPlayer?.Address == chara.Address ? _playerState.ContentId : battleChara->Character.ContentId,
             chara.Address,
             chara.Name.TextValue,
             currentWorldId,
@@ -430,7 +479,7 @@ public sealed class ObjectTableCache
             level,
             false);
 
-        return new PlayerInfo(playerData, Crypto.GetHash256(playerData.Name + playerData.HomeWorldId.ToString(CultureInfo.InvariantCulture)));
+        return new PlayerInfo(playerData, playerData.ContentId == 0 ? string.Empty : CharacterIdentityProtocol.FromContentId(playerData.ContentId));
     }
 
     private unsafe void CheckCharacterForDrawing(PlayerCharacterData p)
@@ -490,4 +539,6 @@ public sealed class ObjectTableCache
     }
 
     private readonly record struct PlayerInfo(PlayerCharacterData Character, string Hash);
+    private sealed record PlayerSnapshot(IReadOnlyDictionary<string, PlayerCharacterData> ByIdent,
+        IReadOnlyDictionary<ulong, PlayerCharacterData> ByContentId);
 }

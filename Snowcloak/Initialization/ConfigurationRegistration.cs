@@ -14,6 +14,7 @@ internal static class ConfigurationRegistration
 
         collection.AddSingleton<SnowcloakConfigService>();
         collection.AddSingleton<ServerConfigService>();
+        collection.AddSingleton<CharacterIdentityConfigService>();
         collection.AddSingleton<NotesConfigService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<NotesConfigService>());
         collection.AddSingleton<ServerTagConfigService>();

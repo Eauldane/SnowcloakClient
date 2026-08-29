@@ -119,7 +119,7 @@ public sealed class GameChatVanityColourService : IDisposable
         return false;
     }
 
-    private static IEnumerable<string> EnumerateSenderIdents(SeString sender, SeString message)
+    private IEnumerable<string> EnumerateSenderIdents(SeString sender, SeString message)
     {
         HashSet<string> yielded = new(StringComparer.Ordinal);
         foreach (var playerPayload in EnumeratePlayerPayloads(sender, message))
@@ -131,7 +131,7 @@ public sealed class GameChatVanityColourService : IDisposable
         }
     }
 
-    private static bool TryResolveIdentFromPlayerPayload(PlayerPayload playerPayload, out string ident)
+    private bool TryResolveIdentFromPlayerPayload(PlayerPayload playerPayload, out string ident)
     {
         ident = string.Empty;
         var playerName = playerPayload.PlayerName?.Trim();
@@ -140,8 +140,7 @@ public sealed class GameChatVanityColourService : IDisposable
             return false;
         }
 
-        ident = (playerName + playerPayload.World.RowId).GetHash256();
-        return !string.IsNullOrWhiteSpace(ident);
+        return _dalamudUtil.TryGetIdentByNameWorld(playerName, playerPayload.World.RowId, out ident);
     }
 
     private static List<string> EnumerateSenderNameCandidates(SeString sender, SeString message)

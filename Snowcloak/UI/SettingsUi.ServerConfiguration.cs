@@ -30,6 +30,17 @@ public partial class SettingsUi
 
     private void DrawServerConfiguration()
     {
+        if (_apiController.PendingIdentityMigration is { } migration)
+        {
+            ElezenImgui.ColouredWrappedText(migration.Message, ImGuiColors.DalamudYellow);
+            foreach (var candidate in migration.Profiles)
+                if (ImGui.Button($"Use profile: {candidate.DisplayName}##migrate-{candidate.ProfileId}"))
+                    _apiController.ResolveIdentityMigration(candidate.ProfileId, separate: false);
+            if (migration.CanCreateSeparateIdentity && ImGui.Button("Save profiles separately"))
+                _apiController.ResolveIdentityMigration(null, separate: true);
+            ImGui.Separator();
+        }
+
         if (ApiController.IsConnected)
         {
             _fontService.BigText("Service Actions");
@@ -63,11 +74,7 @@ public partial class SettingsUi
                     if (ImGui.Button(_deleteUidTask == null ? "Delete current UID" : "Deleting...", new Vector2(buttonSize, 0)))
                     {
                         var currentServer = _serverConfigurationManager.CurrentServer;
-                        var currentPlayerName = _dalamudUtilService.GetPlayerName();
-                        var currentPlayerWorldId = _dalamudUtilService.GetHomeWorldId();
-                        _deleteUidSecretKeyIndex = currentServer.Authentications
-                            .FirstOrDefault(a => string.Equals(a.CharacterName, currentPlayerName, StringComparison.OrdinalIgnoreCase)
-                                                 && a.WorldId == currentPlayerWorldId)
+                        _deleteUidSecretKeyIndex = _serverConfigurationManager.GetCurrentCharacterAssignment(currentServer)
                             ?.SecretKeyIdx;
                         _deleteUidError = string.Empty;
                         var deleteTask = DeleteCurrentUidAsync();
@@ -182,14 +189,14 @@ public partial class SettingsUi
         using (_ = _fontService.IconFont.Push())
             iconWidth = ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X;
 
-        ElezenImgui.ColouredWrappedText("Characters listed here will connect with the specified secret key.", ImGuiColors.DalamudYellow);
+        ElezenImgui.ColouredWrappedText("Characters connect with their assigned secret key. ContentID keeps assignments across name and homeworld changes; legacy names remain compatible with older clients.", ImGuiColors.DalamudYellow);
+        var currentAssignment = _serverConfigurationManager.GetCurrentCharacterAssignment(selectedServer);
         int i = 0;
         foreach (var item in selectedServer.Authentications.ToList())
         {
             using var charaId = ImRaii.PushId("selectedChara" + i);
 
-            bool thisIsYou = string.Equals(playerName, item.CharacterName, StringComparison.OrdinalIgnoreCase)
-                && playerWorldId == item.WorldId;
+            bool thisIsYou = ReferenceEquals(item, currentAssignment);
 
             if (!worldData.TryGetValue((ushort)item.WorldId, out string? worldPreview))
                 worldPreview = worldData.First().Value;
@@ -236,10 +243,7 @@ public partial class SettingsUi
         }
 
         ImGui.Separator();
-        using (_ = ImRaii.Disabled(selectedServer.Authentications.Exists(c =>
-                string.Equals(c.CharacterName, playerName, StringComparison.Ordinal)
-                    && c.WorldId == playerWorldId
-        )))
+        using (_ = ImRaii.Disabled(_serverConfigurationManager.HasCurrentCharacterAssignment(idx)))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Add current character"))
             {
@@ -251,10 +255,7 @@ public partial class SettingsUi
 
     private void DrawSecretKeyTab(ServerStorage selectedServer, string playerName, uint playerWorldId, string playerWorldName)
     {
-        var currentCharacterAssignment = selectedServer.Authentications.Find(a =>
-            string.Equals(a.CharacterName, playerName, StringComparison.OrdinalIgnoreCase)
-                && a.WorldId == playerWorldId
-        );
+        var currentCharacterAssignment = _serverConfigurationManager.GetCurrentCharacterAssignment(selectedServer);
         var hasSecretKey =
             currentCharacterAssignment != null
             && selectedServer.SecretKeys.TryGetValue(currentCharacterAssignment.SecretKeyIdx, out var currentSecretKey)
@@ -328,11 +329,7 @@ public partial class SettingsUi
             }
             if (keyInUse) ImGui.PopStyleColor();
 
-            bool thisIsYou = selectedServer.Authentications.Any(a =>
-                a.SecretKeyIdx == item.Key
-                    && string.Equals(a.CharacterName, playerName, StringComparison.OrdinalIgnoreCase)
-                    && a.WorldId == playerWorldId
-            );
+            bool thisIsYou = currentCharacterAssignment?.SecretKeyIdx == item.Key;
 
             bool disableAssignment = thisIsYou || item.Value.Key.IsNullOrEmpty();
 
@@ -340,24 +337,8 @@ public partial class SettingsUi
             {
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.User, "Assign current character"))
                 {
-                    var existingAssignment = selectedServer.Authentications.Find(a =>
-                        string.Equals(a.CharacterName, playerName, StringComparison.OrdinalIgnoreCase)
-                            && a.WorldId == playerWorldId
-                    );
-
-                    if (existingAssignment == null)
-                    {
-                        selectedServer.Authentications.Add(new Authentication()
-                        {
-                            CharacterName = playerName,
-                            WorldId = playerWorldId,
-                            SecretKeyIdx = item.Key
-                        });
-                    }
-                    else
-                    {
-                        existingAssignment.SecretKeyIdx = item.Key;
-                    }
+                    _serverConfigurationManager.AssignCharacterToSecretKey(selectedServer,
+                        _dalamudUtilService.GetCurrentCharacterIdentity(), item.Key);
                 }
                 if (!disableAssignment)
                     ElezenImgui.AttachTooltip(string.Format(CultureInfo.InvariantCulture, "Use this secret key for {0} @ {1}", playerName, playerWorldName));

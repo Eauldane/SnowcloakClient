@@ -1,6 +1,6 @@
 ﻿namespace Snowcloak.WebAPI.SignalR;
 
-public record JwtIdentifier(string ApiUrl, string CharaHash, string SecretKey)
+public record JwtIdentifier(string ApiUrl, string CharaHash, string SecretKey, ulong ContentId)
 {
     public override string ToString()
     {

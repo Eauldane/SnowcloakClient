@@ -1,6 +1,7 @@
 ﻿using Snowcloak.API.Data;
 using Snowcloak.Configuration.Models;
 using System.Text.Json;
+using Snowcloak.Core.PlayerData;
 
 namespace Snowcloak.Services.ServerConfiguration;
 
@@ -168,16 +169,35 @@ public sealed class SecretKeyBackupService
         {
             if (importedAssignment.SecretKeyIdx == -1
                 || string.IsNullOrWhiteSpace(importedAssignment.CharacterName)
-                || !keyIndices.TryGetValue(importedAssignment.SecretKeyIdx, out int localKeyIndex)
-                || selectedServer.Authentications.Any(existing =>
-                    string.Equals(existing.CharacterName, importedAssignment.CharacterName, StringComparison.OrdinalIgnoreCase)
-                    && existing.WorldId == importedAssignment.WorldId))
+                || !keyIndices.TryGetValue(importedAssignment.SecretKeyIdx, out int localKeyIndex))
             {
                 continue;
             }
 
+            var character = new CharacterIdentity(importedAssignment.ContentId,
+                importedAssignment.CharacterName, importedAssignment.WorldId);
+            var existing = CharacterAssignmentResolver.Resolve(selectedServer.Authentications, character, out var ambiguous);
+            if (ambiguous)
+                continue;
+            if (existing != null)
+            {
+                if (existing.SecretKeyIdx == localKeyIndex)
+                {
+                    if (existing.ContentId == 0)
+                        existing.ContentId = importedAssignment.ContentId;
+                    existing.PendingLegacyIdents = existing.PendingLegacyIdents.Concat(importedAssignment.PendingLegacyIdents)
+                        .Distinct(StringComparer.Ordinal).ToList();
+                }
+                continue;
+            }
+            if (importedAssignment.ContentId == 0 && selectedServer.Authentications.Any(a =>
+                    CharacterAssignmentResolver.MatchesLegacy(a, character)))
+                continue;
+
             selectedServer.Authentications.Add(new Authentication
             {
+                ContentId = importedAssignment.ContentId,
+                PendingLegacyIdents = importedAssignment.PendingLegacyIdents.ToList(),
                 CharacterName = importedAssignment.CharacterName,
                 WorldId = importedAssignment.WorldId,
                 SecretKeyIdx = localKeyIndex
@@ -267,6 +287,8 @@ public sealed class SecretKeyBackupService
     {
         return source.Select(a => new Authentication()
         {
+            ContentId = a.ContentId,
+            PendingLegacyIdents = a.PendingLegacyIdents.ToList(),
             CharacterName = a.CharacterName,
             WorldId = a.WorldId,
             SecretKeyIdx = a.SecretKeyIdx
