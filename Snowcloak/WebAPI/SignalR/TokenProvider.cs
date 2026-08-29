@@ -167,7 +167,7 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
 
             var response = await result.Content.ReadFromJsonAsync<AuthReplyDto>(cancellationToken).ConfigureAwait(false) ?? new();
             if (!response.CharacterIdentityId.HasValue)
-                throw new SnowAuthFailureException("The server did not acknowledge the ContentID binding. API 4203 is required.");
+                throw new SnowAuthFailureException("The server did not acknowledge the ContentID binding. API 4202 is required.");
             if (await GetIdentifier().ConfigureAwait(false) != identifier)
                 throw new OperationCanceledException("The active character or key changed during authentication.");
             _serverManager.AcknowledgeIdentityAliases(identifier.ApiUrl, identifier.ContentId, identifier.SecretKey,
