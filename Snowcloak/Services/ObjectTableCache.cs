@@ -34,7 +34,7 @@ public sealed class ObjectTableCache
     private readonly HashSet<ulong> _capturedContentIds = [];
     private PlayerSnapshot _snapshot = new(new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal),
         new Dictionary<ulong, PlayerCharacterData>());
-    private string _lastGlobalBlockPlayer = string.Empty;
+    private nint _lastGlobalBlockAddress;
     private string _lastGlobalBlockReason = string.Empty;
     private uint _classJobId;
 
@@ -63,7 +63,7 @@ public sealed class ObjectTableCache
         }
     }
 
-    public void Refresh(bool skipUpdate)
+    public void RefreshDrawingState(bool skipUpdate)
     {
         Service.EnsureOnFramework();
         IsAnythingDrawing = false;
@@ -73,6 +73,31 @@ public sealed class ObjectTableCache
             return;
         }
 
+        for (var i = 0; i < _objectTable.Length; i++)
+        {
+            var address = _objectTable.GetObjectAddress(i);
+            if (address == nint.Zero)
+            {
+                continue;
+            }
+
+            CheckCharacterForDrawing(address);
+            if (IsAnythingDrawing)
+            {
+                break;
+            }
+        }
+    }
+
+    public void RefreshPlayerSnapshot(bool skipUpdate)
+    {
+        Service.EnsureOnFramework();
+        if (skipUpdate)
+        {
+            return;
+        }
+
+        var changed = false;
         _notUpdatedCharas.AddRange(_playerCharas.Keys);
         _capturedContentIds.Clear();
 
@@ -91,29 +116,36 @@ public sealed class ObjectTableCache
             }
 
             var info = GetPlayerInfo(chara);
-            if (!IsAnythingDrawing)
-                CheckCharacterForDrawing(info.Character);
 
             var contentId = info.Character.ContentId;
             if (contentId == 0)
                 continue;
             if (!_capturedContentIds.Add(contentId))
             {
-                _playerCharas.Remove(contentId);
+                changed |= _playerCharas.Remove(contentId);
                 _notUpdatedCharas.Remove(contentId);
                 continue;
             }
 
             _notUpdatedCharas.Remove(contentId);
-            _playerCharas[contentId] = info;
+            if (!_playerCharas.TryGetValue(contentId, out var existing) || !PlayerInfoEquals(existing, info))
+            {
+                _playerCharas[contentId] = info;
+                changed = true;
+            }
         }
 
         foreach (var notUpdatedChara in _notUpdatedCharas)
         {
-            _playerCharas.Remove(notUpdatedChara);
+            changed |= _playerCharas.Remove(notUpdatedChara);
         }
 
         _notUpdatedCharas.Clear();
+        if (!changed)
+        {
+            return;
+        }
+
         var byContentId = _playerCharas.ToDictionary(p => p.Key, p => p.Value.Character);
         var byIdent = new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal);
         var duplicateAliases = new HashSet<string>(StringComparer.Ordinal);
@@ -132,10 +164,10 @@ public sealed class ObjectTableCache
 
     public void FinishDrawingPass()
     {
-        if (!IsAnythingDrawing && !string.IsNullOrEmpty(_lastGlobalBlockPlayer))
+        if (!IsAnythingDrawing && _lastGlobalBlockAddress != nint.Zero)
         {
-            _logger.LogTrace("Global draw block: END => {name}", _lastGlobalBlockPlayer);
-            _lastGlobalBlockPlayer = string.Empty;
+            _logger.LogTrace("Global draw block: END => {address}", _lastGlobalBlockAddress.ToString("X", CultureInfo.InvariantCulture));
+            _lastGlobalBlockAddress = nint.Zero;
             _lastGlobalBlockReason = string.Empty;
         }
     }
@@ -298,9 +330,20 @@ public sealed class ObjectTableCache
     public CharacterIdentity GetCurrentCharacterIdentity()
     {
         Service.EnsureOnFramework();
-        return GetIsPlayerPresent()
-            ? new CharacterIdentity(_playerState.ContentId, GetPlayerName(), GetHomeWorldId())
-            : default;
+        var localPlayer = _objectTable.LocalPlayer;
+        if (!_playerState.IsLoaded || localPlayer == null || !localPlayer.IsValid())
+            return default;
+
+        var contentId = _playerState.ContentId;
+        var name = _playerState.CharacterName ?? string.Empty;
+        var homeWorldId = _playerState.HomeWorld.RowId;
+        if (contentId == 0 || homeWorldId == 0 || string.IsNullOrWhiteSpace(name)
+            || _playerState.EntityId != localPlayer.EntityId
+            || !string.Equals(name, localPlayer.Name.TextValue, StringComparison.Ordinal)
+            || homeWorldId != localPlayer.HomeWorld.RowId)
+            return default;
+
+        return new CharacterIdentity(contentId, name, homeWorldId);
     }
 
     public Task<CharacterIdentity> GetCurrentCharacterIdentityAsync()
@@ -482,11 +525,36 @@ public sealed class ObjectTableCache
         return new PlayerInfo(playerData, playerData.ContentId == 0 ? string.Empty : CharacterIdentityProtocol.FromContentId(playerData.ContentId));
     }
 
-    private unsafe void CheckCharacterForDrawing(PlayerCharacterData p)
+    private static bool PlayerInfoEquals(PlayerInfo left, PlayerInfo right)
     {
-        var gameObj = (GameObject*)p.Address;
+        var a = left.Character;
+        var b = right.Character;
+        return left.Hash == right.Hash
+            && a.GameObjectId == b.GameObjectId
+            && a.EntityId == b.EntityId
+            && a.ContentId == b.ContentId
+            && a.Address == b.Address
+            && string.Equals(a.Name, b.Name, StringComparison.Ordinal)
+            && a.CurrentWorldId == b.CurrentWorldId
+            && a.HomeWorldId == b.HomeWorldId
+            && a.ClassJobId == b.ClassJobId
+            && a.RaceId == b.RaceId
+            && a.TribeId == b.TribeId
+            && a.Sex == b.Sex
+            && a.Level == b.Level
+            && a.EffectiveLevel == b.EffectiveLevel
+            && a.IsLevelSynced == b.IsLevelSynced;
+    }
+
+    private unsafe void CheckCharacterForDrawing(nint address)
+    {
+        var gameObj = (GameObject*)address;
+        if ((int)gameObj->ObjectKind != (int)ObjectKind.Pc)
+        {
+            return;
+        }
+
         var drawObj = gameObj->DrawObject;
-        var characterName = p.Name;
         var isDrawing = false;
         var isDrawingChanged = false;
 
@@ -499,20 +567,20 @@ public sealed class ObjectTableCache
                 if (!isDrawing)
                 {
                     isDrawing = ((CharacterBase*)drawObj)->HasModelFilesInSlotLoaded != 0;
-                    if (isDrawing && !string.Equals(_lastGlobalBlockPlayer, characterName, StringComparison.Ordinal)
-                        && !string.Equals(_lastGlobalBlockReason, "HasModelFilesInSlotLoaded", StringComparison.Ordinal))
+                    if (isDrawing && (_lastGlobalBlockAddress != address
+                        || !string.Equals(_lastGlobalBlockReason, "HasModelFilesInSlotLoaded", StringComparison.Ordinal)))
                     {
-                        _lastGlobalBlockPlayer = characterName;
+                        _lastGlobalBlockAddress = address;
                         _lastGlobalBlockReason = "HasModelFilesInSlotLoaded";
                         isDrawingChanged = true;
                     }
                 }
                 else
                 {
-                    if (!string.Equals(_lastGlobalBlockPlayer, characterName, StringComparison.Ordinal)
-                        && !string.Equals(_lastGlobalBlockReason, "HasModelInSlotLoaded", StringComparison.Ordinal))
+                    if (_lastGlobalBlockAddress != address
+                        || !string.Equals(_lastGlobalBlockReason, "HasModelInSlotLoaded", StringComparison.Ordinal))
                     {
-                        _lastGlobalBlockPlayer = characterName;
+                        _lastGlobalBlockAddress = address;
                         _lastGlobalBlockReason = "HasModelInSlotLoaded";
                         isDrawingChanged = true;
                     }
@@ -520,10 +588,10 @@ public sealed class ObjectTableCache
             }
             else
             {
-                if (!string.Equals(_lastGlobalBlockPlayer, characterName, StringComparison.Ordinal)
-                    && !string.Equals(_lastGlobalBlockReason, "RenderFlags", StringComparison.Ordinal))
+                if (_lastGlobalBlockAddress != address
+                    || !string.Equals(_lastGlobalBlockReason, "RenderFlags", StringComparison.Ordinal))
                 {
-                    _lastGlobalBlockPlayer = characterName;
+                    _lastGlobalBlockAddress = address;
                     _lastGlobalBlockReason = "RenderFlags";
                     isDrawingChanged = true;
                 }
@@ -532,7 +600,7 @@ public sealed class ObjectTableCache
 
         if (isDrawingChanged)
         {
-            _logger.LogTrace("Global draw block: START => {name} ({reason})", characterName, _lastGlobalBlockReason);
+            _logger.LogTrace("Global draw block: START => {address} ({reason})", address.ToString("X", CultureInfo.InvariantCulture), _lastGlobalBlockReason);
         }
 
         IsAnythingDrawing |= isDrawing;

@@ -118,13 +118,24 @@ internal sealed partial class CacheScanner : IDisposable
         var penumbraFiles = new List<string>();
         foreach (var folder in Directory.EnumerateDirectories(penumbraDir!))
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
-                penumbraFiles.AddRange(Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
-                    .Where(f => SupportedFileTypes.IsAllowedPath(f)
-                        && !f.Contains(@"\bg\", StringComparison.OrdinalIgnoreCase)
-                        && !f.Contains(@"\bgcommon\", StringComparison.OrdinalIgnoreCase)
-                        && !f.Contains(@"\ui\", StringComparison.OrdinalIgnoreCase)));
+                foreach (var file in Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (SupportedFileTypes.IsAllowedPath(file)
+                        && !file.Contains(@"\bg\", StringComparison.OrdinalIgnoreCase)
+                        && !file.Contains(@"\bgcommon\", StringComparison.OrdinalIgnoreCase)
+                        && !file.Contains(@"\ui\", StringComparison.OrdinalIgnoreCase))
+                    {
+                        penumbraFiles.Add(file);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -135,7 +146,7 @@ internal sealed partial class CacheScanner : IDisposable
             if (ct.IsCancellationRequested) return;
         }
 
-        var cacheFiles = EnumerateStorageFiles(cacheDir, substDir)
+        var cacheFiles = EnumerateStorageFiles(cacheDir, substDir, ct)
             .Where(IsContentAddressedStorageFile);
 
         if (ct.IsCancellationRequested) return;
@@ -233,8 +244,9 @@ internal sealed partial class CacheScanner : IDisposable
         var newFiles = allScannedFiles.Where(c => !c.Value).Select(c => c.Key).ToList();
         if (newFiles.Count > 0)
         {
-            await Parallel.ForEachAsync(newFiles, parallelOptions, async (cachePath, _) =>
+            await Parallel.ForEachAsync(newFiles, parallelOptions, async (cachePath, iterationToken) =>
             {
+                iterationToken.ThrowIfCancellationRequested();
                 if (!_ipcManager.Penumbra.APIAvailable)
                 {
                     _logger.LogWarning("Penumbra not available");
@@ -244,7 +256,7 @@ internal sealed partial class CacheScanner : IDisposable
                 try
                 {
                     var isSubst = !string.IsNullOrEmpty(substDir) && cachePath.StartsWith(substDir, StringComparison.OrdinalIgnoreCase);
-                    var hash = isSubst ? null : await Crypto.GetFileHashAsync(cachePath).ConfigureAwait(false);
+                    var hash = isSubst ? null : await Crypto.GetFileHashAsync(cachePath, iterationToken).ConfigureAwait(false);
 
                     var entry = _fileDbManager.CreateFileEntry(cachePath, hash);
                     if (entry == null)
@@ -254,6 +266,10 @@ internal sealed partial class CacheScanner : IDisposable
                         else
                             _fileDbManager.CreateCacheEntry(cachePath, hash);
                     }
+                }
+                catch (OperationCanceledException) when (iterationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -284,10 +300,11 @@ internal sealed partial class CacheScanner : IDisposable
         }
     }
 
-    private static IEnumerable<string> EnumerateStorageFiles(string cacheDir, string substDir)
+    private static IEnumerable<string> EnumerateStorageFiles(string cacheDir, string substDir, CancellationToken cancellationToken)
     {
         foreach (var file in Directory.EnumerateFiles(cacheDir, "*.*", SearchOption.AllDirectories))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!IsPathInsideDirectory(file, substDir))
             {
                 yield return file;
@@ -298,6 +315,7 @@ internal sealed partial class CacheScanner : IDisposable
         {
             foreach (var file in Directory.EnumerateFiles(substDir, "*.*", SearchOption.AllDirectories))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 yield return file;
             }
         }

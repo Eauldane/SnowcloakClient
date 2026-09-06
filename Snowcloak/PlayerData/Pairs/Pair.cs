@@ -5,6 +5,7 @@ using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.User;
+using Snowcloak.API.Dto.TemporaryAppearance;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using ElezenTools.Core.Async;
@@ -68,7 +69,17 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
     public bool IsMutualDirectPair => UserPair is { } pair
         && pair.OwnPermissions.IsPaired()
         && pair.OtherPermissions.IsPaired();
-    public bool IsPaused => EffectivePermissionsResolver.IsPaused(BuildDirectPermissions(), BuildGroupPermissionViews());
+    public bool IsPaused => !HasTemporaryPlayerVisualGrant
+        && EffectivePermissionsResolver.IsPaused(BuildDirectPermissions(), BuildGroupPermissionViews());
+
+    public TemporaryAppearancePeer? TemporaryAppearance { get; set; }
+    public bool IsTemporaryAppearance => TemporaryAppearance is not null;
+    public bool HasDurableConnection => UserPair != null || GroupPair.Any();
+    private AppearanceCategoryMask TemporaryReceiveCategories => TemporaryAppearance?.Grants
+        .Aggregate(AppearanceCategoryMask.None, (mask, grant) => mask | grant.ReceiveCategories)
+        ?? AppearanceCategoryMask.None;
+    private bool HasTemporaryPlayerVisualGrant
+        => (TemporaryReceiveCategories & AppearanceCategoryMask.PlayerVisual) != 0;
 
     private DirectPermissions? BuildDirectPermissions()
         => UserPair == null ? null : new DirectPermissions(UserPair.OwnPermissions, UserPair.OtherPermissions);
@@ -141,7 +152,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
 
         LastReportedApproximateVRAMBytes = data.ReportedVramBytes;
         LastReportedTriangles = data.ReportedTriangles;
-        if (LastReceivedCharacterData != null)
+        if (LastReceivedCharacterData != null && HasDurableConnection)
         {
             _pairAppearanceCache.Store(UserData.UID, Ident, LastReceivedCharacterData, LastReceivedDataVersion);
         }
@@ -189,8 +200,29 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
         if (IsApplicationBlocked) return;
         
         var perms = EffectivePermissionsResolver.Resolve(BuildDirectPermissions(), BuildGroupPermissionViews());
-        var filter = new PairFilterContext(perms.Paused, perms.DisableAnimations, perms.DisableSounds, perms.DisableVFX,
-            _blockListStore.IsUserWhitelisted(UserData));
+        var temporary = TemporaryReceiveCategories;
+        var useTemporary = perms.Paused && (temporary & AppearanceCategoryMask.PlayerVisual) != 0;
+        var allowedCategories = _snowcloakConfig.Current.GlobalInboundAppearanceCategories;
+        if (useTemporary)
+            allowedCategories &= temporary;
+        if ((useTemporary ? (temporary & AppearanceCategoryMask.Animation) == 0 : perms.DisableAnimations))
+            allowedCategories &= ~AppearanceCategoryMask.Animation;
+        if ((useTemporary ? (temporary & AppearanceCategoryMask.Sound) == 0 : perms.DisableSounds))
+            allowedCategories &= ~AppearanceCategoryMask.Sound;
+        if ((useTemporary ? (temporary & AppearanceCategoryMask.Vfx) == 0 : perms.DisableVFX))
+            allowedCategories &= ~AppearanceCategoryMask.Vfx;
+        var filter = new PairFilterContext(
+            useTemporary ? false : perms.Paused,
+            useTemporary ? (temporary & AppearanceCategoryMask.Animation) == 0 : perms.DisableAnimations,
+            useTemporary ? (temporary & AppearanceCategoryMask.Sound) == 0 : perms.DisableSounds,
+            useTemporary ? (temporary & AppearanceCategoryMask.Vfx) == 0 : perms.DisableVFX,
+            _blockListStore.IsUserWhitelisted(UserData),
+            allowedCategories);
+        if (filter.Paused)
+        {
+            CachedPlayer.UndoApplication();
+            return;
+        }
         CachedPlayer.ApplyCharacterData(Guid.NewGuid(), LastReceivedCharacterData, forced, filter);
     }
 
@@ -269,7 +301,8 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
             CachedPlayer = _cachedPlayerFactory.Create(this);
             _cachedPlayerReadySignal.TrySetResult();
 
-            if (LastReceivedCharacterData == null && _pairAppearanceCache.TryGet(UserData.UID, Ident, out var cachedAppearance))
+            if (LastReceivedCharacterData == null && HasDurableConnection
+                && _pairAppearanceCache.TryGet(UserData.UID, Ident, out var cachedAppearance))
             {
                 LastReceivedCharacterData = cachedAppearance.CharacterData;
                 LastReceivedDataVersion = cachedAppearance.DataVersion;
@@ -363,7 +396,7 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
 
     public bool HasAnyConnection()
     {
-        return UserPair != null || GroupPair.Any();
+        return HasDurableConnection || TemporaryAppearance != null;
     }
 
     public void MarkOffline(bool wait = true)

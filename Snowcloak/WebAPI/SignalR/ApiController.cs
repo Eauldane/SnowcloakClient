@@ -52,6 +52,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     private readonly DalamudUtilService _dalamudUtil;
     private readonly PairManager _pairManager;
     private readonly PairRequestService _pairRequestService;
+    private readonly InboundWorkDispatcher _inboundDispatcher;
     private readonly ServerRegistry _serverManager;
     private readonly TokenProvider _tokenProvider;
     public Snowcloak.API.Dto.CharacterIdentityMigrationDto? PendingIdentityMigration => _tokenProvider.PendingMigration;
@@ -73,7 +74,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     public ApiController(ILogger<ApiController> logger, HubFactory hubFactory, DalamudUtilService dalamudUtil,
         PairManager pairManager, PairRequestService pairRequestService, ServerRegistry serverManager, SnowMediator mediator,
-        TokenProvider tokenProvider) : base(logger, mediator)
+        TokenProvider tokenProvider, InboundWorkDispatcher inboundDispatcher) : base(logger, mediator)
     {
         _backgroundTasks = new BackgroundTaskTracker(logger);
         _connectionLifecycle = new ConnectionLifecycle(logger, hubFactory, _backgroundTasks, mediator);
@@ -82,6 +83,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _tokenProvider = tokenProvider;
+        _inboundDispatcher = inboundDispatcher;
 
         Mediator.Subscribe<DalamudLoginMessage>(this, (_) => DalamudUtilOnLogIn());
         Mediator.Subscribe<DalamudLogoutMessage>(this, (_) => DalamudUtilOnLogOut());

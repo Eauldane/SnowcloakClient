@@ -1,11 +1,17 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.API.Data.Comparer;
 using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services.ServerConfiguration;
+using Snowcloak.Services;
+using Snowcloak.Services.Mediator;
+using Snowcloak.API.Dto.TemporaryAppearance;
+using Snowcloak.API.Data.Enum;
+using Snowcloak.WebAPI;
 
 namespace Snowcloak.UI.Components;
 
@@ -15,6 +21,10 @@ public sealed class GeneralSettingsPanel
     private readonly NotesStore _notesStore;
     private readonly PairManager _pairManager;
     private readonly UiFontService _fontService;
+    private readonly TemporaryPartyAppearanceService _temporaryParty;
+    private readonly UserSafetyStore _userSafety;
+    private readonly SnowMediator _mediator;
+    private readonly ApiController _api;
     private bool? _notesSuccessfullyApplied;
     private bool _overwriteExistingLabels;
 
@@ -22,16 +32,82 @@ public sealed class GeneralSettingsPanel
         SnowcloakConfigService configService,
         NotesStore notesStore,
         PairManager pairManager,
-        UiFontService fontService)
+        UiFontService fontService,
+        TemporaryPartyAppearanceService temporaryParty,
+        UserSafetyStore userSafety,
+        SnowMediator mediator,
+        ApiController api)
     {
         _configService = configService;
         _notesStore = notesStore;
         _pairManager = pairManager;
         _fontService = fontService;
+        _temporaryParty = temporaryParty;
+        _userSafety = userSafety;
+        _mediator = mediator;
+        _api = api;
     }
 
     public void Draw()
     {
+        _fontService.BigText("Temporary party and alliance appearance");
+        var enabled = _configService.Current.EnableTemporaryPartyAllianceAppearance;
+        if (ImGui.Checkbox("Enable auto-party/alliance sync", ref enabled))
+        {
+            _configService.Update(config => config.EnableTemporaryPartyAllianceAppearance = enabled);
+            if (!enabled)
+                _ = _temporaryParty.StopAllAsync();
+        }
+        ElezenImgui.DrawHelpText("Auto-sync with party and alliance members who have Snowcloak and have enabled this setting.");
+        if (_temporaryParty.ActivePeerCount > 0 && ImGui.Button("Stop temporary party/alliance sync now"))
+        {
+            _configService.Update(config => config.EnableTemporaryPartyAllianceAppearance = false);
+            _ = _temporaryParty.StopAllAsync();
+        }
+        foreach (var pair in _pairManager.GetTemporaryAppearancePairs())
+        {
+            var grant = pair.TemporaryAppearance!.Grants.OrderByDescending(item => item.RemainingMs).FirstOrDefault();
+            var sourceLabel = grant?.Source == TemporaryAppearanceSourceKind.Alliance ? "alliance" : "party";
+            var remainingMs = grant == null ? 0 : _temporaryParty.GetRemainingLeaseMs(pair.UserData.UID, grant.Source);
+            ImGui.PushID("temporary-party-" + pair.UserData.UID);
+            ImGui.TextUnformatted($"{pair.GetNoteOrName() ?? pair.UserData.AliasOrUID} — {sourceLabel}, {remainingMs / 1000}s lease");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Stop"))
+                _ = _temporaryParty.StopPeerAsync(pair.UserData.UID);
+            ImGui.SameLine();
+            using (ImRaii.Disabled(!_api.SupportsUnpairedUserReporting))
+            {
+                if (ImGui.SmallButton("Report"))
+                    _mediator.Publish(new OpenReportPopupMessage(pair.UserData, pair.Ident,
+                        ProfileVisibility.Public, 0, ProfileReportSurface.User));
+            }
+            ImGui.SameLine();
+            using (ImRaii.Disabled(!_userSafety.IsAvailable || _userSafety.IsBusy))
+            {
+                if (ImGui.SmallButton("Block"))
+                    _userSafety.Block(pair.UserData.UID);
+            }
+            ImGui.PopID();
+        }
+
+        var inbound = _configService.Current.GlobalInboundAppearanceCategories;
+        var allowAnimations = inbound.HasFlag(AppearanceCategoryMask.Animation);
+        var allowSounds = inbound.HasFlag(AppearanceCategoryMask.Sound);
+        var allowVfx = inbound.HasFlag(AppearanceCategoryMask.Vfx);
+        var changedPolicy = ImGui.Checkbox("Allow synced animations", ref allowAnimations);
+        changedPolicy |= ImGui.Checkbox("Allow synced sounds", ref allowSounds);
+        changedPolicy |= ImGui.Checkbox("Allow synced VFX", ref allowVfx);
+        if (changedPolicy)
+        {
+            SetCategory(ref inbound, AppearanceCategoryMask.Animation, allowAnimations);
+            SetCategory(ref inbound, AppearanceCategoryMask.Sound, allowSounds);
+            SetCategory(ref inbound, AppearanceCategoryMask.Vfx, allowVfx);
+            _configService.Update(config => config.GlobalInboundAppearanceCategories = inbound);
+            foreach (var pair in _pairManager.GetVisiblePairs())
+                pair.ApplyLastReceivedData(forced: true);
+        }
+
+        ImGui.Separator();
         _fontService.BigText("Notes");
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Export all your user notes to clipboard"))
         {
@@ -80,5 +156,11 @@ public sealed class GeneralSettingsPanel
             _configService.Update(c => c.AutoJoinVenueSyncshells = autoJoinVenues);
         }
         ElezenImgui.DrawHelpText("Automatically detects venue housing plots and offers users an option to join them.");
+    }
+
+    private static void SetCategory(ref AppearanceCategoryMask mask, AppearanceCategoryMask category, bool enabled)
+    {
+        if (enabled) mask |= category;
+        else mask &= ~category;
     }
 }

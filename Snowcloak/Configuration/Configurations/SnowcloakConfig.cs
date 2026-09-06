@@ -3,12 +3,18 @@ using Snowcloak.CacheFile.Enums;
 using Snowcloak.Configuration.Models;
 using Snowcloak.FileCache;
 using Snowcloak.UI;
+using Snowcloak.API.Dto.TemporaryAppearance;
 using ElezenTools.UI;
 namespace Snowcloak.Configuration.Configurations;
 
 [Serializable]
 public class SnowcloakConfig : ISnowcloakConfiguration
 {
+    public bool EnableTemporaryPartyAppearance { get; set; } = false;
+    public bool EnableTemporaryPartyAllianceAppearance { get; set; } = true;
+    public AppearanceCategoryMask TemporaryPartySendCategories { get; set; } = AppearanceCategoryMask.PlayerVisual;
+    public AppearanceCategoryMask TemporaryPartyReceiveCategories { get; set; } = AppearanceCategoryMask.PlayerVisual;
+    public AppearanceCategoryMask GlobalInboundAppearanceCategories { get; set; } = AppearanceCategoryMask.All;
     public bool SortSyncshellsByVRAM { get; set; } = false;
     public int ExpectedTOSVersion = 2;
     public int AcceptedTOSVersion { get; set; } = 0;

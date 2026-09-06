@@ -14,12 +14,12 @@
     <!-- Transitive pin for CVE-2025-6965; see Snowcloak.csproj for details. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="4.0.0" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.152">
+    <PackageReference Include="Snowcloak.CacheFile" Version="4.2.0" />
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.217">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.32.0.713">
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.33.0.1635">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

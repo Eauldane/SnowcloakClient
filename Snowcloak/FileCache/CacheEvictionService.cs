@@ -5,7 +5,7 @@ using Snowcloak.Services;
 
 namespace Snowcloak.FileCache;
 
-internal sealed class CacheEvictionService : IDisposable
+internal sealed class CacheEvictionService : IDisposable, IAsyncDisposable
 {
     private static readonly DateTime MinimumPlausibleTimestampUtc = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -16,6 +16,7 @@ internal sealed class CacheEvictionService : IDisposable
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _periodicCts = new();
     private readonly Task _periodicTask;
+    private int _disposed;
 
     public CacheEvictionService(ILogger logger, SnowcloakConfigService configService, FileCacheManager fileDbManager,
         FileCompactor fileCompactor, DatabaseService databaseService)
@@ -63,6 +64,10 @@ internal sealed class CacheEvictionService : IDisposable
 
                 RecalculateFileCacheSize(token);
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                break;
+            }
             catch
             {
                 // ignore
@@ -98,7 +103,7 @@ internal sealed class CacheEvictionService : IDisposable
             _logger.LogWarning(ex, "Could not determine drive size for Storage Folder {folder}", _configService.Current.CacheFolder);
         }
 
-        var files = EnumerateStorageFiles(_configService.Current.CacheFolder, _fileDbManager.SubstFolder)
+        var files = EnumerateStorageFiles(_configService.Current.CacheFolder, _fileDbManager.SubstFolder, token)
             .Select(f => new FileInfo(f))
             .Where(file => TryGetHashFromFile(file, out _))
             .ToList();
@@ -249,10 +254,11 @@ internal sealed class CacheEvictionService : IDisposable
         return false;
     }
 
-    private static IEnumerable<string> EnumerateStorageFiles(string cacheDir, string substDir)
+    private static IEnumerable<string> EnumerateStorageFiles(string cacheDir, string substDir, CancellationToken cancellationToken)
     {
         foreach (var file in Directory.EnumerateFiles(cacheDir, "*.*", SearchOption.AllDirectories))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!IsPathInsideDirectory(file, substDir))
             {
                 yield return file;
@@ -263,6 +269,7 @@ internal sealed class CacheEvictionService : IDisposable
         {
             foreach (var file in Directory.EnumerateFiles(substDir, "*.*", SearchOption.AllDirectories))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 yield return file;
             }
         }
@@ -357,6 +364,11 @@ internal sealed class CacheEvictionService : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _periodicCts.Cancel();
         try
         {
@@ -368,5 +380,26 @@ internal sealed class CacheEvictionService : IDisposable
         }
 
         _periodicCts.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        await _periodicCts.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await _periodicTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // expected during shutdown
+        }
+
+        _periodicCts.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

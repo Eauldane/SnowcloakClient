@@ -9,6 +9,7 @@ using Snowcloak.API.Dto.Roleplay;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services;
 
 namespace Snowcloak.WebAPI;
 
@@ -223,13 +224,13 @@ public partial class ApiController
     public Task Client_UserAddClientPair(UserPairDto dto)
     {
         Logger.LogDebug("Client_UserAddClientPair: {dto}", dto);
-        ExecuteSafely(() =>
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Permission, InboundWorkKind.State, 1024, () =>
         {
             _pairManager.SuppressNextNotePopupForUid(dto.User.UID);
             _pairManager.AddUserPair(dto, addToLastAddedUser: true);
             Mediator.Publish(new ChatMembershipChangedMessage());
+            return Task.CompletedTask;
         });
-        return Task.CompletedTask;
     }
 
     public Task Client_UserPairingAvailability(List<PairingAvailabilityDto> availability)
@@ -280,39 +281,39 @@ public partial class ApiController
     public Task Client_UserRemoveClientPair(UserDto dto)
     {
         Logger.LogDebug("Client_UserRemoveClientPair: {dto}", dto);
-        ExecuteSafely(() =>
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Permission, InboundWorkKind.State, 512, () =>
         {
             _pairManager.RemoveUserPair(dto);
             Mediator.Publish(new ChatMembershipChangedMessage());
+            return Task.CompletedTask;
         });
-        return Task.CompletedTask;
     }
 
     public Task Client_UserSendOffline(UserDto dto)
     {
         Logger.LogDebug("Client_UserSendOffline: {dto}", dto);
-        ExecuteSafely(() => _pairManager.MarkPairOffline(dto.User));
-        return Task.CompletedTask;
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Presence, InboundWorkKind.State, 256,
+            () => { _pairManager.MarkPairOffline(dto.User); return Task.CompletedTask; });
     }
 
     public Task Client_UserSendOnline(OnlineUserIdentDto dto)
     {
         Logger.LogDebug("Client_UserSendOnline: {dto}", dto);
-        ExecuteSafely(() => _pairManager.MarkPairOnline(dto));
-        return Task.CompletedTask;
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Presence, InboundWorkKind.State, 512,
+            () => { _pairManager.MarkPairOnline(dto); return Task.CompletedTask; });
     }
 
     public Task Client_UserUpdateOtherPairPermissions(UserPermissionsDto dto)
     {
         Logger.LogDebug("Client_UserUpdateOtherPairPermissions: {dto}", dto);
-        ExecuteSafely(() =>
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Permission, InboundWorkKind.State, 512, () =>
         {
             if (_pairManager.UpdatePairPermissions(dto))
             {
                 Mediator.Publish(new ChatMembershipChangedMessage());
             }
+            return Task.CompletedTask;
         });
-        return Task.CompletedTask;
     }
 
     public Task Client_UserUpdateProfile(UserDto dto)
@@ -351,8 +352,8 @@ public partial class ApiController
     public Task Client_UserUpdateSelfPairPermissions(UserPermissionsDto dto)
     {
         Logger.LogDebug("Client_UserUpdateSelfPairPermissions: {dto}", dto);
-        ExecuteSafely(() => _pairManager.UpdateSelfPairPermissions(dto));
-        return Task.CompletedTask;
+        return _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Permission, InboundWorkKind.State, 512,
+            () => { _pairManager.UpdateSelfPairPermissions(dto); return Task.CompletedTask; });
     }
 
     public Task Client_GposeLobbyJoin(UserData userData)

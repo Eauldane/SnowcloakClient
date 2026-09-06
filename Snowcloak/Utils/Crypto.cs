@@ -7,8 +7,9 @@ namespace Snowcloak.Utils;
 
 public static class Crypto
 {
-    public static async Task<string> GetFileHashAsync(this string filePath)
+    public static async Task<string> GetFileHashAsync(this string filePath, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var hasher = Hasher.New();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(81920);
         FileStream? fileStream = null;
@@ -27,7 +28,7 @@ public static class Crypto
                 });
 
             int bytesRead;
-            while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
+            while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
             {
                 hasher.Update(buffer.AsSpan(0, bytesRead));
             }

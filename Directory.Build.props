@@ -12,7 +12,9 @@
 
   <PropertyGroup>
     <LocalSnowcloakApiPackageSource>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../Snowcloak.API/Snowcloak.API/bin/Release'))</LocalSnowcloakApiPackageSource>
+    <LocalSnowcloakCachePackageSource>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../SnowcloakCacheFile/Snowcloak.CacheFile/bin/Release'))</LocalSnowcloakCachePackageSource>
     <RestoreAdditionalProjectSources Condition="Exists('$(LocalSnowcloakApiPackageSource)')">$(RestoreAdditionalProjectSources);$(LocalSnowcloakApiPackageSource)</RestoreAdditionalProjectSources>
+    <RestoreAdditionalProjectSources Condition="Exists('$(LocalSnowcloakCachePackageSource)')">$(RestoreAdditionalProjectSources);$(LocalSnowcloakCachePackageSource)</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

@@ -33,12 +33,14 @@ internal static class CharacterAssignmentResolver
         var changed = assignment.ContentId != character.ContentId
             || !string.Equals(assignment.CharacterName, character.Name, StringComparison.Ordinal)
             || assignment.WorldId != character.HomeWorldId;
-        if (changed && !assignment.IdentityBindingId.HasValue)
+        // Only the assignment's stored pre-CID name/world is authoritative migration input. Once a
+        // ContentID is known, newly observed mutable names must not become aliases automatically: a
+        // transient mixed login snapshot could otherwise attach another character's history.
+        if (changed && assignment.ContentId == 0 && !assignment.IdentityBindingId.HasValue)
         {
             var aliases = assignment.PendingLegacyIdents.ToHashSet(StringComparer.Ordinal);
             if (!string.IsNullOrWhiteSpace(assignment.CharacterName) && assignment.WorldId != 0)
                 aliases.Add(CharacterIdentityProtocol.LegacyIdent(assignment.CharacterName, assignment.WorldId));
-            aliases.Add(CharacterIdentityProtocol.LegacyIdent(character.Name, character.HomeWorldId));
             if (aliases.Count > CharacterIdentityProtocol.MaximumLegacyAliases)
                 throw new InvalidOperationException("Complete the pending server identity migration before changing this assignment again.");
             assignment.PendingLegacyIdents = aliases.Order(StringComparer.Ordinal).ToList();

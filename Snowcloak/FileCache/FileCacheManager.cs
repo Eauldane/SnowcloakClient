@@ -172,7 +172,7 @@ public sealed class FileCacheManager : IHostedService
                 var metadata = CalculateFileMetadata(fileCache.ResolvedFilepath, fileExtension);
                 var compressionType = ChooseCompressionType(fileExtension);
 
-                var header = await ScfFile.CreateSCFFile(
+                await ScfFile.CreateSCFFile(
                     fs,
                     ms,
                     fileExtension,
@@ -185,7 +185,7 @@ public sealed class FileCacheManager : IHostedService
                     compressionType,
                     optionalMetadata: null,
                     optionalMetadataFields: optionalMetadataFields).ConfigureAwait(false);
-                fileCache.CompressedSize = header.CompressedSize + ScfFile.GetHeaderLength(optionalMetadataLength: (uint)header.OptionalMetadataBytes.Length);
+                fileCache.CompressedSize = ms.Length;
                 ms.Position = 0;
                 return (fileHash, ms);
             }

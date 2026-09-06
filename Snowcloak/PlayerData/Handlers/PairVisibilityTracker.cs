@@ -116,6 +116,7 @@ internal sealed class PairVisibilityTracker
 
         if (!_handler.IsVisible && nowVisible)
         {
+            _handler.CharaHandler?.ReactivateMonitoringAndRefresh();
             _handler.IsVisible = true;
             Mediator.Publish(new PairHandlerVisibleMessage(_handler));
             if (_appliedState.CachedData != null)

@@ -6,6 +6,7 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.API.Protocol;
 using Snowcloak.Core.Appearance;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Services;
 using System.Collections.Concurrent;
 
 namespace Snowcloak.WebAPI;
@@ -62,9 +63,6 @@ public partial class ApiController
 
     private async Task PushManifestInternal(CharacterData character, List<UserData> visibleCharacters)
     {
-        var manifest = AppearanceManifestCodec.ToManifest(character);
-        var bytes = ManifestCanonical.Serialize(manifest);
-        var hash = ManifestCanonical.ComputeHash(manifest);
         var extensionData = character.ExtensionData.ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.Ordinal);
 
         if (!IsConnected)
@@ -73,32 +71,48 @@ public partial class ApiController
             return;
         }
 
-        var dto = new ManifestPushDto
-        {
-            Recipients = visibleCharacters,
-            ManifestHash = hash,
-            InlineManifest = bytes,
-            FileHashes = character.FileReplacements
-                .SelectMany(kv => kv.Value)
-                .Select(f => f.Hash)
-                .Where(h => !string.IsNullOrEmpty(h))
-                .Distinct(StringComparer.Ordinal)
-                .ToList(),
-        };
-
         try
         {
-            await _snowHub!.InvokeAsync(nameof(UserPushManifest), dto).ConfigureAwait(false);
-            Mediator.Publish(new LocalCharacterDataPushedMessage(
-                visibleCharacters,
-                hash,
-                extensionData));
+            var visibleByUid = visibleCharacters.DistinctBy(user => user.UID, StringComparer.Ordinal).ToList();
+            var durableRecipients = visibleByUid.Where(user => _pairManager.GetPairByUID(user.UID)?.HasDurableConnection == true).ToList();
+            var temporaryRecipients = visibleByUid.Where(user =>
+                _pairManager.GetPairByUID(user.UID) is { IsTemporaryAppearance: true, HasDurableConnection: false }).ToList();
+
+            if (durableRecipients.Count > 0)
+                await PublishManifestAudienceAsync(AppearanceManifestCodec.ToManifest(character), character,
+                    durableRecipients, ManifestAudience.Default, extensionData).ConfigureAwait(false);
+
+            if (temporaryRecipients.Count > 0)
+            {
+                var restricted = AppearanceManifestCodec.ToManifest(character);
+                restricted.Sections = restricted.Sections
+                    .Where(section => section.SectionId != ManifestSectionId.ExtensionData).ToArray();
+                await PublishManifestAudienceAsync(restricted, character, temporaryRecipients,
+                    ManifestAudience.TemporaryAppearanceV1, new Dictionary<string, string>(StringComparer.Ordinal)).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to push appearance manifest for {hash}", hash);
+            Logger.LogWarning(ex, "Failed to push the current appearance manifest");
             Mediator.Publish(new LocalCharacterDataPushFailedMessage(extensionData, "Snowcloak could not send the current manifest."));
         }
+    }
+
+    private async Task PublishManifestAudienceAsync(AppearanceManifest manifest, CharacterData character,
+        List<UserData> recipients, string audience, IReadOnlyDictionary<string, string> extensionData)
+    {
+        var bytes = ManifestCanonical.Serialize(manifest);
+        var hash = ManifestCanonical.ComputeHash(manifest);
+        await _snowHub!.InvokeAsync(nameof(UserPushManifest), new ManifestPushDto
+        {
+            Recipients = recipients,
+            Audience = audience,
+            ManifestHash = hash,
+            InlineManifest = bytes,
+            FileHashes = character.FileReplacements.SelectMany(kv => kv.Value).Select(file => file.Hash)
+                .Where(value => !string.IsNullOrEmpty(value)).Distinct(StringComparer.Ordinal).ToList(),
+        }).ConfigureAwait(false);
+        Mediator.Publish(new LocalCharacterDataPushedMessage(recipients, hash, extensionData));
     }
 
     private Task RequestPairManifest(UserData user)
@@ -292,6 +306,12 @@ public partial class ApiController
 
     public async Task Client_UserReceiveManifest(ManifestNotificationDto dto)
     {
+        await _inboundDispatcher.EnqueueAsync(dto.User.UID, InboundWorkDomain.Appearance, InboundWorkKind.State,
+            dto.InlineManifest?.Length ?? 1024, () => ProcessReceivedManifestAsync(dto)).ConfigureAwait(false);
+    }
+
+    private async Task ProcessReceivedManifestAsync(ManifestNotificationDto dto)
+    {
         try
         {
             var bytes = dto.InlineManifest ?? await UserGetManifest(dto.ManifestHash).ConfigureAwait(false);
@@ -313,6 +333,14 @@ public partial class ApiController
             Logger.LogWarning(ex, "Received manifest could not be applied; scheduling reconciliation");
             _ = _backgroundTasks.Run(() => RequestPairManifest(dto.User), nameof(RequestPairManifest));
         }
+    }
+
+    public Task Client_TemporaryAppearanceManifest(ManifestNotificationDto dto)
+    {
+        if (!string.Equals(dto.Audience, ManifestAudience.TemporaryAppearanceV1, StringComparison.Ordinal)
+            || _pairManager.GetPairByUID(dto.User.UID)?.IsTemporaryAppearance != true)
+            return Task.CompletedTask;
+        return Client_UserReceiveManifest(dto);
     }
 
     private void ApplyManifestBytes(UserData user, byte[] bytes, long version, long? reportedTriangles, long? reportedVramBytes, string manifestHash)

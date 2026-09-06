@@ -89,8 +89,7 @@ public sealed partial class GameObjectHandler : DisposableMediatorSubscriberBase
     public byte RaceId { get; private set; }
     public byte TribeId { get; private set; }
 
-    internal string PerformanceCounterName => "CheckAndUpdateObject>"
-        + $"{(_isOwnedObject ? "Self" : "Other")}+{ObjectKind}/{(string.IsNullOrEmpty(Name) ? "Unk" : Name)}+{Address:X}";
+    internal string PerformanceCounterName => $"CheckAndUpdateObject>{(_isOwnedObject ? "Self" : "Other")}+{ObjectKind}";
 
     internal bool ShouldProcessFrameworkUpdate => _delayedZoningTask?.IsCompleted ?? true;
 
@@ -203,6 +202,17 @@ public sealed partial class GameObjectHandler : DisposableMediatorSubscriberBase
         DrawObjectAddress = nint.Zero;
         _objectIndex = null;
         _haltProcessing = false;
+        if (!_isOwnedObject)
+        {
+            _monitor.SetActive(this, false);
+        }
+    }
+
+    internal void ReactivateMonitoringAndRefresh()
+    {
+        Service.EnsureOnFramework();
+        _monitor.SetActive(this, true);
+        RefreshFromFramework();
     }
 
     public async Task<bool> IsBeingDrawnRunOnFrameworkAsync()

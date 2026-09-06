@@ -8,6 +8,7 @@ namespace Snowcloak.PlayerData.Handlers;
 
 public sealed partial class GameObjectHandlerMonitor : IDisposable
 {
+    private readonly ConcurrentDictionary<GameObjectHandler, byte> _activeHandlers = [];
     private readonly ConcurrentDictionary<GameObjectHandler, byte> _handlers = [];
     private readonly ILogger<GameObjectHandlerMonitor> _logger;
     private readonly PerformanceCollectorService _performanceCollector;
@@ -27,14 +28,36 @@ public sealed partial class GameObjectHandlerMonitor : IDisposable
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
     }
 
-    public void Register(GameObjectHandler handler)
+    public void Register(GameObjectHandler handler, bool active = true)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         _handlers.TryAdd(handler, 0);
+        if (active)
+        {
+            _activeHandlers.TryAdd(handler, 0);
+        }
+    }
+
+    public void SetActive(GameObjectHandler handler, bool active)
+    {
+        if (Volatile.Read(ref _disposed) != 0 || !_handlers.ContainsKey(handler))
+        {
+            return;
+        }
+
+        if (active)
+        {
+            _activeHandlers.TryAdd(handler, 0);
+        }
+        else
+        {
+            _activeHandlers.TryRemove(handler, out _);
+        }
     }
 
     public void Unregister(GameObjectHandler handler)
     {
+        _activeHandlers.TryRemove(handler, out _);
         _handlers.TryRemove(handler, out _);
     }
 
@@ -46,6 +69,7 @@ public sealed partial class GameObjectHandlerMonitor : IDisposable
         }
 
         _tick.Dispose();
+        _activeHandlers.Clear();
         _handlers.Clear();
     }
 
@@ -56,7 +80,7 @@ public sealed partial class GameObjectHandlerMonitor : IDisposable
             return;
         }
 
-        foreach (var handler in _handlers.Keys)
+        foreach (var handler in _activeHandlers.Keys)
         {
             if (!handler.ShouldProcessFrameworkUpdate)
             {

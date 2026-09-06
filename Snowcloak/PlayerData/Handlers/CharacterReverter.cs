@@ -6,12 +6,15 @@ using Snowcloak.PlayerData.Factories;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Utils;
+using System.Diagnostics;
 using ObjectKind = Snowcloak.API.Data.Enum.ObjectKind;
 
 namespace Snowcloak.PlayerData.Handlers;
 
 internal sealed class CharacterReverter
 {
+    private static readonly long AppearanceSummaryIntervalTicks = Stopwatch.Frequency * 10;
+
     private readonly PairHandler _handler;
     private readonly ILogger Logger;
     private readonly Pair Pair;
@@ -23,6 +26,7 @@ internal sealed class CharacterReverter
     private readonly CancellationTokenSource _runtimeCts;
     private readonly SingleFlightCts _applicationFlight;
     private readonly SingleFlightCts _downloadFlight;
+    private long _lastAppearanceSummaryTimestamp;
 
     public CharacterReverter(PairHandler handler, ILogger logger, Pair pair, PairAppliedState appliedState,
         IpcManager ipcManager, DalamudUtilService dalamudUtil, GameObjectHandlerFactory gameObjectHandlerFactory,
@@ -141,16 +145,21 @@ internal sealed class CharacterReverter
         Logger.LogDebug($"Undoing application of {Pair.UserPair}");
         var name = _handler.PlayerName;
         var optionalCleanupAddress = GetPlayerScopedOptionalCleanupAddress();
+        if (applicationId == default)
+        {
+            applicationId = Guid.NewGuid();
+        }
+
+        var operationStarted = Stopwatch.GetTimestamp();
         try
         {
-            if (applicationId == default)
-                applicationId = Guid.NewGuid();
             using var scope = Logger.BeginScope("{ApplicationId}", applicationId);
             _applicationFlight.Cancel();
             _downloadFlight.Cancel();
 
             Logger.LogDebug("Removing Temp Collection for {name} ({user})", name, Pair.UserPair);
-            if (_handler.PenumbraCollection != Guid.Empty)
+            var hadPenumbraCollection = _handler.PenumbraCollection != Guid.Empty;
+            if (hadPenumbraCollection)
             {
                 await _ipcManager.Penumbra.RemoveTemporaryCollectionAsync(Logger, applicationId, _handler.PenumbraCollection).ConfigureAwait(false);
                 _handler.PenumbraCollection = Guid.Empty;
@@ -159,7 +168,8 @@ internal sealed class CharacterReverter
             if (_dalamudUtil is { IsZoning: false, IsInCutscene: false } && !string.IsNullOrEmpty(name))
             {
                 Logger.LogTrace("Restoring state for {name} ({OnlineUser})", name, Pair.UserPair);
-                if (!_handler.IsVisible)
+                var address = _dalamudUtil.GetPlayerCharacterFromCachedTableByIdent(Pair.Ident);
+                if (address == nint.Zero)
                 {
                     Logger.LogDebug("Restoring Glamourer for {name} ({user})", name, Pair.UserPair);
                     await _ipcManager.Glamourer.RevertByNameAsync(Logger, name, applicationId).ConfigureAwait(false);
@@ -171,11 +181,11 @@ internal sealed class CharacterReverter
 
                     Logger.LogInformation("CachedData is null {isNull}, contains things: {contains}", _appliedState.CachedData == null, _appliedState.CachedData?.FileReplacements.Any() ?? false);
 
-                    foreach (KeyValuePair<ObjectKind, List<FileReplacementData>> item in _appliedState.CachedData?.FileReplacements ?? [])
+                    foreach (var objectKind in GetAppliedObjectKinds(_appliedState.CachedData, hadPenumbraCollection))
                     {
                         try
                         {
-                            await RevertCustomizationDataAsync(item.Key, name, applicationId, cts.Token).ConfigureAwait(false);
+                            await RevertCustomizationDataAsync(objectKind, name, applicationId, cts.Token).ConfigureAwait(false);
                         }
                         catch (InvalidOperationException ex)
                         {
@@ -192,6 +202,39 @@ internal sealed class CharacterReverter
         {
             Logger.LogWarning(ex, "Error on undoing application of {name}", name);
         }
+        finally
+        {
+            var totalMs = Stopwatch.GetElapsedTime(operationStarted).TotalMilliseconds;
+            var now = Stopwatch.GetTimestamp();
+            var previous = Volatile.Read(ref _lastAppearanceSummaryTimestamp);
+            if (totalMs >= 50
+                && now - previous >= AppearanceSummaryIntervalTicks
+                && Interlocked.CompareExchange(ref _lastAppearanceSummaryTimestamp, now, previous) == previous)
+            {
+                Logger.LogWarning("Slow appearance operation {Operation} {ApplicationId}: {TotalMs:F2}ms total",
+                    "revert", applicationId, totalMs);
+            }
+        }
+    }
+
+    private static ObjectKind[] GetAppliedObjectKinds(CharacterData? cachedData, bool hadPenumbraCollection)
+    {
+        HashSet<ObjectKind> kinds = [];
+        if (cachedData != null)
+        {
+            kinds.Add(ObjectKind.Player);
+            kinds.UnionWith(cachedData.FileReplacements.Keys);
+            kinds.UnionWith(cachedData.GlamourerData.Keys);
+            kinds.UnionWith(cachedData.CustomizePlusData.Keys);
+        }
+        else if (hadPenumbraCollection)
+        {
+            kinds.Add(ObjectKind.Player);
+        }
+
+        return kinds.OrderBy(kind => kind == ObjectKind.Player ? 0 : 1)
+            .ThenBy(kind => (int)kind)
+            .ToArray();
     }
 
     private async Task RevertCustomizationDataAsync(ObjectKind objectKind, string name, Guid applicationId, CancellationToken cancelToken)
@@ -212,6 +255,8 @@ internal sealed class CharacterReverter
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring Customization and Equipment for {alias}/{name}", Pair.UserData.AliasOrUID, name);
             await _ipcManager.Glamourer.RevertAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
+            tempHandler.CompareNameAndThrow(name);
+            await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring Heels for {alias}/{name}", Pair.UserData.AliasOrUID, name);
             await _ipcManager.Heels.RestoreOffsetForPlayerAsync(address).ConfigureAwait(false);

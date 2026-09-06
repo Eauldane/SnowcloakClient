@@ -24,6 +24,8 @@ namespace Snowcloak.PlayerData.Handlers;
 
 internal sealed partial class CharacterApplicationPipeline
 {
+    private static readonly long AppearanceSummaryIntervalTicks = Stopwatch.Frequency * 10;
+
     private readonly PairHandler _handler;
     private readonly ILogger Logger;
     private readonly SnowMediator Mediator;
@@ -44,6 +46,7 @@ internal sealed partial class CharacterApplicationPipeline
     private readonly ModApplicator _modApplicator;
     private readonly UsageStatisticsService _usageStatisticsService;
     private readonly ApplicationAdmissionController _applicationAdmissionController;
+    private long _lastAppearanceSummaryTimestamp;
 
     public CharacterApplicationPipeline(PairHandler handler, ILogger logger, SnowMediator mediator, Pair pair,
         PairAppliedState appliedState, BackgroundTaskTracker backgroundTasks, CancellationTokenSource runtimeCts,
@@ -78,31 +81,7 @@ internal sealed partial class CharacterApplicationPipeline
 
     public CharacterData FilterReceivedData(CharacterData raw, PairFilterContext context)
     {
-        var data = raw.Clone();
-        if (context.Paused)
-        {
-            return data;
-        }
-
-        if (context.DisableAnimations || context.DisableSounds || context.DisableVFX)
-        {
-            foreach (var objectKind in data.FileReplacements.Select(k => k.Key).ToList())
-            {
-                if (context.DisableSounds)
-                    data.FileReplacements[objectKind] = data.FileReplacements[objectKind]
-                        .Where(f => !f.GamePaths.Any(p => p.EndsWith("scd", StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
-                if (context.DisableAnimations)
-                    data.FileReplacements[objectKind] = data.FileReplacements[objectKind]
-                        .Where(f => !f.GamePaths.Any(p => p.EndsWith("tmb", StringComparison.OrdinalIgnoreCase) || p.EndsWith("pap", StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
-                if (context.DisableVFX)
-                    data.FileReplacements[objectKind] = data.FileReplacements[objectKind]
-                        .Where(f => !f.GamePaths.Any(p => p.EndsWith("atex", StringComparison.OrdinalIgnoreCase) || p.EndsWith("avfx", StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
-            }
-        }
-
+        var data = InboundAppearancePolicy.Derive(raw, context).Data;
         _ = _modNullificationService.Apply(data, context.IsWhitelisted);
         return data;
     }
@@ -268,6 +247,9 @@ internal sealed partial class CharacterApplicationPipeline
     {
         _handler.ApplicationId = Guid.NewGuid();
         using var appScope = Logger.BeginScope("{ApplicationId}", _handler.ApplicationId);
+        var operationStarted = Stopwatch.GetTimestamp();
+        double modApplicationMs = 0;
+        double customizationMs = 0;
         try
         {
             LogStartingApplicationTask(_handler);
@@ -293,9 +275,18 @@ internal sealed partial class CharacterApplicationPipeline
                     return null;
                 }
             }
-            var applied = await _modApplicator.ApplyModsAsync(Logger, _handler, handler, Pair.UserData.UID, TryGetObjectIndexAsync,
-                _handler.ApplicationId, updateModdedPaths, updateManip,
-                moddedPaths.ToDictionary(k => k.Key.GamePath, k => k.Value, StringComparer.Ordinal), charaData.ManipulationData, token).ConfigureAwait(false);
+            bool applied;
+            var modApplicationStarted = Stopwatch.GetTimestamp();
+            try
+            {
+                applied = await _modApplicator.ApplyModsAsync(Logger, _handler, handler, Pair.UserData.UID, TryGetObjectIndexAsync,
+                    _handler.ApplicationId, updateModdedPaths, updateManip,
+                    moddedPaths.ToDictionary(k => k.Key.GamePath, k => k.Value, StringComparer.Ordinal), charaData.ManipulationData, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                modApplicationMs = Stopwatch.GetElapsedTime(modApplicationStarted).TotalMilliseconds;
+            }
             if (!applied)
             {
                 if (token.IsCancellationRequested)
@@ -332,10 +323,18 @@ internal sealed partial class CharacterApplicationPipeline
 
             token.ThrowIfCancellationRequested();
 
-            foreach (var kind in updatedData)
+            var customizationStarted = Stopwatch.GetTimestamp();
+            try
             {
-                await ApplyCustomizationDataAsync(_handler.ApplicationId, kind, charaData, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
+                foreach (var kind in updatedData)
+                {
+                    await ApplyCustomizationDataAsync(_handler.ApplicationId, kind, charaData, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                }
+            }
+            finally
+            {
+                customizationMs = Stopwatch.GetElapsedTime(customizationStarted).TotalMilliseconds;
             }
 
             // Keep forced Penumbra recovery armed through download, admission and every IPC
@@ -379,10 +378,27 @@ internal sealed partial class CharacterApplicationPipeline
                 LogApplicationFailed(ex);
             }
         }
+        finally
+        {
+            var totalMs = Stopwatch.GetElapsedTime(operationStarted).TotalMilliseconds;
+            var now = Stopwatch.GetTimestamp();
+            var previous = Volatile.Read(ref _lastAppearanceSummaryTimestamp);
+            if (totalMs >= 50
+                && now - previous >= AppearanceSummaryIntervalTicks
+                && Interlocked.CompareExchange(ref _lastAppearanceSummaryTimestamp, now, previous) == previous)
+            {
+                LogSlowAppearanceOperation(Logger, _handler.ApplicationId, "apply", totalMs, modApplicationMs, customizationMs);
+            }
+        }
     }
 
     private void PublishApplicationState(SnowcloakApplicationState state, string? reason = null)
         => Mediator.Publish(new PairApplicationStateChangedMessage(Pair.UserData.UID, state, reason));
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Slow appearance operation {Operation} {ApplicationId}: {TotalMs:F2}ms total, {ModApplicationMs:F2}ms collection/mod/redraw stage, {CustomizationMs:F2}ms customization stage")]
+    private static partial void LogSlowAppearanceOperation(ILogger logger, Guid applicationId, string operation,
+        double totalMs, double modApplicationMs, double customizationMs);
 
     private async Task ApplyCustomizationDataAsync(Guid applicationId, KeyValuePair<ObjectKind, IReadOnlyList<PlayerChanges>> changes, CharacterData charaData, CancellationToken token)
     {

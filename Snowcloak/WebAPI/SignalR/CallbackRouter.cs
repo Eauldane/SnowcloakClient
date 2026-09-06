@@ -9,6 +9,7 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Session;
 using Snowcloak.API.Dto.Chat;
 using Snowcloak.API.Dto.Roleplay;
+using Snowcloak.API.Dto.TemporaryAppearance;
 
 namespace Snowcloak.WebAPI.SignalR;
 
@@ -22,6 +23,8 @@ internal static class CallbackRouter
         ChatCallbacks.Register(hub, api);
         RoleplayCallbacks.Register(hub, api);
         GposeCallbacks.Register(hub, api);
+        hub.On<TemporaryAppearanceInvalidated>(nameof(ApiController.Client_TemporaryAppearanceInvalidated),
+            api.Client_TemporaryAppearanceInvalidated);
     }
 
     public static void RegisterSession<T>(HubConnection hub, string method, ApiController api, Func<T, Task> handler)
@@ -71,6 +74,7 @@ internal static class PairCallbacks
         CallbackRouter.RegisterSession<UserDto>(hub, nameof(ApiController.Client_UserSendOffline), api, api.Client_UserSendOffline);
         CallbackRouter.RegisterSession<UserPairDto>(hub, nameof(ApiController.Client_UserAddClientPair), api, api.Client_UserAddClientPair);
         CallbackRouter.RegisterSession<ManifestNotificationDto>(hub, nameof(ApiController.Client_UserReceiveManifest), api, api.Client_UserReceiveManifest);
+        hub.On<ManifestNotificationDto>(nameof(ApiController.Client_TemporaryAppearanceManifest), api.Client_TemporaryAppearanceManifest);
         CallbackRouter.RegisterSession<PairApplicationReceiptDto>(hub, nameof(ApiController.Client_UserReceiveApplicationReceipt), api, api.Client_UserReceiveApplicationReceipt);
         CallbackRouter.RegisterSession<UserDto>(hub, nameof(ApiController.Client_UserRemoveClientPair), api, api.Client_UserRemoveClientPair);
         CallbackRouter.RegisterSession<OnlineUserIdentDto>(hub, nameof(ApiController.Client_UserSendOnline), api, api.Client_UserSendOnline);

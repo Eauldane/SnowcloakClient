@@ -9,9 +9,11 @@ using Snowcloak.Configuration.Models;
 using Snowcloak.PlayerData.Factories;
 using Snowcloak.Services.Events;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Utils;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using Snowcloak.API.Dto.TemporaryAppearance;
 
 namespace Snowcloak.PlayerData.Pairs;
 
@@ -21,6 +23,10 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     private const int MaxPendingStateEntries = 2048;
     private const string PanicHoldSource = "Panic";
     private static readonly TimeSpan PendingStateLifetime = TimeSpan.FromMinutes(2);
+    private static readonly Action<ILogger, string, Exception?> LogTemporaryPairDisposalFailed = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(1, nameof(QueuePairDisposal)),
+        "Failed to dispose removed temporary appearance pair {Uid}");
     private readonly ConcurrentDictionary<string, Pair> _allClientPairs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<GroupData, GroupFullInfoDto> _allGroups = new(GroupDataComparer.Instance);
     private readonly ConcurrentDictionary<(string Gid, string Uid), PendingGroupPair> _pendingGroupPairs = [];
@@ -28,6 +34,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly ConcurrentDictionary<string, PendingCharacterData> _pendingCharacterData = new(StringComparer.Ordinal);
     private readonly SnowcloakConfigService _configurationService;
     private readonly PairFactory _pairFactory;
+    private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly Lock _projectionLock = new();
     private List<Pair> _directPairsCache = [];
     private Dictionary<GroupFullInfoDto, List<Pair>> _groupPairsCache = new();
@@ -40,6 +47,7 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     {
         _pairFactory = pairFactory;
         _configurationService = configurationService;
+        _backgroundTasks = new BackgroundTaskTracker(logger);
         Mediator.Subscribe<DisconnectedMessage>(this, (_) => ClearPairs());
         Mediator.Subscribe<CutsceneEndMessage>(this, (_) => ReapplyPairData());
         Mediator.Subscribe<LocalCharacterDataPushedMessage>(this, MarkLocalCharacterDataPushed);
@@ -255,6 +263,56 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     public List<Pair> GetVisiblePairs() => _allClientPairs.Values.Where(p => p.IsVisible).ToList();
 
     public IReadOnlyList<Pair> GetPairsSnapshot() => _allClientPairs.Values.ToArray();
+
+    public int TemporaryAppearancePeerCount => _allClientPairs.Values.Count(pair => pair.IsTemporaryAppearance);
+
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "Removed pairs are disposed asynchronously")]
+    public void ReconcileTemporaryAppearance(TemporaryAppearanceSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var desired = snapshot.Peers
+            .Where(peer => !string.IsNullOrWhiteSpace(peer.User.UID)
+                && !string.IsNullOrWhiteSpace(peer.CharacterIdent)
+                && peer.Grants.Any(grant => grant.RemainingMs > 0
+                    && (grant.ReceiveCategories & AppearanceCategoryMask.PlayerVisual) != 0))
+            .ToDictionary(peer => peer.User.UID, StringComparer.Ordinal);
+
+        foreach (var peer in desired.Values)
+        {
+            var pair = _allClientPairs.GetOrAdd(peer.User.UID, _ => _pairFactory.Create(peer.User));
+            pair.UpdateUserData(peer.User);
+            pair.TemporaryAppearance = peer;
+            MarkPairOnline(pair, new OnlineUserIdentDto(peer.User, peer.CharacterIdent), sendNotif: false);
+            ApplyPendingCharacterData(pair);
+        }
+
+        foreach (var pair in _allClientPairs.Values.Where(pair => pair.TemporaryAppearance != null
+                     && !desired.ContainsKey(pair.UserData.UID)).ToList())
+        {
+            pair.TemporaryAppearance = null;
+            if (pair.HasDurableConnection)
+            {
+                pair.ApplyLastReceivedData(forced: true);
+            }
+            else if (_allClientPairs.TryRemove(pair.UserData.UID, out var removed))
+            {
+                Mediator.Publish(new ClearProfileDataMessage(removed.UserData));
+                // Roster reconciliation can run on the framework tick. Revert/redraw disposal must
+                // not synchronously wait for that same framework to advance drawing state.
+                QueuePairDisposal(removed);
+            }
+        }
+        InvalidateProjections();
+    }
+
+    public IReadOnlyList<UserData> GetTemporaryAppearanceRecipients()
+        => _allClientPairs.Values.Where(pair => pair.IsTemporaryAppearance && pair.IsVisible)
+            .Select(pair => pair.UserData).ToArray();
+
+    public IReadOnlyList<Pair> GetTemporaryAppearancePairs()
+        => _allClientPairs.Values.Where(pair => pair.IsTemporaryAppearance)
+            .OrderBy(pair => pair.UserData.AliasOrUID, StringComparer.OrdinalIgnoreCase).ToArray();
 
     public PanicModeResult TogglePanicMode()
     {
@@ -770,6 +828,8 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         base.Dispose(disposing);
 
+        _backgroundTasks.StopAccepting();
+        _backgroundTasks.StopSynchronously(Logger, TimeSpan.FromSeconds(5), nameof(PairManager));
         DisposePairs();
     }
 
@@ -782,9 +842,29 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
 
         base.Dispose(disposing: true);
 
+        _backgroundTasks.StopAccepting();
+        await _backgroundTasks.StopAsync().ConfigureAwait(false);
         await DisposePairsAsync().ConfigureAwait(false);
 
         GC.SuppressFinalize(this);
+    }
+
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
+        Justification = "Detached disposal is a terminal cleanup boundary and every failure must be observed.")]
+    private void QueuePairDisposal(Pair pair)
+    {
+        var disposal = Task.Run(async () =>
+        {
+            try
+            {
+                await pair.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogTemporaryPairDisposalFailed(Logger, pair.UserData.UID, ex);
+            }
+        });
+        _ = _backgroundTasks.Track(disposal, nameof(QueuePairDisposal));
     }
 
     private void DisposePairs()

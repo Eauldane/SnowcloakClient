@@ -5,6 +5,7 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Snowcloak.Interop.Ipc;
 
@@ -27,7 +28,9 @@ public sealed class RedrawManager : IDisposable
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(action);
 
+        var queuedAt = Stopwatch.GetTimestamp();
         await _redrawSlots.WaitAsync(token).ConfigureAwait(false);
+        var slotAcquiredAt = Stopwatch.GetTimestamp();
         try
         {
             await RunPenumbraRedrawAsync(logger, handler, applicationId, action, token).ConfigureAwait(false);
@@ -35,6 +38,16 @@ public sealed class RedrawManager : IDisposable
         finally
         {
             _redrawSlots.Release();
+            var totalMs = Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+            if (totalMs >= 50)
+            {
+                logger.LogWarning(
+                    "Slow redraw lifecycle {ApplicationId}: {TotalMs:F2}ms queue-to-completion, {SlotQueueMs:F2}ms waiting for a redraw slot, {LifecycleMs:F2}ms invocation/draw completion",
+                    applicationId,
+                    totalMs,
+                    Stopwatch.GetElapsedTime(queuedAt, slotAcquiredAt).TotalMilliseconds,
+                    Stopwatch.GetElapsedTime(slotAcquiredAt).TotalMilliseconds);
+            }
         }
     }
 

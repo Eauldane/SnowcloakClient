@@ -15,6 +15,8 @@ namespace Snowcloak.PlayerData.Services;
 
 public sealed class SnapshotBuilder
 {
+    private static readonly long PapWarningIntervalTicks = Stopwatch.Frequency * 10;
+
     private readonly DalamudUtilService _dalamudUtil;
     private readonly FileCacheManager _fileCacheManager;
     private readonly IpcManager _ipcManager;
@@ -23,6 +25,7 @@ public sealed class SnapshotBuilder
     private readonly PerformanceCollectorService _performanceCollector;
     private readonly SnowMediator _snowMediator;
     private readonly TransientResourceManager _transientResourceManager;
+    private long _lastPapWarningTimestamp;
 
     public SnapshotBuilder(
         ILogger<SnapshotBuilder> logger,
@@ -334,11 +337,35 @@ public sealed class SnapshotBuilder
         }
 
         int noValidationFailed = 0;
+        int papCount = 0;
+        int cacheHitCount = 0;
+        double totalQueueToCompletionMs = 0;
+        double totalInvocationMs = 0;
+        double maximumInvocationMs = 0;
         foreach (var file in fragment.FileReplacements.Where(f => !f.IsFileSwap && f.GamePaths.First().EndsWith("pap", StringComparison.OrdinalIgnoreCase)).ToList())
         {
             ct.ThrowIfCancellationRequested();
 
-            var skeletonIndices = await Service.RunOnFrameworkAsync(() => _modelAnalyzer.GetBoneIndicesFromPap(file.Hash)).ConfigureAwait(false);
+            bool cacheHit = false;
+            double invocationMs = 0;
+            var queuedAt = Stopwatch.GetTimestamp();
+            var skeletonIndices = await Service.RunOnFrameworkAsync(() =>
+            {
+                var invokedAt = Stopwatch.GetTimestamp();
+                try
+                {
+                    return _modelAnalyzer.GetBoneIndicesFromPap(file.Hash, out cacheHit);
+                }
+                finally
+                {
+                    invocationMs = Stopwatch.GetElapsedTime(invokedAt).TotalMilliseconds;
+                }
+            }).ConfigureAwait(false);
+            papCount++;
+            if (cacheHit) cacheHitCount++;
+            totalQueueToCompletionMs += Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+            totalInvocationMs += invocationMs;
+            maximumInvocationMs = Math.Max(maximumInvocationMs, invocationMs);
             bool validationFailed = false;
             if (skeletonIndices != null)
             {
@@ -371,6 +398,24 @@ public sealed class SnapshotBuilder
                 {
                     _transientResourceManager.RemoveTransientResource(ObjectKind.Player, gamePath);
                 }
+            }
+        }
+
+        if (papCount > 0)
+        {
+            _logger.LogDebug(
+                "PAP verification timing: {FileCount} files, {CacheHitCount} cache hits, {NativeAnalysisCount} native analyses, {QueueToCompletionMs:F2}ms queue-to-completion, {InvocationMs:F2}ms invocation, {MaximumInvocationMs:F2}ms maximum invocation",
+                papCount, cacheHitCount, papCount - cacheHitCount, totalQueueToCompletionMs, totalInvocationMs, maximumInvocationMs);
+
+            var now = Stopwatch.GetTimestamp();
+            var previous = Volatile.Read(ref _lastPapWarningTimestamp);
+            if ((totalQueueToCompletionMs >= 8 || maximumInvocationMs >= 8)
+                && now - previous >= PapWarningIntervalTicks
+                && Interlocked.CompareExchange(ref _lastPapWarningTimestamp, now, previous) == previous)
+            {
+                _logger.LogWarning(
+                    "Slow PAP verification: {FileCount} files, {CacheHitCount} cache hits, {NativeAnalysisCount} native analyses, {QueueToCompletionMs:F2}ms queue-to-completion, {InvocationMs:F2}ms invocation, {MaximumInvocationMs:F2}ms maximum invocation; native Havok analysis remained framework-thread bound for safety",
+                    papCount, cacheHitCount, papCount - cacheHitCount, totalQueueToCompletionMs, totalInvocationMs, maximumInvocationMs);
             }
         }
 

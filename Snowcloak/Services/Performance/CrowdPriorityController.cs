@@ -27,6 +27,7 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private DateTime _lastEvaluationUtc = DateTime.MinValue;
     private HashSet<uint> _partyMemberIds = [];
+    private CrowdPrioritySnapshot _snapshot = new(false, 0, 0, 0, 0, 0, new(false, false, false));
 
     public CrowdPriorityController(
         ILogger<CrowdPriorityController> logger,
@@ -46,7 +47,7 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
         _playerPerformanceConfigService = playerPerformanceConfigService;
         _serviceScopeFactory = serviceScopeFactory;
         _dalamudUtilService = dalamudUtilService;
-        _tick = frameScheduler.Register("CrowdPriority", TickInterval.EveryMilliseconds(200), TickPriority.Normal, Tick,
+        _tick = frameScheduler.Register("CrowdPriority", TickInterval.EveryMilliseconds(500), TickPriority.Normal, Tick,
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
         Mediator.Subscribe<RecalculatePerformanceMessage>(this, _ => Reevaluate(force: true));
         Mediator.Subscribe<DisconnectedMessage>(this, _ => ClearAllAutoPauses());
@@ -54,26 +55,7 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
 
     public CrowdPrioritySnapshot GetSnapshot()
     {
-        var config = _playerPerformanceConfigService.Current;
-        var visibleShellPairs = GetVisibleShellPairs()
-            .Where(pair => !pair.IsPaused)
-            .ToList();
-        var activeShellPairs = visibleShellPairs
-            .Where(pair => !pair.IsApplicationBlocked)
-            .ToList();
-
-        var activeVramBytes = activeShellPairs.Sum(GetEstimatedVisibleVramBytes);
-        var activeTriangleCount = activeShellPairs.Sum(GetEstimatedVisibleTriangleCount);
-        var thresholdState = GetThresholdState(config, activeShellPairs.Count, activeVramBytes, activeTriangleCount);
-
-        return new CrowdPrioritySnapshot(
-            config.CrowdPriorityModeEnabled,
-            visibleShellPairs.Count,
-            activeShellPairs.Count,
-            visibleShellPairs.Count(pair => pair.HasAutoPauseReason(AutoPauseReason.CrowdPriority)),
-            activeVramBytes,
-            activeTriangleCount,
-            thresholdState);
+        return Volatile.Read(ref _snapshot);
     }
 
     public void Reevaluate(bool force = false)
@@ -88,20 +70,23 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
             _lastEvaluationUtc = DateTime.UtcNow;
 
             var config = _playerPerformanceConfigService.Current;
+            var allGroupPairs = EnumerateAllGroupPairs();
+            var visibleShellPairs = allGroupPairs
+                .Where(pair => pair.IsVisible && !pair.IsPaused)
+                .ToList();
+
             if (!config.CrowdPriorityModeEnabled || !HasAnyThresholdEnabled(config))
             {
-                ClearAllAutoPauses();
+                ClearAllAutoPauses(allGroupPairs);
+                PublishSnapshot(config, visibleShellPairs);
                 return;
             }
 
-            var visibleShellPairs = GetVisibleShellPairs()
-                .Where(pair => !pair.IsPaused)
-                .ToList();
             var activeCandidates = visibleShellPairs
                 .Where(pair => !pair.HasBlockingReasonsOtherThanCrowdPriority())
                 .ToList();
 
-            foreach (var pair in EnumerateAllGroupPairs().Except(visibleShellPairs))
+            foreach (var pair in allGroupPairs.Except(visibleShellPairs))
             {
                 ClearAutoPause(pair);
             }
@@ -113,12 +98,15 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
 
             if (activeCandidates.Count == 0)
             {
+                PublishSnapshot(config, visibleShellPairs);
                 return;
             }
 
             var activeCount = activeCandidates.Count;
             var activeVramBytes = activeCandidates.Sum(GetEstimatedVisibleVramBytes);
             var activeTriangleCount = activeCandidates.Sum(GetEstimatedVisibleTriangleCount);
+            var initialActiveVramBytes = activeVramBytes;
+            var initialActiveTriangleCount = activeTriangleCount;
             var initialThresholdState = GetThresholdState(config, activeCount, activeVramBytes, activeTriangleCount);
 
             var keepPairs = new HashSet<Pair>(activeCandidates);
@@ -150,21 +138,26 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
                     pair.SetAutoPaused(
                         AutoPauseReason.CrowdPriority,
                         BuildTooltip(pair, classification, config, initialThresholdState, activeCandidates.Count,
-                            activeCandidates.Sum(GetEstimatedVisibleVramBytes), activeCandidates.Sum(GetEstimatedVisibleTriangleCount)));
+                            initialActiveVramBytes, initialActiveTriangleCount));
                 }
                 else
                 {
                     ClearAutoPause(pair);
                 }
             }
+
+            PublishSnapshot(config, visibleShellPairs);
         }
     }
 
     public void ClearAllAutoPauses()
     {
-        foreach (var pair in EnumerateAllGroupPairs())
+        lock (_sync)
         {
-            ClearAutoPause(pair);
+            var allGroupPairs = EnumerateAllGroupPairs();
+            ClearAllAutoPauses(allGroupPairs);
+            PublishSnapshot(_playerPerformanceConfigService.Current,
+                allGroupPairs.Where(pair => pair.IsVisible && !pair.IsPaused).ToList());
         }
     }
 
@@ -177,10 +170,7 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
     private void Tick()
     {
         UpdatePartyMemberCache();
-        if (DateTime.UtcNow - _lastEvaluationUtc >= EvaluationInterval)
-        {
-            Reevaluate(force: true);
-        }
+        Reevaluate(force: true);
     }
 
     private List<CrowdPriorityCandidate> CreateRemovalOrder(PlayerPerformanceConfig config, IReadOnlyCollection<Pair> activeCandidates)
@@ -191,12 +181,17 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
             config.CrowdPriorityTrianglesThresholdThousands);
 
         return activeCandidates
-            .Select(pair => new CrowdPriorityCandidate(
-                pair,
-                Classify(pair, _partyMemberIds),
-                GetEstimatedVisibleVramBytes(pair),
-                GetEstimatedVisibleTriangleCount(pair),
-                PerformanceBudgetPolicy.CalculateCrowdBurden(thresholds, GetEstimatedVisibleVramBytes(pair), GetEstimatedVisibleTriangleCount(pair))))
+            .Select(pair =>
+            {
+                var estimatedVramBytes = GetEstimatedVisibleVramBytes(pair);
+                var estimatedTriangleCount = GetEstimatedVisibleTriangleCount(pair);
+                return new CrowdPriorityCandidate(
+                    pair,
+                    Classify(pair, _partyMemberIds),
+                    estimatedVramBytes,
+                    estimatedTriangleCount,
+                    PerformanceBudgetPolicy.CalculateCrowdBurden(thresholds, estimatedVramBytes, estimatedTriangleCount));
+            })
             .OrderByDescending(candidate => candidate.Classification.Tier)
             .ThenByDescending(candidate => candidate.Burden)
             .ThenByDescending(candidate => candidate.EstimatedVramBytes)
@@ -252,9 +247,46 @@ public sealed partial class CrowdPriorityController : DisposableMediatorSubscrib
         }
     }
 
-    private IEnumerable<Pair> GetVisibleShellPairs()
+    private static void ClearAllAutoPauses(IEnumerable<Pair> pairs)
     {
-        return EnumerateAllGroupPairs().Where(pair => pair.IsVisible);
+        foreach (var pair in pairs)
+        {
+            ClearAutoPause(pair);
+        }
+    }
+
+    private void PublishSnapshot(PlayerPerformanceConfig config, IReadOnlyCollection<Pair> visibleShellPairs)
+    {
+        var activeCount = 0;
+        var crowdPausedCount = 0;
+        long activeVramBytes = 0;
+        long activeTriangleCount = 0;
+
+        foreach (var pair in visibleShellPairs)
+        {
+            if (pair.HasAutoPauseReason(AutoPauseReason.CrowdPriority))
+            {
+                crowdPausedCount++;
+            }
+
+            if (pair.IsApplicationBlocked)
+            {
+                continue;
+            }
+
+            activeCount++;
+            activeVramBytes += GetEstimatedVisibleVramBytes(pair);
+            activeTriangleCount += GetEstimatedVisibleTriangleCount(pair);
+        }
+
+        Volatile.Write(ref _snapshot, new CrowdPrioritySnapshot(
+            config.CrowdPriorityModeEnabled,
+            visibleShellPairs.Count,
+            activeCount,
+            crowdPausedCount,
+            activeVramBytes,
+            activeTriangleCount,
+            GetThresholdState(config, activeCount, activeVramBytes, activeTriangleCount)));
     }
 
     private static long GetEstimatedVisibleVramBytes(Pair pair)

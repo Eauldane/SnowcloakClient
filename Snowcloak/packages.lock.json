@@ -28,18 +28,18 @@
       },
       "ElezenTools": {
         "type": "Direct",
-        "requested": "[15.55.0, )",
-        "resolved": "15.55.0",
-        "contentHash": "xP6dZvBIjb3FVid3ZYfNbQhcB4JBJFIbfVxbIe0uoHNilN63rxircFv+LYkT2q6HCSTj+1EqmyRtN1aToWGEsw==",
+        "requested": "[15.56.0, )",
+        "resolved": "15.56.0",
+        "contentHash": "lzN0aWWYPNjG1Und4kfkXN+5gOy2wQCWoTUdri/x0c99HhZRwIlWj0xokcLl4Qsb6rDBaoZ6k1lG7uyeoLTuZA==",
         "dependencies": {
           "Microsoft.Extensions.Logging": "10.0.9"
         }
       },
       "ElezenTools.Core": {
         "type": "Direct",
-        "requested": "[15.55.0, )",
-        "resolved": "15.55.0",
-        "contentHash": "lu1y50zYgy9qOyRjIEooXdiojXRFrtD+TWhxCF7T7fagvKAMIjcQriaQ+j/42cjLvhY59Ga17ZXcMrrXUrz71w==",
+        "requested": "[15.56.0, )",
+        "resolved": "15.56.0",
+        "contentHash": "Q4dQk0ShVxmvCfIIgBD3DuV6WayS3gHgZpTSX4Zelz3XeXEl9BbCncV60tTZgDmuXU42jUYJ0CBlNPyCv7mrRQ==",
         "dependencies": {
           "Microsoft.Extensions.Logging.Abstractions": "10.0.9"
         }
@@ -110,9 +110,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.152, )",
-        "resolved": "3.0.152",
-        "contentHash": "5rAiIlg0V9XThpBU7MdECBMdqS25QjqQRPx3r8+JFp+ImW/z2W/kVX4Xt98/p2nxMQQ1GTfnD1cVxdHXRAH97w=="
+        "requested": "[3.0.217, )",
+        "resolved": "3.0.217",
+        "contentHash": "Kcg5Hc95bc7gEWlQDxjc19RTS7QofrwET1Kqvk3kwkbh9pPoXzoG3Vlz/kbGxQfPAXDssVfJdpvgyYUUKAsSnQ=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
@@ -207,9 +207,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[4.2.1, )",
-        "resolved": "4.2.1",
-        "contentHash": "jnT+5GPR85nkRd0HA70gYR8+YheT1G08nFiyhOK/1B5R8UC+ll150QCQO3bJEsYdDJvz9YGQ6IY8OSc9AXRxsQ==",
+        "requested": "[4.2.1.1, )",
+        "resolved": "4.2.1.1",
+        "contentHash": "D53ovEv7BEbI+Plug4OtvntJdTB8d6+4j+1aCTsTlu8dAnVjC9LEgx8ompIHO1cv6f0U2vVVziLLTvg3O/3JwA==",
         "dependencies": {
           "Blake3": "2.2.1",
           "MessagePack": "3.1.8",
@@ -218,9 +218,9 @@
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[4.0.0, )",
-        "resolved": "4.0.0",
-        "contentHash": "RqxoZuOZ0uw2o+5wtsJuSgHEYDfVE9zmffDcTUestNyQ2sSYygVbERf1DK6zr2WLyguqnlimIVXN2T+w/Ft5RQ==",
+        "requested": "[4.2.0, )",
+        "resolved": "4.2.0",
+        "contentHash": "ZHCFpEZfYo3ksTxcRuiOC51ca5jOrYjRb+J+d3bqjPB4xuzKc/JkG9SPqbc5KpfJhx1XYiCGqp+q313jlRlM/Q==",
         "dependencies": {
           "Blake3": "2.2.1",
           "K4os.Compression.LZ4.Streams": "1.3.8",
@@ -235,9 +235,9 @@
       },
       "SonarAnalyzer.CSharp": {
         "type": "Direct",
-        "requested": "[10.32.0.713, )",
-        "resolved": "10.32.0.713",
-        "contentHash": "7GiMslvghy0n0t7r2oEAVbBeKTnYTXUOQPtZCwuN5FvtM+9vxf4BR4FVrq5o4KYUziHF/5NLR5SHQ3guBqYPow=="
+        "requested": "[10.33.0.1635, )",
+        "resolved": "10.33.0.1635",
+        "contentHash": "nOwgvMh7p64z62GTy2n4Ki51DVy4Q2ejxxfuclW6Y5u6Htk1i2RNRqxuONiZ/4aaBi8V6RwzuCcGTOFcoVoQOg=="
       },
       "SQLitePCLRaw.bundle_e_sqlite3": {
         "type": "Direct",
@@ -760,9 +760,9 @@
       "snowcloak.core": {
         "type": "Project",
         "dependencies": {
-          "ElezenTools.Core": "[15.55.0, )",
+          "ElezenTools.Core": "[15.56.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
-          "Snowcloak.API": "[4.2.1, )"
+          "Snowcloak.API": "[4.2.1.1, )"
         }
       },
       "snowcloak.game": {
@@ -779,7 +779,7 @@
           "Microsoft.Data.Sqlite": "[10.0.11, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )",
-          "Snowcloak.CacheFile": "[4.0.0, )",
+          "Snowcloak.CacheFile": "[4.2.0, )",
           "Snowcloak.Core": "[1.0.0, )"
         }
       }

@@ -295,7 +295,7 @@ public sealed class CacheMonitor : DisposableMediatorSubscriberBase, IAsyncDispo
         _backgroundTasks.StopAccepting();
         StopMonitoring();
         _scanner.Dispose();
-        _eviction.Dispose();
+        await _eviction.DisposeAsync().ConfigureAwait(false);
         await _backgroundTasks.StopAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
     }

@@ -31,6 +31,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<PairContextMenuBuilder>());
         collection.AddHostedService(p => p.GetRequiredService<SyncTroubleshootingService>());
         collection.AddHostedService(p => p.GetRequiredService<PerformanceCollectorService>());
+        collection.AddHostedService(p => p.GetRequiredService<InboundWorkDispatcher>());
         collection.AddHostedService(p => p.GetRequiredService<DtrEntry>());
         collection.AddHostedService(p => p.GetRequiredService<PairingAvailabilityDtrEntry>());
         collection.AddHostedService(p => p.GetRequiredService<EventAggregator>());
@@ -44,6 +45,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<ChatNotifier>());
         collection.AddHostedService(p => p.GetRequiredService<ChatDtrEntry>());
         collection.AddHostedService(p => p.GetRequiredService<RoleplayReminderService>());
+        collection.AddHostedService(p => p.GetRequiredService<TemporaryPartyAppearanceService>());
 
         return collection;
     }

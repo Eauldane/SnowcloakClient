@@ -23,6 +23,7 @@ public sealed partial class GameStateTracker : IHostedService
     private readonly PlayerInteractionService _playerInteraction;
     private readonly PlotPresenceTracker _plotPresence;
     private IFrameTickHandle? _tickHandle;
+    private IFrameTickHandle? _playerSnapshotTickHandle;
     private DateTime _delayedFrameworkUpdateCheck = DateTime.UtcNow;
     private uint _lastZone;
     private bool _sentBetweenAreas;
@@ -52,6 +53,8 @@ public sealed partial class GameStateTracker : IHostedService
         _playerInteraction = playerInteraction;
         _plotPresence = plotPresence;
         _tickHandle = _frameScheduler.Register("GameState", TickInterval.EveryFrame, TickPriority.Critical, FrameworkOnUpdateInternal);
+        _playerSnapshotTickHandle = _frameScheduler.Register("PlayerSnapshot", TickInterval.EveryMilliseconds(100), TickPriority.High,
+            RefreshPlayerSnapshot, FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
     }
 
     public bool IsAnythingDrawing => _objectTableCache.IsAnythingDrawing;
@@ -67,6 +70,8 @@ public sealed partial class GameStateTracker : IHostedService
     {
         _tickHandle?.Dispose();
         _tickHandle = null;
+        _playerSnapshotTickHandle?.Dispose();
+        _playerSnapshotTickHandle = null;
         return Task.CompletedTask;
     }
 
@@ -99,7 +104,7 @@ public sealed partial class GameStateTracker : IHostedService
 
         _performanceCollector.LogPerformance(this, $"FrameworkOnUpdateInternal+{(isNormalFrameworkUpdate ? "Regular" : "Delayed")}", () =>
         {
-            _performanceCollector.LogPerformance(this, $"ObjTableToCharas", () => _objectTableCache.Refresh(_sentBetweenAreas));
+            _objectTableCache.RefreshDrawingState(_sentBetweenAreas);
             _objectTableCache.FinishDrawingPass();
 
             if (_clientState.IsGPosing && !IsInGpose)
@@ -198,7 +203,8 @@ public sealed partial class GameStateTracker : IHostedService
                 return;
             }
 
-            if (localPlayer != null && localPlayer.IsValid() && !IsLoggedIn)
+            if (localPlayer != null && localPlayer.IsValid() && !IsLoggedIn
+                && _objectTableCache.GetCurrentCharacterIdentity().IsValid)
             {
                 LogLoggedIn(_logger);
                 IsLoggedIn = true;
@@ -214,6 +220,11 @@ public sealed partial class GameStateTracker : IHostedService
 
             _delayedFrameworkUpdateCheck = DateTime.UtcNow;
         });
+    }
+
+    private void RefreshPlayerSnapshot()
+    {
+        _performanceCollector.LogPerformance(this, $"PlayerSnapshot", () => _objectTableCache.RefreshPlayerSnapshot(_sentBetweenAreas));
     }
 
     private IPlayerCharacter? GetTargetPlayerCharacter()

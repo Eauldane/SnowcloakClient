@@ -67,9 +67,18 @@ public sealed class XivDataAnalyzer
     }
 
     public Dictionary<string, List<ushort>>? GetBoneIndicesFromPap(string hash)
+        => GetBoneIndicesFromPap(hash, out _);
+
+    public Dictionary<string, List<ushort>>? GetBoneIndicesFromPap(string hash, out bool cacheHit)
     {
         lock (_papAnalysisLock)
         {
+            cacheHit = _configService.Current.BonesDictionary.TryGetValue(hash, out var bones);
+            if (cacheHit)
+            {
+                return bones;
+            }
+
             return GetBoneIndicesFromPapCore(hash);
         }
     }

@@ -11,13 +11,19 @@ using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
 using Snowcloak.Utils;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Snowcloak.FileCache;
 
-public sealed class TransientResourceManager : DisposableMediatorSubscriberBase, IAsyncDisposable
+public sealed partial class TransientResourceManager : DisposableMediatorSubscriberBase, IAsyncDisposable
 {
+    private static readonly ObjectKind[] AllObjectKinds = Enum.GetValues<ObjectKind>();
+    private static readonly long ResourceCallbackWarningIntervalTicks = Stopwatch.Frequency * 10;
+    private static readonly long SlowResourceCallbackFrameTicks = Math.Max(1, Stopwatch.Frequency * 8 / 1000);
+
     private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly Lock _cacheAdditionLock = new();
+    private readonly Dictionary<nint, ObjectKind> _cachedFrameAddresses = [];
     private readonly HashSet<string> _cachedHandledPaths = new(StringComparer.Ordinal);
     private readonly DalamudUtilService _dalamudUtil;
     private readonly string[] _handledFileTypes = ["tmb", "pap", "avfx", "atex", "sklb", "eid", "phyb", "scd", "skp", "shpk"];
@@ -28,13 +34,26 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
     private readonly CancellationTokenSource _runtimeCts = new();
     private readonly SingleFlightCts _sendTransientFlight = new();
     private readonly SemiTransientResourceStore _semiTransientStore;
-    private ConcurrentDictionary<IntPtr, ObjectKind> _cachedFrameAddresses = [];
+    private readonly Lock _frameAddressesLock = new();
+    private readonly Lock _persistenceKeyLock = new();
     private ConcurrentDictionary<ObjectKind, HashSet<string>>? _semiTransientResources;
     private uint _lastClassJobId = uint.MaxValue;
     private string? _lastPlayerPersistentDataKey;
+    private int _persistenceKeyGeneration;
     private bool _legacyTransientDataImported;
     private readonly Lock _playerPointersLock = new();
     private readonly IFrameTickHandle _tick;
+    private long _lastResourceCallbackWarningTimestamp;
+    private ResourceCallbackFrameAttribution? _pendingResourceCallbackWarning;
+    private long _resourceCallbackCount;
+    private long _resourceCallbackElapsedTicks;
+    private long _resourceCallbackMaxElapsedTicks;
+    private long _resourceCallbackUniqueCount;
+    private long _resourceDebounceReplacementCount;
+    private long _resourceDebounceReplacementElapsedTicks;
+    private long _resourceDebounceReplacementMaxElapsedTicks;
+    private long _sendTransientGeneration;
+    private long _sendTransientPendingGeneration;
     private int _disposed;
     public bool IsTransientRecording => _recordingService.IsRecording;
 
@@ -52,6 +71,10 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
 
         Mediator.Subscribe<PenumbraResourceLoadMessage>(this, Manager_PenumbraResourceLoadEvent);
         Mediator.Subscribe<PenumbraModSettingChangedMessage>(this, (_) => Manager_PenumbraModSettingChanged());
+        Mediator.Subscribe<DalamudLoginMessage>(this, _ => InvalidatePlayerPersistenceKey());
+        Mediator.Subscribe<DalamudLogoutMessage>(this, _ => InvalidatePlayerPersistenceKey());
+        Mediator.Subscribe<CharacterChangedMessage>(this, _ => InvalidatePlayerPersistenceKey());
+        Mediator.Subscribe<ClassJobChangedMessage>(this, OnClassJobChanged);
         _tick = frameScheduler.Register("TransientResource", TickInterval.EveryFrame, TickPriority.High, DalamudUtil_FrameworkUpdate,
             FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
         Mediator.Subscribe<GameObjectHandlerCreatedMessage>(this, (msg) =>
@@ -72,7 +95,35 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
         });
     }
 
-    private string PlayerPersistentDataKey => _dalamudUtil.GetPlayerNameAsync().GetAwaiter().GetResult() + "_" + _dalamudUtil.GetHomeWorldIdAsync().GetAwaiter().GetResult();
+    private string PlayerPersistentDataKey
+    {
+        get
+        {
+            while (true)
+            {
+                int generation;
+                lock (_persistenceKeyLock)
+                {
+                    if (_lastPlayerPersistentDataKey != null)
+                    {
+                        return _lastPlayerPersistentDataKey;
+                    }
+
+                    generation = _persistenceKeyGeneration;
+                }
+
+                var identity = _dalamudUtil.GetCurrentCharacterIdentityAsync().GetAwaiter().GetResult();
+                var resolvedKey = identity.Name + "_" + identity.HomeWorldId;
+                lock (_persistenceKeyLock)
+                {
+                    if (generation == _persistenceKeyGeneration)
+                    {
+                        return _lastPlayerPersistentDataKey = resolvedKey;
+                    }
+                }
+            }
+        }
+    }
     private ConcurrentDictionary<ObjectKind, HashSet<string>> SemiTransientResources
     {
         get
@@ -92,7 +143,6 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
         EnsureLegacyTransientDataImported();
 
         var characterKey = PlayerPersistentDataKey;
-        _lastPlayerPersistentDataKey = characterKey;
         var jobId = _dalamudUtil.ClassJobId;
         return new ConcurrentDictionary<ObjectKind, HashSet<string>>
         {
@@ -302,29 +352,43 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
 
     private void DalamudUtil_FrameworkUpdate()
     {
-        GameObjectHandler[] playerPointerSnapshot;
+        FlushResourceCallbackAttribution();
+
         lock (_playerPointersLock)
         {
-            playerPointerSnapshot = _playerRelatedPointers.Where(k => k.Address != nint.Zero).ToArray();
+            lock (_frameAddressesLock)
+            {
+                _cachedFrameAddresses.Clear();
+                foreach (var handler in _playerRelatedPointers)
+                {
+                    if (handler.Address != nint.Zero)
+                    {
+                        _cachedFrameAddresses[handler.Address] = handler.ObjectKind;
+                    }
+                }
+            }
         }
 
-        _cachedFrameAddresses = new(playerPointerSnapshot.ToDictionary(c => c.Address, c => c.ObjectKind));
         lock (_cacheAdditionLock)
         {
             _cachedHandledPaths.Clear();
         }
 
-        var playerPersistentDataKey = PlayerPersistentDataKey;
-        if (_lastClassJobId != _dalamudUtil.ClassJobId || !string.Equals(_lastPlayerPersistentDataKey, playerPersistentDataKey, StringComparison.Ordinal))
+        if (_lastClassJobId != _dalamudUtil.ClassJobId)
         {
             _lastClassJobId = _dalamudUtil.ClassJobId;
-            _lastPlayerPersistentDataKey = playerPersistentDataKey;
             _semiTransientResources = LoadSemiTransientResources();
         }
 
-        foreach (var kind in Enum.GetValues(typeof(ObjectKind)))
+        foreach (var kind in AllObjectKinds)
         {
-            if (!_cachedFrameAddresses.Any(k => k.Value == (ObjectKind)kind) && TransientResources.Remove((ObjectKind)kind, out _))
+            bool isPresent;
+            lock (_frameAddressesLock)
+            {
+                isPresent = _cachedFrameAddresses.ContainsValue(kind);
+            }
+
+            if (!isPresent && TransientResources.Remove(kind, out _))
             {
                 Logger.LogDebug("Object not present anymore: {kind}", kind.ToString());
             }
@@ -353,17 +417,30 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
 
     private void Manager_PenumbraResourceLoadEvent(PenumbraResourceLoadMessage msg)
     {
+        var callbackStarted = Stopwatch.GetTimestamp();
+        Interlocked.Increment(ref _resourceCallbackCount);
+        try
+        {
+            HandlePenumbraResourceLoadEvent(msg);
+        }
+        finally
+        {
+            RecordElapsed(ref _resourceCallbackElapsedTicks, ref _resourceCallbackMaxElapsedTicks, callbackStarted);
+        }
+    }
+
+    private void HandlePenumbraResourceLoadEvent(PenumbraResourceLoadMessage msg)
+    {
         var gamePath = msg.GamePath.ToLowerInvariant();
         var gameObjectAddress = msg.GameObject;
         var filePath = msg.FilePath;
 
         // ignore files already processed this frame
-        if (_cachedHandledPaths.Contains(gamePath)) return;
-
         lock (_cacheAdditionLock)
         {
-            _cachedHandledPaths.Add(gamePath);
+            if (!_cachedHandledPaths.Add(gamePath)) return;
         }
+        Interlocked.Increment(ref _resourceCallbackUniqueCount);
 
         // replace individual mtrl stuff
         if (filePath.StartsWith("|", StringComparison.OrdinalIgnoreCase))
@@ -392,12 +469,17 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
         }
 
         // ignore files not belonging to anything player related
-        if (!_cachedFrameAddresses.TryGetValue(gameObjectAddress, out var objectKind))
+        ObjectKind objectKind;
+        lock (_frameAddressesLock)
         {
-            lock (_cacheAdditionLock)
+            if (!_cachedFrameAddresses.TryGetValue(gameObjectAddress, out objectKind))
             {
-                _cachedHandledPaths.Add(gamePath);
+                return;
             }
+        }
+
+        if (gameObjectAddress == nint.Zero)
+        {
             return;
         }
 
@@ -446,31 +528,139 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
 
     private void SendTransients(nint gameObject, ObjectKind objectKind)
     {
-        var scope = _sendTransientFlight.Begin(_runtimeCts.Token);
+        var generation = Interlocked.Increment(ref _sendTransientGeneration);
+        var replacedGeneration = Interlocked.Exchange(ref _sendTransientPendingGeneration, generation);
+        var replacementStarted = Stopwatch.GetTimestamp();
+        SingleFlightCts.Scope scope;
+        try
+        {
+            scope = _sendTransientFlight.Begin(_runtimeCts.Token);
+        }
+        catch
+        {
+            Interlocked.CompareExchange(ref _sendTransientPendingGeneration, 0, generation);
+            throw;
+        }
+        finally
+        {
+            if (replacedGeneration != 0)
+            {
+                Interlocked.Increment(ref _resourceDebounceReplacementCount);
+                RecordElapsed(ref _resourceDebounceReplacementElapsedTicks,
+                    ref _resourceDebounceReplacementMaxElapsedTicks, replacementStarted);
+            }
+        }
+
         var token = scope.Token;
         _ = _backgroundTasks.Run(async () =>
         {
-            using (scope)
+            try
             {
-                try
+                using (scope)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
-                    foreach (var kvp in TransientResources)
+                    try
                     {
-                        if (TransientResources.TryGetValue(objectKind, out var values) && values.Any())
+                        await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                        foreach (var kvp in TransientResources)
                         {
-                            Logger.LogTrace("Sending Transients for {kind}", objectKind);
-                            Mediator.Publish(new TransientResourceChangedMessage(gameObject));
+                            if (TransientResources.TryGetValue(objectKind, out var values) && values.Any())
+                            {
+                                Logger.LogTrace("Sending Transients for {kind}", objectKind);
+                                Mediator.Publish(new TransientResourceChangedMessage(gameObject));
+                            }
                         }
                     }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        Logger.LogTrace("Transient send debounce cancelled");
+                    }
                 }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    Logger.LogTrace("Transient send debounce cancelled");
-                }
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _sendTransientPendingGeneration, 0, generation);
             }
         }, nameof(SendTransients));
     }
+
+    private void FlushResourceCallbackAttribution()
+    {
+        var sample = new ResourceCallbackFrameAttribution(
+            Interlocked.Exchange(ref _resourceCallbackCount, 0),
+            Interlocked.Exchange(ref _resourceCallbackUniqueCount, 0),
+            Interlocked.Exchange(ref _resourceCallbackElapsedTicks, 0),
+            Interlocked.Exchange(ref _resourceCallbackMaxElapsedTicks, 0),
+            Interlocked.Exchange(ref _resourceDebounceReplacementCount, 0),
+            Interlocked.Exchange(ref _resourceDebounceReplacementElapsedTicks, 0),
+            Interlocked.Exchange(ref _resourceDebounceReplacementMaxElapsedTicks, 0));
+
+        if (sample.CallbackElapsedTicks >= SlowResourceCallbackFrameTicks
+            && (_pendingResourceCallbackWarning is not { } pending
+                || sample.CallbackElapsedTicks > pending.CallbackElapsedTicks))
+        {
+            _pendingResourceCallbackWarning = sample;
+        }
+
+        if (_pendingResourceCallbackWarning is not { } warning)
+        {
+            return;
+        }
+
+        var now = Stopwatch.GetTimestamp();
+        var lastWarning = Volatile.Read(ref _lastResourceCallbackWarningTimestamp);
+        if (lastWarning != 0 && now - lastWarning < ResourceCallbackWarningIntervalTicks)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _lastResourceCallbackWarningTimestamp, now);
+        _pendingResourceCallbackWarning = null;
+        LogSlowResourceCallbacks(Logger,
+            warning.CallbackCount,
+            warning.UniqueCallbackCount,
+            ToMilliseconds(warning.CallbackElapsedTicks),
+            ToMilliseconds(warning.MaxCallbackElapsedTicks),
+            warning.DebounceReplacementCount,
+            ToMilliseconds(warning.DebounceReplacementElapsedTicks),
+            ToMilliseconds(warning.MaxDebounceReplacementElapsedTicks));
+    }
+
+    private static void RecordElapsed(ref long totalTicks, ref long maxTicks, long started)
+    {
+        var elapsed = Stopwatch.GetTimestamp() - started;
+        Interlocked.Add(ref totalTicks, elapsed);
+
+        var currentMax = Volatile.Read(ref maxTicks);
+        while (elapsed > currentMax)
+        {
+            var observed = Interlocked.CompareExchange(ref maxTicks, elapsed, currentMax);
+            if (observed == currentMax)
+            {
+                break;
+            }
+
+            currentMax = observed;
+        }
+    }
+
+    private static double ToMilliseconds(long stopwatchTicks)
+        => stopwatchTicks * 1000d / Stopwatch.Frequency;
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Slow Penumbra resource callback frame: {CallbackCount} callbacks ({UniqueCallbackCount} unique), {CallbackElapsedMs:F2}ms total, {MaxCallbackElapsedMs:F2}ms max; {DebounceReplacementCount} debounce replacements took {DebounceReplacementElapsedMs:F2}ms total, {MaxDebounceReplacementElapsedMs:F2}ms max in begin/cancel")]
+    private static partial void LogSlowResourceCallbacks(ILogger logger, long callbackCount,
+        long uniqueCallbackCount, double callbackElapsedMs, double maxCallbackElapsedMs,
+        long debounceReplacementCount, double debounceReplacementElapsedMs,
+        double maxDebounceReplacementElapsedMs);
+
+    private readonly record struct ResourceCallbackFrameAttribution(
+        long CallbackCount,
+        long UniqueCallbackCount,
+        long CallbackElapsedTicks,
+        long MaxCallbackElapsedTicks,
+        long DebounceReplacementCount,
+        long DebounceReplacementElapsedTicks,
+        long MaxDebounceReplacementElapsedTicks);
 
     public void StartRecording(CancellationToken token)
     {
@@ -513,6 +703,33 @@ public sealed class TransientResourceManager : DisposableMediatorSubscriberBase,
         _backgroundTasks.StopAccepting();
         _runtimeCts.Cancel();
         _sendTransientFlight.Cancel();
+    }
+
+    private void InvalidatePlayerPersistenceKey()
+    {
+        lock (_persistenceKeyLock)
+        {
+            _lastPlayerPersistentDataKey = null;
+            _persistenceKeyGeneration++;
+        }
+
+        _lastClassJobId = uint.MaxValue;
+        _semiTransientResources = null;
+    }
+
+    private void OnClassJobChanged(ClassJobChangedMessage message)
+    {
+        lock (_playerPointersLock)
+        {
+            if (!_playerRelatedPointers.Contains(message.GameObjectHandler)
+                || message.GameObjectHandler.ObjectKind != ObjectKind.Player)
+            {
+                return;
+            }
+        }
+
+        _lastClassJobId = uint.MaxValue;
+        _semiTransientResources = null;
     }
 
     private void DisposeOwnedResources()

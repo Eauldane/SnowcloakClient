@@ -1,3 +1,5 @@
+using Snowcloak.API.Dto.TemporaryAppearance;
+
 namespace Snowcloak.PlayerData.Handlers;
 
 public readonly record struct PairFilterContext(
@@ -5,4 +7,5 @@ public readonly record struct PairFilterContext(
     bool DisableAnimations,
     bool DisableSounds,
     bool DisableVFX,
-    bool IsWhitelisted);
+    bool IsWhitelisted,
+    AppearanceCategoryMask AllowedCategories);

@@ -200,11 +200,10 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return;
         }
 
-        await Service.RunOnFrameworkAsync(() =>
+        // Change this back after we've done the measurements 
+        await RunFrameworkIpcAsync(logger, "AssignTemporaryCollection", 1, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             var retAssign = _penumbraAssignTemporaryCollection.Invoke(collName, idx, forceAssignment: true);
-            WarnIfSlow(logger, "AssignTemporaryCollection", started, 1);
             logger.LogTrace("Assigning Temp Collection {collName} to index {idx}, Success: {ret}", collName, idx, retAssign);
             return collName;
         }).ConfigureAwait(false);
@@ -269,15 +268,13 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return Guid.Empty;
         }
 
-        return await Service.RunOnFrameworkAsync(() =>
+        return await RunFrameworkIpcAsync(logger, "CreateTemporaryCollection", 1, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             var random = new Random();
             var collName = "Snowcloak_" + uid + random.Next();
 
             Guid collId;
             var penumbraEc = _penumbraCreateNamedTemporaryCollection.Invoke(uid + random.Next(), collName, out collId);
-            WarnIfSlow(logger, "CreateTemporaryCollection", started, 1);
             logger.LogTrace("Creating Temp Collection {collName}, GUID: {collId}", collName, collId);
             if (penumbraEc != PenumbraApiEc.Success)
             {
@@ -295,9 +292,8 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return null;
         }
 
-        return await Service.RunOnFrameworkAsync(() =>
+        return await RunFrameworkIpcAsync<Dictionary<string, HashSet<string>>?>(logger, "GetGameObjectResourcePaths", 1, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             logger.LogTrace("Calling resource path IPC via {backend}", _backend);
             var idx = handler.ObjectIndex;
             if (idx == null)
@@ -306,7 +302,6 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             }
 
             var paths = _penumbraResourcePaths.Invoke(idx.Value)[0];
-            WarnIfSlow(logger, "GetGameObjectResourcePaths", started, paths?.Count ?? 0);
             return paths;
         }).ConfigureAwait(false);
     }
@@ -344,14 +339,13 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return;
         }
 
-        await Service.RunOnFrameworkAsync(() =>
+        await RunFrameworkIpcAsync(logger, "DeleteTemporaryCollection", 1, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
             logger.LogTrace("Removing temp collection for {collId}", collId);
             var ret = _penumbraRemoveTemporaryCollection.Invoke(collId);
-            WarnIfSlow(logger, "DeleteTemporaryCollection", started, 1);
             logger.LogTrace("RemoveTemporaryCollection: {ret}", ret);
+            return ret;
         }).ConfigureAwait(false);
     }
 
@@ -365,13 +359,12 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return;
         }
 
-        await Service.RunOnFrameworkAsync(() =>
+        await RunFrameworkIpcAsync(logger, "AddTemporaryMod.Meta", 1, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
             var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Meta", collId, [], manipulationData, 0);
-            WarnIfSlow(logger, "AddTemporaryMod.Meta", started, 1);
             logger.LogTrace("Setting temp meta mod for {collId}, Success: {ret}", collId, retAdd);
+            return retAdd;
         }).ConfigureAwait(false);
     }
 
@@ -382,9 +375,8 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             return;
         }
 
-        await Service.RunOnFrameworkAsync(() =>
+        await RunFrameworkIpcAsync(logger, "AddTemporaryMod.Files", modPaths.Count, () =>
         {
-            var started = Stopwatch.GetTimestamp();
             using var scope = logger.BeginScope("{ApplicationId}", applicationId);
             if (logger.IsEnabled(LogLevel.Trace))
             {
@@ -395,9 +387,39 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
             }
 
             var retAdd = _penumbraAddTemporaryMod.Invoke("SnowChara_Files", collId, modPaths, string.Empty, 0);
-            WarnIfSlow(logger, "AddTemporaryMod.Files", started, modPaths.Count);
             logger.LogTrace("Setting temp files mod for {collId}, Success: {ret}", collId, retAdd);
+            return retAdd;
         }).ConfigureAwait(false);
+    }
+
+    private static async Task<T> RunFrameworkIpcAsync<T>(ILogger logger, string operation, int itemCount, Func<T> action)
+    {
+        var queuedAt = Stopwatch.GetTimestamp();
+        double invocationMs = 0;
+        try
+        {
+            return await Service.RunOnFrameworkAsync(() =>
+            {
+                var invokedAt = Stopwatch.GetTimestamp();
+                try
+                {
+                    return action();
+                }
+                finally
+                {
+                    invocationMs = Stopwatch.GetElapsedTime(invokedAt).TotalMilliseconds;
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            var totalMs = Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+            if (totalMs >= SlowFrameworkIpcThresholdMs || invocationMs >= SlowFrameworkIpcThresholdMs)
+            {
+                LogSlowFrameworkDispatch(logger, operation, totalMs, invocationMs,
+                    Math.Max(0, totalMs - invocationMs), itemCount);
+            }
+        }
     }
 
     private static void WarnIfSlow(ILogger logger, string operation, long started, int itemCount)
@@ -412,6 +434,11 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Slow Penumbra framework IPC {Operation}: {ElapsedMs:F2}ms for {ItemCount} items")]
     private static partial void LogSlowFrameworkIpc(ILogger logger, string operation, double elapsedMs, int itemCount);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Slow Penumbra framework dispatch {Operation}: {TotalMs:F2}ms queue-to-completion, {InvocationMs:F2}ms invocation, {QueueAndContinuationMs:F2}ms queue/continuation for {ItemCount} items")]
+    private static partial void LogSlowFrameworkDispatch(ILogger logger, string operation, double totalMs,
+        double invocationMs, double queueAndContinuationMs, int itemCount);
 
     private void InvokeRedraw(int? objectIndex, RedrawType setting)
     {

@@ -3,6 +3,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using ElezenTools;
 using ElezenTools.Logging;
+using System.Diagnostics;
 using Snowcloak.Configuration;
 using Snowcloak.Initialization;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,8 +16,12 @@ public sealed class Plugin : IAsyncDalamudPlugin
 {
     private static readonly TimeSpan HostStopTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan HostDisposeTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DependencyLoadTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan DependencyLoadPollInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly string[] RequiredPluginInternalNames = ["Penumbra", "Glamourer"];
 
     private readonly IHost _host;
+    private readonly IDalamudPluginInterface _pluginInterface;
     private readonly IPluginLog _pluginLog;
     private int _disposeStarted;
 
@@ -26,6 +31,8 @@ public sealed class Plugin : IAsyncDalamudPlugin
         ITextureProvider textureProvider, IContextMenu contextMenu, IGameInteropProvider gameInteropProvider,
         INamePlateGui namePlateGui, IGameConfig gameConfig, IPartyList partyList)
     {
+        ArgumentNullException.ThrowIfNull(pluginInterface);
+        _pluginInterface = pluginInterface;
         _pluginLog = pluginLog;
         ElezenInit.Init(pluginInterface, this);
         _host = new HostBuilder()
@@ -65,12 +72,68 @@ public sealed class Plugin : IAsyncDalamudPlugin
     {
         try
         {
+            await WaitForRequiredPluginsAsync(cancellationToken).ConfigureAwait(false);
             await _host.StartAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e)
         {
             _pluginLog.Error(e, "HostBuilder startup exception");
             throw;
+        }
+    }
+
+    private async Task WaitForRequiredPluginsAsync(CancellationToken cancellationToken)
+    {
+        var pending = GetPendingInstalledRequiredPlugins();
+        if (pending.Length == 0)
+        {
+            return;
+        }
+
+        _pluginLog.Information("Waiting up to {Timeout} for required plugins to finish loading: {Plugins}",
+            DependencyLoadTimeout, string.Join(", ", pending));
+
+        var started = Stopwatch.GetTimestamp();
+        while (pending.Length > 0)
+        {
+            var remaining = DependencyLoadTimeout - Stopwatch.GetElapsedTime(started);
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(remaining < DependencyLoadPollInterval ? remaining : DependencyLoadPollInterval,
+                cancellationToken).ConfigureAwait(false);
+            pending = GetPendingInstalledRequiredPlugins();
+        }
+
+        if (pending.Length == 0)
+        {
+            _pluginLog.Information("Required plugins finished loading after {Elapsed}",
+                Stopwatch.GetElapsedTime(started));
+            return;
+        }
+
+        _pluginLog.Warning("Timed out after {Timeout} waiting for required plugins: {Plugins}. Starting Snowcloak in degraded mode.",
+            DependencyLoadTimeout, string.Join(", ", pending));
+    }
+
+    private string[] GetPendingInstalledRequiredPlugins()
+    {
+        try
+        {
+            return _pluginInterface.InstalledPlugins
+                .Where(plugin => RequiredPluginInternalNames.Contains(plugin.InternalName, StringComparer.OrdinalIgnoreCase))
+                .GroupBy(plugin => plugin.InternalName, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.All(plugin => !plugin.IsLoaded))
+                .Select(group => group.Key)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.Warning(ex, "Could not inspect required plugin load state; continuing Snowcloak startup.");
+            return [];
         }
     }
 

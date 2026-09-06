@@ -22,6 +22,7 @@ internal static class CoreServiceRegistration
     {
         collection.AddSingleton<SnowMediator>();
         collection.AddSingleton<PerformanceCollectorService>();
+        collection.AddSingleton<InboundWorkDispatcher>();
         collection.AddSingleton<IFrameTickProfiler, FrameSchedulerProfiler>();
         collection.AddSingleton<FrameScheduler>();
         collection.AddSingleton<IFrameScheduler>(sp => sp.GetRequiredService<FrameScheduler>());
@@ -63,6 +64,8 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<SnowProfileManager>();
         collection.AddSingleton<UserSafetyStore>();
         collection.AddSingleton<RoleplayClientService>();
+        collection.AddSingleton<ITemporaryRosterReader, TemporaryRosterReader>();
+        collection.AddSingleton<TemporaryPartyAppearanceService>();
         collection.AddSingleton<RoleplayReminderService>();
         collection.AddSingleton<CharacterProfileBackupService>();
         collection.AddSingleton<ChatRoomRegistry>();

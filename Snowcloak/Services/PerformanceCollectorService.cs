@@ -14,6 +14,7 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
     private readonly ILogger<PerformanceCollectorService> _logger;
     private readonly SnowcloakConfigService _snowcloakConfigService;
     public ConcurrentDictionary<string, RollingList<(TimeOnly, long)>> PerformanceCounters { get; } = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<string, RollingList<(TimeOnly, long)>> AllocationCounters { get; } = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _periodicLogPruneTaskCts = new();
     private Task? _periodicLogPruneTask;
 
@@ -88,6 +89,21 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
         RecordCounter("F5=>TimeToFirstModdedRender", elapsed.Ticks);
     }
 
+    internal void RecordAllocation(string counterName, long allocatedBytes, int maxEntries = 10000)
+    {
+        if (!_snowcloakConfigService.Current.LogPerformance)
+        {
+            return;
+        }
+
+        if (!AllocationCounters.TryGetValue(counterName, out var list))
+        {
+            list = AllocationCounters[counterName] = new(maxEntries);
+        }
+
+        list.Add((TimeOnly.FromDateTime(DateTime.Now), allocatedBytes));
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         LogStartingPerformanceCollectorService(_logger);
@@ -126,31 +142,58 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
         }
 
         var snapshots = CreateSnapshots(limitBySeconds).ToList();
-        if (snapshots.Count == 0)
+        var allocationSnapshots = CreateAllocationSnapshots(limitBySeconds).ToList();
+        if (snapshots.Count == 0 && allocationSnapshots.Count == 0)
         {
             LogNoPerformanceCountersRecorded(_logger);
             return;
         }
 
-        var width = Math.Max("Counter".Length, snapshots.Max(snapshot => snapshot.Name.Length));
+        var width = Math.Max("Counter".Length, snapshots.Count == 0 ? 0 : snapshots.Max(snapshot => snapshot.Name.Length));
         var sb = new StringBuilder();
         sb.AppendLine(limitBySeconds > 0
             ? string.Format(CultureInfo.InvariantCulture, "Performance metrics over the past {0} seconds", limitBySeconds)
             : "Performance metrics over total lifetime");
+        sb.AppendLine("Timing counters (milliseconds)");
         sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-            "{0,-12} {1,-12} {2,-12} {3,-16} {4,-8} {5}",
-            "Last", "Max", "Average", "Last Update", "Entries", "Counter".PadRight(width)));
+            "{0,-12} {1,-12} {2,-12} {3,-12} {4,-12} {5,-16} {6,-8} {7}",
+            "Last", "Max", "Average", "P95", "P99", "Last Update", "Entries", "Counter".PadRight(width)));
 
         foreach (var snapshot in snapshots)
         {
             sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                "{0,-12:0.00000} {1,-12:0.00000} {2,-12:0.00000} {3,-16} {4,-8} {5}",
+                "{0,-12:0.00000} {1,-12:0.00000} {2,-12:0.00000} {3,-12:0.00000} {4,-12:0.00000} {5,-16} {6,-8} {7}",
                 snapshot.LastMs,
                 snapshot.MaxMs,
                 snapshot.AverageMs,
+                snapshot.P95Ms,
+                snapshot.P99Ms,
                 snapshot.LastUpdate,
                 snapshot.Entries,
                 snapshot.Name));
+        }
+
+        if (allocationSnapshots.Count > 0)
+        {
+            width = Math.Max("Counter".Length, allocationSnapshots.Max(snapshot => snapshot.Name.Length));
+            sb.AppendLine();
+            sb.AppendLine("Framework-thread allocation counters (bytes)");
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                "{0,-12} {1,-12} {2,-12} {3,-12} {4,-12} {5,-16} {6,-8} {7}",
+                "Last", "Max", "Average", "P95", "P99", "Last Update", "Entries", "Counter".PadRight(width)));
+            foreach (var snapshot in allocationSnapshots)
+            {
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                    "{0,-12} {1,-12} {2,-12:0.0} {3,-12} {4,-12} {5,-16} {6,-8} {7}",
+                    snapshot.LastBytes,
+                    snapshot.MaxBytes,
+                    snapshot.AverageBytes,
+                    snapshot.P95Bytes,
+                    snapshot.P99Bytes,
+                    snapshot.LastUpdate,
+                    snapshot.Entries,
+                    snapshot.Name));
+            }
         }
 
         if (_logger.IsEnabled(LogLevel.Information))
@@ -187,9 +230,47 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
                 TimeSpan.FromTicks(values[^1].Item2).TotalMilliseconds,
                 TimeSpan.FromTicks(values.Max(value => value.Item2)).TotalMilliseconds,
                 TimeSpan.FromTicks((long)values.Average(value => value.Item2)).TotalMilliseconds,
+                TimeSpan.FromTicks(Percentile(values.Select(value => value.Item2), 0.95)).TotalMilliseconds,
+                TimeSpan.FromTicks(Percentile(values.Select(value => value.Item2), 0.99)).TotalMilliseconds,
                 values[^1].Item1.ToString("HH:mm:ss.ffff", CultureInfo.InvariantCulture),
                 values.Count);
         }
+    }
+
+    private IEnumerable<AllocationCounterSnapshot> CreateAllocationSnapshots(int limitBySeconds)
+    {
+        foreach (var entry in AllocationCounters.OrderBy(counter => counter.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var values = limitBySeconds > 0
+                ? entry.Value.Where(value => value.Item1.AddMinutes(limitBySeconds / 60.0d) >= TimeOnly.FromDateTime(DateTime.Now)).ToList()
+                : [.. entry.Value];
+            if (values.Count == 0)
+            {
+                continue;
+            }
+
+            yield return new AllocationCounterSnapshot(
+                entry.Key,
+                values[^1].Item2,
+                values.Max(value => value.Item2),
+                values.Average(value => value.Item2),
+                Percentile(values.Select(value => value.Item2), 0.95),
+                Percentile(values.Select(value => value.Item2), 0.99),
+                values[^1].Item1.ToString("HH:mm:ss.ffff", CultureInfo.InvariantCulture),
+                values.Count);
+        }
+    }
+
+    private static long Percentile(IEnumerable<long> source, double percentile)
+    {
+        var ordered = source.Order().ToArray();
+        if (ordered.Length == 0)
+        {
+            return 0;
+        }
+
+        var index = Math.Clamp((int)Math.Ceiling(percentile * ordered.Length) - 1, 0, ordered.Length - 1);
+        return ordered[index];
     }
 
     private async Task PeriodicLogPrune()
@@ -225,6 +306,18 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
         double LastMs,
         double MaxMs,
         double AverageMs,
+        double P95Ms,
+        double P99Ms,
+        string LastUpdate,
+        int Entries);
+
+    private sealed record AllocationCounterSnapshot(
+        string Name,
+        long LastBytes,
+        long MaxBytes,
+        double AverageBytes,
+        long P95Bytes,
+        long P99Bytes,
         string LastUpdate,
         int Entries);
 

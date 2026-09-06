@@ -176,7 +176,7 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
 
         try
         {
-            return await Service.RunOnFrameworkAsync(() =>
+            return await RunFrameworkIpcAsync(_logger, "GetState", () =>
             {
                 var gameObj = _dalamudUtil.CreateGameObject(character);
                 if (gameObj is not ICharacter c)
@@ -205,10 +205,10 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
             try
             {
                 logger.LogDebug("[{appid}] Reverting appearance on {backend}", applicationId, _backend);
+                var started = Stopwatch.GetTimestamp();
                 _glamourerUnlock.Invoke(chara.ObjectIndex, LockCode);
                 _glamourerRevert.Invoke(chara.ObjectIndex, LockCode);
-
-                _snowMediator.Publish(new PenumbraRedrawCharacterMessage(chara));
+                WarnIfSlow(logger, "RevertState", started);
             }
             catch (Exception ex)
             {
@@ -224,7 +224,12 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
             return;
         }
 
-        await Service.RunOnFrameworkAsync(() => RevertByName(logger, name, applicationId)).ConfigureAwait(false);
+        // Change this back after we've done the measurements 
+        await RunFrameworkIpcAsync(logger, "RevertStateName", () =>
+        {
+            RevertByName(logger, name, applicationId);
+            return true;
+        }).ConfigureAwait(false);
     }
 
     public void RevertByName(ILogger logger, string name, Guid applicationId)
@@ -245,6 +250,41 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
             _logger.LogWarning(ex, "Error during appearance RevertByName");
         }
     }
+
+    private static async Task<T> RunFrameworkIpcAsync<T>(ILogger logger, string operation, Func<T> action)
+    {
+        var queuedAt = Stopwatch.GetTimestamp();
+        double invocationMs = 0;
+        try
+        {
+            return await Service.RunOnFrameworkAsync(() =>
+            {
+                var invokedAt = Stopwatch.GetTimestamp();
+                try
+                {
+                    return action();
+                }
+                finally
+                {
+                    invocationMs = Stopwatch.GetElapsedTime(invokedAt).TotalMilliseconds;
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            var totalMs = Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+            if (totalMs >= SlowFrameworkIpcThresholdMs || invocationMs >= SlowFrameworkIpcThresholdMs)
+            {
+                LogSlowFrameworkDispatch(logger, operation, totalMs, invocationMs,
+                    Math.Max(0, totalMs - invocationMs));
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Slow Glamourer framework dispatch {Operation}: {TotalMs:F2}ms queue-to-completion, {InvocationMs:F2}ms invocation, {QueueAndContinuationMs:F2}ms queue/continuation")]
+    private static partial void LogSlowFrameworkDispatch(ILogger logger, string operation, double totalMs,
+        double invocationMs, double queueAndContinuationMs);
 
     private void GlamourerChanged(nint address)
         => _snowMediator.Publish(new GlamourerChangedMessage(address));

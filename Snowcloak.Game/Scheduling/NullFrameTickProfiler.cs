@@ -5,4 +5,8 @@ public sealed class NullFrameTickProfiler : IFrameTickProfiler
     public static NullFrameTickProfiler Instance { get; } = new();
 
     public void Run(string counterName, Action action) => action();
+
+    public void RecordAllocation(string counterName, long allocatedBytes)
+    {
+    }
 }

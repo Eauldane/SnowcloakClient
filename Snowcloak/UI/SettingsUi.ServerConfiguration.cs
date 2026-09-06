@@ -36,7 +36,7 @@ public partial class SettingsUi
             foreach (var candidate in migration.Profiles)
                 if (ImGui.Button($"Use profile: {candidate.DisplayName}##migrate-{candidate.ProfileId}"))
                     _apiController.ResolveIdentityMigration(candidate.ProfileId, separate: false);
-            if (migration.CanCreateSeparateIdentity && ImGui.Button("Save profiles separately"))
+            if (migration.CanCreateSeparateIdentity && ImGui.Button("Keep profiles separate and connect"))
                 _apiController.ResolveIdentityMigration(null, separate: true);
             ImGui.Separator();
         }
@@ -189,7 +189,6 @@ public partial class SettingsUi
         using (_ = _fontService.IconFont.Push())
             iconWidth = ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X;
 
-        ElezenImgui.ColouredWrappedText("Characters connect with their assigned secret key. ContentID keeps assignments across name and homeworld changes; legacy names remain compatible with older clients.", ImGuiColors.DalamudYellow);
         var currentAssignment = _serverConfigurationManager.GetCurrentCharacterAssignment(selectedServer);
         int i = 0;
         foreach (var item in selectedServer.Authentications.ToList())
