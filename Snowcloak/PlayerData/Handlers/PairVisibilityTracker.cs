@@ -58,6 +58,13 @@ internal sealed class PairVisibilityTracker
         if (!ready)
         {
             _handler.ApplyAttemptedWhileReady = false;
+            if (handler == null)
+            {
+                // Deferred data can arrive before the initial visibility callback, and pair
+                // replacement can invalidate the shared ident registration. Keep it registered
+                // without clearing the visibility service's two-tick debounce.
+                _visibilityService.StartTracking(Pair.Ident);
+            }
             return;
         }
 

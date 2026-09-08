@@ -10,8 +10,7 @@ public enum FileDownloadPurpose
 }
 
 public sealed record DownloadFileRequest(Uri DownloadUri, string Hash, long ExpectedBytes,
-    FileDownloadPurpose Purpose = FileDownloadPurpose.Interactive, long ResumeOffset = 0,
-    string? ExpectedEntityTag = null);
+    FileDownloadPurpose Purpose = FileDownloadPurpose.Interactive);
 
 public sealed class FileGrantRejectedException : HttpRequestException
 {
@@ -48,22 +47,15 @@ public sealed class DownloadResponse : IAsyncDisposable
 {
     private readonly HttpResponseMessage _response;
 
-    public DownloadResponse(HttpResponseMessage response, Stream stream, long? reportedTotalBytes,
-        long? contentRangeStart, string? entityTag)
+    public DownloadResponse(HttpResponseMessage response, Stream stream, long? reportedTotalBytes)
     {
         _response = response;
         Stream = stream;
         ReportedTotalBytes = reportedTotalBytes;
-        ContentRangeStart = contentRangeStart;
-        EntityTag = entityTag;
-        IsPartial = response.StatusCode == System.Net.HttpStatusCode.PartialContent;
     }
 
     public Stream Stream { get; }
     public long? ReportedTotalBytes { get; }
-    public long? ContentRangeStart { get; }
-    public string? EntityTag { get; }
-    public bool IsPartial { get; }
 
     public async ValueTask DisposeAsync()
     {

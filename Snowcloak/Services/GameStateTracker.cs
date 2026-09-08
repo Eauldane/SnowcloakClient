@@ -62,6 +62,10 @@ public sealed partial class GameStateTracker : IHostedService
     public bool IsInGpose { get; private set; }
     public bool IsLoggedIn { get; private set; }
     public bool IsZoning => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
+    public bool IsInInstancedDutyOrPvP => _clientState.IsPvP
+        || _condition[ConditionFlag.BoundByDuty]
+        || _condition[ConditionFlag.BoundByDuty56]
+        || _condition[ConditionFlag.BoundByDuty95];
     public bool IsInCombatOrPerforming { get; private set; }
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;

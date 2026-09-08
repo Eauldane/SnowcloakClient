@@ -11,7 +11,7 @@ namespace Snowcloak.Configuration.Configurations;
 public class SnowcloakConfig : ISnowcloakConfiguration
 {
     public bool EnableTemporaryPartyAppearance { get; set; } = false;
-    public bool EnableTemporaryPartyAllianceAppearance { get; set; } = true;
+    public bool EnableTemporaryPartyAllianceAppearance { get; set; } = false;
     public AppearanceCategoryMask TemporaryPartySendCategories { get; set; } = AppearanceCategoryMask.PlayerVisual;
     public AppearanceCategoryMask TemporaryPartyReceiveCategories { get; set; } = AppearanceCategoryMask.PlayerVisual;
     public AppearanceCategoryMask GlobalInboundAppearanceCategories { get; set; } = AppearanceCategoryMask.All;

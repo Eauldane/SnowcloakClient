@@ -8,8 +8,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
-using Snowcloak.API.Data.Enum;
-using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Protocol;
 
 namespace Snowcloak.WebAPI.Files;
@@ -75,21 +73,18 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
         {
             FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
             SetAllowedDownloadHosts(msg.Connection.ServerInfo.AllowedFileDownloadHosts);
-            FileCapabilities = msg.Connection.ServerInfo.FileCapabilities;
         });
 
         Mediator.Subscribe<ConnectedMessage>(this, (msg) =>
         {
             FilesCdnUri = msg.Connection.ServerInfo.FileServerAddress;
             SetAllowedDownloadHosts(msg.Connection.ServerInfo.AllowedFileDownloadHosts);
-            FileCapabilities = msg.Connection.ServerInfo.FileCapabilities;
             ResetOptionalPrefetchBudget();
         });
 
         Mediator.Subscribe<DisconnectedMessage>(this, (msg) =>
         {
             FilesCdnUri = null;
-            FileCapabilities = new FileCapabilitiesDto();
             lock (_allowedFileDownloadHosts)
             {
                 _allowedFileDownloadHosts.Clear();
@@ -98,7 +93,6 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     }
 
     public Uri? FilesCdnUri { private set; get; }
-    public FileCapabilitiesDto FileCapabilities { get; private set; } = new();
     public bool IsInitialized => FilesCdnUri != null;
     public int ProcessorThreadCount { get; }
     public int DecompressionWorkerLimit => GetDecompressionWorkerLimit();
@@ -116,10 +110,6 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     public string PreferredDownloadTypeQueryValue()
     {
-        if (FileCapabilities.CanRead(FileContainerVersion.ScfV4))
-        {
-            return FileDownloadType.SCFV4.ToString();
-        }
         return _snowcloakConfig.Current.PreferredDownloadType.ToString();
     }
 
@@ -249,21 +239,12 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
             Math.Max(0, _snowcloakConfig.Current.OptionalPrefetchByteBudget));
     }
 
-    public async Task<HttpResponseMessage> SendFileDownloadRequestAsync(Uri uri, long resumeOffset,
-        string? ifRange, CancellationToken ct)
+    public async Task<HttpResponseMessage> SendFileDownloadRequestAsync(Uri uri, CancellationToken ct)
     {
         for (var redirects = 0; redirects <= 3; redirects++)
         {
             EnsureAllowedDownloadUri(uri);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            if (resumeOffset > 0)
-            {
-                request.Headers.Range = new RangeHeaderValue(resumeOffset, null);
-                if (!string.IsNullOrWhiteSpace(ifRange))
-                {
-                    request.Headers.IfRange = new RangeConditionHeaderValue(new EntityTagHeaderValue(ifRange));
-                }
-            }
             var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             if (response.StatusCode is not (HttpStatusCode.MovedPermanently or HttpStatusCode.Redirect
                 or HttpStatusCode.RedirectMethod or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect))

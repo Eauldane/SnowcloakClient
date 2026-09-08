@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Data;
-using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Files;
 using Snowcloak.API.Routes;
 using Snowcloak.CacheFile;
@@ -14,7 +13,6 @@ using Snowcloak.WebAPI.Files.Models;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
-using System.Text.Json;
 
 namespace Snowcloak.WebAPI.Files;
 
@@ -62,12 +60,19 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     public bool IsHashForbidden(string hash) => _orchestrator.IsForbidden(hash);
 
     public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler,
-        IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct)
+        IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct, bool revalidateMissing = false)
     {
         ArgumentNullException.ThrowIfNull(gameObjectHandler);
         ArgumentNullException.ThrowIfNull(fileReplacement);
         LogDownloadStart(Logger, gameObjectHandler.Name);
         var requestedHashes = fileReplacement.Select(file => file.Hash).Distinct(StringComparer.Ordinal).ToList();
+        if (revalidateMissing)
+        {
+            foreach (var hash in requestedHashes)
+            {
+                _negativeCache.ClearMissing(hash);
+            }
+        }
         _preflightUnavailable = requestedHashes
             .Select(hash => _negativeCache.TryGet(hash, out var entry) ? entry : null)
             .Where(entry => entry != null)
@@ -102,7 +107,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         _currentDownloads = fileInfo
             .Select(dto => new DownloadFileTransfer(dto))
             .Where(transfer => transfer.CanBeTransferred)
-            .GroupBy(transfer => transfer.TransferIdentity, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(transfer => transfer.Hash, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToList();
         return _currentDownloads;
@@ -169,11 +174,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         }, async (transfer, token) =>
         {
             var groupHandle = groupHandles[GetDownloadGroupKey(transfer)];
-            var tempPath = transfer.SupportsResume
-                ? _fileDbManager.GetTemporaryCacheFilePath(transfer.Hash + transfer.RepresentationId, "scf.partial")
-                : _fileDbManager.GetTemporaryCacheFilePath(Guid.NewGuid().ToString("N"), "scf");
-            var descriptorPath = tempPath + ".json";
-            var retainPartial = false;
+            var tempPath = _fileDbManager.GetTemporaryCacheFilePath(Guid.NewGuid().ToString("N"), "scf");
             try
             {
                 await DownloadAndExtractAsync(transfer, expectedExtensionByHash[transfer.Hash], groupHandle, tempPath, token)
@@ -181,30 +182,21 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             }
             catch (OperationCanceledException)
             {
-                retainPartial = transfer.SupportsResume && File.Exists(tempPath);
                 throw;
             }
             catch (FileDownloadUnavailableException ex)
             {
-                retainPartial = transfer.SupportsResume
-                                && ex.Entry.Reason == FileDownloadNegativeReason.TemporarilyUnavailable
-                                && File.Exists(tempPath);
                 unavailable.TryAdd(transfer.Hash, ex.Entry);
                 groupHandle.SetUnavailable(ex.Entry.Reason == FileDownloadNegativeReason.Missing ? string.Empty : ex.Entry.Message);
                 LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or UnauthorizedAccessException)
             {
-                retainPartial = transfer.SupportsResume && ex is not InvalidDataException && File.Exists(tempPath);
                 LogDownloadError(Logger, ex, transfer.Hash, gameObjectHandler.Name);
             }
             finally
             {
-                if (!retainPartial)
-                {
-                    TryDeleteFile(tempPath);
-                    TryDeleteFile(descriptorPath);
-                }
+                TryDeleteFile(tempPath);
             }
         }).ConfigureAwait(false);
 
@@ -292,74 +284,56 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                     FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(1),
                     "The refreshed file grant was rejected. Snowcloak will request a new grant later."));
             }
+            catch (Exception ex) when (attempt == 0
+                                       && ex is IOException or HttpRequestException
+                                       && ex is not FileDownloadUnavailableException)
+            {
+                TryDeleteFile(tempPath);
+                LogDownloadError(Logger, ex, transfer.Hash, "whole-file retry");
+            }
         }
     }
 
     private async Task<long> DownloadToFileAsync(DownloadFileTransfer transfer, DownloadStatusStore.DownloadGroupHandle groupHandle,
         string tempPath, CancellationToken ct)
     {
-        var descriptorPath = tempPath + ".json";
-        var preparation = transfer.SupportsResume
-            ? await PreparePartialAsync(transfer, groupHandle, tempPath, descriptorPath, ct).ConfigureAwait(false)
-            : new PartialPreparation(0, null);
-        if (preparation.Offset == transfer.EncodedSize)
+        var response = await _transport.OpenAsync(new DownloadFileRequest(transfer.DownloadUri, transfer.Hash, transfer.Total),
+            groupHandle.SetStatus, ct).ConfigureAwait(false);
+        await using (response.ConfigureAwait(false))
         {
-            return preparation.Offset;
-        }
-
-        var resumeOffset = preparation.Offset;
-        for (var requestAttempt = 0; requestAttempt < 2; requestAttempt++)
-        {
-            var expectedTag = transfer.SupportsResume ? QuoteEntityTag(transfer.RepresentationId) : null;
-            var response = await _transport.OpenAsync(new DownloadFileRequest(transfer.DownloadUri, transfer.Hash,
-                    transfer.EncodedSize, ResumeOffset: resumeOffset, ExpectedEntityTag: expectedTag),
-                groupHandle.SetStatus, ct).ConfigureAwait(false);
-            await using (response.ConfigureAwait(false))
+            if (response.ReportedTotalBytes is { } total && total != transfer.Total)
             {
-                if (resumeOffset > 0 && !response.IsPartial)
-                {
-                    TryDeleteFile(tempPath);
-                    TryDeleteFile(descriptorPath);
-                    resumeOffset = 0;
-                    continue;
-                }
-                if (response.ReportedTotalBytes is { } total && total != transfer.EncodedSize)
-                {
-                    throw new InvalidDataException("The file service reported a different encoded representation size.");
-                }
-
-                var directory = Path.GetDirectoryName(tempPath);
-                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-                var mode = resumeOffset > 0 ? FileMode.Append : FileMode.Create;
-                var output = new FileStream(tempPath, mode, FileAccess.Write, FileShare.None, 128 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                await using (output.ConfigureAwait(false))
-                {
-                    var limit = _orchestrator.DownloadLimitPerSlot();
-                    LogStartingDownload(Logger, limit, tempPath);
-                    var throttled = new ThrottledStream(response.Stream, limit);
-                    _activeDownloadStreams.TryAdd(throttled, 0);
-                    try
-                    {
-                        await CopyToFileAsync(throttled, output, groupHandle, ct).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        _activeDownloadStreams.TryRemove(throttled, out _);
-                        await throttled.DisposeAsync().ConfigureAwait(false);
-                    }
-                }
-
-                var encodedLength = new FileInfo(tempPath).Length;
-                if (encodedLength != transfer.EncodedSize)
-                {
-                    throw new InvalidDataException($"The downloaded representation length was {encodedLength}, expected {transfer.EncodedSize}.");
-                }
-                return encodedLength;
+                throw new InvalidDataException($"The file service reported {total} bytes, expected {transfer.Total}.");
             }
-        }
 
-        throw new InvalidDataException("The file service would not honour a safe representation resume.");
+            var directory = Path.GetDirectoryName(tempPath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using (output.ConfigureAwait(false))
+            {
+                var limit = _orchestrator.DownloadLimitPerSlot();
+                LogStartingDownload(Logger, limit, tempPath);
+                var throttled = new ThrottledStream(response.Stream, limit);
+                _activeDownloadStreams.TryAdd(throttled, 0);
+                try
+                {
+                    await CopyToFileAsync(throttled, output, groupHandle, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _activeDownloadStreams.TryRemove(throttled, out _);
+                    await throttled.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+
+            var encodedLength = new FileInfo(tempPath).Length;
+            if (encodedLength != transfer.Total)
+            {
+                throw new InvalidDataException($"The downloaded file length was {encodedLength}, expected {transfer.Total}.");
+            }
+            return encodedLength;
+        }
     }
 
     private static async Task<long> CopyToFileAsync(Stream source, Stream destination,
@@ -405,135 +379,6 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             representationLength, ct).ConfigureAwait(false);
         return finalPath;
     }
-
-    private async Task<PartialPreparation> PreparePartialAsync(DownloadFileTransfer transfer,
-        DownloadStatusStore.DownloadGroupHandle groupHandle, string tempPath, string descriptorPath,
-        CancellationToken ct)
-    {
-        groupHandle.SetStatus(DownloadStatus.ValidatingPartial);
-        var descriptor = await ReadDescriptorAsync(descriptorPath, ct).ConfigureAwait(false);
-        var expected = CreateDescriptor(transfer, null);
-        var descriptorMatches = DescriptorMatches(descriptor, expected);
-        if (descriptorMatches)
-        {
-            expected = expected with { OperationGeneration = descriptor!.OperationGeneration };
-        }
-        if (!descriptorMatches || !File.Exists(tempPath))
-        {
-            TryDeleteFile(tempPath);
-            TryDeleteFile(descriptorPath);
-            await WriteDescriptorAsync(descriptorPath, expected, ct).ConfigureAwait(false);
-            return new PartialPreparation(0, expected);
-        }
-
-        try
-        {
-            await using var partial = new FileStream(tempPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None,
-                128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var validation = await ScfFile.ValidateV4PartialAsync(partial, ScfReadLimits.Default, ct).ConfigureAwait(false);
-            if (descriptor!.ChunkSize > 0 && descriptor.ChunkSize != validation.Header.ChunkSize
-                || descriptor.ChunkCount > 0 && descriptor.ChunkCount != validation.Header.ChunkCount)
-            {
-                throw new InvalidDataException("The partial SCF chunk shape differs from its persisted descriptor.");
-            }
-            if (validation.ValidatedEncodedOffset > transfer.EncodedSize)
-            {
-                throw new InvalidDataException("The partial representation exceeds its declared encoded size.");
-            }
-            if (partial.Length != validation.ValidatedEncodedOffset)
-            {
-                partial.SetLength(validation.ValidatedEncodedOffset);
-                await partial.FlushAsync(ct).ConfigureAwait(false);
-            }
-            expected.ValidatedEncodedOffset = validation.ValidatedEncodedOffset;
-            expected.ValidatedChunkCount = validation.ValidatedChunkCount;
-            expected.ChunkSize = validation.Header.ChunkSize;
-            expected.ChunkCount = validation.Header.ChunkCount;
-            expected.UpdatedAtUtc = DateTimeOffset.UtcNow;
-            if (validation.ValidatedEncodedOffset > 0)
-            {
-                LogResuming(Logger, transfer.Hash, validation.ValidatedEncodedOffset,
-                    transfer.RepresentationId, transfer.Profile);
-            }
-            await WriteDescriptorAsync(descriptorPath, expected, ct).ConfigureAwait(false);
-            return new PartialPreparation(validation.ValidatedEncodedOffset, expected);
-        }
-        catch (InvalidDataException)
-        {
-            TryDeleteFile(tempPath);
-            TryDeleteFile(descriptorPath);
-            await WriteDescriptorAsync(descriptorPath, expected, ct).ConfigureAwait(false);
-            return new PartialPreparation(0, expected);
-        }
-    }
-
-    private static DownloadPartialDescriptor CreateDescriptor(DownloadFileTransfer transfer,
-        string? operationGeneration) => new()
-    {
-        OperationGeneration = string.IsNullOrWhiteSpace(operationGeneration)
-            ? Guid.NewGuid().ToString("N")
-            : operationGeneration,
-        RawHash = transfer.Hash.ToUpperInvariant(),
-        RepresentationId = transfer.RepresentationId.ToLowerInvariant(),
-        EntityTag = QuoteEntityTag(transfer.RepresentationId),
-        ContainerVersion = transfer.ContainerVersion,
-        Codec = transfer.Codec,
-        Profile = transfer.Profile,
-        EncodedSize = transfer.EncodedSize,
-    };
-
-    private static bool DescriptorMatches(DownloadPartialDescriptor? actual, DownloadPartialDescriptor expected) =>
-        actual is not null
-        && actual.SchemaVersion == expected.SchemaVersion
-        && actual.OperationGeneration.Length == 32
-        && string.Equals(actual.RawHash, expected.RawHash, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(actual.RepresentationId, expected.RepresentationId, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(actual.EntityTag, expected.EntityTag, StringComparison.Ordinal)
-        && actual.ContainerVersion == expected.ContainerVersion
-        && actual.Codec == expected.Codec
-        && string.Equals(actual.Profile, expected.Profile, StringComparison.Ordinal)
-        && actual.EncodedSize == expected.EncodedSize;
-
-    private static async Task<DownloadPartialDescriptor?> ReadDescriptorAsync(string descriptorPath, CancellationToken ct)
-    {
-        try
-        {
-            await using var input = new FileStream(descriptorPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            return await JsonSerializer.DeserializeAsync<DownloadPartialDescriptor>(input, cancellationToken: ct)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private static async Task WriteDescriptorAsync(string descriptorPath, DownloadPartialDescriptor descriptor,
-        CancellationToken ct)
-    {
-        var directory = Path.GetDirectoryName(descriptorPath);
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-        var stagingPath = descriptorPath + ".new";
-        try
-        {
-            await using (var output = new FileStream(stagingPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                             16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
-            {
-                await JsonSerializer.SerializeAsync(output, descriptor, cancellationToken: ct).ConfigureAwait(false);
-                await output.FlushAsync(ct).ConfigureAwait(false);
-            }
-            File.Move(stagingPath, descriptorPath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(stagingPath)) File.Delete(stagingPath);
-        }
-    }
-
-    private static string QuoteEntityTag(string representationId) => $"\"{representationId.ToLowerInvariant()}\"";
-
-    private sealed record PartialPreparation(long Offset, DownloadPartialDescriptor? Descriptor);
 
     private async Task<List<DownloadFileDto>> FilesGetSizes(List<string> hashes, CancellationToken ct)
     {
@@ -581,8 +426,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     }
 
     private static string GetDownloadGroupKey(DownloadFileTransfer transfer) =>
-        transfer.DownloadUri.Host + ":" + transfer.DownloadUri.Port
-        + (transfer.ContainerVersion == FileContainerVersion.ScfV4 ? " [" + transfer.Profile + "]" : string.Empty);
+        transfer.DownloadUri.Host + ":" + transfer.DownloadUri.Port;
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Starting download with a speed limit of {limit} to {tempPath}")]
     private static partial void LogStartingDownload(ILogger logger, long limit, string tempPath);
@@ -610,10 +454,6 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not delete temporary download file {Path}")]
     private static partial void LogTemporaryDeleteError(ILogger logger, Exception exception, string path);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Resuming {Hash} after {ResumeBytes} verified bytes of representation {RepresentationId} ({Profile})")]
-    private static partial void LogResuming(ILogger logger, string hash, long resumeBytes,
-        string representationId, string profile);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Error disposing active download stream")]
     private static partial void LogDisposeError(ILogger logger, Exception exception);

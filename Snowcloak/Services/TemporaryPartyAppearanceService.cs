@@ -1,3 +1,4 @@
+using Dalamud.Plugin.Services;
 using ElezenTools.Core.Async;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,10 +16,15 @@ namespace Snowcloak.Services;
 
 public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IHostedService
 {
+    private const string TemporarySyncEnabledMessage =
+        "[Snowcloak] Temporary party syncing is currently enabled, and you are sharing your appearance with party members who also have it enabled.";
+
     private readonly ITemporaryRosterReader _rosterReader;
     private readonly ApiController _api;
     private readonly PairManager _pairs;
+    private readonly IChatGui _chatGui;
     private readonly SnowcloakConfigService _config;
+    private readonly GameStateTracker _gameState;
     private readonly IFrameTickHandle _tick;
     private readonly BackgroundTaskTracker _backgroundTasks;
     private readonly SemaphoreSlim _networkGate = new(1, 1);
@@ -37,13 +43,16 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
 
     public TemporaryPartyAppearanceService(ILogger<TemporaryPartyAppearanceService> logger,
         ITemporaryRosterReader rosterReader, ApiController api, PairManager pairs,
-        SnowcloakConfigService config, SnowMediator mediator, IFrameScheduler scheduler)
+        IChatGui chatGui, SnowcloakConfigService config, GameStateTracker gameState,
+        SnowMediator mediator, IFrameScheduler scheduler)
         : base(logger, mediator)
     {
         _rosterReader = rosterReader;
         _api = api;
         _pairs = pairs;
+        _chatGui = chatGui;
         _config = config;
+        _gameState = gameState;
         _backgroundTasks = new BackgroundTaskTracker(logger);
         _tick = scheduler.Register("TemporaryPartyAppearance", TickInterval.EveryMilliseconds(500),
             TickPriority.Normal, OnFrameworkTick, FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
@@ -61,6 +70,7 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
 
     public int ActivePeerCount => _pairs.TemporaryAppearancePeerCount;
     public bool IsSupported => _api.SupportsTemporaryAppearance;
+    public bool IsAutomaticallySuspended => _gameState.IsInInstancedDutyOrPvP;
 
     public int GetRemainingLeaseMs(string uid, TemporaryAppearanceSourceKind source)
     {
@@ -150,15 +160,21 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
     {
         try
         {
-            ExpireLocalLeases();
             var descriptor = _descriptor;
+            var automaticallySuspended = IsAutomaticallySuspended;
             if (!_config.Current.EnableTemporaryPartyAllianceAppearance || descriptor == null
-                || !_api.SupportsTemporaryAppearance)
+                || !_api.SupportsTemporaryAppearance || automaticallySuspended)
             {
-                if (_sources.Values.Any(state => state.ClaimEnabled))
-                    SuspendAllSources(TemporaryAppearanceOperation.Disable, "DisableTemporaryAppearance");
+                if (_sources.Values.Any(state => state.ClaimEnabled) || _pairs.TemporaryAppearancePeerCount > 0)
+                {
+                    var operationName = automaticallySuspended
+                        ? "SuspendTemporaryAppearanceForDuty"
+                        : "DisableTemporaryAppearance";
+                    SuspendAllSources(TemporaryAppearanceOperation.Disable, operationName);
+                }
                 return;
             }
+            ExpireLocalLeases();
             if (!_rosterReader.TryCapture(out var capture))
             {
                 SuspendAllSources(TemporaryAppearanceOperation.Reset, "ResetTemporaryAppearance");
@@ -278,7 +294,10 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
             || !snapshot.ServerEpoch.AsSpan().SequenceEqual(descriptor.ServerEpoch)
             || snapshot.ViewRevision < _viewRevision) return;
         _viewRevision = snapshot.ViewRevision;
-        var allowedSources = _sources.Where(entry => entry.Value.LocalRosterAvailable).Select(entry => entry.Key).ToHashSet();
+        HashSet<TemporaryAppearanceSourceKind> allowedSources =
+            _config.Current.EnableTemporaryPartyAllianceAppearance && !IsAutomaticallySuspended
+                ? _sources.Where(entry => entry.Value.LocalRosterAvailable).Select(entry => entry.Key).ToHashSet()
+                : [];
         var localSnapshot = new TemporaryAppearanceSnapshot
         {
             ServerEpoch = snapshot.ServerEpoch,
@@ -305,8 +324,14 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
                 if (remaining > 0) _leaseDeadlines[(peer.User.UID, grant.Source)] = now + remaining;
             }
         }
+        var hadTemporaryOnlyPeer = HasTemporaryOnlyPeer();
         _pairs.ReconcileTemporaryAppearance(localSnapshot);
+        if (!hadTemporaryOnlyPeer && HasTemporaryOnlyPeer())
+            _chatGui.Print(TemporarySyncEnabledMessage);
     }
+
+    private bool HasTemporaryOnlyPeer()
+        => _pairs.GetTemporaryAppearancePairs().Any(pair => !pair.HasDurableConnection);
 
     private void ExpireLocalLeases()
     {

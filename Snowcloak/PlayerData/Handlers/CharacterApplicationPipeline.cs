@@ -149,10 +149,9 @@ internal sealed partial class CharacterApplicationPipeline
 
         if (updateModdedPaths)
         {
-            int attempts = 0;
             List<FileReplacementData> toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
 
-            while (toDownloadReplacements.Count > 0 && attempts++ <= 10 && !downloadToken.IsCancellationRequested)
+            if (toDownloadReplacements.Count > 0)
             {
                 var priorDownloadTask = _handler.PairDownloadTask;
                 if (priorDownloadTask != null)
@@ -172,40 +171,50 @@ internal sealed partial class CharacterApplicationPipeline
 
                     downloadToken.ThrowIfCancellationRequested();
                     toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
-                    if (toDownloadReplacements.Count == 0)
+                }
+
+                if (toDownloadReplacements.Count > 0)
+                {
+                    LogDownloadingMissingFiles(_handler.PlayerName, updatedData);
+                    PublishApplicationState(SnowcloakApplicationState.Downloading);
+
+                    Mediator.Publish(new EventMessage(new Event(_handler.PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Informational,
+                        $"Starting download for {toDownloadReplacements.Count} files")));
+                    var toDownloadFiles = await _downloadManager.InitiateDownloadList(
+                        _handler.CharaHandler!, toDownloadReplacements, downloadToken, revalidateMissing: true).ConfigureAwait(false);
+
+                    if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(_handler, charaData, toDownloadFiles, affect: true))
                     {
-                        break;
+                        PublishApplicationState(SnowcloakApplicationState.Blocked, "Blocked by performance limits.");
+                        return;
                     }
-                }
 
-                LogDownloadingMissingFiles(_handler.PlayerName, updatedData);
-                PublishApplicationState(SnowcloakApplicationState.Downloading);
+                    _handler.PairDownloadTask = Task.Run(async () => await _downloadManager.DownloadFiles(_handler.CharaHandler!, toDownloadReplacements, downloadToken, Pair.UserData.UID).ConfigureAwait(false));
 
-                Mediator.Publish(new EventMessage(new Event(_handler.PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Informational,
-                    $"Starting download for {toDownloadReplacements.Count} files")));
-                var toDownloadFiles = await _downloadManager.InitiateDownloadList(_handler.CharaHandler!, toDownloadReplacements, downloadToken).ConfigureAwait(false);
+                    await _handler.PairDownloadTask.ConfigureAwait(false);
 
-                if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(_handler, charaData, toDownloadFiles, affect: true))
-                {
-                    PublishApplicationState(SnowcloakApplicationState.Blocked, "Blocked by performance limits.");
-                    return;
-                }
+                    if (downloadToken.IsCancellationRequested)
+                    {
+                        LogDetectedCancellation();
+                        return;
+                    }
 
-                _handler.PairDownloadTask = Task.Run(async () => await _downloadManager.DownloadFiles(_handler.CharaHandler!, toDownloadReplacements, downloadToken, Pair.UserData.UID).ConfigureAwait(false));
-
-                await _handler.PairDownloadTask.ConfigureAwait(false);
-
-                if (downloadToken.IsCancellationRequested)
-                {
-                    LogDetectedCancellation();
-                    return;
-                }
-
-                toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
-
-                if (toDownloadReplacements.TrueForAll(c => _downloadManager.IsHashForbidden(c.Hash)))
-                {
-                    break;
+                    toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
+                    if (toDownloadReplacements.Count > 0)
+                    {
+                        var missingCount = toDownloadReplacements
+                            .Select(replacement => replacement.Hash)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .Count();
+                        LogDeferringIncompleteDownload(Logger, _handler.PlayerName, missingCount);
+                        Mediator.Publish(new EventMessage(new Event(_handler.PlayerName, Pair.UserData, nameof(PairHandler),
+                            EventSeverity.Warning, $"Deferring appearance application: {missingCount} required files are unavailable")));
+                        _appliedState.RequireModRecovery();
+                        PublishApplicationState(SnowcloakApplicationState.Failed,
+                            $"Waiting for {missingCount} required file(s) to become available.");
+                        _handler.ScheduleModRecoveryRetry();
+                        return;
+                    }
                 }
             }
 
@@ -542,6 +551,10 @@ internal sealed partial class CharacterApplicationPipeline
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Missing file: {hash}")]
     private partial void LogMissingFile(string hash);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Deferring appearance application for {Player}: {MissingCount} required files remain unavailable after download")]
+    private static partial void LogDeferringIncompleteDownload(ILogger logger, string? player, int missingCount);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Adding file swap for {path}: {fileSwap}")]
     private partial void LogAddingFileSwap(string path, string fileSwap);

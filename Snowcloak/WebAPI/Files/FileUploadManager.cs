@@ -18,10 +18,10 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     private readonly FileTransferOrchestrator _orchestrator;
     private readonly ServerRegistry _serverManager;
     private readonly UsageStatisticsService _usageStatisticsService;
-    private readonly Dictionary<string, DateTime> _verifiedUploadedHashes = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _characterDataUploadGate = new(1, 1);
     private readonly Lock _currentUploadsLock = new();
     private readonly List<FileTransfer> _currentUploads = [];
-    private CancellationTokenSource? _uploadCancellationTokenSource = new();
+    private CancellationTokenSource? _uploadCancellationTokenSource;
 
     public FileUploadManager(ILogger<FileUploadManager> logger, SnowMediator mediator,
         FileTransferOrchestrator orchestrator,
@@ -71,12 +71,12 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             hasUploads = _currentUploads.Count > 0;
         }
 
-        if (!hasUploads) return false;
+        var uploadScope = Interlocked.Exchange(ref _uploadCancellationTokenSource, null);
+        if (!hasUploads && uploadScope == null) return false;
 
         Logger.LogDebug("Cancelling current upload");
-        _uploadCancellationTokenSource?.Cancel();
-        _uploadCancellationTokenSource?.Dispose();
-        _uploadCancellationTokenSource = null;
+        uploadScope?.Cancel();
+        uploadScope?.Dispose();
         ClearCurrentUploads();
         return true;
     }
@@ -152,41 +152,55 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
 
     public async Task<CharacterData> UploadFiles(CharacterData data, List<UserData> visiblePlayers, CancellationToken ct = default)
     {
-        CancelUpload();
-
-        _uploadCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var uploadToken = _uploadCancellationTokenSource.Token;
-        Logger.LogDebug("Sending Character data {hash} to service {url}", data.DataHash.Value, _serverManager.CurrentRealApiUrl);
-
-        var uploadableHashCount = data.FileReplacements.Values
-            .SelectMany(replacements => replacements)
-            .Where(replacement => string.IsNullOrEmpty(replacement.FileSwapPath) && !string.IsNullOrEmpty(replacement.Hash))
-            .Select(replacement => replacement.Hash)
-            .Distinct(StringComparer.Ordinal)
-            .Count();
-        HashSet<string> unverifiedUploads = GetUnverifiedFiles(data);
-        Logger.LogInformation(
-            "Preparing upload verification for {hash}: uploadableHashes={uploadableHashCount}, unverifiedHashes={unverifiedHashCount}, visibleUsers={visibleUserCount}",
-            data.DataHash.Value,
-            uploadableHashCount,
-            unverifiedUploads.Count,
-            visiblePlayers.Count);
-        if (unverifiedUploads.Any())
+        await _characterDataUploadGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            await UploadUnverifiedFiles(data.DataHash.Value, unverifiedUploads, visiblePlayers, uploadToken).ConfigureAwait(false);
-            Logger.LogInformation("Upload complete for {hash}", data.DataHash.Value);
-        }
-        else
-        {
-            Logger.LogInformation("No unverified upload hashes remain for {hash}; skipping FilesSend", data.DataHash.Value);
-        }
+            CancelUpload();
 
-        foreach (var kvp in data.FileReplacements)
-        {
-            data.FileReplacements[kvp.Key].RemoveAll(i => _orchestrator.IsForbidden(i.Hash));
-        }
+            using var uploadScope = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _uploadCancellationTokenSource = uploadScope;
+            var uploadToken = uploadScope.Token;
+            Logger.LogDebug("Sending Character data {hash} to service {url}", data.DataHash.Value, _serverManager.CurrentRealApiUrl);
 
-        return data;
+            var uploadableHashCount = data.FileReplacements.Values
+                .SelectMany(replacements => replacements)
+                .Where(replacement => string.IsNullOrEmpty(replacement.FileSwapPath) && !string.IsNullOrEmpty(replacement.Hash))
+                .Select(replacement => replacement.Hash)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            HashSet<string> hashesToVerify = GetHashesToVerify(data);
+            Logger.LogInformation(
+                "Preparing upload verification for {hash}: uploadableHashes={uploadableHashCount}, hashesToVerify={hashesToVerifyCount}, visibleUsers={visibleUserCount}",
+                data.DataHash.Value,
+                uploadableHashCount,
+                hashesToVerify.Count,
+                visiblePlayers.Count);
+            if (hashesToVerify.Count > 0)
+            {
+                // FilesSend is the authority for the current file-service storage. A client-local
+                // success cache can outlive a replaced/cleared file volume while SignalR remains
+                // connected, which publishes manifests containing hashes the receiver cannot fetch.
+                await VerifyAndUploadFiles(data.DataHash.Value, hashesToVerify, visiblePlayers, uploadToken).ConfigureAwait(false);
+                Logger.LogInformation("Upload complete for {hash}", data.DataHash.Value);
+            }
+            else
+            {
+                Logger.LogInformation("No upload hashes exist for {hash}; skipping FilesSend", data.DataHash.Value);
+            }
+
+            foreach (var kvp in data.FileReplacements)
+            {
+                data.FileReplacements[kvp.Key].RemoveAll(i => _orchestrator.IsForbidden(i.Hash));
+            }
+
+            return data;
+        }
+        finally
+        {
+            _uploadCancellationTokenSource = null;
+            ClearCurrentUploads();
+            _characterDataUploadGate.Release();
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -252,46 +266,28 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         return await response.Content.ReadFromJsonAsync<List<UploadFileDto>>(cancellationToken: ct).ConfigureAwait(false) ?? [];
     }
 
-    private HashSet<string> GetUnverifiedFiles(CharacterData data)
+    private static HashSet<string> GetHashesToVerify(CharacterData data)
     {
         HashSet<string> hashesToVerify = new(StringComparer.Ordinal);
         foreach (var replacements in data.FileReplacements.Values)
         {
             foreach (var replacement in replacements)
             {
-                if (string.IsNullOrEmpty(replacement.FileSwapPath))
+                if (string.IsNullOrEmpty(replacement.FileSwapPath) && !string.IsNullOrEmpty(replacement.Hash))
                 {
                     hashesToVerify.Add(replacement.Hash);
                 }
             }
         }
-
-        HashSet<string> unverifiedUploadHashes = new(StringComparer.Ordinal);
-        var verificationCutoff = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(10));
-        foreach (var hash in hashesToVerify)
-        {
-            if (!_verifiedUploadedHashes.TryGetValue(hash, out var verifiedTime))
-            {
-                verifiedTime = DateTime.MinValue;
-            }
-
-            if (verifiedTime < verificationCutoff)
-            {
-                Logger.LogTrace("Verifying {item}, last verified: {date}", hash, verifiedTime);
-                unverifiedUploadHashes.Add(hash);
-            }
-        }
-
-        return unverifiedUploadHashes;
+        return hashesToVerify;
     }
 
     private void Reset()
     {
-        _uploadCancellationTokenSource?.Cancel();
-        _uploadCancellationTokenSource?.Dispose();
-        _uploadCancellationTokenSource = null;
+        var uploadScope = Interlocked.Exchange(ref _uploadCancellationTokenSource, null);
+        uploadScope?.Cancel();
+        uploadScope?.Dispose();
         ClearCurrentUploads();
-        _verifiedUploadedHashes.Clear();
     }
 
     private async Task UploadFileAsync(Stream compressedFile, string fileHash, bool postProgress, CancellationToken uploadToken,
@@ -310,7 +306,6 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
 
             await UploadFileStream(compressedFile, fileHash, postProgress, uploadToken, trackedUploads).ConfigureAwait(false);
             _usageStatisticsService.RecordUploadedBytes(compressedLength);
-            _verifiedUploadedHashes[fileHash] = DateTime.UtcNow;
         }
         catch (OperationCanceledException)
         {
@@ -364,10 +359,10 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task UploadUnverifiedFiles(string dataHash, HashSet<string> unverifiedUploadHashes, List<UserData> visiblePlayers, CancellationToken uploadToken)
+    private async Task VerifyAndUploadFiles(string dataHash, HashSet<string> hashesToVerify, List<UserData> visiblePlayers, CancellationToken uploadToken)
     {
         Dictionary<string, FileCacheEntity> cachedEntriesByHash = new(StringComparer.Ordinal);
-        foreach (var hash in unverifiedUploadHashes)
+        foreach (var hash in hashesToVerify)
         {
             var cacheEntry = _fileDbManager.GetFileCacheByHash(hash);
             if (cacheEntry != null)
@@ -376,20 +371,27 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             }
         }
 
-        unverifiedUploadHashes = cachedEntriesByHash.Keys.ToHashSet(StringComparer.Ordinal);
-        if (unverifiedUploadHashes.Count == 0)
+        var locallyMissingCount = hashesToVerify.Count - cachedEntriesByHash.Count;
+        if (locallyMissingCount > 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot publish the appearance because {locallyMissingCount} referenced file(s) are not available locally.");
+        }
+
+        hashesToVerify = cachedEntriesByHash.Keys.ToHashSet(StringComparer.Ordinal);
+        if (hashesToVerify.Count == 0)
         {
             return;
         }
 
-        Logger.LogDebug("Verifying {count} files", unverifiedUploadHashes.Count);
-        var filesToUpload = await FilesSend([.. unverifiedUploadHashes], visiblePlayers.Select(p => p.UID).ToList(), uploadToken).ConfigureAwait(false);
+        Logger.LogDebug("Verifying {count} files", hashesToVerify.Count);
+        var filesToUpload = await FilesSend([.. hashesToVerify], visiblePlayers.Select(p => p.UID).ToList(), uploadToken).ConfigureAwait(false);
         var forbiddenCount = filesToUpload.Count(file => file.IsForbidden);
         var missingCount = filesToUpload.Count - forbiddenCount;
         Logger.LogInformation(
             "FilesSend result for {hash}: verifiedHashes={verifiedHashCount}, serverMissingHashes={missingHashCount}, forbiddenHashes={forbiddenHashCount}, visibleUsers={visibleUserCount}",
             dataHash,
-            unverifiedUploadHashes.Count,
+            hashesToVerify.Count,
             missingCount,
             forbiddenCount,
             visiblePlayers.Count);
@@ -401,7 +403,6 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             {
                 _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(file.Hash, file.ForbiddenBy, ForbiddenTransferKind.Upload,
                     cachedEntriesByHash.TryGetValue(file.Hash, out var forbiddenEntry) ? forbiddenEntry.ResolvedFilepath : string.Empty));
-                _verifiedUploadedHashes[file.Hash] = DateTime.UtcNow;
                 continue;
             }
 
@@ -466,16 +467,6 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             Logger.LogDebug("Upload complete, compressed {size} to {compressed}", ElezenImgui.ByteToString(totalSize), ElezenImgui.ByteToString(compressedSize));
 
             _fileDbManager.WriteOutFullIndex();
-        }
-
-        var currentUploadHashes = currentUploads
-            .Select(upload => upload.Hash)
-            .ToHashSet(StringComparer.Ordinal);
-        var verifiedCandidates = unverifiedUploadHashes.ToHashSet(StringComparer.Ordinal);
-        verifiedCandidates.ExceptWith(currentUploadHashes);
-        foreach (var file in verifiedCandidates)
-        {
-            _verifiedUploadedHashes[file] = DateTime.UtcNow;
         }
 
         ClearCurrentUploads();

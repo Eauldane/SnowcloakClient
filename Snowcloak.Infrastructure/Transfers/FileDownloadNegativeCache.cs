@@ -43,4 +43,15 @@ public sealed class FileDownloadNegativeCache
     }
 
     public void Clear(string hash) => _entries.TryRemove(hash, out _);
+
+    public void ClearMissing(string hash)
+    {
+        ArgumentNullException.ThrowIfNull(hash);
+        var normalised = hash.ToUpperInvariant();
+        if (_entries.TryGetValue(normalised, out var entry)
+            && entry.Reason == FileDownloadNegativeReason.Missing)
+        {
+            _entries.TryRemove(normalised, out _);
+        }
+    }
 }

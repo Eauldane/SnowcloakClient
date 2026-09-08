@@ -14,7 +14,7 @@
     <!-- Transitive pin for CVE-2025-6965; see Snowcloak.csproj for details. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="4.2.0" />
+    <PackageReference Include="Snowcloak.CacheFile" Version="4.2.1" />
     <PackageReference Update="Meziantou.Analyzer" Version="3.0.217">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

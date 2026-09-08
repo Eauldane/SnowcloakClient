@@ -59,6 +59,9 @@ public sealed class GeneralSettingsPanel
                 _ = _temporaryParty.StopAllAsync();
         }
         ElezenImgui.DrawHelpText("Auto-sync with party and alliance members who have Snowcloak and have enabled this setting.");
+        if (enabled && _temporaryParty.IsAutomaticallySuspended)
+            ImGui.TextColored(ImGuiColors.DalamudYellow,
+                "Temporarily paused while you are in an instanced duty or PvP");
         if (_temporaryParty.ActivePeerCount > 0 && ImGui.Button("Stop temporary party/alliance sync now"))
         {
             _configService.Update(config => config.EnableTemporaryPartyAllianceAppearance = false);

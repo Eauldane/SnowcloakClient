@@ -49,8 +49,7 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         {
             try
             {
-                response = await _orchestrator.SendFileDownloadRequestAsync(request.DownloadUri, request.ResumeOffset,
-                    request.ExpectedEntityTag, ct).ConfigureAwait(false);
+                response = await _orchestrator.SendFileDownloadRequestAsync(request.DownloadUri, ct).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
@@ -79,12 +78,6 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
             throw new FileGrantRejectedException();
         }
 
-        if (response.StatusCode == HttpStatusCode.PreconditionFailed)
-        {
-            response.Dispose();
-            throw new FileGrantRejectedException("The resumable representation changed; a fresh signed descriptor is required.");
-        }
-
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
         {
             response.Dispose();
@@ -104,28 +97,11 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         }
 
         response.EnsureSuccessStatusCode();
-        var entityTag = response.Headers.ETag?.Tag;
-        if (!string.IsNullOrWhiteSpace(request.ExpectedEntityTag)
-            && !string.Equals(entityTag, request.ExpectedEntityTag, StringComparison.Ordinal))
-        {
-            response.Dispose();
-            throw new InvalidDataException("The file service returned a different representation entity tag.");
-        }
-        var contentRange = response.Content.Headers.ContentRange;
-        if (response.StatusCode == HttpStatusCode.PartialContent
-            && (contentRange?.From != request.ResumeOffset || contentRange.Length != request.ExpectedBytes))
-        {
-            response.Dispose();
-            throw new InvalidDataException("The file service returned an invalid resume content range.");
-        }
         _negativeCache.Clear(request.Hash);
-        onPhase?.Invoke(response.StatusCode == HttpStatusCode.PartialContent
-            ? DownloadStatus.Resuming
-            : DownloadStatus.Downloading);
-        var reportedTotal = contentRange?.Length
-            ?? (TryGetReportedDownloadSize(response, out var totalBytes) ? totalBytes : (long?)null);
+        onPhase?.Invoke(DownloadStatus.Downloading);
+        var reportedTotal = TryGetReportedDownloadSize(response, out var totalBytes) ? totalBytes : (long?)null;
         var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        return new DownloadResponse(response, stream, reportedTotal, contentRange?.From, entityTag);
+        return new DownloadResponse(response, stream, reportedTotal);
     }
 
     private static TimeSpan GetRetryAfter(HttpResponseMessage response, TimeSpan? fallback = null)
