@@ -11,7 +11,7 @@
     <InternalsVisibleTo Include="Snowcloak.Tests" />
     <PackageReference Include="ElezenTools.Core" Version="15.56.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
-    <PackageReference Include="Snowcloak.API" Version="4.2.2" />
+    <PackageReference Include="Snowcloak.API" Version="4.2.2.1" />
     <PackageReference Update="Meziantou.Analyzer" Version="3.0.217">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

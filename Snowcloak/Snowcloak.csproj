@@ -40,8 +40,8 @@
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.API" Version="4.2.2" />
-    <PackageReference Include="Snowcloak.CacheFile" Version="4.2.1" />
+    <PackageReference Include="Snowcloak.API" Version="4.2.2.1" />
+    <PackageReference Include="Snowcloak.CacheFile" Version="4.2.1.1" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
