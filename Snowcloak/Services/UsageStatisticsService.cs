@@ -119,7 +119,12 @@ public sealed partial class UsageStatisticsService
 
         try
         {
-            using var writeScope = _db.EnterWrite();
+            using var writeScope = _db.TryEnterWrite(TimeSpan.Zero);
+            if (writeScope == null)
+            {
+                return;
+            }
+
             using var connection = _db.Open();
             using var transaction = connection.BeginTransaction();
 

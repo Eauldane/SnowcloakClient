@@ -24,7 +24,6 @@ internal static class ConfigurationRegistration
         collection.AddSingleton<XivDataStorageService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<XivDataStorageService>());
         collection.AddSingleton<PairAppearanceCacheService>();
-        collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<PairAppearanceCacheService>());
         collection.AddSingleton<PlayerPerformanceConfigService>();
         collection.AddSingleton<ServerBlockConfigService>();
         collection.AddSingleton<IStateDocument>(sp => sp.GetRequiredService<ServerBlockConfigService>());

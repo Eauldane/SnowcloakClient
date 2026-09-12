@@ -255,9 +255,9 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                     _orchestrator.ReleaseDecompressionSlot();
                 }
 
-                _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
                 _negativeCache.Clear(transfer.Hash);
                 groupHandle.MarkFileTransferred();
+                _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
                 return;
             }
             catch (FileGrantRejectedException) when (attempt == 0)

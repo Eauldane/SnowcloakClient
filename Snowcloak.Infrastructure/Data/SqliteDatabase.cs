@@ -49,6 +49,13 @@ public sealed class SqliteDatabase
         return new Releaser(_writeLock);
     }
 
+    public IDisposable? TryEnterWrite(TimeSpan timeout)
+    {
+        return _writeLock.Wait(timeout)
+            ? new Releaser(_writeLock)
+            : null;
+    }
+
     public async Task<IDisposable> EnterWriteAsync(CancellationToken cancellationToken)
     {
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -77,6 +84,12 @@ public sealed class SqliteDatabase
     {
         int schemaVersion = GetUserVersion(connection);
         var vacuumAfterMigration = false;
+        
+        if (schemaVersion <= 8)
+        {
+            Execute(connection, "PRAGMA secure_delete=OFF;");
+        }
+
         using var transaction = connection.BeginTransaction();
         if (schemaVersion == 0)
         {
@@ -263,6 +276,18 @@ GROUP BY file_hash;");
 );");
 
             SetUserVersion(connection, transaction, 8);
+            schemaVersion = 8;
+        }
+
+        if (schemaVersion <= 8)
+        {
+            Execute(connection, transaction,
+                "DELETE FROM state_document_backups WHERE document_name = 'pairappearancecache.json';");
+            Execute(connection, transaction,
+                "DELETE FROM state_documents WHERE document_name = 'pairappearancecache.json';");
+
+            SetUserVersion(connection, transaction, 9);
+            vacuumAfterMigration = true;
         }
 
         transaction.Commit();

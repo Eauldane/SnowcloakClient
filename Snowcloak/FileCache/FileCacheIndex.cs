@@ -5,8 +5,9 @@ using Snowcloak.Services;
 
 namespace Snowcloak.FileCache;
 
-public sealed class FileCacheIndex
+public sealed partial class FileCacheIndex
 {
+    private static readonly TimeSpan DownloadWriteWait = TimeSpan.FromMilliseconds(250);
     private readonly ILogger<FileCacheIndex> _logger;
     private readonly SqliteDatabase _db;
 
@@ -48,18 +49,24 @@ public sealed class FileCacheIndex
 
     public void Upsert(FileCacheEntity entity)
     {
-        using (_db.EnterWrite())
+        ArgumentNullException.ThrowIfNull(entity);
+
+        using var writeScope = _db.TryEnterWrite(DownloadWriteWait);
+        if (writeScope == null)
         {
-            try
-            {
-                using var connection = _db.Open();
-                using var command = CreateUpsertCommand(connection, null);
-                BindAndExecute(command, entity);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to persist file cache entry {path}", entity.PrefixedFilePath);
-            }
+            LogSkippedBusyDatabaseWrite(_logger, entity.PrefixedFilePath);
+            return;
+        }
+
+        try
+        {
+            using var connection = _db.Open();
+            using var command = CreateUpsertCommand(connection, null);
+            BindAndExecute(command, entity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist file cache entry {path}", entity.PrefixedFilePath);
         }
     }
 
@@ -180,4 +187,8 @@ ON CONFLICT(prefixed_path) DO UPDATE SET
         command.Parameters["$compressed"].Value = entity.CompressedSize ?? -1;
         command.ExecuteNonQuery();
     }
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Skipped busy database write for file cache entry {Path}; the cache scanner will reconcile it")]
+    private static partial void LogSkippedBusyDatabaseWrite(ILogger logger, string path);
 }
