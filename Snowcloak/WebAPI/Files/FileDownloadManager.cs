@@ -57,7 +57,9 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         });
     }
 
-    public bool IsHashForbidden(string hash) => _orchestrator.IsForbidden(hash);
+    public bool IsHashForbidden(string hash)
+        => _negativeCache.TryGet(hash, out var entry)
+           && entry.Reason == FileDownloadNegativeReason.Forbidden;
 
     public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler,
         IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct, bool revalidateMissing = false)
@@ -92,12 +94,12 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         foreach (var dto in fileInfo.Where(file => file.IsForbidden))
         {
             _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(dto.Hash, dto.ForbiddenBy, ForbiddenTransferKind.Download));
-            var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(30),
+            var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Forbidden, TimeSpan.FromMinutes(30),
                 "The requested file is blocked from transfer.");
             _preflightUnavailable[entry.Hash] = entry;
         }
 
-        foreach (var dto in fileInfo.Where(file => !file.FileExists))
+        foreach (var dto in fileInfo.Where(file => !file.FileExists && !file.IsForbidden))
         {
             var entry = _negativeCache.Record(dto.Hash, FileDownloadNegativeReason.Missing, TimeSpan.FromMinutes(10),
                 "The requested file is not available on the server. Snowcloak will check again later.");
@@ -265,14 +267,20 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 var refreshed = (await FilesGetSizes([transfer.Hash], ct).ConfigureAwait(false)).SingleOrDefault();
                 if (refreshed == null || !refreshed.FileExists || refreshed.IsForbidden || refreshed.Size <= 0)
                 {
-                    var reason = refreshed?.IsForbidden == true
-                        ? FileDownloadNegativeReason.Rejected
+                    var forbidden = refreshed?.IsForbidden == true;
+                    if (forbidden)
+                    {
+                        _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(refreshed!.Hash, refreshed.ForbiddenBy,
+                            ForbiddenTransferKind.Download));
+                    }
+                    var reason = forbidden
+                        ? FileDownloadNegativeReason.Forbidden
                         : FileDownloadNegativeReason.Missing;
-                    var message = reason == FileDownloadNegativeReason.Rejected
+                    var message = reason == FileDownloadNegativeReason.Forbidden
                         ? "The requested file is blocked from transfer."
                         : "The requested file is not available on the server. Snowcloak will check again later.";
                     throw new FileDownloadUnavailableException(_negativeCache.Record(transfer.Hash, reason,
-                        reason == FileDownloadNegativeReason.Rejected ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10),
+                        reason == FileDownloadNegativeReason.Forbidden ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10),
                         message));
                 }
 

@@ -200,9 +200,12 @@ internal sealed partial class CharacterApplicationPipeline
                     }
 
                     toDownloadReplacements = TryCalculateModdedDictionary(charaData, out moddedPaths, out moddedFileSizes, downloadToken);
-                    if (toDownloadReplacements.Count > 0)
+                    var blockingReplacements = toDownloadReplacements
+                        .Where(replacement => !_downloadManager.IsHashForbidden(replacement.Hash))
+                        .ToList();
+                    if (blockingReplacements.Count > 0)
                     {
-                        var missingCount = toDownloadReplacements
+                        var missingCount = blockingReplacements
                             .Select(replacement => replacement.Hash)
                             .Distinct(StringComparer.OrdinalIgnoreCase)
                             .Count();

@@ -15,7 +15,7 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageReference Include="Snowcloak.CacheFile" Version="4.2.1.1" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.254">
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.270">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

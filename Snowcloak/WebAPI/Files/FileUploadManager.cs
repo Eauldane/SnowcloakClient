@@ -188,11 +188,8 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
                 Logger.LogInformation("No upload hashes exist for {hash}; skipping FilesSend", data.DataHash.Value);
             }
 
-            foreach (var kvp in data.FileReplacements)
-            {
-                data.FileReplacements[kvp.Key].RemoveAll(i => _orchestrator.IsForbidden(i.Hash));
-            }
-
+            // FilesSend remains authoritative for refusing forbidden uploads, but the replacement
+            // metadata must stay in the manifest so receivers can use an existing local copy.
             return data;
         }
         finally

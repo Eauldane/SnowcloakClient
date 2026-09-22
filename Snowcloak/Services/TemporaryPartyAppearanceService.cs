@@ -1,5 +1,6 @@
 using Dalamud.Plugin.Services;
 using ElezenTools.Core.Async;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.API.Dto.TemporaryAppearance;
@@ -16,6 +17,10 @@ namespace Snowcloak.Services;
 
 public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IHostedService
 {
+    private static readonly TimeSpan MinimumRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan HubFailureRetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromMinutes(5);
+
     private const string TemporarySyncEnabledMessage =
         "[Snowcloak] Temporary party syncing is currently enabled, and you are sharing your appearance with party members who also have it enabled.";
 
@@ -105,7 +110,8 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
         try
         {
             foreach (var source in descriptor.Sources.Where(source => _sources.ContainsKey(source.Kind)))
-                await SendOperationAsync(descriptor, source.Kind, TemporaryAppearanceOperation.Disable, null).ConfigureAwait(false);
+                await SendOperationAsync(descriptor, source.Kind, TemporaryAppearanceOperation.Disable, null,
+                    bypassRetry: true).ConfigureAwait(false);
         }
         finally
         {
@@ -191,8 +197,10 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
             }
             state.StableSamples++;
             if (state.StableSamples < 2) return;
-            if (!string.Equals(state.AcceptedRoster, rosterKey, StringComparison.Ordinal)
-                || DateTimeOffset.UtcNow >= state.RefreshAtUtc)
+            var now = DateTimeOffset.UtcNow;
+            if ((!string.Equals(state.AcceptedRoster, rosterKey, StringComparison.Ordinal)
+                 || now >= state.RefreshAtUtc)
+                && CanPublishCapture(capture.Source, now))
                 QueueNetworkOperation(() => PublishCaptureAsync(descriptor, capture), "PublishTemporaryAppearance");
         }
         catch (Exception ex)
@@ -204,27 +212,41 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
     private async Task PublishCaptureAsync(TemporaryAppearanceDescriptor descriptor, TemporaryRosterCapture capture)
     {
         foreach (var other in _sources.Where(entry => entry.Key != capture.Source && entry.Value.ClaimEnabled))
-            await SendOperationAsync(descriptor, other.Key, TemporaryAppearanceOperation.Reset, null).ConfigureAwait(false);
+        {
+            if (!await SendOperationAsync(descriptor, other.Key, TemporaryAppearanceOperation.Reset, null).ConfigureAwait(false))
+                return;
+        }
         await SendOperationAsync(descriptor, capture.Source, TemporaryAppearanceOperation.ReplaceComplete, capture)
             .ConfigureAwait(false);
     }
 
-    private async Task SendOperationAsync(TemporaryAppearanceDescriptor descriptor,
-        TemporaryAppearanceSourceKind sourceKind, TemporaryAppearanceOperation operation, TemporaryRosterCapture? capture)
+    private bool CanPublishCapture(TemporaryAppearanceSourceKind sourceKind, DateTimeOffset now)
+        => _sources[sourceKind].CanAttempt(now)
+           && _sources.Where(entry => entry.Key != sourceKind && entry.Value.ClaimEnabled)
+               .All(entry => entry.Value.CanAttempt(now));
+
+    private async Task<bool> SendOperationAsync(TemporaryAppearanceDescriptor descriptor,
+        TemporaryAppearanceSourceKind sourceKind, TemporaryAppearanceOperation operation,
+        TemporaryRosterCapture? capture, bool bypassRetry = false)
     {
-        if (!_api.IsConnected) return;
+        if (!_api.IsConnected) return false;
+        var state = _sources[sourceKind];
         var source = descriptor.Sources.SingleOrDefault(item => item.Kind == sourceKind);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var epoch = source?.ClaimEpochs.SingleOrDefault(item => item.ValidFromUnixMs <= now && item.ValidUntilUnixMs > now);
-        if (source == null || epoch == null) return;
+        if (source == null || epoch == null)
+        {
+            state.ScheduleServerRetry(HubFailureRetryDelay);
+            return false;
+        }
 
-        var state = _sources[sourceKind];
+        if (!bypassRetry && !state.CanAttempt(DateTimeOffset.UtcNow)) return false;
         List<CompleteRosterObservation> observations = [];
         var publishedRoster = string.Empty;
         if (operation == TemporaryAppearanceOperation.ReplaceComplete)
         {
             var value = capture ?? throw new InvalidOperationException("A replace command requires a roster capture.");
-            if (value.ContentIds.Length > source.MaxMembers) return;
+            if (value.ContentIds.Length > source.MaxMembers) return false;
             publishedRoster = $"{(byte)value.Layout}:" + string.Join(',', value.ContentIds);
             var tokens = value.ContentIds.Select(contentId => ComputeToken(epoch, sourceKind,
                     CharacterIdentityProtocol.FromContentId(contentId)))
@@ -241,22 +263,41 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
             if (!string.Equals(state.AcceptedRoster, state.CandidateRoster, StringComparison.Ordinal)) state.Generation++;
         }
 
-        var result = await _api.TemporaryAppearanceUpdate(new TemporaryAppearanceSourceCommand
+        TemporaryAppearanceCommandResult result;
+        try
         {
-            ServerEpoch = descriptor.ServerEpoch,
-            BindingId = descriptor.BindingId,
-            Source = sourceKind,
-            SourceGeneration = state.Generation,
-            CommandSequence = ++state.Sequence,
-            Operation = operation,
-            EpochObservations = observations,
-            SendCategories = _config.Current.TemporaryPartySendCategories & source.AllowedCategories,
-            ReceiveCategories = _config.Current.TemporaryPartyReceiveCategories & source.AllowedCategories,
-        }).ConfigureAwait(false);
+            result = await _api.TemporaryAppearanceUpdate(new TemporaryAppearanceSourceCommand
+            {
+                ServerEpoch = descriptor.ServerEpoch,
+                BindingId = descriptor.BindingId,
+                Source = sourceKind,
+                SourceGeneration = state.Generation,
+                CommandSequence = ++state.Sequence,
+                Operation = operation,
+                EpochObservations = observations,
+                SendCategories = _config.Current.TemporaryPartySendCategories & source.AllowedCategories,
+                ReceiveCategories = _config.Current.TemporaryPartyReceiveCategories & source.AllowedCategories,
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (HubException)
+        {
+            state.ScheduleFailureRetry(HubFailureRetryDelay);
+            throw;
+        }
+        catch (Exception)
+        {
+            state.ScheduleFailureRetry(MinimumRetryDelay);
+            throw;
+        }
 
         state.Sequence = Math.Max(state.Sequence, result.AcceptedCommandSequence);
         if (result.Status is TemporaryAppearanceCommandStatus.Applied or TemporaryAppearanceCommandStatus.Duplicate)
         {
+            state.ResetRetry();
             state.ClaimEnabled = operation == TemporaryAppearanceOperation.ReplaceComplete;
             state.LocalRosterAvailable = state.ClaimEnabled;
             // The framework-thread candidate may have changed while this request was in flight.
@@ -267,11 +308,29 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
         }
         else if (result.Status == TemporaryAppearanceCommandStatus.Disabled)
         {
+            state.ResetRetry();
             state.ClaimEnabled = false;
             state.LocalRosterAvailable = false;
             state.AcceptedRoster = string.Empty;
         }
+        else if (result.Status == TemporaryAppearanceCommandStatus.RateLimited)
+        {
+            state.ScheduleServerRetry(result.RetryAfterMs > 0
+                ? TimeSpan.FromMilliseconds(result.RetryAfterMs)
+                : HubFailureRetryDelay);
+        }
+        else if (result.Status == TemporaryAppearanceCommandStatus.Stale)
+        {
+            state.ScheduleServerRetry(MinimumRetryDelay);
+        }
+        else
+        {
+            state.ScheduleServerRetry(HubFailureRetryDelay);
+        }
         ApplySnapshot(result.Snapshot);
+        return result.Status is TemporaryAppearanceCommandStatus.Applied
+            or TemporaryAppearanceCommandStatus.Duplicate
+            or TemporaryAppearanceCommandStatus.Disabled;
     }
 
     private async Task RefreshSnapshotAsync()
@@ -357,7 +416,11 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
 
     private void SuspendAllSources(TemporaryAppearanceOperation operation, string operationName)
     {
-        var active = _sources.Where(entry => entry.Value.ClaimEnabled).Select(entry => entry.Key).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var active = _sources
+            .Where(entry => entry.Value.ClaimEnabled && entry.Value.CanAttempt(now))
+            .Select(entry => entry.Key)
+            .ToArray();
         SuspendLocalSources();
         var descriptor = _descriptor;
         if (descriptor == null || !_api.IsConnected || active.Length == 0) return;
@@ -425,6 +488,37 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
         public ulong Generation { get; set; }
         public ulong Sequence { get; set; }
         public DateTimeOffset RefreshAtUtc { get; set; } = DateTimeOffset.MinValue;
+        public DateTimeOffset RetryAtUtc { get; private set; } = DateTimeOffset.MinValue;
+        private int ConsecutiveFailures { get; set; }
+
+        public bool CanAttempt(DateTimeOffset now) => now >= RetryAtUtc;
+
+        public void ScheduleServerRetry(TimeSpan delay)
+        {
+            ConsecutiveFailures = 0;
+            RetryAtUtc = DateTimeOffset.UtcNow.Add(ClampRetryDelay(delay));
+        }
+
+        public void ScheduleFailureRetry(TimeSpan minimumDelay)
+        {
+            ConsecutiveFailures = Math.Min(ConsecutiveFailures + 1, 16);
+            var exponentialSeconds = 1 << Math.Min(ConsecutiveFailures - 1, 8);
+            var delay = TimeSpan.FromSeconds(exponentialSeconds);
+            if (delay < minimumDelay) delay = minimumDelay;
+            RetryAtUtc = DateTimeOffset.UtcNow.Add(ClampRetryDelay(delay));
+        }
+
+        public void ResetRetry()
+        {
+            ConsecutiveFailures = 0;
+            RetryAtUtc = DateTimeOffset.MinValue;
+        }
+
+        private static TimeSpan ClampRetryDelay(TimeSpan delay)
+        {
+            if (delay < MinimumRetryDelay) return MinimumRetryDelay;
+            return delay > MaximumRetryDelay ? MaximumRetryDelay : delay;
+        }
 
         public void Reset()
         {
@@ -436,6 +530,7 @@ public sealed class TemporaryPartyAppearanceService : MediatorSubscriberBase, IH
             Generation = 0;
             Sequence = 0;
             RefreshAtUtc = DateTimeOffset.MinValue;
+            ResetRetry();
         }
     }
 }

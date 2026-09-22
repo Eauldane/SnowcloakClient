@@ -9,6 +9,7 @@ public enum FileDownloadNegativeReason
     RateLimited,
     TemporarilyUnavailable,
     PrefetchBudgetExceeded,
+    Forbidden,
 }
 
 public sealed record FileDownloadNegativeEntry(string Hash, FileDownloadNegativeReason Reason,
