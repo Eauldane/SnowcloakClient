@@ -150,7 +150,8 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         return [];
     }
 
-    public async Task<CharacterData> UploadFiles(CharacterData data, List<UserData> visiblePlayers, CancellationToken ct = default)
+    public async Task<CharacterData> UploadFiles(CharacterData data, IReadOnlyDictionary<string, string> sourcePathsByHash,
+        List<UserData> visiblePlayers, CancellationToken ct = default)
     {
         await _characterDataUploadGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -180,7 +181,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
                 // FilesSend is the authority for the current file-service storage. A client-local
                 // success cache can outlive a replaced/cleared file volume while SignalR remains
                 // connected, which publishes manifests containing hashes the receiver cannot fetch.
-                await VerifyAndUploadFiles(data.DataHash.Value, hashesToVerify, visiblePlayers, uploadToken).ConfigureAwait(false);
+                await VerifyAndUploadFiles(data.DataHash.Value, hashesToVerify, sourcePathsByHash, visiblePlayers, uploadToken).ConfigureAwait(false);
                 Logger.LogInformation("Upload complete for {hash}", data.DataHash.Value);
             }
             else
@@ -356,7 +357,8 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task VerifyAndUploadFiles(string dataHash, HashSet<string> hashesToVerify, List<UserData> visiblePlayers, CancellationToken uploadToken)
+    private async Task VerifyAndUploadFiles(string dataHash, HashSet<string> hashesToVerify,
+        IReadOnlyDictionary<string, string> sourcePathsByHash, List<UserData> visiblePlayers, CancellationToken uploadToken)
     {
         Dictionary<string, FileCacheEntity> cachedEntriesByHash = new(StringComparer.Ordinal);
         foreach (var hash in hashesToVerify)
@@ -399,7 +401,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             if (file.IsForbidden)
             {
                 _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(file.Hash, file.ForbiddenBy, ForbiddenTransferKind.Upload,
-                    cachedEntriesByHash.TryGetValue(file.Hash, out var forbiddenEntry) ? forbiddenEntry.ResolvedFilepath : string.Empty));
+                    sourcePathsByHash.TryGetValue(file.Hash, out var sourcePath) ? sourcePath : string.Empty));
                 continue;
             }
 

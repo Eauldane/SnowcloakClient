@@ -286,12 +286,19 @@ public sealed class FileCacheManager : IHostedService
         (FileCacheEntity? Penumbra, FileCacheEntity? Cache, FileCacheEntity? Subst) result = (null, null, null);
         if (_fileCaches.TryGetValue(hash, out var hashes))
         {
-            result.Penumbra = hashes.Where(p => p.PrefixedFilePath.StartsWith(PenumbraPrefix, StringComparison.Ordinal)).Select(GetValidatedFileCache).FirstOrDefault();
-            result.Cache = hashes.Where(p => p.PrefixedFilePath.StartsWith(CachePrefix, StringComparison.Ordinal)).Select(GetValidatedFileCache).FirstOrDefault();
-            result.Subst = hashes.Where(p => p.PrefixedFilePath.StartsWith(SubstPrefix, StringComparison.Ordinal)).Select(GetValidatedFileCache).FirstOrDefault();
+            var candidates = hashes.ToList();
+            result.Penumbra = candidates.Where(p => p.PrefixedFilePath.StartsWith(PenumbraPrefix, StringComparison.Ordinal))
+                .Select(GetValidatedFileCache).FirstOrDefault(p => HasRequestedHash(p, hash));
+            result.Cache = candidates.Where(p => p.PrefixedFilePath.StartsWith(CachePrefix, StringComparison.Ordinal))
+                .Select(GetValidatedFileCache).FirstOrDefault(p => HasRequestedHash(p, hash));
+            result.Subst = candidates.Where(p => p.PrefixedFilePath.StartsWith(SubstPrefix, StringComparison.Ordinal))
+                .Select(GetValidatedFileCache).FirstOrDefault(p => HasRequestedHash(p, hash));
         }
         return result;
     }
+
+    private static bool HasRequestedHash(FileCacheEntity? fileCache, string requestedHash)
+        => fileCache != null && string.Equals(fileCache.Hash, requestedHash, StringComparison.OrdinalIgnoreCase);
 
     public Dictionary<string, FileCacheEntity?> GetFileCachesByPaths(string[] paths)
     {

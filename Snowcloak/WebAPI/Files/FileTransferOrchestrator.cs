@@ -117,9 +117,14 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
     {
         lock (_forbiddenLock)
         {
-            if (!_forbiddenTransfers.Exists(f => string.Equals(f.Hash, transfer.Hash, StringComparison.Ordinal)))
+            var existingIndex = _forbiddenTransfers.FindIndex(f => string.Equals(f.Hash, transfer.Hash, StringComparison.Ordinal));
+            if (existingIndex < 0)
             {
                 _forbiddenTransfers.Add(transfer);
+            }
+            else if (transfer.Kind == ForbiddenTransferKind.Upload && !string.IsNullOrEmpty(transfer.LocalFile))
+            {
+                _forbiddenTransfers[existingIndex] = transfer;
             }
         }
     }

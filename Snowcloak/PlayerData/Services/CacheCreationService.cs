@@ -45,6 +45,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private bool _haltCharaDataCreation;
     private bool _isZoning;
     private ApiCharacterData? _lastSentData;
+    private Dictionary<string, string> _lastSentSourcePathsByHash = new(StringComparer.Ordinal);
     private readonly IFrameTickHandle _onlineTick;
     private readonly IFrameTickHandle _cacheTick;
     private int _disposed;
@@ -416,7 +417,8 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
             }
 
             var apiData = _playerData.ToAPI();
-            OnCharacterDataBuilt(apiData);
+            var sourcePathsByHash = GetSourcePathsByHash(_playerData);
+            OnCharacterDataBuilt(apiData, sourcePathsByHash);
             Mediator.Publish(new CharacterDataCreatedMessage(apiData));
         }
         catch (OperationCanceledException)
@@ -446,11 +448,12 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         }
     }
 
-    private void OnCharacterDataBuilt(ApiCharacterData newData)
+    private void OnCharacterDataBuilt(ApiCharacterData newData, Dictionary<string, string> sourcePathsByHash)
     {
         List<UserData>? pendingVisibleUsers = null;
         lock (_visibilityLock)
         {
+            _lastSentSourcePathsByHash = sourcePathsByHash;
             if (_lastSentData != null && string.Equals(newData.DataHash.Value, _lastSentData.DataHash.Value, StringComparison.Ordinal))
             {
                 Logger.LogDebug("Not sending data for {hash}", newData.DataHash.Value);
@@ -548,9 +551,11 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private void PushCharacterData(List<UserData> visiblePlayers)
     {
         ApiCharacterData? data;
+        Dictionary<string, string> sourcePathsByHash;
         lock (_visibilityLock)
         {
             data = _lastSentData;
+            sourcePathsByHash = new Dictionary<string, string>(_lastSentSourcePathsByHash, StringComparer.Ordinal);
         }
 
         if (data == null)
@@ -559,16 +564,17 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         }
 
         _ = _backgroundTasks.Run(
-            ct => PushCharacterDataInternal(data.Clone(), visiblePlayers, ct),
+            ct => PushCharacterDataInternal(data.Clone(), sourcePathsByHash, visiblePlayers, ct),
             nameof(PushCharacterData),
             _runtimeCts.Token);
     }
 
-    private async Task PushCharacterDataInternal(ApiCharacterData data, List<UserData> visiblePlayers, CancellationToken cancellationToken)
+    private async Task PushCharacterDataInternal(ApiCharacterData data, IReadOnlyDictionary<string, string> sourcePathsByHash,
+        List<UserData> visiblePlayers, CancellationToken cancellationToken)
     {
         try
         {
-            var dataToSend = await _fileTransferManager.UploadFiles(data, visiblePlayers, cancellationToken).ConfigureAwait(false);
+            var dataToSend = await _fileTransferManager.UploadFiles(data, sourcePathsByHash, visiblePlayers, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
         }
@@ -591,6 +597,21 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
                 ex.Message));
         }
     }
+
+    private static Dictionary<string, string> GetSourcePathsByHash(OwnCharacterData data)
+        => data.FileReplacements.Values
+            .SelectMany(replacements => replacements)
+            .Where(replacement => replacement.HasFileReplacement
+                && !replacement.IsFileSwap
+                && !string.IsNullOrEmpty(replacement.Hash)
+                && !string.IsNullOrEmpty(replacement.ResolvedPath))
+            .GroupBy(replacement => replacement.Hash, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(replacement => replacement.ResolvedPath)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .First(),
+                StringComparer.Ordinal);
 
     private void RequestCharacterData(List<string> visiblePlayerIdents)
     {

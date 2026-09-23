@@ -2,7 +2,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>4.2.3.0</Version>
+    <Version>4.2.4.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Configurations>Release;Debug</Configurations>
@@ -38,7 +38,7 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageReference Include="NAudio" Version="2.4.0" />
-    <PackageReference Include="Penumbra.Api" Version="5.15.1" />
+    <PackageReference Include="Penumbra.Api" Version="5.19.2" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
     <PackageReference Include="Snowcloak.API" Version="4.2.3.2" />
     <PackageReference Include="Snowcloak.CacheFile" Version="4.2.1.1" />
