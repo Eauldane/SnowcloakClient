@@ -75,7 +75,9 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         if (response.StatusCode == HttpStatusCode.Forbidden)
         {
             response.Dispose();
-            throw new FileGrantRejectedException();
+            throw new FileDownloadUnavailableException(_negativeCache.Record(request.Hash,
+                FileDownloadNegativeReason.Forbidden, TimeSpan.FromMinutes(30),
+                "The requested file is blocked from transfer."));
         }
 
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)

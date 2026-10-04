@@ -262,36 +262,6 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 _usageStatisticsService.RecordDownloadedBytes(downloadedBytes);
                 return;
             }
-            catch (FileGrantRejectedException) when (attempt == 0)
-            {
-                var refreshed = (await FilesGetSizes([transfer.Hash], ct).ConfigureAwait(false)).SingleOrDefault();
-                if (refreshed == null || !refreshed.FileExists || refreshed.IsForbidden || refreshed.Size <= 0)
-                {
-                    var forbidden = refreshed?.IsForbidden == true;
-                    if (forbidden)
-                    {
-                        _orchestrator.AddForbiddenTransfer(new ForbiddenTransfer(refreshed!.Hash, refreshed.ForbiddenBy,
-                            ForbiddenTransferKind.Download));
-                    }
-                    var reason = forbidden
-                        ? FileDownloadNegativeReason.Forbidden
-                        : FileDownloadNegativeReason.Missing;
-                    var message = reason == FileDownloadNegativeReason.Forbidden
-                        ? "The requested file is blocked from transfer."
-                        : "The requested file is not available on the server. Snowcloak will check again later.";
-                    throw new FileDownloadUnavailableException(_negativeCache.Record(transfer.Hash, reason,
-                        reason == FileDownloadNegativeReason.Forbidden ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10),
-                        message));
-                }
-
-                transfer.Refresh(refreshed);
-            }
-            catch (FileGrantRejectedException)
-            {
-                throw new FileDownloadUnavailableException(_negativeCache.Record(transfer.Hash,
-                    FileDownloadNegativeReason.Rejected, TimeSpan.FromMinutes(1),
-                    "The refreshed file grant was rejected. Snowcloak will request a new grant later."));
-            }
             catch (Exception ex) when (attempt == 0
                                        && ex is IOException or HttpRequestException
                                        && ex is not FileDownloadUnavailableException)
@@ -309,11 +279,6 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             groupHandle.SetStatus, ct).ConfigureAwait(false);
         await using (response.ConfigureAwait(false))
         {
-            if (response.ReportedTotalBytes is { } total && total != transfer.Total)
-            {
-                throw new InvalidDataException($"The file service reported {total} bytes, expected {transfer.Total}.");
-            }
-
             var directory = Path.GetDirectoryName(tempPath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024,
@@ -336,9 +301,9 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             }
 
             var encodedLength = new FileInfo(tempPath).Length;
-            if (encodedLength != transfer.Total)
+            if (response.ReportedTotalBytes is { } expectedLength && encodedLength != expectedLength)
             {
-                throw new InvalidDataException($"The downloaded file length was {encodedLength}, expected {transfer.Total}.");
+                throw new InvalidDataException($"The downloaded file length was {encodedLength}, expected {expectedLength}.");
             }
             return encodedLength;
         }

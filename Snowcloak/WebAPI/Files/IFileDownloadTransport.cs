@@ -12,21 +12,6 @@ public enum FileDownloadPurpose
 public sealed record DownloadFileRequest(Uri DownloadUri, string Hash, long ExpectedBytes,
     FileDownloadPurpose Purpose = FileDownloadPurpose.Interactive);
 
-public sealed class FileGrantRejectedException : HttpRequestException
-{
-    public FileGrantRejectedException()
-    {
-    }
-
-    public FileGrantRejectedException(string message) : base(message)
-    {
-    }
-
-    public FileGrantRejectedException(string message, Exception innerException) : base(message, innerException)
-    {
-    }
-}
-
 public sealed class FileDownloadUnavailableException : HttpRequestException
 {
     public FileDownloadUnavailableException(FileDownloadNegativeEntry entry) : base(entry.Message)
