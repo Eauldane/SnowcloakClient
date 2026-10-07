@@ -13,6 +13,9 @@ internal static class WebApiServiceRegistration
     public static IServiceCollection AddSnowcloakWebApi(this IServiceCollection collection)
     {
         collection.AddSingleton<ServerRegistry>();
+        collection.AddSingleton<Snowcloak.FileRepair.FileRepairService>();
+        collection.AddSingleton<Snowcloak.EnvironmentSnapshots.SnapshotService>();
+        collection.AddSingleton<Snowcloak.EnvironmentSnapshots.SnapshotRestoreService>();
         collection.AddSingleton<NotesStore>();
         collection.AddSingleton<TagStore>();
         collection.AddSingleton<BlockListStore>();

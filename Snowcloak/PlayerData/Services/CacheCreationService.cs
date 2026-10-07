@@ -74,6 +74,10 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         Mediator.Subscribe<ZoneSwitchStartMessage>(this, _ => _isZoning = true);
         Mediator.Subscribe<ZoneSwitchEndMessage>(this, _ => _isZoning = false);
         Mediator.Subscribe<HaltCharaDataCreation>(this, msg => _haltCharaDataCreation = !msg.Resume);
+        Mediator.Subscribe<EnvironmentRestoreCompletedMessage>(this, _ =>
+        {
+            foreach (var objectKind in _playerRelatedObjects.Keys) QueueObjectBuild(objectKind, "environment restore reconciliation");
+        });
         Mediator.Subscribe<CreateCacheForObjectMessage>(this, msg => QueueObjectBuild(msg.ObjectToCreateFor.ObjectKind, $"handler {msg.ObjectToCreateFor}"));
         Mediator.Subscribe<ClearCacheForObjectMessage>(this, OnClearCacheForObject);
         Mediator.Subscribe<ClassJobChangedMessage>(this, OnClassJobChanged);
@@ -389,6 +393,8 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
 
     private async Task CreateCharacterData(List<ObjectKind> objectKindsToCreate, CancellationToken creationToken)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(creationToken);
+        creationToken = restoreAdmission.Token;
         try
         {
             Logger.LogDebug("Creating Caches for {objectKinds}", string.Join(", ", objectKindsToCreate));
@@ -572,6 +578,8 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private async Task PushCharacterDataInternal(ApiCharacterData data, IReadOnlyDictionary<string, string> sourcePathsByHash,
         List<UserData> visiblePlayers, CancellationToken cancellationToken)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(cancellationToken);
+        cancellationToken = restoreAdmission.Token;
         try
         {
             var dataToSend = await _fileTransferManager.UploadFiles(data, sourcePathsByHash, visiblePlayers, cancellationToken).ConfigureAwait(false);

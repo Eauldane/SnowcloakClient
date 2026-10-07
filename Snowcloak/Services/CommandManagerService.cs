@@ -106,6 +106,7 @@ public sealed class CommandManagerService : IDisposable
 
     private void RegisterSnowCommands()
     {
+        RegisterSnowCommand("backups", "Back up your mods and settings to the Snowcloak server", _ => _mediator.Publish(new UiToggleMessage(typeof(EnvironmentBackupUi))));
         RegisterSnowCommand("help", "Show available Snowcloak commands.", ShowHelp);
         RegisterSnowCommand("toggle", "Toggle syncing, or use on/off to set it.", ToggleSync);
         RegisterSnowCommand("panic", "Toggle panic mode, reverting synced characters and blocking new applications.", TogglePanicMode);

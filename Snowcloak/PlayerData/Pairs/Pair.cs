@@ -59,6 +59,13 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
         UserData = userData;
         PairColour = ElezenTools.UI.Colour.HexToVector4(UserData.DisplayColour);
 
+        Mediator.Subscribe<EnvironmentRestoreCompletedMessage>(this, _ =>
+        {
+            _applicationFlight.Cancel();
+            CachedPlayer?.InvalidateAfterEnvironmentRestore();
+            ClearReceivedCharacterState();
+            if (IsOnline && IsVisible) Mediator.Publish(new RequestPairDataMessage(UserData));
+        });
         Mediator.SubscribeKeyed<HoldPairApplicationMessage>(this, UserData.UID, (msg) => HoldApplication(msg.Source));
         Mediator.SubscribeKeyed<UnholdPairApplicationMessage>(this, UserData.UID, (msg) => UnholdApplication(msg.Source));
     }
@@ -74,6 +81,8 @@ public class Pair : DisposableMediatorSubscriberBase, IAsyncDisposable
 
     public TemporaryAppearancePeer? TemporaryAppearance { get; set; }
     public bool IsTemporaryAppearance => TemporaryAppearance is not null;
+    public string FileRepairAudience => HasTemporaryPlayerVisualGrant && EffectivePermissionsResolver.Resolve(BuildDirectPermissions(), BuildGroupPermissionViews()).Paused
+        ? Snowcloak.API.Dto.Manifest.ManifestAudience.TemporaryAppearanceV1 : Snowcloak.API.Dto.Manifest.ManifestAudience.Default;
     public bool HasDurableConnection => UserPair != null || GroupPair.Any();
     private AppearanceCategoryMask TemporaryReceiveCategories => TemporaryAppearance?.Grants
         .Aggregate(AppearanceCategoryMask.None, (mask, grant) => mask | grant.ReceiveCategories)

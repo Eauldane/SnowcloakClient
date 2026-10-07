@@ -94,6 +94,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     public Uri? FilesCdnUri { private set; get; }
     public bool IsInitialized => FilesCdnUri != null;
+    public bool HasForegroundTransferWork => _downloadSlots.InUse > 0 || _decompressionSlots.InUse > 0;
     public int ProcessorThreadCount { get; }
     public int DecompressionWorkerLimit => GetDecompressionWorkerLimit();
 

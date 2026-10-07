@@ -40,20 +40,25 @@ public partial class CompactUi
     {
         var currentUploads = _fileTransferManager.GetCurrentUploadsSnapshot();
 
-        if (currentUploads.Any())
+        var backup = _snapshotService.Progress.Read();
+        bool backupUploading = _snapshotService.Busy && backup.Uploads > 0;
+
+        if (currentUploads.Any() || backupUploading)
         {
             ImGui.AlignTextToFramePadding();
             ElezenImgui.ShowIcon(FontAwesomeIcon.Upload);
             ImGui.SameLine(35 * ImGuiHelpers.GlobalScale);
 
-            var totalUploads = currentUploads.Count;
+            var totalUploads = currentUploads.Count + (backupUploading ? backup.Uploads : 0);
 
-            var doneUploads = currentUploads.Count(c => c.IsTransferred);
-            var totalUploaded = currentUploads.Sum(c => c.Transferred);
-            var totalToUpload = currentUploads.Sum(c => c.Total);
+            var doneUploads = currentUploads.Count(c => c.IsTransferred)
+                + (backupUploading ? backup.UploadedObjects : 0);
+            var totalUploaded = currentUploads.Sum(c => c.Transferred) + (backupUploading ? backup.SentBytes : 0);
+            var totalToUpload = currentUploads.Sum(c => c.Total) + (backupUploading ? backup.UploadBytes : 0);
 
             ImGui.TextUnformatted($"{doneUploads}/{totalUploads}");
-            var uploadText = $"({ElezenImgui.ByteToString(totalUploaded)}/{ElezenImgui.ByteToString(totalToUpload)})";
+            string totalBytes = ElezenImgui.ByteToString(totalToUpload);
+            var uploadText = $"({ElezenImgui.ByteToString(totalUploaded)}/{totalBytes})";
             var textSize = ImGui.CalcTextSize(uploadText);
             ImGui.SameLine(_windowContentWidth - textSize.X);
             ImGui.TextUnformatted(uploadText);

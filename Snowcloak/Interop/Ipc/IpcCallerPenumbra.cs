@@ -319,6 +319,8 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
 
     public async Task RedrawAsync(ILogger logger, IGameObjectHandle handler, Guid applicationId, CancellationToken token)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(token);
+        token = restoreAdmission.Token;
         if (!APIAvailable || _dalamudUtil.IsZoning)
         {
             return;
@@ -395,12 +397,14 @@ public sealed partial class IpcCallerPenumbra : DisposableMediatorSubscriberBase
 
     private static async Task<T> RunFrameworkIpcAsync<T>(ILogger logger, string operation, int itemCount, Func<T> action)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         var queuedAt = Stopwatch.GetTimestamp();
         double invocationMs = 0;
         try
         {
             return await Service.RunOnFrameworkAsync(() =>
             {
+                restoreAdmission.Token.ThrowIfCancellationRequested();
                 var invokedAt = Stopwatch.GetTimestamp();
                 try
                 {

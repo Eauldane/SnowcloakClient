@@ -144,6 +144,8 @@ internal sealed partial class CharacterApplicationPipeline
     private async Task DownloadAndApplyCharacterInternalAsync(CharacterData charaData, CharacterDataChangeSet updatedData,
         bool updateModdedPaths, bool updateManip, int modRecoveryGeneration, CancellationToken downloadToken)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(downloadToken);
+        downloadToken = restoreAdmission.Token;
         Dictionary<(string GamePath, string? Hash), string> moddedPaths = [];
         Dictionary<string, long> moddedFileSizes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -181,7 +183,7 @@ internal sealed partial class CharacterApplicationPipeline
                     Mediator.Publish(new EventMessage(new Event(_handler.PlayerName, Pair.UserData, nameof(PairHandler), EventSeverity.Informational,
                         $"Starting download for {toDownloadReplacements.Count} files")));
                     var toDownloadFiles = await _downloadManager.InitiateDownloadList(
-                        _handler.CharaHandler!, toDownloadReplacements, downloadToken, revalidateMissing: true).ConfigureAwait(false);
+                        _handler.CharaHandler!, toDownloadReplacements, downloadToken, revalidateMissing: true, repairContext: new Snowcloak.API.Dto.FileRepair.FileRepairRequest { Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.Appearance, ContextId = Pair.UserData.UID, Audience = Pair.FileRepairAudience }).ConfigureAwait(false);
 
                     if (!_playerPerformanceService.ComputeAndAutoPauseOnVRAMUsageThresholds(_handler, charaData, toDownloadFiles, affect: true))
                     {

@@ -427,7 +427,7 @@ public sealed partial class CharaDataApplicationService : DisposableMediatorSubs
             try
             {
                 ApplicationProgress.Report("Downloading Missing Files. Please be patient.");
-                await _fileHandler.DownloadFilesAsync(tempHandler, missingFiles, modPaths, token).ConfigureAwait(false);
+                await _fileHandler.DownloadFilesAsync(tempHandler, missingFiles, modPaths, token, metaInfo.Uploader.UID + ":" + metaInfo.Id).ConfigureAwait(false);
             }
             catch (FileNotFoundException)
             {

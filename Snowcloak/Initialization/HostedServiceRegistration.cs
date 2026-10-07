@@ -18,6 +18,8 @@ internal static class HostedServiceRegistration
     public static IServiceCollection AddSnowcloakHostedServices(this IServiceCollection collection)
     {
         collection.AddHostedService(p => p.GetRequiredService<PluginWatcherService>());
+        collection.AddHostedService(p => p.GetRequiredService<Snowcloak.FileRepair.FileRepairService>());
+        collection.AddHostedService(p => p.GetRequiredService<Snowcloak.EnvironmentSnapshots.SnapshotService>());
         collection.AddHostedService(p => p.GetRequiredService<StateDocumentWarmup>());
         collection.AddHostedService(p => p.GetRequiredService<StateDocumentStore>());
         collection.AddHostedService(p => p.GetRequiredService<ConfigStore>());

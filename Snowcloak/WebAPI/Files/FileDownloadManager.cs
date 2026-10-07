@@ -25,21 +25,24 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private readonly DownloadStatusStore _statusStore;
     private readonly UsageStatisticsService _usageStatisticsService;
     private readonly FileDownloadNegativeCache _negativeCache;
+    private readonly Snowcloak.FileRepair.FileRepairService _repair;
     private readonly ConcurrentDictionary<ThrottledStream, byte> _activeDownloadStreams = new();
+    private readonly ConcurrentDictionary<Guid, CancellationTokenRegistration> _repairLeases = new();
+    private Snowcloak.API.Dto.FileRepair.FileRepairRequest? _downloadRepairContext;
     private List<DownloadFileTransfer> _currentDownloads = [];
     private Dictionary<string, FileDownloadNegativeEntry> _preflightUnavailable = new(StringComparer.OrdinalIgnoreCase);
 
     public FileDownloadManager(ILogger<FileDownloadManager> logger, SnowMediator mediator,
         FileTransferOrchestrator orchestrator, IFileDownloadTransport transport,
         DownloadStatusStore statusStore, FileCacheManager fileCacheManager, UsageStatisticsService usageStatisticsService,
-        FileDownloadNegativeCache negativeCache) : base(logger, mediator)
+        FileDownloadNegativeCache negativeCache, Snowcloak.FileRepair.FileRepairService repair) : base(logger, mediator)
     {
         _orchestrator = orchestrator;
         _transport = transport;
         _statusStore = statusStore;
         _fileDbManager = fileCacheManager;
         _usageStatisticsService = usageStatisticsService;
-        _negativeCache = negativeCache;
+        _negativeCache = negativeCache; _repair = repair;
 
         Mediator.Subscribe<DownloadLimitChangedMessage>(this, _ =>
         {
@@ -62,11 +65,12 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
            && entry.Reason == FileDownloadNegativeReason.Forbidden;
 
     public async Task<List<DownloadFileTransfer>> InitiateDownloadList(GameObjectHandler gameObjectHandler,
-        IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct, bool revalidateMissing = false)
+        IReadOnlyCollection<FileReplacementData> fileReplacement, CancellationToken ct, bool revalidateMissing = false, Snowcloak.API.Dto.FileRepair.FileRepairRequest? repairContext = null)
     {
         ArgumentNullException.ThrowIfNull(gameObjectHandler);
         ArgumentNullException.ThrowIfNull(fileReplacement);
         LogDownloadStart(Logger, gameObjectHandler.Name);
+        if (repairContext != null) _downloadRepairContext = repairContext;
         var requestedHashes = fileReplacement.Select(file => file.Hash).Distinct(StringComparer.Ordinal).ToList();
         if (revalidateMissing)
         {
@@ -106,6 +110,33 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             _preflightUnavailable[entry.Hash] = entry;
         }
 
+        var repairHashes = _preflightUnavailable.Values.Where(e => e.Reason == FileDownloadNegativeReason.Missing).Select(e => e.Hash).ToArray();
+        if (repairContext != null && _repair.Available && repairHashes.Length > 0)
+        {
+            repairContext.OperationId = Guid.NewGuid(); repairContext.Hashes = repairHashes;
+            bool held = false;
+            try
+            {
+                using var recovering = _statusStore.Begin(gameObjectHandler, repairContext.ContextId);
+                recovering.AddGroup("File recovery", 0, repairHashes.Length).SetStatus(DownloadStatus.Recovering);
+                var repaired = await _repair.WaitAsync(repairContext, null, ct).ConfigureAwait(false);
+                if (repaired.Any(s => s.State == Snowcloak.API.Dto.FileRepair.FileRepairState.Complete))
+                {
+                    var downloads = await InitiateDownloadList(gameObjectHandler, fileReplacement, ct, true).ConfigureAwait(false);
+                    if (downloads.Count > 0)
+                    {
+                        var operationId = repairContext.OperationId;
+                        _repairLeases[operationId] = ct.Register(() => _ = ReleaseRepairAsync(operationId));
+                        ct.ThrowIfCancellationRequested(); held = true;
+                    }
+                    return downloads;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { Logger.LogDebug(ex, "Missing file repair deferred"); }
+            finally { if (!held) await ReleaseRepairAsync(repairContext.OperationId).ConfigureAwait(false); }
+        }
+
         _currentDownloads = fileInfo
             .Select(dto => new DownloadFileTransfer(dto))
             .Where(transfer => transfer.CanBeTransferred)
@@ -118,19 +149,39 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     public async Task DownloadFiles(GameObjectHandler gameObject, IReadOnlyCollection<FileReplacementData> fileReplacementDto,
         CancellationToken ct, string? uid = null)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(ct);
+        ct = restoreAdmission.Token;
         ArgumentNullException.ThrowIfNull(gameObject);
         ArgumentNullException.ThrowIfNull(fileReplacementDto);
+        var repairOperations = _repairLeases.Keys.ToHashSet();
+        var context = _downloadRepairContext;
         Mediator.Publish(new HaltScanMessage(nameof(DownloadFiles)));
         try
         {
             await DownloadFilesInternal(gameObject, fileReplacementDto, uid, ct).ConfigureAwait(false);
+            var lateMissing = _currentDownloads.Where(t => _negativeCache.TryGet(t.Hash, out var entry) && entry.Reason == FileDownloadNegativeReason.Missing).Select(t => t.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (context != null && _repair.Available && lateMissing.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                var retry = new Snowcloak.API.Dto.FileRepair.FileRepairRequest { Context = context.Context, ContextId = context.ContextId, Audience = context.Audience };
+                var replacements = fileReplacementDto.Where(f => lateMissing.Contains(f.Hash)).ToArray();
+                await InitiateDownloadList(gameObject, replacements, ct, true, retry).ConfigureAwait(false);
+                if (retry.OperationId != Guid.Empty) repairOperations.Add(retry.OperationId);
+                await DownloadFilesInternal(gameObject, replacements, uid, ct).ConfigureAwait(false);
+            }
         }
         finally
         {
+            foreach (var operation in repairOperations) await ReleaseRepairAsync(operation).ConfigureAwait(false);
             Mediator.Publish(new ResumeScanMessage(nameof(DownloadFiles)));
         }
     }
 
+    private async Task ReleaseRepairAsync(Guid operation)
+    {
+        if (_repairLeases.TryRemove(operation, out var registration)) registration.Dispose();
+        await _repair.ReleaseAsync(operation).ConfigureAwait(false);
+    }
     protected override void Dispose(bool disposing)
     {
         foreach (var stream in _activeDownloadStreams.Keys)
@@ -146,6 +197,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         }
 
         _activeDownloadStreams.Clear();
+        foreach (var operation in _repairLeases.Keys) _ = ReleaseRepairAsync(operation);
         base.Dispose(disposing);
     }
 

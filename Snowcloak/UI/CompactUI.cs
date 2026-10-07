@@ -65,6 +65,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly SnowcloakConfigService _configService;
     private readonly DownloadStatusStore _statusStore;
     private readonly FileUploadManager _fileTransferManager;
+    private readonly Snowcloak.EnvironmentSnapshots.SnapshotService _snapshotService;
     private readonly GroupPanel _groupPanel;
     private readonly PairGroupsUi _pairGroupsUi;
     private readonly PairManager _pairManager;
@@ -118,7 +119,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PairingFilterConfigService pairingFilterConfigService,
         DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier, SnowProfileManager snowProfileManager,
-        RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore)
+        RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore, Snowcloak.EnvironmentSnapshots.SnapshotService snapshotService)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _fontService = fontService;
@@ -131,6 +132,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _guiHookService = guiHookService;
         _registerService = registerService;
         _fileTransferManager = fileTransferManager;
+        _snapshotService = snapshotService;
         _statusStore = statusStore;
         _uidDisplayHandler = uidDisplayHandler;
         _charaDataManager = charaDataManager;

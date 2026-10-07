@@ -52,16 +52,19 @@ public sealed class FileCacheManager : IHostedService
 
     public FileCacheEntity? CreateCacheEntry(string path, string? hash = null)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         return CreateEntry(CachePathRoot.Cache, path, hash, useFileNameAsHash: false);
     }
 
     public FileCacheEntity? CreateSubstEntry(string path)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         return CreateEntry(CachePathRoot.Substitute, path, hash: null, useFileNameAsHash: true);
     }
 
     public FileCacheEntity? CreateFileEntry(string path, string? hash = null)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         return CreateEntry(CachePathRoot.Penumbra, path, hash, useFileNameAsHash: false);
     }
 
@@ -88,6 +91,7 @@ public sealed class FileCacheManager : IHostedService
 
     public async Task<List<FileCacheEntity>> ValidateLocalIntegrity(IProgress<(int, int, FileCacheEntity)> progress, CancellationToken cancellationToken)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         _snowMediator.Publish(new HaltScanMessage(nameof(ValidateLocalIntegrity)));
         _logger.LogInformation("Validating local storage");
         var cacheEntries = _fileCaches.SelectMany(v => v.Value).Where(v => v.IsCacheEntry).ToList();
@@ -347,8 +351,18 @@ public sealed class FileCacheManager : IHostedService
         }
     }
 
+    public void ReconcileRestoredPackagePaths(IReadOnlyDictionary<string, string> verifiedPaths)
+    {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
+        var paths = verifiedPaths.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var old in GetAllFileCaches().Where(e => paths.Contains(e.ResolvedFilepath)).ToArray())
+            RemoveHashedFile(old.Hash, old.PrefixedFilePath);
+        foreach (var (path, hash) in verifiedPaths) CreateFileEntry(path, hash);
+    }
+
     public void RemoveHashedFile(string hash, string prefixedFilePath)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         if (_fileCaches.TryGetValue(hash, out var caches))
         {
             var removedCount = caches?.RemoveAll(c => string.Equals(c.PrefixedFilePath, prefixedFilePath, StringComparison.Ordinal));
@@ -366,6 +380,7 @@ public sealed class FileCacheManager : IHostedService
 
     public void UpdateHashedFile(FileCacheEntity fileCache, bool computeProperties = true)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         _logger.LogTrace("Updating hash for {path}", fileCache.ResolvedFilepath);
         var oldHash = fileCache.Hash;
         var prefixedPath = fileCache.PrefixedFilePath;
@@ -385,6 +400,7 @@ public sealed class FileCacheManager : IHostedService
 
     public async Task UpdateHashedFileAsync(FileCacheEntity fileCache, bool computeProperties = true)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         _logger.LogTrace("Updating hash for {path}", fileCache.ResolvedFilepath);
         var oldHash = fileCache.Hash;
         var prefixedPath = fileCache.PrefixedFilePath;
@@ -404,6 +420,7 @@ public sealed class FileCacheManager : IHostedService
 
     public (FileState State, FileCacheEntity FileCache) ValidateFileCacheEntity(FileCacheEntity fileCache)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         fileCache = ResolveFileCacheEntity(fileCache, relocateContentAddressedFile: true);
         FileInfo fi = new(fileCache.ResolvedFilepath);
         if (!fi.Exists)

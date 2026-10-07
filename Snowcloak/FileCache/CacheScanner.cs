@@ -67,7 +67,19 @@ internal sealed partial class CacheScanner : IDisposable
                     await Task.Delay(250, token).ConfigureAwait(false);
                 }
 
-                await _performanceCollector.LogPerformance(this, $"FullFileScan", () => FullFileScanAsync(token)).ConfigureAwait(false);
+                while (true)
+                {
+                    try
+                    {
+                        await _performanceCollector.LogPerformance(this, $"FullFileScan", () => FullFileScanAsync(token)).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (OperationCanceledException ex) when (!token.IsCancellationRequested && (ex.CancellationToken.IsCancellationRequested || Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Blocked))
+                    {
+                        ResetProgress();
+                        _logger.LogDebug("Full File Scan deferred, restore in progress");
+                    }
+                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -92,6 +104,8 @@ internal sealed partial class CacheScanner : IDisposable
 
     private async Task FullFileScanAsync(CancellationToken ct)
     {
+        using var restoreAdmission = await Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.EnterWhenAvailableAsync(ct).ConfigureAwait(false);
+        ct = restoreAdmission.Token;
         TotalFiles = 1;
         var penumbraDir = _ipcManager.Penumbra.ModDirectory;
         var substDir = _fileDbManager.SubstFolder;
@@ -143,13 +157,13 @@ internal sealed partial class CacheScanner : IDisposable
             }
 
             await Task.Delay(50, ct).ConfigureAwait(false);
-            if (ct.IsCancellationRequested) return;
+            ct.ThrowIfCancellationRequested();
         }
 
         var cacheFiles = EnumerateStorageFiles(cacheDir, substDir, ct)
             .Where(IsContentAddressedStorageFile);
 
-        if (ct.IsCancellationRequested) return;
+        ct.ThrowIfCancellationRequested();
 
         var allScannedFiles = penumbraFiles
             .Concat(cacheFiles)
@@ -158,7 +172,7 @@ internal sealed partial class CacheScanner : IDisposable
 
         TotalFiles = allScannedFiles.Count;
 
-        if (ct.IsCancellationRequested) return;
+        ct.ThrowIfCancellationRequested();
 
         var degreeOfParallelism = Math.Clamp((int)(Environment.ProcessorCount / 2.0f), 2, 8);
         var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = degreeOfParallelism, CancellationToken = ct };
@@ -197,6 +211,10 @@ internal sealed partial class CacheScanner : IDisposable
                     entitiesToRemove.Add(validatedCacheResult.FileCache);
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed validating {path}", workload.ResolvedFilepath);
@@ -206,7 +224,7 @@ internal sealed partial class CacheScanner : IDisposable
             return ValueTask.CompletedTask;
         }).ConfigureAwait(false);
 
-        if (ct.IsCancellationRequested) return;
+        ct.ThrowIfCancellationRequested();
         if (!_ipcManager.Penumbra.APIAvailable)
         {
             _logger.LogWarning("Penumbra not available");
@@ -239,7 +257,7 @@ internal sealed partial class CacheScanner : IDisposable
             return;
         }
 
-        if (ct.IsCancellationRequested) return;
+        ct.ThrowIfCancellationRequested();
 
         var newFiles = allScannedFiles.Where(c => !c.Value).Select(c => c.Key).ToList();
         if (newFiles.Count > 0)

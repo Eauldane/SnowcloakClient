@@ -9,4 +9,5 @@ public enum DownloadStatus
     WaitingForDecompression,
     Decompressing,
     Unavailable,
+    Recovering,
 }

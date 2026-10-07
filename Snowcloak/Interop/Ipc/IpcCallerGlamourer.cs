@@ -134,6 +134,8 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
 
     public async Task ApplyAllAsync(ILogger logger, IGameObjectHandle handler, string? customization, Guid applicationId, CancellationToken token, bool fireAndForget = false)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(token);
+        token = restoreAdmission.Token;
         if (!APIAvailable || string.IsNullOrEmpty(customization) || _dalamudUtil.IsZoning)
         {
             return;
@@ -195,6 +197,8 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
 
     public async Task RevertAsync(ILogger logger, IGameObjectHandle handler, Guid applicationId, CancellationToken token)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(token);
+        token = restoreAdmission.Token;
         if (!APIAvailable || _dalamudUtil.IsZoning)
         {
             return;
@@ -253,12 +257,14 @@ public sealed partial class IpcCallerGlamourer : DisposableMediatorSubscriberBas
 
     private static async Task<T> RunFrameworkIpcAsync<T>(ILogger logger, string operation, Func<T> action)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         var queuedAt = Stopwatch.GetTimestamp();
         double invocationMs = 0;
         try
         {
             return await Service.RunOnFrameworkAsync(() =>
             {
+                restoreAdmission.Token.ThrowIfCancellationRequested();
                 var invokedAt = Stopwatch.GetTimestamp();
                 try
                 {

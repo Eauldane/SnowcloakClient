@@ -49,6 +49,7 @@ public sealed partial class FileCacheIndex
 
     public void Upsert(FileCacheEntity entity)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         ArgumentNullException.ThrowIfNull(entity);
 
         using var writeScope = _db.TryEnterWrite(DownloadWriteWait);
@@ -72,6 +73,7 @@ public sealed partial class FileCacheIndex
 
     public void UpsertMany(IReadOnlyCollection<FileCacheEntity> entities)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         if (entities.Count == 0) return;
 
         using (_db.EnterWrite())
@@ -104,6 +106,7 @@ public sealed partial class FileCacheIndex
 
     public void ReplaceAll(IReadOnlyCollection<FileCacheEntity> entities)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         using (_db.EnterWrite())
         {
             try
@@ -142,6 +145,7 @@ public sealed partial class FileCacheIndex
 
     public void Remove(string prefixedFilePath)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         using (_db.EnterWrite())
         {
             try

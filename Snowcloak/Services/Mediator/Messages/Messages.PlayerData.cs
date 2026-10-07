@@ -30,3 +30,5 @@ public record PairHandlerVisibleMessage(PairHandler Player) : MessageBase;
 public record RecalculatePerformanceMessage(string? UID) : MessageBase;
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name
+
+public record EnvironmentRestoreCompletedMessage : MessageBase;

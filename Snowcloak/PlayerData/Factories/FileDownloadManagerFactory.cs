@@ -17,10 +17,11 @@ public class FileDownloadManagerFactory
     private readonly SnowMediator _snowMediator;
     private readonly UsageStatisticsService _usageStatisticsService;
     private readonly FileDownloadNegativeCache _negativeCache;
+    private readonly Snowcloak.FileRepair.FileRepairService _repair;
 
     public FileDownloadManagerFactory(ILoggerFactory loggerFactory, SnowMediator snowMediator, FileTransferOrchestrator fileTransferOrchestrator,
         IFileDownloadTransport fileDownloadTransport, DownloadStatusStore downloadStatusStore, FileCacheManager fileCacheManager,
-        UsageStatisticsService usageStatisticsService, FileDownloadNegativeCache negativeCache)
+        UsageStatisticsService usageStatisticsService, FileDownloadNegativeCache negativeCache, Snowcloak.FileRepair.FileRepairService repair)
     {
         _loggerFactory = loggerFactory;
         _snowMediator = snowMediator;
@@ -29,13 +30,13 @@ public class FileDownloadManagerFactory
         _downloadStatusStore = downloadStatusStore;
         _fileCacheManager = fileCacheManager;
         _usageStatisticsService = usageStatisticsService;
-        _negativeCache = negativeCache;
+        _negativeCache = negativeCache; _repair = repair;
     }
 
     public FileDownloadManager Create()
     {
         return new FileDownloadManager(_loggerFactory.CreateLogger<FileDownloadManager>(), _snowMediator,
             _fileTransferOrchestrator, _fileDownloadTransport, _downloadStatusStore, _fileCacheManager,
-            _usageStatisticsService, _negativeCache);
+            _usageStatisticsService, _negativeCache, _repair);
     }
 }

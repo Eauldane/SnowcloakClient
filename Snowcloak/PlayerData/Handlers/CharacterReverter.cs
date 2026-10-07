@@ -142,6 +142,7 @@ internal sealed class CharacterReverter
 
     public async Task UndoApplicationAsync(Guid applicationId = default)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         Logger.LogDebug($"Undoing application of {Pair.UserPair}");
         var name = _handler.PlayerName;
         var optionalCleanupAddress = GetPlayerScopedOptionalCleanupAddress();

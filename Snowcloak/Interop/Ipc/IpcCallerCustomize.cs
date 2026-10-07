@@ -54,6 +54,7 @@ public sealed class IpcCallerCustomize : ICustomizePlusIpc
 
     public async Task RevertAsync(nint character)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         if (!APIAvailable) return;
         await Service.RunOnFrameworkAsync(() =>
         {
@@ -68,6 +69,7 @@ public sealed class IpcCallerCustomize : ICustomizePlusIpc
 
     public async Task<Guid?> SetBodyScaleAsync(nint character, string scale)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         if (!APIAvailable) return null;
         return await Service.RunOnFrameworkAsync(() =>
         {
@@ -94,6 +96,7 @@ public sealed class IpcCallerCustomize : ICustomizePlusIpc
 
     public async Task RevertByIdAsync(Guid? profileId)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter();
         if (!APIAvailable || profileId == null) return;
 
         await Service.RunOnFrameworkAsync(() =>

@@ -118,13 +118,13 @@ public sealed partial class CharaDataFileHandler : IDisposable
         _fileDownloadManager.Dispose();
     }
 
-    internal async Task DownloadFilesAsync(GameObjectHandler tempHandler, List<FileReplacementData> missingFiles, Dictionary<string, string> modPaths, CancellationToken token)
+    internal async Task DownloadFilesAsync(GameObjectHandler tempHandler, List<FileReplacementData> missingFiles, Dictionary<string, string> modPaths, CancellationToken token, string? repairContext = null)
     {
         ArgumentNullException.ThrowIfNull(tempHandler);
         ArgumentNullException.ThrowIfNull(missingFiles);
         ArgumentNullException.ThrowIfNull(modPaths);
 
-        await _fileDownloadManager.InitiateDownloadList(tempHandler, missingFiles, token).ConfigureAwait(false);
+        await _fileDownloadManager.InitiateDownloadList(tempHandler, missingFiles, token, repairContext: repairContext == null ? null : new Snowcloak.API.Dto.FileRepair.FileRepairRequest { Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.CharaData, ContextId = repairContext }).ConfigureAwait(false);
         await _fileDownloadManager.DownloadFiles(tempHandler, missingFiles, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         foreach (var file in missingFiles.SelectMany(m => m.GamePaths, (FileEntry, GamePath) => (FileEntry.Hash, GamePath)))

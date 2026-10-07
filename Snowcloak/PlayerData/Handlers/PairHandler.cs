@@ -538,6 +538,13 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
         SetUploading(isUploading: false);
     }
 
+    internal void InvalidateAfterEnvironmentRestore()
+    {
+        _applicationFlight.Cancel(); _downloadFlight.Cancel();
+        _dataReceivedInDowntime = null;
+        _appliedState.CachedData = null; _appliedState.RequireModRecovery();
+    }
+
     private void CompleteDisposal(string? name)
     {
         _charaHandler?.Dispose();

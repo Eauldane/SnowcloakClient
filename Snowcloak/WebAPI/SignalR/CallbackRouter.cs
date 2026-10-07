@@ -17,6 +17,9 @@ internal static class CallbackRouter
 {
     public static void Register(HubConnection hub, ApiController api)
     {
+        hub.On<Snowcloak.API.Dto.FileRepair.FileRepairProbe[]>(nameof(ApiController.Client_FileRepairProbe), api.Client_FileRepairProbe);
+        hub.On<Snowcloak.API.Dto.FileRepair.FileRepairAssignment>(nameof(ApiController.Client_FileRepairAssignment), api.Client_FileRepairAssignment);
+        hub.On<Snowcloak.API.Dto.FileRepair.FileRepairStatus>(nameof(ApiController.Client_FileRepairStatus), api.Client_FileRepairStatus);
         SystemCallbacks.Register(hub, api);
         PairCallbacks.Register(hub, api);
         GroupCallbacks.Register(hub, api);

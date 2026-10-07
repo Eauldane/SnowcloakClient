@@ -59,7 +59,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     {
         lock (_currentUploadsLock)
         {
-            return _currentUploads.Select(t => new UploadStatusSnapshot(t.Hash, t.Transferred, t.Total)).ToList();
+            return _currentUploads.Select(t => new UploadStatusSnapshot(t.Hash, t.Transferred, t.Total)).Concat(_repairUploads.Values).ToList();
         }
     }
 
@@ -207,43 +207,55 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
         Reset();
     }
 
-    private async Task RunUploadPipelineAsync(
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, UploadStatusSnapshot> _repairUploads = new();
+    public async Task UploadRepairAsync(Snowcloak.API.Dto.FileRepair.FileRepairAssignment assignment, Stream stream, IProgress<UploadProgress> progress, CancellationToken ct)
+    {
+        var uri = new Uri(SnowFiles.ServerFilesUploadFullPath(_orchestrator.FilesCdnUri!, assignment.Hash).AbsoluteUri
+            + "?repairGeneration=" + assignment.Generation);
+        var key = assignment.Generation.ToString();
+        _repairUploads[key] = new(assignment.Hash, 0, stream.Length);
+        var tracked = new Snowcloak.Core.FileRepair.InlineProgress<UploadProgress>(p => { _repairUploads[key] = new(assignment.Hash, p.Uploaded, p.Size); progress.Report(p); });
+        try { await UploadFileAsync(stream, assignment.Hash, false, ct, null, uri, tracked, assignment.Grant).ConfigureAwait(false); ct.ThrowIfCancellationRequested(); }
+        finally { _repairUploads.TryRemove(key, out _); }
+    }
+
+    public Task UploadBackupBatchAsync(IReadOnlyList<string> hashes, Guid backupId,
+        Func<string, CancellationToken, Task<Stream>> prepare,
+        Func<string, CancellationToken, Task> verified,
+        Action<string, long> started, IProgress<UploadProgress> progress, CancellationToken ct)
+        => RunUploadPipelineAsync(hashes, null, null, null, false, null, ct, prepare,
+            async (stream, hash, token) =>
+            {
+                started(hash, stream.Length);
+                var destination = new Uri(SnowFiles.ServerFilesUploadFullPath(_orchestrator.FilesCdnUri!, hash).AbsoluteUri + "?backupId=" + backupId);
+                await UploadFileAsync(stream, hash, false, token, null, destination, progress).ConfigureAwait(false);
+                await verified(hash, token).ConfigureAwait(false);
+            });
+
+    private Task RunUploadPipelineAsync(
         IReadOnlyList<string> hashes,
         Func<string, IReadOnlyDictionary<string, byte[]>?>? metadataProvider,
         Action<int, string>? beforeItem,
         Action<string, long>? onCompressed,
         bool postProgress,
         Func<string, IReadOnlyList<FileTransfer>?>? trackedProvider,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<string, CancellationToken, Task<Stream>>? prepareOverride = null,
+        Func<Stream, string, CancellationToken, Task>? uploadOverride = null,
+        bool prefetch = true)
     {
-        Task uploadTask = Task.CompletedTask;
-        for (var index = 0; index < hashes.Count; index++)
-        {
-            var hash = hashes[index];
-            beforeItem?.Invoke(index, hash);
-            Logger.LogDebug("[{hash}] Compressing", hash);
-
-            var data = await _fileDbManager.GetCompressedFileData(hash, ct, metadataProvider?.Invoke(hash)).ConfigureAwait(false);
-            MemoryStream? pendingStream = data.Item2;
-            try
+        int index = 0;
+        return Snowcloak.Core.EnvironmentSnapshots.UploadBatchPipeline.RunAsync(hashes,
+            async (hash, token) =>
             {
-                onCompressed?.Invoke(hash, pendingStream.Length);
-                Logger.LogDebug("[{hash}] Starting upload for {filePath}", data.Item1, _fileDbManager.GetFileCacheByHash(data.Item1)?.ResolvedFilepath);
-                await uploadTask.ConfigureAwait(false);
-                uploadTask = UploadFileAsync(pendingStream, hash, postProgress, ct, trackedProvider?.Invoke(hash));
-                pendingStream = null;
-                ct.ThrowIfCancellationRequested();
-            }
-            finally
-            {
-                if (pendingStream != null)
-                {
-                    await pendingStream.DisposeAsync().ConfigureAwait(false);
-                }
-            }
-        }
-
-        await uploadTask.ConfigureAwait(false);
+                beforeItem?.Invoke(index++, hash);
+                Stream stream = prepareOverride != null ? await prepareOverride(hash, token).ConfigureAwait(false)
+                    : (await _fileDbManager.GetCompressedFileData(hash, token, metadataProvider?.Invoke(hash)).ConfigureAwait(false)).Item2;
+                try { onCompressed?.Invoke(hash, stream.Length); return stream; }
+                catch { await stream.DisposeAsync().ConfigureAwait(false); throw; }
+            },
+            (hash, stream, token) => uploadOverride != null ? uploadOverride(stream, hash, token)
+                : UploadFileAsync(stream, hash, postProgress, token, trackedProvider?.Invoke(hash)), ct, prefetch);
     }
 
     private async Task<List<UploadFileDto>> FilesSend(List<string> hashes, List<string> uids, CancellationToken ct)
@@ -289,7 +301,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     }
 
     private async Task UploadFileAsync(Stream compressedFile, string fileHash, bool postProgress, CancellationToken uploadToken,
-        IReadOnlyList<FileTransfer>? trackedUploads)
+        IReadOnlyList<FileTransfer>? trackedUploads, Uri? destination = null, IProgress<UploadProgress>? externalProgress = null, string? repairGrant = null)
     {
         if (!_orchestrator.IsInitialized) throw new InvalidOperationException("FileTransferManager is not initialized");
 
@@ -302,7 +314,7 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
 
             if (uploadToken.IsCancellationRequested) return;
 
-            await UploadFileStream(compressedFile, fileHash, postProgress, uploadToken, trackedUploads).ConfigureAwait(false);
+            await UploadFileStream(compressedFile, fileHash, postProgress, uploadToken, trackedUploads, destination, externalProgress, repairGrant).ConfigureAwait(false);
             _usageStatisticsService.RecordUploadedBytes(compressedLength);
         }
         catch (OperationCanceledException)
@@ -317,8 +329,10 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
     }
 
     private async Task UploadFileStream(Stream compressedFile, string fileHash, bool postProgress, CancellationToken uploadToken,
-        IReadOnlyList<FileTransfer>? trackedUploads)
+        IReadOnlyList<FileTransfer>? trackedUploads, Uri? destination = null, IProgress<UploadProgress>? externalProgress = null, string? repairGrant = null)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(uploadToken);
+        uploadToken = restoreAdmission.Token;
         if (compressedFile.CanSeek)
         {
             compressedFile.Position = 0;
@@ -350,9 +364,18 @@ public sealed class FileUploadManager : DisposableMediatorSubscriberBase
             }
         });
 
-        using var streamContent = new ProgressableStreamContent(compressedFile, progressTracker);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        using var response = await _orchestrator.SendRequestStreamAsync(HttpMethod.Post, SnowFiles.ServerFilesUploadFullPath(_orchestrator.FilesCdnUri!, fileHash), streamContent, uploadToken).ConfigureAwait(false);
+        using var response = await UploadRateLimitRetry.SendAsync(compressedFile, async (body, token) =>
+        {
+            using var streamContent = new ProgressableStreamContent(body, externalProgress ?? progressTracker);
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            if (repairGrant != null) streamContent.Headers.Add(SnowFiles.RepairGrantHeader, repairGrant);
+            return await _orchestrator.SendRequestStreamAsync(HttpMethod.Post,
+                destination ?? SnowFiles.ServerFilesUploadFullPath(_orchestrator.FilesCdnUri!, fileHash), streamContent, token).ConfigureAwait(false);
+        }, uploadToken, (wait, token) =>
+        {
+            Logger.LogWarning("[{hash}] Upload rate limited; retrying after {delay}", fileHash, wait);
+            return Task.Delay(wait, token);
+        }).ConfigureAwait(false);
         Logger.LogDebug("[{hash}] Upload Status: {status}", fileHash, response.StatusCode);
         response.EnsureSuccessStatusCode();
     }

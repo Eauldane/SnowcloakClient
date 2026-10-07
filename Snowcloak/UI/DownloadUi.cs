@@ -119,6 +119,7 @@ public class DownloadUi : WindowMediatorSubscriberBase, IStaticWindow
                     ImGui.SameLine();
                     var xDistance = ImGui.GetCursorPosX();
                     ElezenImgui.DrawOutlinedFont(
+                        item.CountByStatus(DownloadStatus.Recovering) > 0 ? "Recovering missing files…" :
                         $"{item.Handler.Name} [W:{dlSlot}/Q:{dlQueue}/P:{dlProg}/E:{dlExtractQueue}/D:{dlDecomp}/U:{dlUnavailable}]",
                         ImGuiColors.DalamudWhite, new Vector4(0, 0, 0, 255), 1);
                     ImGui.NewLine();

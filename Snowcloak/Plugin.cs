@@ -73,6 +73,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
         try
         {
             await WaitForRequiredPluginsAsync(cancellationToken).ConfigureAwait(false);
+            _host.Services.GetRequiredService<Snowcloak.EnvironmentSnapshots.SnapshotRestoreService>();
             await _host.StartAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e)

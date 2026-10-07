@@ -12,6 +12,7 @@ using Snowcloak.Services.Mediator;
 using Snowcloak.API.Dto.TemporaryAppearance;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.WebAPI;
+using Snowcloak.FileRepair;
 
 namespace Snowcloak.UI.Components;
 
@@ -25,6 +26,7 @@ public sealed class GeneralSettingsPanel
     private readonly UserSafetyStore _userSafety;
     private readonly SnowMediator _mediator;
     private readonly ApiController _api;
+    private readonly FileRepairService _repair;
     private bool? _notesSuccessfullyApplied;
     private bool _overwriteExistingLabels;
 
@@ -36,7 +38,8 @@ public sealed class GeneralSettingsPanel
         TemporaryPartyAppearanceService temporaryParty,
         UserSafetyStore userSafety,
         SnowMediator mediator,
-        ApiController api)
+        ApiController api,
+        FileRepairService repair)
     {
         _configService = configService;
         _notesStore = notesStore;
@@ -46,10 +49,21 @@ public sealed class GeneralSettingsPanel
         _userSafety = userSafety;
         _mediator = mediator;
         _api = api;
+        _repair = repair;
     }
 
     public void Draw()
     {
+        _fontService.BigText("File recovery");
+        var helpRecover = _repair.Enabled;
+        using (ImRaii.Disabled(string.IsNullOrEmpty(_api.UID)))
+            if (ImGui.Checkbox("Help recover missing files", ref helpRecover))
+                _repair.SetEnabled(helpRecover);
+        ElezenImgui.AttachTooltip(string.IsNullOrEmpty(_api.UID)
+            ? "Connect to change this account's setting."
+            : "Upload local copies to recover missing server files. Saved per server/account.");
+        ImGui.Separator();
+
         _fontService.BigText("Temporary party and alliance appearance");
         var enabled = _configService.Current.EnableTemporaryPartyAllianceAppearance;
         if (ImGui.Checkbox("Enable auto-party/alliance sync", ref enabled))

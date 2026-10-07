@@ -135,6 +135,8 @@ public partial class CompactUi
             //Abbrivated because Character Data Hub is too long and loogs ugly in the lables
             DrawSidebarAction(FontAwesomeIcon.UserFriends, "Character Hub",
                 () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+            DrawSidebarAction(FontAwesomeIcon.Upload, "Backups",
+                () => Mediator.Publish(new UiToggleMessage(typeof(EnvironmentBackupUi))));
             DrawSidebarAction(FontAwesomeIcon.MapMarkedAlt, "Venues",
                 () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
             DrawSidebarAction(FontAwesomeIcon.Cog, "Settings",
@@ -193,6 +195,8 @@ public partial class CompactUi
             () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));
         DrawCollapsedSidebarAction(FontAwesomeIcon.UserFriends, "Character Hub",
             () => Mediator.Publish(new UiToggleMessage(typeof(CharaDataHubUi))));
+        DrawCollapsedSidebarAction(FontAwesomeIcon.Upload, "Backups",
+            () => Mediator.Publish(new UiToggleMessage(typeof(EnvironmentBackupUi))));
         DrawCollapsedSidebarAction(FontAwesomeIcon.MapMarkedAlt, "Venues",
             () => Mediator.Publish(new UiToggleMessage(typeof(VenueAdsWindow))));
         DrawCollapsedSidebarAction(FontAwesomeIcon.Cog, "Settings",

@@ -86,6 +86,8 @@ internal sealed class CacheEvictionService : IDisposable, IAsyncDisposable
 
     public void RecalculateFileCacheSize(CancellationToken token)
     {
+        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(token);
+        token = restoreAdmission.Token;
         if (string.IsNullOrEmpty(_configService.Current.CacheFolder) || !Directory.Exists(_configService.Current.CacheFolder))
         {
             FileCacheSize = 0;

@@ -52,7 +52,7 @@ public sealed class FileDownloadNegativeCache
         if (_entries.TryGetValue(normalised, out var entry)
             && entry.Reason == FileDownloadNegativeReason.Missing)
         {
-            _entries.TryRemove(normalised, out _);
+            ((ICollection<KeyValuePair<string, FileDownloadNegativeEntry>>)_entries).Remove(new(normalised, entry));
         }
     }
 }
