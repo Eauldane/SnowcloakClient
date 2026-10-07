@@ -14,6 +14,9 @@ internal static class WebApiServiceRegistration
     {
         collection.AddSingleton<ServerRegistry>();
         collection.AddSingleton<Snowcloak.FileRepair.FileRepairService>();
+        // only resolve repairs when needed or it gets circular
+        collection.AddSingleton(p => new Lazy<Snowcloak.FileRepair.FileRepairService>(
+            () => p.GetRequiredService<Snowcloak.FileRepair.FileRepairService>()));
         collection.AddSingleton<Snowcloak.EnvironmentSnapshots.SnapshotService>();
         collection.AddSingleton<Snowcloak.EnvironmentSnapshots.SnapshotRestoreService>();
         collection.AddSingleton<NotesStore>();

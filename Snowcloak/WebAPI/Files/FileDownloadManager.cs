@@ -25,7 +25,8 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private readonly DownloadStatusStore _statusStore;
     private readonly UsageStatisticsService _usageStatisticsService;
     private readonly FileDownloadNegativeCache _negativeCache;
-    private readonly Snowcloak.FileRepair.FileRepairService _repair;
+    private readonly Lazy<Snowcloak.FileRepair.FileRepairService> _repairService;
+    private Snowcloak.FileRepair.FileRepairService Repair => _repairService.Value;
     private readonly ConcurrentDictionary<ThrottledStream, byte> _activeDownloadStreams = new();
     private readonly ConcurrentDictionary<Guid, CancellationTokenRegistration> _repairLeases = new();
     private Snowcloak.API.Dto.FileRepair.FileRepairRequest? _downloadRepairContext;
@@ -35,14 +36,14 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     public FileDownloadManager(ILogger<FileDownloadManager> logger, SnowMediator mediator,
         FileTransferOrchestrator orchestrator, IFileDownloadTransport transport,
         DownloadStatusStore statusStore, FileCacheManager fileCacheManager, UsageStatisticsService usageStatisticsService,
-        FileDownloadNegativeCache negativeCache, Snowcloak.FileRepair.FileRepairService repair) : base(logger, mediator)
+        FileDownloadNegativeCache negativeCache, Lazy<Snowcloak.FileRepair.FileRepairService> repair) : base(logger, mediator)
     {
         _orchestrator = orchestrator;
         _transport = transport;
         _statusStore = statusStore;
         _fileDbManager = fileCacheManager;
         _usageStatisticsService = usageStatisticsService;
-        _negativeCache = negativeCache; _repair = repair;
+        _negativeCache = negativeCache; _repairService = repair;
 
         Mediator.Subscribe<DownloadLimitChangedMessage>(this, _ =>
         {
@@ -111,7 +112,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         }
 
         var repairHashes = _preflightUnavailable.Values.Where(e => e.Reason == FileDownloadNegativeReason.Missing).Select(e => e.Hash).ToArray();
-        if (repairContext != null && _repair.Available && repairHashes.Length > 0)
+        if (repairContext != null && Repair.Available && repairHashes.Length > 0)
         {
             repairContext.OperationId = Guid.NewGuid(); repairContext.Hashes = repairHashes;
             bool held = false;
@@ -119,7 +120,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             {
                 using var recovering = _statusStore.Begin(gameObjectHandler, repairContext.ContextId);
                 recovering.AddGroup("File recovery", 0, repairHashes.Length).SetStatus(DownloadStatus.Recovering);
-                var repaired = await _repair.WaitAsync(repairContext, null, ct).ConfigureAwait(false);
+                var repaired = await Repair.WaitAsync(repairContext, null, ct).ConfigureAwait(false);
                 if (repaired.Any(s => s.State == Snowcloak.API.Dto.FileRepair.FileRepairState.Complete))
                 {
                     var downloads = await InitiateDownloadList(gameObjectHandler, fileReplacement, ct, true).ConfigureAwait(false);
@@ -160,7 +161,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             await DownloadFilesInternal(gameObject, fileReplacementDto, uid, ct).ConfigureAwait(false);
             var lateMissing = _currentDownloads.Where(t => _negativeCache.TryGet(t.Hash, out var entry) && entry.Reason == FileDownloadNegativeReason.Missing).Select(t => t.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (context != null && _repair.Available && lateMissing.Count > 0)
+            if (context != null && Repair.Available && lateMissing.Count > 0)
             {
                 ct.ThrowIfCancellationRequested();
                 var retry = new Snowcloak.API.Dto.FileRepair.FileRepairRequest { Context = context.Context, ContextId = context.ContextId, Audience = context.Audience };
@@ -180,7 +181,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     private async Task ReleaseRepairAsync(Guid operation)
     {
         if (_repairLeases.TryRemove(operation, out var registration)) registration.Dispose();
-        await _repair.ReleaseAsync(operation).ConfigureAwait(false);
+        await Repair.ReleaseAsync(operation).ConfigureAwait(false);
     }
     protected override void Dispose(bool disposing)
     {
