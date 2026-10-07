@@ -211,20 +211,20 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[4.3.0.1, )",
-        "resolved": "4.3.0.1",
-        "contentHash": "IIfYyI8/EIukCR49oEPN2gMc45sxk4o6HP9q5+E1DCn5qtZDdb+weYkwxdmxkcKXj+4tRA/FtAJGW0fidb4K2w==",
+        "requested": "[4.3.0.2, )",
+        "resolved": "4.3.0.2",
+        "contentHash": "nx8rdshEBRoCiKaySvZrUZKwcnRdBKarwjdo24EfWalse4NCN5nTG6xXX645vjmaxt8gANHBmr3NcnPx/ZBGcA==",
         "dependencies": {
           "Blake3": "2.2.1",
-          "MessagePack": "3.1.8",
-          "MessagePack.Annotations": "3.1.8"
+          "MessagePack": "3.1.11",
+          "MessagePack.Annotations": "3.1.11"
         }
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[4.3.0, )",
-        "resolved": "4.3.0",
-        "contentHash": "+ktA2y79Qy9Z2VlRJMxpk+s6qxXZed6rGySkhM5kTp2z39yuB2CuX66Hry2+Y0wzKkOTCG0DkguSXYhzMIYi6A==",
+        "requested": "[4.3.0.2, )",
+        "resolved": "4.3.0.2",
+        "contentHash": "H71Fin9UofTnRKgDf0CaJ60Fk3slqeP2ciwdGDA4+xLHzEPRq9KzlGcOqhzHGsfdHX0fvR0Lp0bOvFBdXCHOTg==",
         "dependencies": {
           "Blake3": "2.2.1",
           "K4os.Compression.LZ4.Streams": "1.3.8",
@@ -771,7 +771,7 @@
         "dependencies": {
           "ElezenTools.Core": "[15.56.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Snowcloak.API": "[4.3.0.1, )"
+          "Snowcloak.API": "[4.3.0.2, )"
         }
       },
       "snowcloak.game": {
@@ -788,7 +788,7 @@
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )",
-          "Snowcloak.CacheFile": "[4.3.0, )",
+          "Snowcloak.CacheFile": "[4.3.0.2, )",
           "Snowcloak.Core": "[1.0.0, )"
         }
       }
