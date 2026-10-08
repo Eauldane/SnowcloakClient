@@ -114,6 +114,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     public bool HasPersistentKey => _connectionContext.HasPersistentKey;
     public bool HexAllowed => _connectionContext.HexAllowed;
     public string? VanityId => _connectionContext.VanityId;
+    public bool SupportsModPackageDocuments => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ModPackageDocumentsV1) == true;
     public bool SupportsEnvironmentBackups => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.EnvironmentBackupsV1) == true;
     public bool IsConnected => ServerState == ServerState.Connected;
 

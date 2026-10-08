@@ -8,6 +8,7 @@ namespace Snowcloak.EnvironmentSnapshots;
 
 public sealed record CapturedSnapshot(string Staging, List<BackupFileDto> Files, List<BackupDocumentDto> Documents, string ContentHash) : IDisposable
 {
+    public List<BackupFileDto> MetadataFiles { get; init; } = [];
     public Dictionary<string, List<string>> GamePathHints { get; init; } = [];
     public Dictionary<string, List<string>> SourcesByHash { get; init; } = [];
     public Task StageMissingAsync(BackupFileDto file, CancellationToken ct) => Task.Run(async () =>
@@ -103,7 +104,6 @@ public sealed class SnapshotCapture
                     if (!stable) { Directory.Delete(stage, true); continue; }
                     files = files.OrderBy(f => f.Mod, StringComparer.Ordinal).ThenBy(f => f.Path, StringComparer.Ordinal).ToList();
                     docs = docs.OrderBy(d => d.Plugin, StringComparer.Ordinal).ThenBy(d => d.Path, StringComparer.Ordinal).ToList();
-                    var digest = Hasher.Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { Files = files, Documents = docs }))).ToString().ToUpperInvariant();
                     var hints = new Dictionary<string, List<string>>();
                     var filesByPath = files.ToDictionary(f => f.Mod + "/" + f.Path, StringComparer.OrdinalIgnoreCase);
                     foreach (var definition in files.Where(f => Path.GetFileName(f.Path).Equals("default_mod.json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(f.Path).StartsWith("group_", StringComparison.OrdinalIgnoreCase) && f.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
@@ -116,7 +116,17 @@ public sealed class SnapshotCapture
                         catch (JsonException ex) { throw new InvalidDataException($"Invalid package metadata {definition.Mod}/{definition.Path}: {ex.Message}", ex); }
                         using (json) AddGamePaths(json.RootElement, definition.Mod, filesByPath, hints);
                     }
-                    return new CapturedSnapshot(stage, files, docs, digest) { GamePathHints = hints, SourcesByHash = sourcesByHash };
+                    var metadataFiles = files.Where(f => f.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)).ToList();
+                    foreach (var metadata in metadataFiles)
+                    {
+                        var bytes = await File.ReadAllBytesAsync(sourcesByHash[metadata.Hash][0], ct).ConfigureAwait(false);
+                        if (Hasher.Hash(bytes).ToString().ToUpperInvariant() != metadata.Hash) throw new IOException("Package metadata changed during capture.");
+                        docs.Add(ModPackageDocuments.Create(metadata.Mod, metadata.Path, bytes));
+                    }
+                    files.RemoveAll(f => f.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
+                    docs = docs.OrderBy(d => d.Plugin, StringComparer.Ordinal).ThenBy(d => d.Path, StringComparer.Ordinal).ToList();
+                    var digest = Hasher.Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { Files = files, Documents = docs }))).ToString().ToUpperInvariant();
+                    return new CapturedSnapshot(stage, files, docs, digest) { GamePathHints = hints, SourcesByHash = sourcesByHash, MetadataFiles = metadataFiles };
                 }
                 catch (IOException) when (attempt < 2) { Directory.Delete(stage, true); }
                 catch { Directory.Delete(stage, true); throw; }
@@ -157,7 +167,11 @@ public sealed class SnapshotCapture
         {
             var directory = SnapshotSafety.Source(modRoot, mod);
             if (!Directory.Exists(directory)) throw new IOException("A selected mod no longer exists.");
-            foreach (var file in Walk(directory, ct)) Add(new(SnapshotSafety.Source(directory, Path.GetRelativePath(directory, file).Replace('\\', '/')), mod, Path.GetRelativePath(directory, file).Replace('\\', '/'), null));
+            foreach (var file in Walk(directory, ct))
+            {
+                if (file.EndsWith(".json.bak", StringComparison.OrdinalIgnoreCase)) continue;
+                Add(new(SnapshotSafety.Source(directory, Path.GetRelativePath(directory, file).Replace('\\', '/')), mod, Path.GetRelativePath(directory, file).Replace('\\', '/'), null));
+            }
         }
         foreach (var (plugin, settings) in pluginRoots.OrderBy(p => p.Key, StringComparer.Ordinal))
         {

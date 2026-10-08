@@ -211,9 +211,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[4.3.0.4, )",
-        "resolved": "4.3.0.4",
-        "contentHash": "N2d77D88UV3I0BjWjp+/ToKyhY6Cs+SHp3Oop14KIXEVPC/62K1uaakBQpIqvrJmN5iQzlEnfTKThjYpxgjUZQ==",
+        "requested": "[4.3.2, )",
+        "resolved": "4.3.2",
+        "contentHash": "uWzMon7REKYCEBD0Ah2wMgmYbddp4lWfdb7m4hZTvYcFFq1awM/geSTffqi/a73Tek1FdSvHisL2yu8bOuOOqA==",
         "dependencies": {
           "Blake3": "2.2.1",
           "MessagePack": "3.1.11",
@@ -771,7 +771,7 @@
         "dependencies": {
           "ElezenTools.Core": "[15.56.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Snowcloak.API": "[4.3.0.4, )"
+          "Snowcloak.API": "[4.3.2, )"
         }
       },
       "snowcloak.game": {

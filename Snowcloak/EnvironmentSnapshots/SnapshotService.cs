@@ -152,7 +152,7 @@ public sealed class SnapshotService : BackgroundService
             }).ConfigureAwait(false);
             if (!pluginMetadata.SequenceEqual(_pi.InstalledPlugins.Where(p => plugins.Contains(p.InternalName)).Select(p => (p.InternalName, Version: p.Version.ToString(), p.IsLoaded)).OrderBy(p => p.InternalName, StringComparer.Ordinal)) || !string.Equals(root, ModRoot, StringComparison.Ordinal)) throw new IOException("Plugin inventory changed during capture.");
             if (serverKey != Key) throw new InvalidOperationException("Account or server changed during capture.");
-            Progress.Inventory(capture.Files.Count, capture.Files.Sum(f => f.Size), capture.Files.Select(f => f.Hash).Distinct().Count());
+            Progress.Inventory(capture.Files.Count + capture.MetadataFiles.Count, capture.Files.Concat(capture.MetadataFiles).Sum(f => f.Size), capture.Files.Select(f => f.Hash).Distinct().Count());
             Progress.Phase(SnapshotPhase.Submitting, capture.Files.Count + capture.Documents.Count);
             int submitted = 0;
             BackupSummaryDto? previous = null;
@@ -241,7 +241,7 @@ public sealed class SnapshotService : BackgroundService
             await RequestAsync<object>(HttpMethod.Post, $"files/backups/{id}/complete?epoch={epoch}", null, true, ct).ConfigureAwait(false);
             await RequestAsync<BackupSummaryDto>(HttpMethod.Post, $"backups/{id}/{(renew ? "renew" : "complete")}?epoch={epoch}", null, false, ct).ConfigureAwait(false);
             state.Success(id, DateTimeOffset.UtcNow); state.Mods = mods; state.Plugins = plugins; state.AllInstalledMods = true; if (!automatic) state.Enabled = automaticAfterSuccess; SaveState();
-            _repair.RecordSources(serverKey, capture.Files.Where(f => !f.Mod.StartsWith('@')).Select(f => new Snowcloak.Core.FileRepair.RepairSource(f.Hash, f.Size, root, f.Mod + "/" + f.Path)));
+            _repair.RecordSources(serverKey, capture.Files.Concat(capture.MetadataFiles).Where(f => !f.Mod.StartsWith('@')).Select(f => new Snowcloak.Core.FileRepair.RepairSource(f.Hash, f.Size, root, f.Mod + "/" + f.Path)));
             Progress.Phase(SnapshotPhase.Complete);
             Status = renew ? "Backup verified." : "Backup complete.";
             await RefreshAsync().ConfigureAwait(false);

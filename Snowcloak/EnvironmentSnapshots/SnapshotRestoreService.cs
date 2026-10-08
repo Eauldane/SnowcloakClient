@@ -113,12 +113,14 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             var docs = await _backups.ReadAsync<List<BackupDocumentDto>>($"backups/{id}/documents").ConfigureAwait(false);
             foreach (var document in docs)
             {
-                if (!PersistentPluginFiles.Include(document.Path)) continue;
-                var target = Target("@" + document.Plugin, document.Path);
+                bool packageDocument = ModPackageDocuments.IsPackage(document);
+                if (!packageDocument && !PersistentPluginFiles.Include(document.Path)) continue;
+                if (packageDocument) _ = ModPackageDocuments.ReadBytes(document);
+                var target = TargetDocument(document);
                 bool exists = System.IO.File.Exists(target);
                 bool binary = PersistentDocumentCodec.IsOpaque(document.Json);
                 bool equal = exists && (binary ? Convert.ToBase64String(await System.IO.File.ReadAllBytesAsync(target).ConfigureAwait(false)) == JsonNode.Parse(document.Json)!["SnowcloakOpaqueDocumentV1"]?.GetValue<string>() : JsonNode.DeepEquals(JsonNode.Parse(await System.IO.File.ReadAllTextAsync(target).ConfigureAwait(false)), JsonNode.Parse(document.Json)));
-                bool global = document.Path == "@config.json" || Path.GetFileName(document.Path).Equals("config.json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(document.Path).Equals("configuration.json", StringComparison.OrdinalIgnoreCase);
+                bool global = !packageDocument && (document.Path == "@config.json" || Path.GetFileName(document.Path).Equals("config.json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(document.Path).Equals("configuration.json", StringComparison.OrdinalIgnoreCase));
                 previewChoices.Add(new() { Title = DocumentTitle(document), Document = document, ExistingHash = exists ? await SnapshotCapture.HashAsync(target, CancellationToken.None).ConfigureAwait(false) : null, Destination = target, Conflict = exists && !equal, GlobalSettings = global, Unchanged = equal });
                 if (document.Plugin == "CustomizePlus" && document.Path.StartsWith("templates/", StringComparison.OrdinalIgnoreCase) && !binary)
                 {
@@ -140,6 +142,13 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         if (parsed is JsonObject obj && obj["Name"] is JsonValue value && value.TryGetValue<string>(out var name)) return name;
         if (parsed is JsonObject nested && nested["Name"] is JsonObject title && title["Text"] is JsonValue text && text.TryGetValue<string>(out var label)) return label;
         return document.Path == "@config.json" ? "Settings" : Path.GetFileNameWithoutExtension(document.Path).Replace('_', ' ');
+    }
+    private string TargetDocument(BackupDocumentDto document)
+    {
+        if (!ModPackageDocuments.IsPackage(document)) return Target("@" + document.Plugin, document.Path);
+        if (document.Version != ModPackageDocuments.FormatVersion || !ModPackageDocuments.IsPath(document.Path))
+            throw new InvalidDataException("Unsupported mod metadata destination.");
+        return SnapshotSafety.Destination(ModRoot, document.Path);
     }
     private string Target(string mod, string relative)
     {
@@ -200,7 +209,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
 
             foreach (var choice in Choices)
             {
-                var target = choice.File is { } saved ? Target(saved.Mod, saved.Path) : Target("@" + choice.Document!.Plugin, choice.Document.Path);
+                var target = choice.File is { } saved ? Target(saved.Mod, saved.Path) : TargetDocument(choice.Document!);
                 if (target != choice.Destination) throw new IOException("Restore destination changed after preview.");
                 choice.ExistingHash = System.IO.File.Exists(target) ? await SnapshotCapture.HashAsync(target, ct).ConfigureAwait(false) : null;
                 choice.Unchanged = choice.File is { } file ? choice.ExistingHash == file.Hash : await MatchesDocumentAsync(target, choice.Document!, ct).ConfigureAwait(false);
@@ -249,8 +258,8 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             foreach (var choice in selected)
             {
                 ct.ThrowIfCancellationRequested();
-                string target = choice.File is { } pathFile ? Target(pathFile.Mod, pathFile.Path) : Target("@" + choice.Document!.Plugin, choice.Document.Path);
-                if (choice.File is { } package && !package.Mod.StartsWith('@') && (System.IO.File.Exists(target) ? await SnapshotCapture.HashAsync(target, ct).ConfigureAwait(false) != choice.ExistingHash : choice.ExistingHash != null)) throw new IOException("A destination changed after preview. Review it again.");
+                string target = choice.File is { } pathFile ? Target(pathFile.Mod, pathFile.Path) : TargetDocument(choice.Document!);
+                if ((choice.File is { } package && !package.Mod.StartsWith('@') || choice.Document is { } metadata && ModPackageDocuments.IsPackage(metadata)) && (System.IO.File.Exists(target) ? await SnapshotCapture.HashAsync(target, ct).ConfigureAwait(false) != choice.ExistingHash : choice.ExistingHash != null)) throw new IOException("A destination changed after preview. Review it again.");
                 if (!string.Equals(target, choice.Destination, StringComparison.Ordinal)) throw new InvalidDataException("Restore root changed after preview. Review again before staging.");
                 var staged = Path.Combine(stage, "stage", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
                 if (choice.File is { } file)
@@ -279,8 +288,12 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
                 {
                     var document = choice.Document!;
                     var parsed = JsonNode.Parse(document.Json)!;
-                    var installed = _pi.InstalledPlugins.SingleOrDefault(p => p.InternalName == document.Plugin);
-                    if (installed == null || installed.Version.ToString() != document.Version) throw new InvalidDataException("Plugin version differs from the snapshot: " + document.Plugin);
+                    if (!ModPackageDocuments.IsPackage(document))
+                    {
+                        var installed = _pi.InstalledPlugins.SingleOrDefault(p => p.InternalName == document.Plugin);
+                        if (installed == null || installed.Version.ToString() != document.Version) throw new InvalidDataException("Plugin version differs from the snapshot: " + document.Plugin);
+                    }
+                    else _ = ModPackageDocuments.ReadBytes(document);
                     if (PenumbraRestoreSettings.IsSettings(document.Plugin, document.Path)) parsed = PenumbraRestoreSettings.WithRoot(document.Json, ModRoot);
                     if (PersistentDocumentCodec.IsOpaque(document.Json))
                         await System.IO.File.WriteAllBytesAsync(staged, PersistentDocumentCodec.DecodeBytes(document.Json), ct).ConfigureAwait(false);
@@ -295,7 +308,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
                 SnapshotSafety.VerifyDestination(entry.Destination);
                 if (entry.Destination != Choices.FirstOrDefault(c => c.Destination == entry.Destination)?.Destination && System.IO.File.Exists(entry.Destination)) throw new IOException("A destination appeared during staging.");
             }
-            if (selected.Any(c => c.File != null && !c.File.Mod.StartsWith('@')) && !string.Equals(originalModRoot, ModRoot, StringComparison.OrdinalIgnoreCase)
+            if (selected.Any(c => c.File != null && !c.File.Mod.StartsWith('@') || c.Document is { } metadata && ModPackageDocuments.IsPackage(metadata)) && !string.Equals(originalModRoot, ModRoot, StringComparison.OrdinalIgnoreCase)
                 && !selected.Any(c => c.Document is { } settings && PenumbraRestoreSettings.IsSettings(settings.Plugin, settings.Path)))
             {
                 var configPath = PenumbraRestoreSettings.ExistingPath(_pi.ConfigDirectory.Parent!.FullName);
@@ -312,7 +325,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             _journal.Save(JournalPath);
             Progress.Phase(SnapshotPhase.Unload); Status = "Disabling plugins";
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, false, ct).ConfigureAwait(false);
-            foreach (var unchanged in Choices.Where(c => c.Unchanged && c.Document != null && !selected.Any(s => s.Destination == c.Destination)))
+            foreach (var unchanged in Choices.Where(c => c.Unchanged && c.Document != null && !ModPackageDocuments.IsPackage(c.Document) && !selected.Any(s => s.Destination == c.Destination)))
             {
                 var relative = unchanged.Document!.Path == "@config.json" ? unchanged.Document.Plugin + ".json" : unchanged.Document.Plugin + "/" + unchanged.Document.Path;
                 if (PluginRestoreVerification.CompareAfterReload(relative)
@@ -322,7 +335,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             foreach (var entry in _journal.Entries)
             {
                 var choice = Choices.FirstOrDefault(c => c.Destination == entry.Destination);
-                if (choice?.Document != null || choice == null || choice.File?.Mod.StartsWith('@') == true)
+                if (choice?.Document is { } pluginDocument && !ModPackageDocuments.IsPackage(pluginDocument) || choice == null || choice.File?.Mod.StartsWith('@') == true)
                     entry.ExpectedOriginalHash = System.IO.File.Exists(entry.Destination) ? await SnapshotCapture.HashAsync(entry.Destination, ct).ConfigureAwait(false) : null;
             }
             _journal.Save(JournalPath);
