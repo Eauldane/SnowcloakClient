@@ -21,6 +21,7 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(90);
     private static readonly Action<ILogger, Exception?> LogIdentityUnavailable =
         LoggerMessage.Define(LogLevel.Error, new EventId(1, nameof(LogIdentityUnavailable)), "Unable to resolve an authentication identity");
+    private readonly Snowcloak.Core.PlayerData.SessionCharacterIdentity _sessionCharacter = new();
     private readonly DalamudUtilService _dalamudUtil;
     private readonly HttpClient _httpClient;
     private readonly ILogger<TokenProvider> _logger;
@@ -200,7 +201,8 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
     {
         try
         {
-            var character = await _dalamudUtil.GetCurrentCharacterIdentityAsync().ConfigureAwait(false);
+            var current = await _dalamudUtil.GetCurrentCharacterIdentityAsync().ConfigureAwait(false);
+            var character = _sessionCharacter.Resolve(current, _dalamudUtil.IsLoggedIn);
             if (!character.IsValid)
                 return null;
             var server = _serverManager.CurrentServer;
@@ -237,6 +239,7 @@ public sealed class TokenProvider : IDisposable, IMediatorSubscriber
 
     private void Clear()
     {
+        _sessionCharacter.Clear();
         Volatile.Write(ref _migrationPrompt, null);
         _migrationChoices.Clear();
         _tokenCache.Clear();

@@ -155,7 +155,17 @@ public sealed class SnapshotService : BackgroundService
             Progress.Inventory(capture.Files.Count, capture.Files.Sum(f => f.Size), capture.Files.Select(f => f.Hash).Distinct().Count());
             Progress.Phase(SnapshotPhase.Submitting, capture.Files.Count + capture.Documents.Count);
             int submitted = 0;
-            var previous = state.Snapshot.HasValue ? await RequestAsync<BackupSummaryDto>(HttpMethod.Get, $"backups/{state.Snapshot}/summary", null, false, ct).ConfigureAwait(false) : null;
+            BackupSummaryDto? previous = null;
+            if (state.Snapshot.HasValue)
+            {
+                try
+                {
+                    previous = await RequestAsync<BackupSummaryDto>(HttpMethod.Get, $"backups/{state.Snapshot}/summary", null, false, ct).ConfigureAwait(false);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                }
+            }
             bool renew = previous?.Complete == true && previous.ContentHash == capture.ContentHash;
             Guid id = renew ? previous!.Id : Guid.NewGuid();
             if (!renew)
@@ -218,7 +228,7 @@ public sealed class SnapshotService : BackgroundService
                     var file = queued[hash]; Progress.Phase(SnapshotPhase.Verifying, path: file.Mod + "/" + file.Path);
                     var verified = await RequestAsync<List<BackupObjectDto>>(HttpMethod.Post,
                         $"files/backups/{id}/objects?epoch={epoch}", new[] { hash }, true, token).ConfigureAwait(false);
-                    if (!verified.Single().Available) throw new IOException("Uploaded content did not pass physical verification.");
+                    if (!verified.Single().Available) throw new IOException($"Uploaded content did not pass physical verification: {file.Mod}/{file.Path} ({hash}, {file.Size} raw bytes).");
                     Progress.Uploaded(); File.Delete(Path.Combine(capture.Staging, hash));
                 }, (hash, size) =>
                 {
@@ -283,7 +293,8 @@ public sealed class SnapshotService : BackgroundService
                     var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5 * (attempt + 1));
                     await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(wait.TotalSeconds, 1, 30)), ct).ConfigureAwait(false); continue;
                 }
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                    throw new HttpRequestException($"Backup request {method} /{path.Split('?')[0]} failed: HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).", null, response.StatusCode);
                 if (typeof(T) == typeof(object)) return (T)new object();
                 return await response.Content.ReadFromJsonAsync<T>(ct).ConfigureAwait(false) ?? throw new IOException("Empty backup response.");
             }
