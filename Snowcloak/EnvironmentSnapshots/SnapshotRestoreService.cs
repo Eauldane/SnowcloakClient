@@ -368,6 +368,15 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         }, entry => Progress.Advance(++installedCount, Path.GetFileName(entry.Destination)))).ConfigureAwait(false);
         Progress.Phase(SnapshotPhase.Verifying);
         await _journal.VerifyInstalledAsync(SnapshotCapture.HashAsync, ct).ConfigureAwait(false);
+        Progress.Phase(SnapshotPhase.Reconciling);
+        var physicalModRoot = SnapshotSafety.SourceRoot(ModRoot).TrimEnd(Path.DirectorySeparatorChar);
+        var verifiedPaths = _journal.Entries
+            .Where(e => e.Destination.StartsWith(physicalModRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(e => e.Destination, e => e.StagedHash, StringComparer.OrdinalIgnoreCase);
+        using (SnapshotExclusion.EnterRestoreMutation())
+        {
+            _cache.ReconcileRestoredPackagePaths(verifiedPaths);
+        }
         AwaitingUnload = false; AwaitingReload = true; Progress.Phase(SnapshotPhase.Reload);
         Status = "Files restored";
     }
@@ -436,29 +445,10 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         if (!ManualVerified) { Error = "Verification required."; Status = "Confirm in-game names, inheritance, automation links and Customize+ references before finishing."; return; }
         if (_pi.InstalledPlugins.Any(p => RequiredPlugins.Contains(p.InternalName) && _journal.LoadedPlugins[p.InternalName] && !p.IsLoaded)) { Error = "Reload required plugins."; Status = "Reload the plugins that were loaded before restore."; return; }
         if (!string.Equals(_backups.ModRoot, ModRoot, StringComparison.OrdinalIgnoreCase)) { Error = "Penumbra mod root mismatch."; Status = "Penumbra mod root differs after reload; correct it before finishing."; return; }
-        Progress.Phase(SnapshotPhase.Verifying, _journal.Entries.Count); int verifiedCount = 0;
-        var pluginConfigRoot = SnapshotSafety.SourceRoot(_pi.ConfigDirectory.Parent!.FullName);
-        foreach (var entry in _journal.Entries)
-        {
-            var relative = Path.GetRelativePath(pluginConfigRoot, entry.Destination).Replace('\\', '/');
-            bool equivalent = !RolledBack && !PluginRestoreVerification.CompareAfterReload(relative)
-                || (RolledBack && !entry.Existed ? !System.IO.File.Exists(entry.Destination) : await EquivalentAsync(entry.Destination, RolledBack ? entry.Original : entry.Staged, entry.PluginJson, RolledBack ? "" : relative).ConfigureAwait(false));
-            Progress.Advance(++verifiedCount, Path.GetFileName(entry.Destination));
-            if (!equivalent) { Error = "Restored file changed: " + Path.GetFileName(entry.Destination); Status = "A restored file changed. Inspect it or roll back; sync remains suspended."; return; }
-        }
-        Progress.Phase(SnapshotPhase.Reconciling);
-        var verifiedPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var physicalModRoot = SnapshotSafety.SourceRoot(ModRoot).TrimEnd(Path.DirectorySeparatorChar);
-        foreach (var entry in _journal.Entries.Where(e => System.IO.File.Exists(e.Destination) && e.Destination.StartsWith(physicalModRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            verifiedPaths[entry.Destination] = await SnapshotCapture.HashAsync(entry.Destination, CancellationToken.None).ConfigureAwait(false);
-        using (SnapshotExclusion.EnterRestoreMutation())
-        {
-            _cache.ReconcileRestoredPackagePaths(verifiedPaths);
-        }
         if (_journal.RepairOperationId is { } repair) await _repair.ReleaseAsync(repair).ConfigureAwait(false);
         _journal.Consistent = true; _journal.Save(JournalPath); AwaitingReload = false; Release(); _mediator.Publish(new EnvironmentRestoreCompletedMessage());
         Progress.Phase(RolledBack ? SnapshotPhase.RolledBack : SnapshotPhase.Complete); Error = null;
-        Status = "Restore verified. Assign characters to restored collections; recovery originals remain until discarded.";
+        Status = "Restore complete. Assign characters to restored collections; recovery originals remain until discarded.";
     }
     public async Task RollbackAsync()
     {
@@ -519,14 +509,6 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         if (Directory.Exists(Path.GetDirectoryName(JournalPath))) Directory.Delete(Path.GetDirectoryName(JournalPath)!, true);
         if (Directory.Exists(RecoveryArchiveRoot)) Directory.Delete(RecoveryArchiveRoot, true);
         _journal = null;
-    }
-    private static async Task<bool> EquivalentAsync(string destination, string expected, bool pluginJson, string relative)
-    {
-        if (!System.IO.File.Exists(destination) || !System.IO.File.Exists(expected)) return false;
-        if (await SnapshotCapture.HashAsync(destination, CancellationToken.None).ConfigureAwait(false) == await SnapshotCapture.HashAsync(expected, CancellationToken.None).ConfigureAwait(false)) return true;
-        if (!pluginJson) return false;
-        try { return PluginRestoreVerification.EquivalentJson(relative, await System.IO.File.ReadAllTextAsync(expected).ConfigureAwait(false), await System.IO.File.ReadAllTextAsync(destination).ConfigureAwait(false)); }
-        catch (System.Text.Json.JsonException) { return false; }
     }
     public async ValueTask DisposeAsync()
     {
