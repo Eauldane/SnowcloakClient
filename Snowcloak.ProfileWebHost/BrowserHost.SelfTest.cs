@@ -73,10 +73,27 @@ internal sealed partial class BrowserHost
                 throw new InvalidDataException("Browser produced blank pixels.");
             var web = _browser.CoreWebView2;
             if (web.Settings.AreHostObjectsAllowed || web.Settings.AreDefaultScriptDialogsEnabled || web.Settings.AreDevToolsEnabled) throw new InvalidDataException("Browser host restrictions failed.");
+            await web.ExecuteScriptAsync("""
+            (()=>{
+              window.__auditInlineExecuted=false;
+              window.__auditFetchBlocked=false;
+              window.__auditImageBlocked=false;
+              const script=document.createElement('script');
+              script.textContent='window.__auditInlineExecuted=true';
+              document.head.append(script);script.remove();
+              fetch('https://invalid.example/audit').then(()=>{},()=>window.__auditFetchBlocked=true);
+              const image=new Image();
+              image.onerror=()=>window.__auditImageBlocked=true;
+              image.src='assets/'+ 'F'.repeat(64) +'.png';
+            })()
+            """);
+            await Task.Delay(500);
+            if (await web.ExecuteScriptAsync("!window.__auditInlineExecuted && window.__auditFetchBlocked && window.__auditImageBlocked") != "true")
+                throw new InvalidDataException("CSP or unauthorized image restriction failed.");
             var before = web.Source;
             web.Navigate("https://example.com"); await Task.Delay(100);
             if (web.Source != before) throw new InvalidDataException("Navigation boundary failed.");
-            WriteSelfTestResult("PASS: actual WebView2 UI/nonblank pixels, optional page navbar, literal hostile markup in editor/viewer, predefined rich text, disabled host objects/dialogs/devtools, blocked navigation");
+            WriteSelfTestResult("PASS: actual WebView2 UI/nonblank pixels, optional page navbar, literal hostile markup in editor/viewer, predefined rich text, disabled host objects/dialogs/devtools, blocked navigation, enforced inline-script/network CSP and unauthorized image denial");
         }
         catch (Exception) { WriteSelfTestResult("FAIL: browser self-test"); }
         finally { Close(); }

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 
   <PropertyGroup>
@@ -11,12 +11,12 @@
     <InternalsVisibleTo Include="Snowcloak.Tests" />
     <PackageReference Include="ElezenTools.Core" Version="15.56.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
-    <PackageReference Include="Snowcloak.API" Version="4.4.3.6" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.270">
+    <PackageReference Include="Snowcloak.API" Version="5.0.0" />
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.302">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.34.0.3385">
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.35.0.4138">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

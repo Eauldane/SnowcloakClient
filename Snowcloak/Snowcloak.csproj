@@ -1,8 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
      <AssemblyName>Snowcloak</AssemblyName>
-    <Version>4.4.3.6</Version>
+    <Version>5.0.0.0</Version>
     <PackageProjectUrl>https://github.com/Eauldane/SnowcloakClient/</PackageProjectUrl>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Configurations>Release;Debug</Configurations>
@@ -41,17 +41,17 @@
     <PackageReference Include="NAudio" Version="2.4.0" />
     <PackageReference Include="Penumbra.Api" Version="5.19.2" />
     <PackageReference Include="Scrutor" Version="7.0.0" />
-    <PackageReference Include="Snowcloak.API" Version="4.4.3.6" />
+    <PackageReference Include="Snowcloak.API" Version="5.0.0" />
     <PackageReference Include="Snowcloak.CacheFile" Version="4.3.0.4" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.270">
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.302">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Update="DotNet.ReproducibleBuilds" Version="2.0.5" />
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.34.0.3385">
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.35.0.4138">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
