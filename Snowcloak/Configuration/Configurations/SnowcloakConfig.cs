@@ -59,6 +59,11 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ProfileEditorTutorialSeen { get; set; } = false;
     public bool ProfilesAllowNsfw { get; set; } = false;
     public bool ProfilesShow { get; set; } = false;
+    public bool ProfilesTraditionalOnly { get; set; } = false;
+    public float ProfileReaderTextScale { get; set; } = 1;
+    public bool ProfileReaderHighContrast { get; set; }
+    public bool ProfileReaderReduceImages { get; set; }
+    public List<Snowcloak.Core.Profiles.ProfileSavedSection> ProfileSavedSections { get; set; } = [];
     public bool ShowSyncshellUsersInVisible { get; set; } = true;
     public bool ShowCharacterNames { get; set; } = true;
     public bool ShowOfflineUsersSeparately { get; set; } = true;

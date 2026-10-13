@@ -423,7 +423,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
         if (card.Themes.Count > 0)
         {
             ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.DalamudGrey, string.Join(" · ", card.Themes.Select(RpThemeLabel)));
+            ImGui.TextColored(ImGuiColors.DalamudGrey, string.Join(" - ", card.Themes.Select(RpThemeLabel)));
         }
         if (card.CurrentHook != null)
         {
@@ -515,7 +515,7 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
 
     private static string GetStatusText(AvailabilityRow row)
         => row.RpCard is { Paused: false } card && card.ExpiresAtUtc > DateTimeOffset.UtcNow
-            ? row.Status + " · RP: " + RpAvailabilityLabel(card.State)
+            ? row.Status + " - RP: " + RpAvailabilityLabel(card.State)
             : row.Status;
 
     private void DrawCellContextTarget(AvailabilityRow row, string column, IDispatcher dispatch, string? text, bool isBbCode = false)

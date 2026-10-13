@@ -712,7 +712,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
         var locationText = _dalamudUtilService.GetWorldName(community.MainWorldId) ?? community.MainRegion;
         if (!string.IsNullOrEmpty(locationText))
         {
-            width += ImGui.CalcTextSize("· " + locationText).X;
+            width += ImGui.CalcTextSize("- " + locationText).X;
             width += spacingX;
         }
 
@@ -731,7 +731,7 @@ internal sealed class GroupPanel : IMediatorSubscriber
         ImGui.AlignTextToFramePadding();
         using (ImRaii.PushColor(ImGuiCol.Text, SnowcloakColours.CompactTextMuted))
         {
-            ImGui.TextUnformatted("· " + locationText);
+            ImGui.TextUnformatted("- " + locationText);
         }
         ElezenImgui.AttachTooltip(string.Format(CultureInfo.CurrentCulture, "This syncshell is based in {0}.", locationText));
     }

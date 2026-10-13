@@ -42,7 +42,7 @@ public sealed class ProfileDetailsEditorSection
         }
     }
 
-    private static void DrawHooksEditor(ProfileEditSession session, Action markDirty)
+    public static void DrawHooksEditor(ProfileEditSession session, Action markDirty)
     {
         for (var i = 0; i < session.Hooks.Count; i++)
         {

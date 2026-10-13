@@ -8,12 +8,13 @@ using Snowcloak.API.Dto.User;
 using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.Configuration;
 using Snowcloak.Core.Roleplay;
+using Snowcloak.Core.Profiles;
 using Snowcloak.Services;
 using System.Numerics;
 
 namespace Snowcloak.UI.Components;
 
-public sealed class ProfileViewComponent
+public sealed partial class ProfileViewComponent
 {
     private readonly BbCodeRenderService _bbCodeRenderService;
     private readonly TextureService _textureService;
@@ -35,43 +36,53 @@ public sealed class ProfileViewComponent
 
     public void DrawStandalone(ProfileViewRequest request)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        if (DrawAdultProfileGate(request, compact: false))
+        _readerActive = true;
+        using var readerColour = ImRaii.PushColor(ImGuiCol.Text, ReaderHighContrast ? Vector4.One : ImGui.GetStyle().Colors[(int)ImGuiCol.Text]);
+        using var readerBackground = ImRaii.PushColor(ImGuiCol.WindowBg, ReaderHighContrast ? new Vector4(0,0,0,1) : ImGui.GetStyle().Colors[(int)ImGuiCol.WindowBg]);
+        ImGui.SetWindowFontScale(ReaderScale);
+        try
         {
+        ArgumentNullException.ThrowIfNull(request);
+        if (DrawAdultProfileGate(request))
+        {
+            HideWebRenderer();
             return;
         }
 
+        DrawViewerToolbar(request);
+        var traditional = _readerView.UsesClassic(request.Profile.Document.Builder, _configService.Current.ProfilesTraditionalOnly);
+        if (traditional)
+        {
         CharacterProfileUiShared.DrawHeader(request.Profile.Document, request.FallbackName,
-            headerImageTexture: request.HeaderImageTexture, bbCodeRenderService: _bbCodeRenderService);
+            headerImageTexture: ReaderReduceImages ? null : request.HeaderImageTexture, bbCodeRenderService: _bbCodeRenderService);
         ImGui.Spacing();
         CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges", _bbCodeRenderService);
-
-        request.DrawReportButton?.Invoke();
-        if (request.DrawReportButton != null)
-        {
-            ImGui.SameLine();
         }
-
-        var updated = request.Profile.UpdatedAtUtc.HasValue ? $"  |  updated {request.Profile.UpdatedAtUtc.Value:u}" : string.Empty;
-        ImGui.TextColored(
-            ImGuiColors.DalamudGrey,
-            $"{request.Profile.Visibility} profile  |  revision {request.Profile.Revision}  |  {request.Profile.Document.ContentRating}{updated}");
 
         CharacterProfileUiShared.DrawMoodles(request.MoodlesData, request.IdPrefix, _textureService);
         if (DrawUnavailableProfileMessage(request.Profile))
         {
+            HideWebRenderer();
             return;
         }
 
+        DrawReaderControls(request);
         DrawFullProfileBody(request.Profile, request.ProfileImageTexture, request.VisibleTags, request.IdPrefix,
-            request.ViewerPrivateDocument);
+            request.ViewerPrivateDocument, request);
         request.DrawPairingDetails?.Invoke();
+            }
+        finally { ImGui.SetWindowFontScale(1); _readerActive = false; }
     }
 
     public void DrawCompact(ProfileViewRequest request)
     {
+        _readerActive = true;
+        using var colour = ImRaii.PushColor(ImGuiCol.Text, ReaderHighContrast ? Vector4.One : ImGui.GetStyle().Colors[(int)ImGuiCol.Text]);
+        ImGui.SetWindowFontScale(ReaderScale);
+        try
+        {
         ArgumentNullException.ThrowIfNull(request);
-        if (DrawAdultProfileGate(request, compact: true))
+        if (DrawAdultProfileGate(request))
         {
             return;
         }
@@ -80,7 +91,7 @@ public sealed class ProfileViewComponent
             request.Profile.Document,
             request.FallbackName,
             compact: true,
-            headerImageTexture: request.HeaderImageTexture,
+            headerImageTexture: ReaderReduceImages ? null : request.HeaderImageTexture,
             bbCodeRenderService: _bbCodeRenderService);
         CharacterProfileUiShared.DrawProfileBadges(request.Profile.Document, $"{request.IdPrefix}-badges", _bbCodeRenderService);
 
@@ -108,6 +119,8 @@ public sealed class ProfileViewComponent
 
         DrawTags(request.VisibleTags, $"{request.IdPrefix}-tags");
         DrawBbCodeSection("Overview", request.Profile.Description);
+            }
+        finally { ImGui.SetWindowFontScale(1); _readerActive = false; }
     }
 
     public void DrawEditorPreview(
@@ -124,6 +137,11 @@ public sealed class ProfileViewComponent
             bbCodeRenderService: _bbCodeRenderService);
         CharacterProfileUiShared.DrawProfileBadges(document, $"{idPrefix}-badges", _bbCodeRenderService);
         ImGui.Spacing();
+        if (fullProfile && document.Builder != null)
+        {
+            DrawBuilder(document, null, idPrefix, null);
+            return;
+        }
 
         using (var table = ImRaii.Table($"{idPrefix}-summary", 2, ImGuiTableFlags.SizingFixedFit))
         {
@@ -159,9 +177,19 @@ public sealed class ProfileViewComponent
         IDalamudTextureWrap? profileImageTexture,
         IReadOnlyList<UserProfileTagDto> visibleTags,
         string idPrefix,
-        CharacterProfileDocumentDto? viewerPrivateDocument)
+        CharacterProfileDocumentDto? viewerPrivateDocument, ProfileViewRequest request)
     {
         var document = profile.Document;
+        var traditional = _readerView.UsesClassic(document.Builder, _configService.Current.ProfilesTraditionalOnly);
+        if (traditional) DisposeWebRenderer();
+        if (!traditional)
+        {
+            if (!DrawWebProfile(request)) DrawBuilder(document, viewerPrivateDocument, idPrefix, request);
+            else if (document.Boundaries != null)
+                DrawBoundaries(document, profile.User?.UID, profile.Revision, profile.IsOwnProfile,
+                    adult: false, idPrefix + ":acknowledgement", viewerPrivateDocument);
+            return;
+        }
         using (var table = ImRaii.Table($"{idPrefix}-main", 2, ImGuiTableFlags.SizingFixedFit))
         {
             if (table)
@@ -179,14 +207,15 @@ public sealed class ProfileViewComponent
             }
         }
 
-        DrawBbCodeSection("Overview", document.Overview);
-        DrawBbCodeHooks(document.Hooks, idPrefix);
-        DrawBbCodeSection("OOC Notes", document.OocNotes);
+        DrawTraditionalText("overview", "Overview", document.Overview);
+        if (document.Hooks.Count > 0 && OpenTraditionalSection("hooks", "RP hooks")) DrawBbCodeHooks(document.Hooks, idPrefix);
+        DrawTraditionalText("ooc", "OOC Notes", document.OocNotes);
         if (document.ContentRating == ProfileContentRating.Adult)
         {
-            DrawBbCodeSection("Adult Preferences", document.AdultPreferences);
+            DrawTraditionalText("adult", "Adult Preferences", document.AdultPreferences);
         }
-        DrawBoundaries(document, profile.User?.UID, profile.Revision, profile.IsOwnProfile,
+        if (document.Builder != null) DrawTraditionalBuilderContent(document, viewerPrivateDocument, idPrefix, request);
+        if (document.Boundaries != null && OpenTraditionalSection("boundaries", "Scene boundaries")) DrawBoundaries(document, profile.User?.UID, profile.Revision, profile.IsOwnProfile,
             adult: false, idPrefix, viewerPrivateDocument);
 
         DrawTags(visibleTags, $"{idPrefix}-tags");
@@ -213,51 +242,18 @@ public sealed class ProfileViewComponent
         return true;
     }
 
-    private bool DrawAdultProfileGate(ProfileViewRequest request, bool compact)
+    private bool DrawAdultProfileGate(ProfileViewRequest request)
     {
         var profile = request.Profile;
-        if (profile.IsOwnProfile || !profile.IsNSFW || profile.Revision <= 0)
-        {
+        if (profile.IsOwnProfile || !profile.IsNSFW || profile.Revision <= 0 || _configService.Current.ProfilesAllowNsfw)
             return false;
-        }
-
-        var acknowledgementKey = profile.Ident + ":" + profile.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (_configService.Current.ProfilesAllowNsfw
-            && _configService.Current.RpAdultProfileAcknowledgements.GetValueOrDefault(acknowledgementKey) >= profile.Revision)
-        {
-            return false;
-        }
-
         using var id = ImRaii.PushId(request.IdPrefix + "-adult-profile-gate");
         AutoSizedCard.Draw(_ =>
         {
             ImGui.TextColored(ImGuiColors.DalamudYellow, "Adult-rated profile");
-            if (!_configService.Current.ProfilesAllowNsfw)
-            {
-                ImGui.TextWrapped("NSFW profiles are disabled. Enable 'Show profiles marked as NSFW' under Settings > Interface > Profiles to view this profile.");
-                request.DrawReportButton?.Invoke();
-                return;
-            }
-
-            ImGui.TextWrapped("This profile is marked Adult and may contain explicit themes. Confirm that you want to reveal it.");
-            if (compact)
-            {
-                ImGui.TextColored(ImGuiColors.DalamudGrey, "Open the full profile to review and confirm.");
-                return;
-            }
-
-            if (ImGui.Button("Confirm and show profile", new Vector2(210f * ImGuiHelpers.GlobalScale, 0f)))
-            {
-                _configService.Update(config =>
-                    config.RpAdultProfileAcknowledgements[acknowledgementKey] = profile.Revision);
-            }
-            if (request.DrawReportButton != null)
-            {
-                ImGui.SameLine();
-                request.DrawReportButton();
-            }
+            ImGui.TextWrapped("Adult profiles are disabled. Enable Show profiles marked as NSFW in Settings > Interface > Profiles.");
+            request.DrawReportButton?.Invoke();
         });
-
         return true;
     }
 
@@ -268,7 +264,7 @@ public sealed class ProfileViewComponent
             if (showEmptyLabel)
             {
                 ImGui.Dummy(new Vector2(size, size));
-                ImGui.TextColored(ImGuiColors.DalamudGrey, "No portrait");
+                ImGui.TextColored(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowMutedText, ImGuiColors.DalamudGrey), "No portrait");
             }
 
             return;
@@ -311,7 +307,7 @@ public sealed class ProfileViewComponent
 
         CharacterProfileUiShared.DrawSectionTitle(title);
         using var font = _fontService.GameFont.Push();
-        _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X, ProfileBbCodeRenderOptions.LongForm);
+        _bbCodeRenderService.Render(text, ImGui.GetContentRegionAvail().X, ReaderReduceImages ? ProfileBbCodeRenderOptions.Compact : ProfileBbCodeRenderOptions.LongForm);
     }
 
     private void DrawBbCodeHooks(IReadOnlyList<CharacterProfileHookDto> hooks, string idPrefix)
@@ -328,7 +324,7 @@ public sealed class ProfileViewComponent
             using var id = ImRaii.PushId($"{idPrefix}-hook-{i}");
             AutoSizedCard.Draw(innerWidth =>
             {
-                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+                using (ImRaii.PushColor(ImGuiCol.Text, ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowAccent, ImGuiColors.HealerGreen)))
                 {
                     _bbCodeRenderService.Render(
                         string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title,
@@ -338,7 +334,7 @@ public sealed class ProfileViewComponent
                 if (!string.IsNullOrWhiteSpace(hook.Description))
                 {
                     using var font = _fontService.GameFont.Push();
-                    _bbCodeRenderService.Render(hook.Description, innerWidth, ProfileBbCodeRenderOptions.LongForm);
+                    _bbCodeRenderService.Render(hook.Description, innerWidth, ReaderReduceImages ? ProfileBbCodeRenderOptions.Compact : ProfileBbCodeRenderOptions.LongForm);
                 }
             });
             ImGui.Spacing();
@@ -357,7 +353,7 @@ public sealed class ProfileViewComponent
         {
             var hook = hooks[i];
             using var id = ImRaii.PushId($"{idPrefix}-preview-hook-{i}");
-            using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.HealerGreen))
+            using (ImRaii.PushColor(ImGuiCol.Text, ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowAccent, ImGuiColors.HealerGreen)))
             {
                 DrawCompactText(string.IsNullOrWhiteSpace(hook.Title) ? "Hook" : hook.Title);
             }
@@ -398,7 +394,7 @@ public sealed class ProfileViewComponent
             using var id = ImRaii.PushId(idPrefix + "-boundaries-ack");
             AutoSizedCard.Draw(_ =>
             {
-                ImGui.TextWrapped("This boundaries card asks you to acknowledge it before viewing.");
+                ImGui.TextWrapped("Boundary acknowledgement required.");
                 using (ImRaii.Disabled(acknowledgementKey == null))
                 {
                     if (ImGui.Button("Acknowledge and show", new Vector2(180f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
@@ -415,7 +411,7 @@ public sealed class ProfileViewComponent
             using var id = ImRaii.PushId(idPrefix + "-boundaries-collapsed");
             AutoSizedCard.Draw(_ =>
             {
-                ImGui.TextWrapped("This profile includes a boundaries card.");
+                ImGui.TextWrapped("Scene boundaries available.");
                 if (ImGui.Button("Show boundaries", new Vector2(150f * ImGuiHelpers.GlobalScale, 0f)) && acknowledgementKey != null)
                     _expandedGeneralBoundaries.Add(acknowledgementKey);
             });
@@ -437,14 +433,14 @@ public sealed class ProfileViewComponent
             {
                 ImGui.TextColored(BoundaryColour(group.Key), BoundaryLabel(group.Key));
                 ImGui.SameLine();
-                ImGui.TextWrapped(string.Join("  •  ", group.Select(entry => BoundaryName(entry.Key))));
+                ImGui.TextWrapped(string.Join("  -  ", group.Select(entry => BoundaryName(entry.Key))));
             }
             if (!string.IsNullOrWhiteSpace(boundaries.Note))
             {
                 ImGui.Separator();
                 using var font = _fontService.GameFont.Push();
                 _bbCodeRenderService.Render(boundaries.Note, ImGui.GetContentRegionAvail().X,
-                    ProfileBbCodeRenderOptions.LongForm);
+                    ReaderReduceImages ? ProfileBbCodeRenderOptions.Compact : ProfileBbCodeRenderOptions.LongForm);
             }
         });
     }
@@ -456,7 +452,7 @@ public sealed class ProfileViewComponent
         if (viewerDocument == null || viewerDocument.Boundaries == null
             || viewerDocument.Boundaries.Entries.Count == 0)
         {
-            ImGui.TextWrapped("Add boundary limits to your own published profile to enable a private comparison.");
+            ImGui.TextWrapped("Publish scene boundaries to enable comparison.");
             ImGui.TextColored(SnowcloakColours.CompactTextMuted,
                 $"Their visible content rating is {targetDocument.ContentRating}.");
             return;
@@ -484,9 +480,9 @@ public sealed class ProfileViewComponent
                 : hasSharedKeys
                     ? ImGuiColors.HealerGreen
                     : SnowcloakColours.CompactTextMuted;
-        ImGui.TextColored(overallColour, "Compatibility · " + overallLabel);
+        ImGui.TextColored(overallColour, "Compatibility - " + overallLabel);
         ImGui.TextColored(SnowcloakColours.CompactTextMuted,
-            $"Content rating: you {viewerDocument.ContentRating} · they {targetDocument.ContentRating}");
+            $"Content rating: you {viewerDocument.ContentRating} - they {targetDocument.ContentRating}");
         if (comparison.ContentRatingMismatch)
         {
             ImGui.TextColored(ImGuiColors.DalamudYellow,
@@ -495,7 +491,7 @@ public sealed class ProfileViewComponent
 
         if (!boundariesShared)
         {
-            ImGui.TextWrapped("This profile has not shared boundary details at your current visibility, so no per-limit comparison is available.");
+            ImGui.TextWrapped("Boundary details are unavailable at this audience.");
             ImGui.TextColored(SnowcloakColours.CompactTextMuted,
                 "Sharing is optional; the content-rating comparison above is still available.");
             return;
@@ -608,7 +604,7 @@ public sealed class ProfileViewComponent
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextColored(ImGuiColors.DalamudGrey, label);
+        ImGui.TextColored(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowMutedText, ImGuiColors.DalamudGrey), label);
         ImGui.TableNextColumn();
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -631,4 +627,15 @@ public sealed record ProfileViewRequest(
     string IdPrefix,
     Action? DrawReportButton = null,
     Action? DrawPairingDetails = null,
-    CharacterProfileDocumentDto? ViewerPrivateDocument = null);
+    CharacterProfileDocumentDto? ViewerPrivateDocument = null,
+    Func<string, IDalamudTextureWrap?>? GetAssetTexture = null,
+    Action? RetryOwnProfile = null,
+    bool? CanvasLayoutOverride = null,
+    ProfilePageEditingContext? PageEditing = null,
+    Func<string, byte[]?>? GetAssetBytes = null);
+
+public sealed record ProfilePageEditingContext(
+    Action<ProfileBlockDto> BeforeElement,
+    Func<ProfileBlockDto, bool> EditContent,
+    Action<ProfileBlockDto, Vector2, Vector2> AfterElement,
+    Action<ProfileBlockDto?, int> InsertPoint);

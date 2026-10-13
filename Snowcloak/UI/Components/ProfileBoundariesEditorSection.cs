@@ -30,7 +30,7 @@ public static class ProfileBoundariesEditorSection
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(markDirty);
         var boundaries = session.Boundaries ?? new RpBoundariesDto();
-        ImGui.TextWrapped("Set optional scene boundaries. These are profile guidance, not a substitute for talking to the other player.");
+        ImGui.TextWrapped("Scene boundaries are separate from rated interests.");
         ImGuiHelpers.ScaledDummy(5f);
 
         if (ImGui.BeginTable("rp-boundaries", 2, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))

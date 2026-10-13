@@ -40,6 +40,7 @@ public sealed class ProfileEditSession
     private List<UserProfileTagDto> _tags = [];
 
     public string LoadedIdent { get; private set; } = string.Empty;
+    public ProfileBuilderDto? Builder { get; set; }
     public long LoadedRevision { get; private set; }
     public bool Dirty { get; private set; }
     public string CharacterName { get; set; } = string.Empty;
@@ -78,6 +79,7 @@ public sealed class ProfileEditSession
     public void ReplaceDocument(CharacterProfileDocumentDto document, bool markDirty = false)
     {
         ArgumentNullException.ThrowIfNull(document);
+        Builder = document.Builder == null ? null : Snowcloak.API.Profiles.ProfileBuilderPolicy.Clone(document.Builder);
 
         CharacterName = document.CharacterName;
         Title = document.Title;
@@ -143,7 +145,7 @@ public sealed class ProfileEditSession
     public void ClearDirty() => Dirty = false;
 
     public CharacterProfileUpdateDto ToUpdateDto()
-        => new(ExpectedRevision, ToDocument());
+        => new(ExpectedRevision, ToDocument(), LoadedIdent);
 
     public CharacterProfileDocumentDto ToDocument()
         => new()
@@ -176,6 +178,7 @@ public sealed class ProfileEditSession
             ProfilePictureHash = string.IsNullOrWhiteSpace(ProfileImageHash) ? null : ProfileImageHash,
             Tags = ProfileTagPolicy.NormalizeForStorage(_tags),
             FieldVisibility = FieldVisibility with { },
+            Builder = Builder == null ? null : Snowcloak.API.Profiles.ProfileBuilderPolicy.Clone(Builder),
         };
 
     public CharacterProfileDocumentDto ToPublicPreviewDocument()
@@ -301,8 +304,11 @@ public sealed class ProfileEditSession
         ArgumentNullException.ThrowIfNull(document);
 
         var fields = document.FieldVisibility ?? new();
+        var builder = document.Builder == null ? null : Snowcloak.API.Profiles.ProfileBuilderPolicy.Project(document, audience);
+        bool Visible(ProfileBlockKind kind) => Snowcloak.API.Profiles.ProfileBuilderPolicy.ContentVisible(builder, audience, kind);
         return document with
         {
+            Builder = builder,
             CharacterName = fields.CharacterName <= audience ? document.CharacterName : string.Empty,
             Title = fields.Title <= audience ? document.Title : string.Empty,
             Pronouns = fields.Pronouns <= audience ? document.Pronouns : string.Empty,
@@ -312,11 +318,11 @@ public sealed class ProfileEditSession
             HeaderImageHash = fields.Header <= audience ? document.HeaderImageHash : null,
             ProfilePictureHash = fields.Portrait <= audience ? document.ProfilePictureHash : null,
             AtAGlance = fields.AtAGlance <= audience ? document.AtAGlance : [],
-            Overview = fields.Overview <= audience ? document.Overview : string.Empty,
-            Hooks = fields.Hooks <= audience ? document.Hooks : [],
-            OocNotes = fields.OocNotes <= audience ? document.OocNotes : string.Empty,
-            AdultPreferences = fields.AdultPreferences <= audience ? document.AdultPreferences : string.Empty,
-            Boundaries = fields.Boundaries <= audience ? document.Boundaries : null,
+            Overview = fields.Overview <= audience && Visible(ProfileBlockKind.Overview) ? document.Overview : string.Empty,
+            Hooks = fields.Hooks <= audience && Visible(ProfileBlockKind.Hooks) ? document.Hooks : [],
+            OocNotes = fields.OocNotes <= audience && Visible(ProfileBlockKind.OocNotes) ? document.OocNotes : string.Empty,
+            AdultPreferences = fields.AdultPreferences <= audience && Visible(ProfileBlockKind.AdultPreferences) ? document.AdultPreferences : string.Empty,
+            Boundaries = fields.Boundaries <= audience && Visible(ProfileBlockKind.Boundaries) ? document.Boundaries : null,
             Tags = fields.Tags <= audience ? document.Tags : [],
             ContentRating = audience == ProfileAudience.Public ? document.PublicContentRating : document.ContentRating,
         };

@@ -729,7 +729,7 @@ public sealed class VenueAdsWindow : WindowMediatorSubscriberBase, IStaticWindow
         if (ad.PlotId is { } plotId)
             locationParts.Add($"Plot {plotId}");
 
-        return string.Join(" • ", locationParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+        return string.Join(" - ", locationParts.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
     private static bool IsRecentlyStarted(VenueAdvertisementDto ad)

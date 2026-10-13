@@ -25,15 +25,15 @@ public sealed class ProfilePublishEditorSection
         ImGui.TextColored(
             complete >= checks.Length - 1 ? ImGuiColors.HealerGreen : ImGuiColors.DalamudYellow,
             complete >= checks.Length - 1
-                ? "This profile is ready to publish."
-                : "These hints are only shown here while editing.");
+                ? "Checklist complete."
+                : "Optional fields.");
 
         foreach (var check in checks)
         {
             ImGui.TextColored(check.Complete ? ImGuiColors.HealerGreen : ImGuiColors.DalamudGrey, check.Complete ? "[x]" : "[ ]");
             ImGui.SameLine();
             ImGui.TextUnformatted(check.Label);
-            if (!check.Complete)
+            if (!check.Complete && !string.IsNullOrWhiteSpace(check.Hint))
             {
                 ImGui.SameLine();
                 ImGui.TextColored(ImGuiColors.DalamudGrey, $"- {check.Hint}");
@@ -52,7 +52,7 @@ public sealed class ProfilePublishEditorSection
             markDirty();
         }
 
-        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult public views are controlled by each viewer's local NSFW setting and confirmation.");
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "Adult visibility follows reader settings.");
     }
 
     private static void DrawRatingCombo(string label, ProfileContentRating value, Action<ProfileContentRating> setValue, Action markDirty)
@@ -78,13 +78,13 @@ public sealed class ProfilePublishEditorSection
     private static ProfileChecklistItem[] GetCompletenessChecks(CharacterProfileDocumentDto document)
         =>
         [
-            new("Character name", !string.IsNullOrWhiteSpace(document.CharacterName), "Give viewers a name to remember."),
-            new("Pronouns", !string.IsNullOrWhiteSpace(document.Pronouns), "Helps nearby players address you cleanly."),
-            new("Tagline or at-a-glance detail", !string.IsNullOrWhiteSpace(document.Tagline) || document.AtAGlance.Count > 0, "Add a fast hook for Frostbrand cards."),
-            new("RP status or approachability", !string.IsNullOrWhiteSpace(document.RpStatus) || !string.IsNullOrWhiteSpace(document.Approachability), "Use this for IC/OOC and approach badges."),
-            new("At least one RP hook", document.Hooks.Count > 0, "Give other roleplayers something specific to respond to."),
-            new("At least one tag", document.Tags.Count > 0, "Tags help compatible players find you."),
-            new("Portrait", !string.IsNullOrWhiteSpace(document.ProfilePictureHash), "A portrait makes public cards easier to scan."),
+            new("Character name", !string.IsNullOrWhiteSpace(document.CharacterName), ""),
+            new("Pronouns", !string.IsNullOrWhiteSpace(document.Pronouns), ""),
+            new("Tagline or at-a-glance detail", !string.IsNullOrWhiteSpace(document.Tagline) || document.AtAGlance.Count > 0, ""),
+            new("RP status or approachability", !string.IsNullOrWhiteSpace(document.RpStatus) || !string.IsNullOrWhiteSpace(document.Approachability), ""),
+            new("At least one RP hook", document.Hooks.Count > 0, ""),
+            new("At least one tag", document.Tags.Count > 0, ""),
+            new("Portrait", !string.IsNullOrWhiteSpace(document.ProfilePictureHash), ""),
         ];
 
     private readonly record struct ProfileChecklistItem(string Label, bool Complete, string Hint);

@@ -677,7 +677,7 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
         var access = room.IsPrivate ? "Private room" : "Public room";
         var members = string.Format(CultureInfo.InvariantCulture, "{0} {1}", memberCount, memberCount == 1 ? "member" : "members");
         ImGui.TextColored(SnowcloakColours.CompactTextMuted,
-            string.Format(CultureInfo.InvariantCulture, "{0}  •  {1}  •  {2}", access, members, actorRole));
+            string.Format(CultureInfo.InvariantCulture, "{0}  -  {1}  -  {2}", access, members, actorRole));
     }
 
     private void SynchroniseTopic(RoomData room)

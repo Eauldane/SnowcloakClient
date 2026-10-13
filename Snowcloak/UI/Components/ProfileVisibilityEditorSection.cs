@@ -10,7 +10,7 @@ public static class ProfileVisibilityEditorSection
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(markDirty);
-        ImGui.TextWrapped("Choose who can see each part of this character profile.");
+        ImGui.TextWrapped("Set field audiences.");
         if (!ImGui.BeginTable("profile-field-audiences", 2, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
             return;
 

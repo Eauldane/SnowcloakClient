@@ -133,7 +133,7 @@ public sealed class SnapshotService : BackgroundService
             if (!_api.SupportsEnvironmentBackups) throw new InvalidOperationException("This server does not advertise environment backup support. The server must be updated before backups can run.");
             if (!_penumbra.APIAvailable || !_pi.InstalledPlugins.Any(p => p.InternalName == "Penumbra" && p.IsLoaded)) throw new InvalidOperationException("Load Penumbra before backing up.");
             var root = ModRoot ?? throw new DirectoryNotFoundException("Penumbra mod root is unavailable.");
-            Status = "Capturing stable contents…";
+            Status = "Capturing stable contents...";
             var mods = await Task.Run(InstalledMods, ct).ConfigureAwait(false);
             var pluginRoots = new Dictionary<string, (string Root, string Version)>();
             var pluginMetadata = _pi.InstalledPlugins.Where(p => plugins.Contains(p.InternalName)).Select(p => (p.InternalName, Version: p.Version.ToString(), p.IsLoaded)).OrderBy(p => p.InternalName, StringComparer.Ordinal).ToArray();

@@ -4,6 +4,7 @@ using Dalamud.Plugin.Services;
 using ElezenTools.Housing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Snowcloak.Core.PlayerData;
 using Snowcloak.Core.Scheduling;
 using Snowcloak.Game.Scheduling;
 using Snowcloak.Services.Mediator;
@@ -29,6 +30,7 @@ public sealed partial class GameStateTracker : IHostedService
     private bool _sentBetweenAreas;
     private bool _wasDead;
     private uint _lastTargetEntityId;
+    private readonly SessionLoginState _loginState = new();
 
     public GameStateTracker(
         ILogger<GameStateTracker> logger,
@@ -60,7 +62,7 @@ public sealed partial class GameStateTracker : IHostedService
     public bool IsAnythingDrawing => _objectTableCache.IsAnythingDrawing;
     public bool IsInCutscene { get; private set; }
     public bool IsInGpose { get; private set; }
-    public bool IsLoggedIn { get; private set; }
+    public bool IsLoggedIn => _loginState.IsLoggedIn;
     public bool IsZoning => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
     public bool IsInInstancedDutyOrPvP => _clientState.IsPvP
         || _condition[ConditionFlag.BoundByDuty]
@@ -207,19 +209,21 @@ public sealed partial class GameStateTracker : IHostedService
                 return;
             }
 
-            if (localPlayer != null && localPlayer.IsValid() && !IsLoggedIn
-                && _objectTableCache.GetCurrentCharacterIdentity().IsValid)
+            var characterReady = !IsLoggedIn && localPlayer != null && localPlayer.IsValid()
+                && _objectTableCache.GetCurrentCharacterIdentity().IsValid;
+            if (_loginState.Update(_clientState.IsLoggedIn, characterReady))
             {
-                LogLoggedIn(_logger);
-                IsLoggedIn = true;
-                _lastZone = _clientState.TerritoryType;
-                _mediator.Publish(new DalamudLoginMessage());
-            }
-            else if (localPlayer == null && IsLoggedIn)
-            {
-                LogLoggedOut(_logger);
-                IsLoggedIn = false;
-                _mediator.Publish(new DalamudLogoutMessage());
+                if (IsLoggedIn)
+                {
+                    LogLoggedIn(_logger);
+                    _lastZone = _clientState.TerritoryType;
+                    _mediator.Publish(new DalamudLoginMessage());
+                }
+                else
+                {
+                    LogLoggedOut(_logger);
+                    _mediator.Publish(new DalamudLogoutMessage());
+                }
             }
 
             _delayedFrameworkUpdateCheck = DateTime.UtcNow;

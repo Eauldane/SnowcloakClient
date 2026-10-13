@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="builder.css"><title>Snowcloak Profile Designer</title></head>
+<body>
+<header><div><strong>Profile designer</strong><span id="draft-status">Loading draft...</span></div><button id="settings" type="button">Character settings</button></header>
+<div id="error" role="alert" hidden></div>
+<main id="workspace">
+  <aside id="outline" hidden aria-label="Page outline"><h2>Page outline</h2><div id="outline-nodes"></div></aside>
+  <section id="stage" aria-label="Visual page editor">
+    <nav id="tools" aria-label="Designer tools"><button id="add" type="button">＋ Add</button><button id="undo" type="button">Undo</button><button id="redo" type="button">Redo</button><button id="guides" type="button" aria-pressed="false">Layout guides</button><button id="outline-toggle" type="button">Outline</button><button id="templates" type="button">Templates</button><button id="sections" type="button">Saved sections</button><button id="visibility-review" type="button">Visibility check</button><select id="viewport" aria-label="Page width"><option value="0">Desktop</option><option value="640">Compact</option><option value="360">Phone</option></select><button id="preview" type="button">Preview</button></nav>
+    <div id="add-menu" class="menu" hidden aria-label="Add element"></div>
+    <div id="template-menu" class="menu" hidden aria-label="Starting template"></div>
+    <nav id="preview-tools" hidden aria-label="Preview controls"><label>Audience <select id="audience"><option value="0">Public</option><option value="1">Paired</option><option value="2" selected>Owner</option></select></label><label><input type="checkbox" id="compare">Compare with mine</label><label hidden>Comparison filter <select id="comparison-filter" aria-label="Comparison filter"><option value="0">All interests</option><option value="1">Shared favourites</option><option value="2">Different ratings</option><option value="3">Unspecified for me</option></select></label><button id="retry-comparison" type="button" hidden>Retry comparison</button><span id="comparison-status"></span></nav>
+    <div id="profile-shell"><nav id="profile-pages" aria-label="Profile pages"></nav>
+    <div id="page-wrap"><article id="page" aria-label="Character profile"></article></div></div>
+    <p id="page-hint">Select to edit - Drag to reorder</p>
+  </section>
+  <aside id="inspector" aria-label="Selected element properties"><div id="inspector-title"><h2 id="selection-name">Page appearance</h2><button id="select-page" type="button">Page</button></div><nav id="property-tabs"><button id="content-tab" type="button" aria-pressed="true">Content</button><button id="appearance-tab" type="button" aria-pressed="false">Appearance</button></nav><div id="properties"></div><div id="element-actions"></div></aside>
+</main>
+<div id="image-lightbox" role="dialog" aria-modal="true" aria-label="Profile image viewer" hidden><div class="lightbox-panel"><nav><button id="lightbox-close" type="button">Close image</button><button id="lightbox-previous" type="button">Previous image</button><span id="lightbox-position"></span><button id="lightbox-next" type="button">Next image</button><button id="lightbox-zoom" type="button" aria-pressed="false">Actual size</button></nav><div class="lightbox-scroll"><img id="lightbox-image" alt="Profile image"></div><p id="lightbox-caption"></p></div></div>
+<script src="builder.js"></script>
+</body></html>

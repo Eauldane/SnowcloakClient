@@ -1,10 +1,12 @@
 ﻿using Dalamud.Interface;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
+using Dalamud.Bindings.ImGui;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
 using Snowcloak.Services.Mediator;
 using Snowcloak.UI;
+using Snowcloak.UI.Components;
 
 namespace Snowcloak.Services;
 
@@ -17,6 +19,10 @@ public sealed class UiService : DisposableMediatorSubscriberBase
     private readonly SnowcloakConfigService _snowcloakConfigService;
     private readonly WindowSystem _windowSystem;
     private readonly UiFactory _uiFactory;
+    private bool _browserCursorLease;
+    private bool _savedCursorOverride;
+    private bool _savedNoMouseCursorChange;
+    private bool _savedMouseDrawCursor;
 
     public UiService(ILogger<UiService> logger, IUiBuilder uiBuilder,
         SnowcloakConfigService snowcloakConfigService, WindowSystem windowSystem,
@@ -123,6 +129,7 @@ public sealed class UiService : DisposableMediatorSubscriberBase
         base.Dispose(disposing);
 
         _logger.LogTrace("Disposing {type}", GetType().Name);
+        RestoreBrowserCursor();
 
         _windowSystem.RemoveAllWindows();
 
@@ -138,9 +145,39 @@ public sealed class UiService : DisposableMediatorSubscriberBase
 
     private void Draw()
     {
+        var browserOwnsPointer = ProfileWebClient.BrowserOwnsPointer();
+        if (browserOwnsPointer && !_browserCursorLease)
+        {
+            _savedCursorOverride = _uiBuilder.OverrideGameCursor;
+            _savedNoMouseCursorChange = (ImGui.GetIO().ConfigFlags & ImGuiConfigFlags.NoMouseCursorChange) != 0;
+            _savedMouseDrawCursor = ImGui.GetIO().MouseDrawCursor;
+            _browserCursorLease = true;
+        }
+        if (browserOwnsPointer)
+        {
+            // Keep Dalamud's game SetCursor filter, but stop its backend/software cursor
+            // from overwriting the separate browser window's cursor each frame.
+            _uiBuilder.OverrideGameCursor = true;
+            ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
+            ImGui.GetIO().MouseDrawCursor = false;
+        }
+        else RestoreBrowserCursor();
         using var theme = ModernTheme.Push(SnowcloakModernPalette.Value);
 
         _windowSystem.Draw();
         _fileDialogManager.Draw();
+    }
+
+    private void RestoreBrowserCursor()
+    {
+        if (!_browserCursorLease) return;
+        _uiBuilder.OverrideGameCursor = _savedCursorOverride;
+        if (!ImGui.GetCurrentContext().Equals(default(ImGuiContextPtr)))
+        {
+            if (_savedNoMouseCursorChange) ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
+            else ImGui.GetIO().ConfigFlags &= ~ImGuiConfigFlags.NoMouseCursorChange;
+            ImGui.GetIO().MouseDrawCursor = _savedMouseDrawCursor;
+        }
+        _browserCursorLease = false;
     }
 }

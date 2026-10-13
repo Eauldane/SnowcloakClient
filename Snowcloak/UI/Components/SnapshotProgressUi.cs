@@ -33,9 +33,9 @@ internal static class SnapshotProgressUi
         while (low < high)
         {
             int mid = (low + high + 1) / 2;
-            if (ImGui.CalcTextSize(value[..mid] + "…").X <= width) low = mid; else high = mid - 1;
+            if (ImGui.CalcTextSize(value[..mid] + "...").X <= width) low = mid; else high = mid - 1;
         }
-        return value[..low] + "…";
+        return value[..low] + "...";
     }
     public static void Bar(float ratio, string label, bool known = true, float height = 17, string heading = "Progress")
     {
@@ -63,7 +63,7 @@ internal static class SnapshotProgressUi
         };
         for (int i = 0; i < steps.Length; i++)
         {
-            if (i > 0) { ImGui.SameLine(); Text("›"); ImGui.SameLine(); }
+            if (i > 0) { ImGui.SameLine(); Text(">"); ImGui.SameLine(); }
             Text(steps[i], i <= active ? SnowcloakColours.OnlineBlue : SnowcloakColours.CompactTextMuted);
         }
     }
@@ -83,7 +83,7 @@ internal static class SnapshotProgressUi
             string bytes = $"{ElezenImgui.ByteToString(progress.CurrentSent)} / {ElezenImgui.ByteToString(progress.CurrentTotal)}";
             Bar(progress.CurrentFraction, bytes, height: 14, heading: restore ? "Download" : "Upload");
         }
-        if (!restore && progress.Files > 0) Text($"{progress.Files:N0} files · {ElezenImgui.ByteToString(progress.ContentBytes)} content");
+        if (!restore && progress.Files > 0) Text($"{progress.Files:N0} files - {ElezenImgui.ByteToString(progress.ContentBytes)} content");
         if (restore) Text($"Received {ElezenImgui.ByteToString(progress.SentBytes)}");
         else
         {

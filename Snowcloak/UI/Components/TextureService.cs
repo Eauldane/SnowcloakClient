@@ -89,6 +89,40 @@ public sealed class TextureService : IDisposable
         return File.Exists(path) ? GetOrAdd(path, () => File.ReadAllBytes(path)) : null;
     }
 
+    public IDalamudTextureWrap? GetProfileImage(string hash, byte[] bytes)
+        => GetProfileTexture(hash, _ => Task.FromResult(bytes));
+
+    public IDalamudTextureWrap? GetProfileFile(string hash, string path)
+        => GetProfileTexture(hash, token => File.ReadAllBytesAsync(path, token));
+
+    private IDalamudTextureWrap? GetProfileTexture(string hash, Func<CancellationToken, Task<byte[]>> load)
+    {
+        var key = "profile:" + hash;
+        lock (_sync)
+        {
+            if (_cache.TryGetValue(key, out var texture)) return texture;
+            if (_loading.ContainsKey(key) || _failed.Contains(key)) return null;
+            _loading[key] = Task.Run(() => LoadProfileImageAsync(key, load));
+        }
+        return null;
+    }
+
+    private async Task LoadProfileImageAsync(string key, Func<CancellationToken, Task<byte[]>> load)
+    {
+        try
+        {
+            var bytes = await load(_disposeCts.Token).ConfigureAwait(false);
+            var texture = await _textureProvider.CreateFromImageAsync(bytes, cancellationToken: _disposeCts.Token).ConfigureAwait(false);
+            lock (_sync)
+            {
+                if (_disposeCts.IsCancellationRequested) { texture.Dispose(); return; }
+                _cache[key] = texture; _remoteCacheOrder.Enqueue(key); TrimRemoteCache();
+            }
+        }
+        catch (Exception ex) when (IsExpectedImageLoadFailure(ex)) { lock (_sync) _failed.Add(key); }
+        finally { lock (_sync) _loading.Remove(key); }
+    }
+
     private IDalamudTextureWrap? GetOrAdd(string key, Func<byte[]> loadAction)
     {
         lock (_sync)
@@ -104,6 +138,11 @@ public sealed class TextureService : IDisposable
             lock (_sync)
             {
                 _cache[key] = texture;
+                if (key.StartsWith("profile:", StringComparison.Ordinal))
+                {
+                    _remoteCacheOrder.Enqueue(key);
+                    TrimRemoteCache();
+                }
             }
             return texture;
         }

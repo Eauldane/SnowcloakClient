@@ -24,16 +24,8 @@ using System.Threading;
 
 namespace Snowcloak.UI;
 
-public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
+public sealed partial class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 {
-    private const string EditorTabCard = "Public Card";
-    private const string EditorTabDetails = "Details";
-    private const string EditorTabTags = "Tags";
-    private const string EditorTabBoundaries = "Boundaries";
-    private const string EditorTabVisibility = "Visibility";
-    private const string EditorTabPreview = "Preview";
-    private const string EditorTabPublish = "Publish";
-
     private readonly ApiController _apiController;
     private readonly CharacterProfileBackupService _backupService;
     private readonly BbCodeRenderService _bbCodeRenderService;
@@ -47,6 +39,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ProfilePublishEditorSection _publishSection = new();
     private readonly ProfileTagsEditorSection _tagsSection = new();
     private readonly ProfileViewComponent _profileView;
+    private readonly NativeProfilePageCanvas _nativePageCanvas;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly TextureService _textureService;
     private readonly ImageTransferService _imageTransferService;
@@ -69,7 +62,6 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     private bool _tutorialPopupOpened;
     private Guid? _selectedBackupId;
     private bool _wasOpen;
-    private string _editorActiveTab = EditorTabCard;
     private OwnRpStatusUpdatedMessage? _pendingRpStatusUpdate;
 
     public EditProfileUi(ILogger<EditProfileUi> logger, SnowMediator mediator,
@@ -89,13 +81,19 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         _bbCodeRenderService = bbCodeRenderService;
         _dalamudUtilService = dalamudUtilService;
         _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
+        _nativePageCanvas = new NativeProfilePageCanvas(fontService);
+        _webPluginDirectory = fontService.PluginDirectory;
         IsOpen = false;
-        SetScaledSizeConstraints(new Vector2(620f, 600f), new Vector2(860f, 2000f));
+        SetScaledSizeConstraints(new Vector2(720f, 600f), new Vector2(2600f, 2000f));
+        Size = new Vector2(1440f, 900f);
+        SizeCondition = ImGuiCond.FirstUseEver;
         Mediator.Subscribe<GposeStartMessage>(this, _ => { _wasOpen = IsOpen; IsOpen = false; });
+        Mediator.Subscribe<GposeStartMessage>(this, _ => _webBuilder?.Hide());
         Mediator.Subscribe<GposeEndMessage>(this, _ => IsOpen = _wasOpen);
         Mediator.Subscribe<DisconnectedMessage>(this, _ =>
         {
             InvalidatePendingImageSelections();
+            _webBuilder?.Hide();
             _wasOpen = false;
             IsOpen = false;
         });
@@ -121,6 +119,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         DrawFirstRunTutorial();
         DrawProfileScopeNotice();
         ConsumeOperations();
+        ConsumeBuilderOperations();
         ApplyPendingRpStatusUpdate();
 
         var profile = _snowProfileManager.GetOwnProfile(ProfileVisibility.Private);
@@ -138,57 +137,8 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
         ApplyPendingPublishedDocument();
         EnsureImageTextures();
-        var document = _session.ToDocument();
-        CharacterProfileUiShared.DrawHeader(document, "Current character", headerImageTexture: _headerImageTexture,
-            bbCodeRenderService: _bbCodeRenderService);
-        CharacterProfileUiShared.DrawProfileBadges(document, "rp-profile-editor-badges", _bbCodeRenderService);
-
-        _editorActiveTab = ModernTabBar.Draw(
-            "rp-profile-editor-tabs",
-            new[] { EditorTabCard, EditorTabDetails, EditorTabTags, EditorTabBoundaries, EditorTabVisibility, EditorTabPreview, EditorTabPublish },
-            _editorActiveTab);
-        ImGuiHelpers.ScaledDummy(new Vector2(0, 5));
-
-        if (string.Equals(_editorActiveTab, EditorTabCard, StringComparison.Ordinal))
-        {
-            _identitySection.Draw(_session, MarkDirty);
-            _imageSection.Draw(
-                _session,
-                _headerImageTexture,
-                _profileImageTexture,
-                OpenHeaderImageDialog,
-                RemoveHeaderImage,
-                OpenPortraitDialog,
-                RemovePortrait,
-                MarkDirty);
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabDetails, StringComparison.Ordinal))
-        {
-            _detailsSection.Draw(_session, MarkDirty);
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabTags, StringComparison.Ordinal))
-        {
-            _tagsSection.Draw(_session, MarkDirty);
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabBoundaries, StringComparison.Ordinal))
-        {
-            ProfileBoundariesEditorSection.Draw(_session, MarkDirty);
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabVisibility, StringComparison.Ordinal))
-        {
-            ProfileVisibilityEditorSection.Draw(_session, MarkDirty);
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabPreview, StringComparison.Ordinal))
-        {
-            DrawProfilePreview();
-        }
-        else if (string.Equals(_editorActiveTab, EditorTabPublish, StringComparison.Ordinal))
-        {
-            _publishSection.DrawChecklist(_session);
-            _publishSection.DrawContentControls(_session, MarkDirty);
-            DrawLocalBackups();
-            DrawSaveControls();
-        }
+        DrainWebCommands();
+        DrawEditorWorkspace();
 
         TryAutosaveDraft();
     }
@@ -207,15 +157,12 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
             return;
         }
 
-        ImGui.TextWrapped("Snowcloak profiles allow you to show pairs and potential pairs what you're about.");
         ImGui.Spacing();
-        ImGui.BulletText("Frostbrand can show your public card, hooks, portrait, and profile tags while you are opted in.");
-        ImGui.BulletText("Kink tags are only shown to viewers who have matching kink tags on their own profile.");
-        ImGui.BulletText("Pairs can see the full profile - including overview, OOC notes, and adult preferences - unless you mark a field as private.");
-        ImGui.BulletText("Publishing a profile does not enable Frostbrand by itself - this is a separate opt-in system.");
-        ImGui.BulletText("Drafts autosave locally while you edit, and successful publishes are kept as local recovery backups for copying to other characters, or restoring after world transfer/name change.");
+        ImGui.BulletText("Add elements with +. Drag handles to reorder.");
+        ImGui.BulletText("Select to edit. Double-click text to write. Preview supports Public, Paired and Owner views.");
+        ImGui.BulletText("Frostbrand listing is public and opt-in.");
+        ImGui.BulletText("Audience settings control which fields viewers can see.");
         ImGui.Spacing();
-        ImGui.TextWrapped("The more you fill out, the more likely you are to find compatible partners!");
 
         if (ImGui.Button("Start editing", new Vector2(180f * ImGuiHelpers.GlobalScale, 0)))
         {
@@ -241,7 +188,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
     {
         CharacterProfileUiShared.DrawSectionTitle("Local Recovery");
         ImGui.TextColored(ImGuiColors.DalamudGrey,
-            "Drafts autosave while you edit. Successful publishes are also backed up locally for rename or home-world transfer recovery.");
+            "Local drafts and published backups are available below.");
 
         var draft = _backupService.GetDraft(_session.LoadedIdent);
         if (draft != null)
@@ -293,6 +240,8 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void DrawProfilePreview()
     {
+        if (_session.Builder?.Presentation == ProfilePresentation.Custom) { DrawCustomPreviewLink(); return; }
+        if (_session.Builder != null) { DrawBuilderAudienceSelector(); DrawBuilderPreview(); return; }
         CharacterProfileUiShared.DrawSectionTitle("Preview");
         if (ImGui.RadioButton("Frostbrand public view", _previewMode == 0))
         {
@@ -319,9 +268,11 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         }
     }
 
-    private void DrawSaveControls()
+    private void DrawSaveControls(bool compact = false)
     {
-        CharacterProfileUiShared.DrawSectionTitle("Publish");
+        if (ImGui.Button("Review visibility"))
+        { _showProfileSettings = true; _editorSection = EditorSection.Review; _webBuilder?.Hide(); }
+        if (!compact) CharacterProfileUiShared.DrawSectionTitle("Publish");
         if (!string.IsNullOrWhiteSpace(_status))
         {
             ImGui.TextColored(_statusIsError ? ImGuiColors.DalamudRed : ImGuiColors.HealerGreen, _status);
@@ -345,7 +296,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         ImGui.SameLine();
-        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete published profile"))
+        if (!compact && ElezenImgui.ShowIconButton(FontAwesomeIcon.Trash, "Delete published profile"))
         {
             DeletePublishedProfile();
         }
@@ -354,12 +305,19 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void LoadDraft(SnowProfileData profile)
     {
+        _webEditEpoch++;
         if (!string.IsNullOrEmpty(_session.LoadedIdent)
             && !string.Equals(_session.LoadedIdent, profile.Ident, StringComparison.Ordinal))
         {
+            SaveCurrentDraftImmediately();
             InvalidatePendingImageSelections();
         }
         _session.Load(profile.Ident, profile.Revision, profile.Document);
+        _pendingProfilePresentation = null;
+        _webFlushRequest = null;
+        _webPublishRequested = false;
+        if (_session.Builder == null && _apiController.SupportsProfileBuilder)
+            _session.Builder = Snowcloak.Core.Profiles.ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
     }
 
     private void ApplyPendingRpStatusUpdate()
@@ -371,12 +329,25 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void LoadDocument(CharacterProfileDocumentDto document, bool markDirty)
     {
+        _pendingProfilePresentation = null;
+        _webFlushRequest = null;
+        _webPublishRequested = false;
+        _webEditEpoch++;
         InvalidatePendingImageSelections();
         _session.ReplaceDocument(document, markDirty);
+        if (_session.Builder == null && _apiController.SupportsProfileBuilder)
+            _session.Builder = Snowcloak.Core.Profiles.ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
     }
 
     private void PublishDraft()
     {
+        if (_pendingProfilePresentation != null) { SetStatus("Wait for the profile presentation change to finish.", true); return; }
+        if (!_useNativeEditor && !_showProfileSettings && _webBuilder is { Ready: true, Connected: true, Failure: null } && !_webPublishConfirmed)
+        {
+            _webPublishRequested = true;
+            BeginWebFlush();
+            SetStatus("Finishing local editor changes..."); return;
+        }
         if (HasPendingImageUploads)
         {
             SetStatus("Wait for the selected profile images to finish uploading before publishing.", true);
@@ -392,16 +363,19 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
         var update = _session.ToUpdateDto();
         SetStatus("Publishing...");
-        _ = _publishOperation.Run(() => PublishDraftAsync(update.ExpectedRevision, update.Document));
+        _ = Snowcloak.Core.Profiles.ProfileOperationTask.ObserveAsync(_publishOperation.Run(() => PublishDraftAsync(update)));
     }
 
-    private async Task<PublishedProfileResult> PublishDraftAsync(long? expectedRevision, CharacterProfileDocumentDto document)
+    private async Task<PublishedProfileResult> PublishDraftAsync(CharacterProfileUpdateDto update)
     {
+        var document = update.Document;
         try
         {
-            var saved = await _apiController.CharacterProfileSet(new CharacterProfileUpdateDto(
-                expectedRevision,
-                document)).ConfigureAwait(false);
+            if (document.Builder != null && !_apiController.SupportsProfileBuilder) throw new InvalidOperationException("This server does not support the profile builder.");
+            if (document.Builder?.LayoutMode == Snowcloak.API.Dto.User.ProfileLayoutMode.Canvas && !_apiController.SupportsProfileCanvas)
+                throw new InvalidOperationException("This server does not support freeform profiles. Update the server before publishing this draft.");
+            await RecoverBuilderImages(document).ConfigureAwait(false);
+            var saved = await _apiController.CharacterProfileSet(update).ConfigureAwait(false);
             var label = string.IsNullOrWhiteSpace(document.CharacterName)
                 ? await _dalamudUtilService.GetPlayerNameAsync().ConfigureAwait(false)
                 : document.CharacterName;
@@ -418,7 +392,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void DeletePublishedProfile()
     {
-        _ = _deleteOperation.Run(DeletePublishedProfileAsync);
+        _ = Snowcloak.Core.Profiles.ProfileOperationTask.ObserveAsync(_deleteOperation.Run(DeletePublishedProfileAsync));
     }
 
     private async Task DeletePublishedProfileAsync()
@@ -556,12 +530,12 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
             if (kind == ProfileImageKind.Header)
             {
                 _session.HeaderImageHash = reply.Hash;
-                SetStatus($"Header image added to the draft. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}.");
+                SetStatus($"Header image added to the draft. Image storage: {FormatImageQuota(reply.CharacterUsageBytes, reply.CharacterQuotaBytes)}.");
             }
             else
             {
                 _session.ProfileImageHash = reply.Hash;
-                SetStatus($"Portrait added to the draft. Image storage: {FormatImageQuota(reply.AccountUsageBytes, reply.AccountQuotaBytes)}.");
+                SetStatus($"Portrait added to the draft. Image storage: {FormatImageQuota(reply.CharacterUsageBytes, reply.CharacterQuotaBytes)}.");
             }
 
             MarkDirty();
@@ -645,6 +619,7 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     private void MarkDirty()
     {
+        _webEditEpoch++;
         _session.MarkDirty();
     }
 
@@ -738,6 +713,9 @@ public sealed class EditProfileUi : WindowMediatorSubscriberBase, IStaticWindow
 
     protected override void Dispose(bool disposing)
     {
+        _webPublishRequested = false;
+        SaveCurrentDraftImmediately();
+        _webBuilder?.Dispose();
         _headerImageTexture?.Dispose();
         _profileImageTexture?.Dispose();
         base.Dispose(disposing);

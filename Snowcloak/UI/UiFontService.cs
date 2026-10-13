@@ -11,6 +11,7 @@ public sealed class UiFontService : IDisposable
 {
     public UiFontService(IDalamudPluginInterface pluginInterface)
     {
+        PluginDirectory = pluginInterface.AssemblyLocation.Directory?.FullName ?? string.Empty;
         ArgumentNullException.ThrowIfNull(pluginInterface);
 
         UidFont = pluginInterface.UiBuilder.FontAtlas.NewDelegateFontHandle(e =>
@@ -22,10 +23,15 @@ public sealed class UiFontService : IDisposable
             }));
         });
         GameFont = pluginInterface.UiBuilder.FontAtlas.NewGameFontHandle(new(GameFontFamilyAndSize.Axis12));
+        ProfileSansFont = pluginInterface.UiBuilder.FontAtlas.NewGameFontHandle(new(GameFontFamilyAndSize.MiedingerMid14));
+        ProfileSerifFont = pluginInterface.UiBuilder.FontAtlas.NewGameFontHandle(new(GameFontFamilyAndSize.Jupiter16));
         IconFont = pluginInterface.UiBuilder.IconFontFixedWidthHandle;
     }
 
     public IFontHandle GameFont { get; }
+    public string PluginDirectory { get; }
+    public IFontHandle ProfileSansFont { get; }
+    public IFontHandle ProfileSerifFont { get; }
     public IFontHandle IconFont { get; }
     public IFontHandle UidFont { get; }
 
@@ -38,5 +44,7 @@ public sealed class UiFontService : IDisposable
     {
         UidFont.Dispose();
         GameFont.Dispose();
+        ProfileSansFont.Dispose();
+        ProfileSerifFont.Dispose();
     }
 }

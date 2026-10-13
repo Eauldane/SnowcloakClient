@@ -28,7 +28,7 @@ public static class CharacterProfileUiShared
         var height = compact ? 78f : 132f;
         var end = start + new Vector2(width, height);
         var drawList = ImGui.GetWindowDrawList();
-        var accent = ParseAccentColor(document.HeaderAccentColorHex);
+        var accent = ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowAccent, ParseAccentColor(document.HeaderAccentColorHex));
 
         drawList.AddRectFilled(start, end, Colour.Vector4ToColour(HeaderBackground), 8f);
         if (headerImageTexture != null)
@@ -100,7 +100,7 @@ public static class CharacterProfileUiShared
         if (!compact && !string.IsNullOrWhiteSpace(document.Tagline))
         {
             ImGui.SetCursorScreenPos(new Vector2(textStart.X, currentY));
-            DrawProfileText(document.Tagline, panelWidth - 28f, ImGuiColors.DalamudGrey, bbCodeRenderService);
+            DrawProfileText(document.Tagline, panelWidth - 28f, ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowMutedText, ImGuiColors.DalamudGrey), bbCodeRenderService);
         }
 
         ImGui.SetCursorScreenPos(afterHeader);
@@ -129,12 +129,13 @@ public static class CharacterProfileUiShared
 
     public static void DrawSectionTitle(string title)
     {
+        var accent = ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowAccent, SectionAccent);
         ImGui.Spacing();
-        ImGui.TextColored(SectionAccent, title);
+        ImGui.TextColored(accent, title);
         var min = ImGui.GetCursorScreenPos();
         var max = min with { X = min.X + MathF.Max(1f, ImGui.GetContentRegionAvail().X) };
         ImGui.GetWindowDrawList().AddLine(min, max,
-            Colour.Vector4ToColour(new Vector4(SectionAccent.X, SectionAccent.Y, SectionAccent.Z, 0.28f)),
+            Colour.Vector4ToColour(new Vector4(accent.X, accent.Y, accent.Z, accent.W * 0.28f)),
             1f * ImGuiHelpers.GlobalScale);
         ImGui.Dummy(new Vector2(0f, 4f * ImGuiHelpers.GlobalScale));
     }
@@ -142,7 +143,7 @@ public static class CharacterProfileUiShared
     public static void DrawLabelValue(string label, string? value, BbCodeRenderService? bbCodeRenderService = null)
     {
         if (string.IsNullOrWhiteSpace(value)) return;
-        ImGui.TextColored(ImGuiColors.DalamudGrey, label);
+        ImGui.TextColored(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowMutedText, ImGuiColors.DalamudGrey), label);
         ImGui.SameLine();
         DrawProfileText(value, ImGui.GetContentRegionAvail().X, ImGui.GetStyle().Colors[(int)ImGuiCol.Text], bbCodeRenderService);
     }
@@ -154,7 +155,7 @@ public static class CharacterProfileUiShared
         if (badges.Count == 0)
             return;
 
-        var accent = ParseAccentColor(document.HeaderAccentColorHex);
+        var accent = ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowAccent, ParseAccentColor(document.HeaderAccentColorHex));
         var mutedAccent = new Vector4(accent.X * 0.45f, accent.Y * 0.45f, accent.Z * 0.45f, 0.92f);
         var spacing = ImGui.GetStyle().ItemSpacing;
         var lineWidth = MathF.Max(1f, ImGui.GetContentRegionAvail().X);
@@ -202,7 +203,7 @@ public static class CharacterProfileUiShared
         var renderableCount = parsedStatuses.Count(IsRenderableMoodle);
         if (renderableCount > statuses.Count)
         {
-            ImGui.TextColored(ImGuiColors.DalamudGrey, $"+{renderableCount - statuses.Count} more Moodle status{(renderableCount - statuses.Count == 1 ? string.Empty : "es")}");
+            ImGui.TextColored(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowMutedText, ImGuiColors.DalamudGrey), $"+{renderableCount - statuses.Count} more Moodle status{(renderableCount - statuses.Count == 1 ? string.Empty : "es")}");
         }
     }
 
@@ -277,6 +278,8 @@ public static class CharacterProfileUiShared
 
     private static void DrawBadge(string id, string label, Vector4 color, BbCodeRenderService? bbCodeRenderService)
     {
+        if (ProfileWindowColours.ActiveTheme is { CustomChipColours: true } theme)
+            color = ProfileWindowColours.Resolve(theme.WindowBadge, color);
         using var idScope = ImRaii.PushId(id);
         var size = MeasureBadge(label, bbCodeRenderService);
         var min = ImGui.GetCursorScreenPos();

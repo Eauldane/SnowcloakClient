@@ -67,10 +67,12 @@ public abstract class WindowMediatorSubscriberBase : Window, IMediatorSubscriber
     public override void Draw()
     {
         using var palette = ModernWindowStyle.PushContentPalette();
+        using var contentStyle = PushWindowContentStyle();
         _performanceCollectorService.LogPerformance(this, $"Draw", DrawInternal);
     }
 
     protected abstract void DrawInternal();
+    protected virtual IDisposable? PushWindowContentStyle() => null;
 
     public virtual Task StopAsync(CancellationToken cancellationToken)
     {

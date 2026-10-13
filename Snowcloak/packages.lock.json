@@ -93,20 +93,20 @@
       },
       "MessagePack": {
         "type": "Direct",
-        "requested": "[3.1.11, )",
-        "resolved": "3.1.11",
-        "contentHash": "NmWf3ZELELB67gjUFcb2PNO0S2QhohTSd6lTarWUCZlhjXz4bxECxPt6N2GYmtGGgUkvBKEpPT5s6r0wlurDZA==",
+        "requested": "[3.1.12, )",
+        "resolved": "3.1.12",
+        "contentHash": "m1QEsd59gUj82ji5tEQbZiyjV6y0F7cYfGVhil6pAlNZpyzR7ze9TucMu4lPpi8cZAV8aNl3D9/T9J1HbFz15Q==",
         "dependencies": {
-          "MessagePack.Annotations": "3.1.11",
-          "MessagePackAnalyzer": "3.1.11",
+          "MessagePack.Annotations": "3.1.12",
+          "MessagePackAnalyzer": "3.1.12",
           "Microsoft.NET.StringTools": "17.11.4"
         }
       },
       "MessagePack.Annotations": {
         "type": "Direct",
-        "requested": "[3.1.11, )",
-        "resolved": "3.1.11",
-        "contentHash": "yZaUj+IQBgqE/W5JTgo/ORaM+zt861LkDns/EHBgaMZ0t9rQWtxO/qwkbU5pqvaQhfL/E/en5G/6AHLgDNNFeg=="
+        "requested": "[3.1.12, )",
+        "resolved": "3.1.12",
+        "contentHash": "LdI67sY7F3KK+JsrG02+DP1XFkowaZSoyfL2M88hjm1MOOsjf8amBLAJolV+zxoPUZf3uGbKzq1cMQD8PlpSpA=="
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
@@ -211,9 +211,9 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[4.3.2, )",
-        "resolved": "4.3.2",
-        "contentHash": "uWzMon7REKYCEBD0Ah2wMgmYbddp4lWfdb7m4hZTvYcFFq1awM/geSTffqi/a73Tek1FdSvHisL2yu8bOuOOqA==",
+        "requested": "[4.4.3.6, )",
+        "resolved": "4.4.3.6",
+        "contentHash": "CNaPGWMmWxBuez5NgMDi4wA6jAoy7kfoewja7ggtuAU1l7Xuih2IAlTr71dTuJoO7KaG7GoP5GvZAtF2a7HU6w==",
         "dependencies": {
           "Blake3": "2.2.1",
           "MessagePack": "3.1.11",
@@ -224,7 +224,7 @@
         "type": "Direct",
         "requested": "[4.3.0.4, )",
         "resolved": "4.3.0.4",
-        "contentHash": "J0kQthNUvlXwDRsfZECBxx43ZHbj0+hfakYwiXmXdJ7ymRv2xIvKwmRby+MdV6UvbDlrl2lbJBsKauBXgLtuog==",
+        "contentHash": "RROwZ+aBQqYOuNYSgrj3RHHMufcJCE7LxQMIC/J7kNDEtOmrVwbEUzDq9Pz2Luhf4LpZlncPppY2FWvwHZ0BIQ==",
         "dependencies": {
           "Blake3": "2.2.1",
           "K4os.Compression.LZ4.Streams": "1.3.8",
@@ -291,8 +291,8 @@
       },
       "MessagePackAnalyzer": {
         "type": "Transitive",
-        "resolved": "3.1.11",
-        "contentHash": "C8dO8dqEkjxwSz8pM6pr1nIRZ6fm6LWtagEOVz/tzJgG8JWNKcUGSSy5tQM+0ALWsh6fFhS8bhzLpnsrPUmSkw=="
+        "resolved": "3.1.12",
+        "contentHash": "iNSNatPh6bafRUbkQKlClExjpPpd8hiZgfZsodGf7bheIlkizGbMzsJ2mPui8jOHRe4Ky9eg5ou/fFzI7CT3fg=="
       },
       "Microsoft.AspNetCore.Connections.Abstractions": {
         "type": "Transitive",
@@ -771,7 +771,7 @@
         "dependencies": {
           "ElezenTools.Core": "[15.56.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Snowcloak.API": "[4.3.2, )"
+          "Snowcloak.API": "[4.4.3.6, )"
         }
       },
       "snowcloak.game": {

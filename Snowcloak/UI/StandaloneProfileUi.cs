@@ -34,6 +34,10 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private readonly TextureService _textureService;
     private readonly ImageTransferService _imageTransferService;
     private readonly ProfileViewComponent _profileView;
+    private readonly Snowcloak.Configuration.SnowcloakConfigService _profileConfig;
+    private Task<SnowProfileData>? _profileFetch;
+    private IDisposable? _profileWindowStyle;
+    private bool _profilePaddingPushed;
     private readonly string _windowIdSuffix;
     private DateTime _lastLocalMoodlesRefreshUtc = DateTime.MinValue;
     private byte[] _lastHeaderImage = [];
@@ -54,8 +58,13 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
             performanceCollectorService)
     {
         _textureService = textureService;
+        _profileConfig = configService;
         _imageTransferService = imageTransferService;
         _profileView = new ProfileViewComponent(fontService, bbCodeRenderService, textureService, configService);
+        Mediator.Subscribe<ClearCharacterProfileDataMessage>(this, message =>
+        {
+            if (IsOpen && (string.IsNullOrEmpty(message.Ident) || message.Ident == _ident)) FetchLatestProfile();
+        });
         _snowProfileManager = snowProfileManager;
         _userSafetyStore = userSafetyStore;
         _dalamudUtilService = dalamudUtilService;
@@ -82,10 +91,24 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     {
         try
         {
-            var profile = _snowProfileManager.GetSnowProfile(_ident, _requestedVisibility);
+            if (_profileFetch == null) FetchLatestProfile();
+            var fetch = _profileFetch;
+            if (fetch is not { IsCompleted: true })
+            {
+                _profileView.HideWebRenderer(); ImGui.TextUnformatted("Loading profile..."); return;
+            }
+            if (!fetch.IsCompletedSuccessfully)
+            {
+                _ = fetch.Exception;
+                _profileView.HideWebRenderer(); ImGui.TextWrapped("Could not fetch the latest profile.");
+                if (ImGui.Button("Retry profile fetch")) FetchLatestProfile();
+                return;
+            }
+            var profile = fetch.Result;
             RefreshHeaderTexture(ResolveImageBytes(profile.Document.HeaderImageHash));
             RefreshTexture(ResolveImageBytes(profile.Document.ProfilePictureHash));
             DrawProfile(profile);
+            if (profile.Revision <= 0 && ImGui.Button("Refresh profile")) FetchLatestProfile();
         }
         catch (Exception ex)
         {
@@ -96,9 +119,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     private void DrawProfile(SnowProfileData profile)
     {
         UpdateWindowTitle(profile);
-        var viewerPrivateDocument = profile.IsOwnProfile
-            ? null
-            : _snowProfileManager.GetOwnProfile(ProfileVisibility.Private) is { Revision: > 0 } ownProfile
+        var viewerPrivateDocument = _snowProfileManager.GetOwnProfile(ProfileVisibility.Private) is { Revision: > 0 } ownProfile
                 ? ownProfile.Document
                 : null;
         _profileView.DrawStandalone(new ProfileViewRequest(
@@ -108,10 +129,13 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
             _textureWrap,
             GetVisibleTagsForViewer(profile),
             GetMoodlesData(profile),
-            "standalone-profile",
+            "standalone-profile:" + profile.Ident,
             DrawReportButton: () => DrawSafetyActions(profile),
             DrawPairingDetails: DrawPairingDetails,
-            ViewerPrivateDocument: viewerPrivateDocument));
+            ViewerPrivateDocument: viewerPrivateDocument,
+            GetAssetTexture: hash => _imageTransferService.TryGetImage(hash, out var bytes) ? _textureService.GetProfileImage(hash, bytes) : null,
+            RetryOwnProfile: () => _ = _snowProfileManager.GetOwnProfileAsync(ProfileVisibility.Private, forceRefresh: true),
+            GetAssetBytes: hash => _imageTransferService.TryGetImage(hash, out var bytes) ? bytes : null));
     }
 
     private void DrawSafetyActions(SnowProfileData profile)
@@ -132,7 +156,7 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.UserSlash, "Block all contact with this user") && reportedUser != null)
                 _userSafetyStore.Block(reportedUser.UID);
         }
-        ElezenImgui.AttachTooltip("Blocking removes direct pairing and prevents future discovery, pair requests, direct messages, and mutual chat delivery. Shared syncshell appearance remains unchanged.");
+        ElezenImgui.AttachTooltip("Blocks direct contact and discovery. Shared syncshell appearance remains visible.");
     }
 
     private IReadOnlyList<UserProfileTagDto> GetVisibleTagsForViewer(SnowProfileData profile)
@@ -258,11 +282,60 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
 
     public override void OnClose()
     {
+        _profileFetch = null;
+        _profileView.ResetReaderView();
+        _profileView.HideWebRenderer();
         Mediator.Publish(new RemoveWindowMessage(this));
     }
 
+    public override void OnOpen()
+    {
+        base.OnOpen(); _profileView.ResetReaderView(); FetchLatestProfile();
+    }
+
+    private void FetchLatestProfile()
+    {
+        _profileFetch = string.IsNullOrWhiteSpace(_ident)
+            ? Task.FromResult(_snowProfileManager.GetSnowProfile(_ident, _requestedVisibility))
+            : _snowProfileManager.GetSnowProfileAsync(_ident, _requestedVisibility, forceRefresh: true);
+        _ = Snowcloak.Core.Profiles.ProfileOperationTask.ObserveAsync(_profileFetch);
+    }
+
+    private ProfileThemeDto? VisibleWindowTheme()
+    {
+        var fetch = _profileFetch;
+        if (_profileConfig.Current.ProfileReaderHighContrast || fetch is not { IsCompletedSuccessfully: true }) return null;
+        var profile = fetch.Result;
+        if (profile.Disabled || profile.Revision <= 0) return null;
+        if (!profile.IsOwnProfile && profile.IsNSFW && !_profileConfig.Current.ProfilesAllowNsfw) return null;
+        return profile.Document.Builder?.Theme is { CustomWindowColours: true } theme ? theme : null;
+    }
+
+    public override void PreDraw()
+    {
+        base.PreDraw();
+        if (_profileFetch is { IsCompletedSuccessfully: true } fetch && !_profileView.UsesClassicView(fetch.Result.Document.Builder))
+        {
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+            _profilePaddingPushed = true;
+        }
+        if (VisibleWindowTheme() is { } theme) _profileWindowStyle = new ProfileWindowColours(theme);
+    }
+    public override void PostDraw()
+    {
+        try
+        {
+            _profileWindowStyle?.Dispose(); _profileWindowStyle = null;
+            if (_profilePaddingPushed) { ImGui.PopStyleVar(); _profilePaddingPushed = false; }
+        }
+        finally { base.PostDraw(); }
+    }
+    protected override IDisposable? PushWindowContentStyle()
+        => VisibleWindowTheme() is { } theme ? new ProfileWindowColours(theme) : null;
+
     protected override void Dispose(bool disposing)
     {
+        _profileView.DisposeWebRenderer();
         _headerTextureWrap?.Dispose();
         _textureWrap?.Dispose();
         base.Dispose(disposing);

@@ -437,7 +437,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         var rightLabel = conversation.Unread > 0
-            ? string.Format(CultureInfo.InvariantCulture, "{0} · {1}", index, conversation.Unread)
+            ? string.Format(CultureInfo.InvariantCulture, "{0} - {1}", index, conversation.Unread)
             : index.ToString(CultureInfo.InvariantCulture);
         var rightSize = ImGui.CalcTextSize(rightLabel);
         var rightX = max.X - rightSize.X - 7f * scale;
@@ -556,7 +556,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             return text;
         }
 
-        const string ellipsis = "…";
+        const string ellipsis = "...";
         var length = text.Length;
         while (length > 0 && ImGui.CalcTextSize(text.AsSpan(0, length).ToString() + ellipsis).X > maxWidth)
         {
@@ -612,7 +612,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         var room = _chatService.ListRooms().FirstOrDefault(candidate => string.Equals(candidate.RoomId, conversation.Key.Id, StringComparison.Ordinal));
         var title = room?.Scene?.IsScene == true && !string.IsNullOrWhiteSpace(room.Scene.Title)
-            ? room.Name + " · " + room.Scene.Title
+            ? room.Name + " - " + room.Scene.Title
             : conversation.Title;
         return (title, null, null, FontAwesomeIcon.Comments);
     }
@@ -652,7 +652,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             parts.Add("Muted");
         }
 
-        return string.Join(" · ", parts);
+        return string.Join(" - ", parts);
     }
 
     private static string FormatMemberCount(int count)

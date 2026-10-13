@@ -51,6 +51,8 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly HashSet<string> _failedDirectoryImages = new(StringComparer.Ordinal);
     private string _activeTab = PeopleTab;
     private string _peopleSearch = string.Empty;
+    private string _preferenceFilterSearch = string.Empty;
+    private readonly HashSet<string> _peoplePreferences = new(StringComparer.Ordinal);
     private string _peopleTags = string.Empty;
     private ProfileTagType _peopleTagType = ProfileTagType.Other;
     private string _peopleStatuses = string.Empty;
@@ -474,11 +476,24 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     {
         using var panelBackground = ImRaii.PushColor(ImGuiCol.ChildBg, SnowcloakColours.CompactPanel);
         using var panelPadding = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(14f, 10f) * ImGuiHelpers.GlobalScale);
-        using var panel = ImRaii.Child("rp-people-filters", new Vector2(-1f, 225f * ImGuiHelpers.GlobalScale), true);
+        using var panel = ImRaii.Child("rp-people-filters", new Vector2(-1f, 275f * ImGuiHelpers.GlobalScale), true);
         if (!panel)
             return;
 
         ModernSection.Header(FontAwesomeIcon.Search, "Find people");
+        if (ImGui.BeginCombo("Public interests", _peoplePreferences.Count == 0 ? "Any" : $"{_peoplePreferences.Count} selected"))
+        {
+            ImGui.InputText("Search interests", ref _preferenceFilterSearch, 160);
+            if (ImGui.Selectable("Clear interest filters")) _peoplePreferences.Clear();
+            foreach (var entry in Snowcloak.API.Data.ProfilePreferenceCatalogue.Entries.Where(e =>
+                e.Name.Contains(_preferenceFilterSearch, StringComparison.OrdinalIgnoreCase) || e.Aliases.Any(a => a.Contains(_preferenceFilterSearch, StringComparison.OrdinalIgnoreCase))))
+            {
+                var selected = _peoplePreferences.Contains(entry.Id);
+                if (ImGui.Checkbox(entry.Name + "###" + entry.Id, ref selected))
+                { if (selected && _peoplePreferences.Count < 32) _peoplePreferences.Add(entry.Id); else _peoplePreferences.Remove(entry.Id); }
+            }
+            ImGui.EndCombo();
+        }
         var width = ImGui.GetContentRegionAvail().X;
         ImGui.SetNextItemWidth(width * 0.38f);
         ImGui.InputTextWithHint("##rp-people-search", "Search profile text", ref _peopleSearch, 120);
@@ -537,6 +552,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         Queue(_roleplay.SearchPeopleAsync(new RpProfileDirectoryQueryDto
         {
             Search = EmptyToNull(_peopleSearch),
+            PreferenceIds = _peoplePreferences.ToList(),
             Tags = tags,
             RpStatuses = SplitTerms(_peopleStatuses),
             Approachability = SplitTerms(_peopleApproach),
@@ -582,7 +598,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             if (profile.CurrentHook != null)
                 ImGui.TextWrapped("Current hook: " + profile.CurrentHook.Title);
             if (entry.Availability != null)
-                ImGui.TextColored(ImGuiColors.HealerGreen, AvailabilityStateLabel(entry.Availability.State) + " · " + string.Join(", ", entry.Availability.Themes.Select(ThemeLabel)));
+                ImGui.TextColored(ImGuiColors.HealerGreen, AvailabilityStateLabel(entry.Availability.State) + " - " + string.Join(", ", entry.Availability.Themes.Select(ThemeLabel)));
             if (profile.Tags.Count > 0)
                 ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", profile.Tags.Take(6).Select(tag => tag.Value)));
             if (entry.Boundaries?.Entries.Count > 0)
@@ -867,7 +883,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
                 ImGui.SameLine();
                 ImGui.TextColored(SnowcloakColours.CompactTextMuted,
                     DateTimeOffset.FromUnixTimeSeconds(plan.StartsAtUtc).ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
-                ImGui.TextColored(SnowcloakColours.CompactTextMuted, plan.Room.Name + " · organizer " + plan.OrganizerUid);
+                ImGui.TextColored(SnowcloakColours.CompactTextMuted, plan.Room.Name + " - organizer " + plan.OrganizerUid);
                 foreach (var attendee in plan.Attendees)
                     ImGui.BulletText($"{attendee.Uid}: {PlanStatusLabel(attendee.Status)}");
                 foreach (var option in new[] { 1, 2, 3 })
@@ -1018,7 +1034,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             }
             if (!string.IsNullOrWhiteSpace(shellEvent.BannerImageHash)) DrawBannerImage(shellEvent.BannerImageHash);
             if (!string.IsNullOrWhiteSpace(shellEvent.Description)) ImGui.TextWrapped(shellEvent.Description);
-            var location = string.Join("  •  ", new[] { shellEvent.Plot, shellEvent.WorldId?.ToString(CultureInfo.InvariantCulture) }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            var location = string.Join("  -  ", new[] { shellEvent.Plot, shellEvent.WorldId?.ToString(CultureInfo.InvariantCulture) }.Where(value => !string.IsNullOrWhiteSpace(value)));
             if (!string.IsNullOrEmpty(location)) ImGui.TextColored(SnowcloakColours.CompactTextMuted, location);
             if (shellEvent.ThemeTags.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, string.Join("   ", shellEvent.ThemeTags.Select(tag => "#" + tag)));
             if (shellEvent.Hosts.Count > 0) ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Hosts: " + string.Join(", ", shellEvent.Hosts));

@@ -119,7 +119,7 @@ public sealed partial class SnowProfileManager : DisposableMediatorSubscriberBas
         var document = current.Document with { RpStatus = status.Trim() };
         var saved = await _apiController.Value.CharacterProfileSet(new CharacterProfileUpdateDto(
             current.Revision > 0 ? current.Revision : null,
-            document)).ConfigureAwait(false);
+            document, current.Ident)).ConfigureAwait(false);
         Mediator.Publish(new ClearCharacterProfileDataMessage(saved.Ident));
         var stored = Store(new ProfileRequestKey(saved.Ident, saved.Visibility), saved);
         Mediator.Publish(new OwnRpStatusUpdatedMessage(saved.Ident, saved.Revision, saved.Document.RpStatus));

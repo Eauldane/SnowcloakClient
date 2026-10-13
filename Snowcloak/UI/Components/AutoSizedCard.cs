@@ -34,8 +34,8 @@ internal static class AutoSizedCard
         var rounding = 4f * scale;
 
         drawList.ChannelsSetCurrent(0);
-        drawList.AddRectFilled(cardMin, cardMax, Colour.Vector4ToColour(SnowcloakColours.CompactPanelAlt), rounding);
-        drawList.AddRect(cardMin, cardMax, Colour.Vector4ToColour(SnowcloakColours.CompactBorderSubtle),
+        drawList.AddRectFilled(cardMin, cardMax, Colour.Vector4ToColour(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowCard, SnowcloakColours.CompactPanelAlt)), rounding);
+        drawList.AddRect(cardMin, cardMax, Colour.Vector4ToColour(ProfileWindowColours.Resolve(ProfileWindowColours.ActiveTheme?.WindowBorder, SnowcloakColours.CompactBorderSubtle)),
             rounding, ImDrawFlags.None, scale);
         drawList.ChannelsMerge();
 

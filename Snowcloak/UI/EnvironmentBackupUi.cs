@@ -139,12 +139,12 @@ public sealed class EnvironmentBackupUi : WindowMediatorSubscriberBase, IStaticW
         if (!_service.Busy && _service.Progress.Read().Phase != SnapshotPhase.Ready)
         {
             var result = _service.Progress.Read(); SnapshotProgressUi.Text(SnapshotProgressUi.Label(result.Phase), result.Phase == SnapshotPhase.Failed ? SnowcloakColours.BooleanFalse : SnowcloakColours.OnlineBlue);
-            if (result.Files > 0) SnapshotProgressUi.Text($"{result.Files:N0} files · Reused {ElezenTools.UI.ElezenImgui.ByteToString(result.ReusedBytes)} · Sent {ElezenTools.UI.ElezenImgui.ByteToString(result.SentBytes)}");
+            if (result.Files > 0) SnapshotProgressUi.Text($"{result.Files:N0} files - Reused {ElezenTools.UI.ElezenImgui.ByteToString(result.ReusedBytes)} - Sent {ElezenTools.UI.ElezenImgui.ByteToString(result.SentBytes)}");
             Error(_service.Error); ModernSection.SoftSeparator();
         }
         ModernSection.Header(FontAwesomeIcon.Archive, "Back up everything");
         SnapshotProgressUi.Text(_review != null ? "Checking installed mods..." : $"All {_mods.Length:N0} installed mods");
-        if (_plugins.Length > 0) SnapshotProgressUi.Text(string.Join(" · ", _plugins.Select(PluginName)));
+        if (_plugins.Length > 0) SnapshotProgressUi.Text(string.Join(" - ", _plugins.Select(PluginName)));
         ElezenImgui.AttachTooltip("Includes all installed mods (including unselected options), as well as your configs for them.");
         SnapshotProgressUi.Path(_service.ModRoot ?? "Can't read Penumbra folder!");
         ModernSection.SoftSeparator();
@@ -244,7 +244,7 @@ public sealed class EnvironmentBackupUi : WindowMediatorSubscriberBase, IStaticW
         var mods = _restore.Choices.Where(c => c.File is { } f && !f.Mod.StartsWith('@')).Select(c => c.File!.Mod).Distinct().Count();
         var plugins = _restore.Choices.Where(c => c.Document != null).Select(c => PluginName(c.Document!.Plugin)).Distinct().ToArray();
         if (mods > 0) SnapshotProgressUi.Text($"All {mods:N0} mods in this backup");
-        if (plugins.Length > 0) SnapshotProgressUi.Text(string.Join(" · ", plugins));
+        if (plugins.Length > 0) SnapshotProgressUi.Text(string.Join(" - ", plugins));
         SnapshotProgressUi.Path(_restore.ModRoot);
         SnapshotProgressUi.Text("Replaces matching saved setup");
         using (ImRaii.Disabled(ActionBusy || _service.Busy))

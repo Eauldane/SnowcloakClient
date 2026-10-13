@@ -71,7 +71,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
             {
                 _lease = SnapshotExclusion.AcquireAsync(CancellationToken.None).GetAwaiter().GetResult();
-                _unreadableRecovery = true; Error = "Recovery journal unreadable · Sync suspended"; Progress.Phase(SnapshotPhase.Failed); Status = "Recovery journal is unreadable. Sync stays suspended; preserve recovery data and repair the journal before continuing."; return;
+                _unreadableRecovery = true; Error = "Recovery journal unreadable - Sync suspended"; Progress.Phase(SnapshotPhase.Failed); Status = "Recovery journal is unreadable. Sync stays suspended; preserve recovery data and repair the journal before continuing."; return;
             }
             if (!_journal.Consistent)
             {
@@ -165,11 +165,11 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         if (!_journal.RolledBack && _journal.Entries.All(e => e.Applied))
         {
             RequiredPlugins = _journal.LoadedPlugins.Keys.ToArray(); AwaitingReload = true; Error = null;
-            Progress.Phase(SnapshotPhase.Verifying); Status = "Files restored · Verification required";
+            Progress.Phase(SnapshotPhase.Verifying); Status = "Files restored - Verification required";
             return;
         }
         RequiredPlugins = _journal.LoadedPlugins.Keys.ToArray(); AwaitingUnload = true; Error = null; Progress.Phase(SnapshotPhase.Unload);
-        Status = "Recovery ready · Resume restore";
+        Status = "Recovery ready - Resume restore";
     }
     private async Task ResumeStagingAsync(RestoreJournal interrupted)
     {
@@ -248,7 +248,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             var missing = available.Values.Where(o => publicHashes.Contains(o.Hash) && !o.Available && !o.Forbidden && !local.ContainsKey(o.Hash)).Select(o => o.Hash).ToArray();
             if (missing.Length > 0 && _repair.Available)
             {
-                Progress.Phase(SnapshotPhase.Downloading, path: "Recovering missing files…");
+                Progress.Phase(SnapshotPhase.Downloading, path: "Recovering missing files...");
                 await _repair.WaitAsync(new() { OperationId = _journal.RepairOperationId!.Value, Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.Backup, ContextId = Snapshot.ToString(), Hashes = missing }, message => { Status = message; Progress.Phase(SnapshotPhase.Downloading, path: message); }, ct).ConfigureAwait(false);
                 foreach (var batch in missing.Chunk(256)) foreach (var obj in await _backups.CheckObjectsAsync(Snapshot, batch, ct).ConfigureAwait(false)) available[obj.Hash] = obj;
             }
@@ -342,7 +342,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             await CopyStagedAsync(ct).ConfigureAwait(false);
             Progress.Phase(SnapshotPhase.Reload); Status = "Re-enabling plugins";
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, true, ct).ConfigureAwait(false);
-            Status = "Files restored · Verify names, collections and references";
+            Status = "Files restored - Verify names, collections and references";
         }
         catch (Exception ex)
         {
@@ -394,7 +394,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             await CopyStagedAsync(_operation.Token).ConfigureAwait(false);
             Progress.Phase(SnapshotPhase.Reload);
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, true, _operation.Token).ConfigureAwait(false);
-            Status = "Files restored · Verify names, collections and references";
+            Status = "Files restored - Verify names, collections and references";
         }
         catch (Exception ex) { await RecoverFailedRestoreAsync(ex).ConfigureAwait(false); }
         finally { _operation.Dispose(); _operation = null; _operationFinished.TrySetResult(); }
@@ -423,12 +423,12 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             }
             else Release();
             Progress.Phase(failure is OperationCanceledException ? SnapshotPhase.Cancelled : SnapshotPhase.Failed);
-            Status = RolledBack ? "Restore rolled back · Verification required" : "Restore stopped: " + failure.Message;
+            Status = RolledBack ? "Restore rolled back - Verification required" : "Restore stopped: " + failure.Message;
         }
         catch (Exception recovery)
         {
-            Progress.Phase(SnapshotPhase.Failed); Error = failure.Message + " · Recovery: " + recovery.Message;
-            Status = "Recovery required · Sync suspended";
+            Progress.Phase(SnapshotPhase.Failed); Error = failure.Message + " - Recovery: " + recovery.Message;
+            Status = "Recovery required - Sync suspended";
             if (_journal != null) { _journal.Consistent = false; _journal.Save(JournalPath); }
         }
     }
@@ -472,7 +472,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, true, CancellationToken.None).ConfigureAwait(false);
             ClearCompletedRollback();
         }
-        catch (Exception ex) { Error = ex.Message; Progress.Phase(SnapshotPhase.Failed); Status = "Rollback failed · Sync suspended"; }
+        catch (Exception ex) { Error = ex.Message; Progress.Phase(SnapshotPhase.Failed); Status = "Rollback failed - Sync suspended"; }
         finally { _operation.Dispose(); _operation = null; _operationFinished.TrySetResult(); }
     }
     private void ClearCompletedRollback()
@@ -498,9 +498,9 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         {
             Progress.Phase(SnapshotPhase.Reload);
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, true, CancellationToken.None).ConfigureAwait(false);
-            Error = null; Status = "Plugins re-enabled · Verification required";
+            Error = null; Status = "Plugins re-enabled - Verification required";
         }
-        catch (Exception ex) { Error = ex.Message; Progress.Phase(SnapshotPhase.Failed); Status = "Reload failed · Sync suspended"; }
+        catch (Exception ex) { Error = ex.Message; Progress.Phase(SnapshotPhase.Failed); Status = "Reload failed - Sync suspended"; }
         finally { _operation.Dispose(); _operation = null; _operationFinished.TrySetResult(); }
     }
     public void DiscardRecovery()

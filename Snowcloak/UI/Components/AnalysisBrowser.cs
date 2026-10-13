@@ -616,7 +616,7 @@ internal sealed class AnalysisBrowser
             var traits = item.TextureTraits;
             ImGui.TextColored(SnowcloakColours.CompactTextMuted, "Texture traits:");
             ImGui.SameLine();
-            ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "{0}   •   Channel variance R/G/B {1}/{2}/{3}   •   Alpha transitions {4}",
+            ImGui.TextUnformatted(string.Format(CultureInfo.InvariantCulture, "{0}   -   Channel variance R/G/B {1}/{2}/{3}   -   Alpha transitions {4}",
                 traits.FormatSummary,
                 traits.RedVariance.ToString("0.0", CultureInfo.InvariantCulture),
                 traits.GreenVariance.ToString("0.0", CultureInfo.InvariantCulture),

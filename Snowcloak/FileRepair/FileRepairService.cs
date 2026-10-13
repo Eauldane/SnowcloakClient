@@ -268,7 +268,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
             foreach (var status in statuses) _generations[(request.OperationId, status.Hash)] = status.Generation;
             while (statuses.Any(s => s.State is FileRepairState.Searching or FileRepairState.Uploading))
             {
-                progress?.Invoke("Recovering missing files…");
+                progress?.Invoke("Recovering missing files...");
                 await Task.Delay(1000, ct).ConfigureAwait(false);
                 statuses = (await _api.FileRepairGetStatus(request.OperationId, batch, ct).ConfigureAwait(false)).Where(s => batch.Contains(s.Hash, StringComparer.Ordinal)).ToList();
                 if (statuses.Count == 0) throw new IOException("Repair operation expired. Retry the download.");

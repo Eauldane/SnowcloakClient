@@ -236,6 +236,17 @@ public sealed partial class InterfaceSettingsPanel
 
         ImGui.Separator();
         _fontService.BigText("Profiles");
+        var traditionalOnly = _configService.Current.ProfilesTraditionalOnly;
+        if (ImGui.Checkbox("View classic profiles only", ref traditionalOnly))
+            _configService.Update(c => c.ProfilesTraditionalOnly = traditionalOnly);
+        ElezenImgui.DrawHelpText("View profiles in the classic layout, regardless of whether there's a custom page.");
+        var textScale = _configService.Current.ProfileReaderTextScale;
+        if (ImGui.SliderFloat("Profile text size", ref textScale, .8f, 1.8f, "%.1fx"))
+            _configService.Update(c => c.ProfileReaderTextScale = textScale);
+        var highContrast = _configService.Current.ProfileReaderHighContrast;
+        if (ImGui.Checkbox("High contrast profiles", ref highContrast)) _configService.Update(c => c.ProfileReaderHighContrast = highContrast);
+        var reduceImages = _configService.Current.ProfileReaderReduceImages;
+
         if (ImGui.Checkbox("Show Profiles on Hover", ref showProfiles))
         {
             _mediator.Publish(new ClearProfileDataMessage());
@@ -274,7 +285,7 @@ public sealed partial class InterfaceSettingsPanel
             _mediator.Publish(new ClearProfileDataMessage());
             _configService.Update(c => c.ProfilesAllowNsfw = showNsfwProfiles);
         }
-        ElezenImgui.DrawHelpText("Will show profiles that have the NSFW tag enabled; Adult-rated profiles remain behind a per-profile confirmation.");
+        ElezenImgui.DrawHelpText("Show adult profiles without a confirmation prompt.");
 
         if (ImGui.Checkbox("Render BBCode images", ref allowBbCodeImages))
         {

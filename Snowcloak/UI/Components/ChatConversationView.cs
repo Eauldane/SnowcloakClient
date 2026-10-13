@@ -175,7 +175,7 @@ public sealed class ChatConversationView
         ImGui.SameLine();
         ImGui.TextColored(SnowcloakColours.CompactTextMuted,
             room.Scene?.TurnState is { Enabled: true, UserUids.Count: > 0 } turn
-                ? "Scene active  ·  " + CurrentTurnLabel(room.RoomId, turn) + "  ·  /snowturn will end the turn"
+                ? "Scene active  -  " + CurrentTurnLabel(room.RoomId, turn) + "  -  /snowturn will end the turn"
                 : "Scene active");
 
         var filters = _roomModeFilters.GetValueOrDefault(room.RoomId);
@@ -508,7 +508,7 @@ public sealed class ChatConversationView
                 using var id = ImRaii.PushId(history.HistoryId);
                 ImGui.TextUnformatted(history.Title);
                 ImGui.TextColored(SnowcloakColours.CompactTextMuted,
-                    $"{DateTimeOffset.FromUnixTimeSeconds(history.FinishedAt).ToLocalTime():d} · {history.MessageCount} messages");
+                    $"{DateTimeOffset.FromUnixTimeSeconds(history.FinishedAt).ToLocalTime():d} - {history.MessageCount} messages");
                 if (ImGui.MenuItem("Download text"))
                     BeginSceneHistoryExport(roomId, history.HistoryId, markdown: false);
                 ImGui.SameLine();

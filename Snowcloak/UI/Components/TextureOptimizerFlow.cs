@@ -82,9 +82,9 @@ internal sealed class TextureOptimizerFlow : IDisposable
         ElezenImgui.ColouredText("WARNING REGARDING TEXTURE COMPRESSION:", ImGuiColors.DalamudYellow);
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow))
             ImGui.TextWrapped("Converting to BC7 compression can reduce file size and VRAM use, especially for large textures."
-                + Environment.NewLine + "• Compression can cause some visual quality loss (colorsets, normal/greyscale maps especially)."
-                + Environment.NewLine + "• Not all textures benefit equally. Keep originals so you can reimport."
-                + Environment.NewLine + "• Texture compression is expensive and can take a while.");
+                + Environment.NewLine + "- Compression can cause some visual quality loss (colorsets, normal/greyscale maps especially)."
+                + Environment.NewLine + "- Not all textures benefit equally. Keep originals so you can reimport."
+                + Environment.NewLine + "- Texture compression is expensive and can take a while.");
 
         if (_plan.Count == 0)
             return;

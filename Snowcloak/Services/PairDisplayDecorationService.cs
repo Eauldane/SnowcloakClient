@@ -193,7 +193,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
             {
                 var marker = _pairRequestService.TryGetRpAvailability(ident, out var card)
                     && card is { Paused: false } && card.ExpiresAtUtc > DateTimeOffset.UtcNow
-                    ? "  • RP: " + RpAvailabilityLabel(card.State)
+                    ? "  - RP: " + RpAvailabilityLabel(card.State)
                     : null;
                 TryApplyDecoration(handler, options, PairDisplayDecorationMapper.CreatePairingCandidateSubject(), marker);
             }
@@ -201,7 +201,7 @@ public sealed partial class PairDisplayDecorationService : DisposableMediatorSub
             {
                 var empty = new SeStringBuilder().Build();
                 var card = _roleplay.VisibleCards[roleplayers[handler.GameObjectId]];
-                NameplateDecorationWriter.Apply(handler, empty, empty, "  • RP: " + RpAvailabilityLabel(card.State));
+                NameplateDecorationWriter.Apply(handler, empty, empty, "  - RP: " + RpAvailabilityLabel(card.State));
                 _isModified = true;
             }
         }

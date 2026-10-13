@@ -62,6 +62,8 @@ public static class ProfileTagChipRenderer
     private static bool DrawTagChip(UserProfileTagDto tag, string displayValue, string id)
     {
         var buttonColor = GetTagColor(tag);
+        if (ProfileWindowColours.ActiveTheme is { CustomChipColours: true } theme)
+            buttonColor = ProfileWindowColours.Resolve(theme.WindowTag, buttonColor);
         var hoverColor = AdjustBrightness(buttonColor, 1.08f);
         var activeColor = AdjustBrightness(buttonColor, 0.9f);
         var textColor = GetTextColor(buttonColor);
