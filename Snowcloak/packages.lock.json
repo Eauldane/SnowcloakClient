@@ -222,9 +222,9 @@
       },
       "Snowcloak.CacheFile": {
         "type": "Direct",
-        "requested": "[4.3.0.4, )",
-        "resolved": "4.3.0.4",
-        "contentHash": "RROwZ+aBQqYOuNYSgrj3RHHMufcJCE7LxQMIC/J7kNDEtOmrVwbEUzDq9Pz2Luhf4LpZlncPppY2FWvwHZ0BIQ==",
+        "requested": "[5.0.0, )",
+        "resolved": "5.0.0",
+        "contentHash": "Y4/hbi9O/mn19mAo8VryhwrXlKnQ1anqwoDZNS7Ns3XWaVG/FJV0BozcvnwpX+2XN4pnPeyJczhUVU6mhe843A==",
         "dependencies": {
           "Blake3": "2.2.1",
           "K4os.Compression.LZ4.Streams": "1.3.8",
@@ -788,7 +788,7 @@
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )",
-          "Snowcloak.CacheFile": "[4.3.0.4, )",
+          "Snowcloak.CacheFile": "[5.0.0, )",
           "Snowcloak.Core": "[1.0.0, )"
         }
       }
