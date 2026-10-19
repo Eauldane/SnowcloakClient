@@ -10,7 +10,7 @@
     <InternalsVisibleTo Include="Snowcloak" />
     <InternalsVisibleTo Include="Snowcloak.Tests" />
     <PackageReference Include="ElezenTools.Core" Version="15.56.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageReference Include="Snowcloak.API" Version="5.0.0" />
     <PackageReference Update="Meziantou.Analyzer" Version="3.0.302">
       <PrivateAssets>all</PrivateAssets>
