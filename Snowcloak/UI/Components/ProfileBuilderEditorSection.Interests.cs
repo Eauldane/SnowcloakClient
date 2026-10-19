@@ -131,8 +131,13 @@ public sealed unsafe partial class ProfileBuilderEditorSection
     {
         if (ImGui.SmallButton(string.IsNullOrEmpty(entry.Note) ? "Add note" : "Edit note")) ImGui.OpenPopup("interest-note");
         if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(entry.Note)) ImGui.SetTooltip(entry.Note);
+        // Capture the parent width: remaining-width inputs feed back into an auto-sizing popup.
+        var noteWidth = Math.Max(1f, Math.Min(420f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().X));
         if (!ImGui.BeginPopup("interest-note")) return;
-        entry.Note = Input("Explanatory note", entry.Note, 2000, true);
+        ImGui.TextUnformatted("Explanatory note");
+        var note = entry.Note;
+        if (ImGui.InputTextMultiline("##explanatory-note", ref note, 2001, new Vector2(noteWidth, 120f * ImGuiHelpers.GlobalScale)))
+            entry.Note = note;
         if (ImGui.Button("Done")) ImGui.CloseCurrentPopup();
         ImGui.EndPopup();
     }

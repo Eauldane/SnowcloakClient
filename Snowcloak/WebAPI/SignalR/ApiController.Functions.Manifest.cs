@@ -78,9 +78,10 @@ public partial class ApiController
             var temporaryRecipients = visibleByUid.Where(user =>
                 _pairManager.GetPairByUID(user.UID) is { IsTemporaryAppearance: true, HasDurableConnection: false }).ToList();
 
-            if (durableRecipients.Count > 0)
-                await PublishManifestAudienceAsync(AppearanceManifestCodec.ToManifest(character), character,
-                    durableRecipients, ManifestAudience.Default, extensionData).ConfigureAwait(false);
+            // Register our current appearance even when nobody is visible, so peers can
+            // resolve it later without waiting for another local visibility/data change.
+            await PublishManifestAudienceAsync(AppearanceManifestCodec.ToManifest(character), character,
+                durableRecipients, ManifestAudience.Default, extensionData).ConfigureAwait(false);
 
             if (temporaryRecipients.Count > 0)
             {
