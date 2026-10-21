@@ -53,8 +53,8 @@ public static unsafe class DrawStateReader
         var drawObjectAddress = (nint)gameObject->DrawObject;
         var drawCondition = ReadDrawCondition(address, drawObjectAddress, inspectModelSlots);
         var objectIndex = gameObject->ObjectIndex;
-
-        if (drawObjectAddress == nint.Zero)
+        
+        if (drawCondition != GameObjectDrawCondition.None)
         {
             return new CharacterObjectState(
                 address,

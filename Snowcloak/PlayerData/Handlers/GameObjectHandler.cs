@@ -95,6 +95,16 @@ public sealed partial class GameObjectHandler : DisposableMediatorSubscriberBase
 
     internal void RefreshFromFramework()
     {
+        Service.EnsureOnFramework();
+        if (!_dalamudUtil.CanReadCharacterObjects || Volatile.Read(ref _disposed) != 0)
+        {
+            Address = nint.Zero;
+            DrawObjectAddress = nint.Zero;
+            _objectIndex = null;
+            CurrentDrawCondition = GameObjectDrawCondition.ObjectZero;
+            return;
+        }
+
         Span<byte> equipmentData = stackalloc byte[DrawStateReader.EquipmentDataLength];
         Span<ushort> mainHandData = stackalloc ushort[DrawStateReader.WeaponDataLength];
         Span<ushort> offHandData = stackalloc ushort[DrawStateReader.WeaponDataLength];
@@ -156,9 +166,17 @@ public sealed partial class GameObjectHandler : DisposableMediatorSubscriberBase
     {
         while (await Service.RunOnFrameworkAsync(() =>
                {
-                   if (_haltProcessing)
+                   token.ThrowIfCancellationRequested();
+                   if (!_dalamudUtil.CanReadCharacterObjects || Volatile.Read(ref _disposed) != 0)
                    {
-                       RefreshFromFramework();
+                       return false;
+                   }
+
+                   // Re-resolve the address after waiting for a redraw slot/framework tick.
+                   RefreshFromFramework();
+                   if (Address == nint.Zero)
+                   {
+                       return false;
                    }
 
                    if (CurrentDrawCondition != GameObjectDrawCondition.None)

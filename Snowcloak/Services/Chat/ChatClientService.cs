@@ -551,7 +551,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         {
             var key = new ConversationKey(ConversationKind.Direct, pair.UserData.UID);
             activeKeys.Add(key);
-            ConfigureConversation(key, pair.UserData.AliasOrUID);
+            ConfigureConversation(key, _identityResolver.Resolve(pair.UserData).Name);
         }
 
         foreach (var group in _pairManager.Groups.Values)
@@ -957,7 +957,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     {
         var title = key.Kind switch
         {
-            ConversationKind.Direct => message.Sender.AliasOrUID,
+            ConversationKind.Direct => _identityResolver.Resolve(message.Sender).Name,
             ConversationKind.Syncshell => _pairManager.Groups.Values
                 .FirstOrDefault(group => string.Equals(group.GID, key.Id, StringComparison.Ordinal))?.GroupAliasOrGID ?? key.Id,
             ConversationKind.Room when _rooms.TryGet(key.Id, out var room) => room.Name,

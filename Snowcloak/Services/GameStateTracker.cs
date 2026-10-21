@@ -63,6 +63,7 @@ public sealed partial class GameStateTracker : IHostedService
     public bool IsInCutscene { get; private set; }
     public bool IsInGpose { get; private set; }
     public bool IsLoggedIn => _loginState.IsLoggedIn;
+    public bool IsLoggingOut => _condition[ConditionFlag.LoggingOut];
     public bool IsZoning => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
     public bool IsInInstancedDutyOrPvP => _clientState.IsPvP
         || _condition[ConditionFlag.BoundByDuty]

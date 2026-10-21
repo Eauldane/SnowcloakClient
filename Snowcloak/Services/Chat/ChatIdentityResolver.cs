@@ -1,6 +1,7 @@
 using Snowcloak.API.Data;
 using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
+using Snowcloak.Services.ServerConfiguration;
 using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Numerics;
@@ -11,11 +12,13 @@ public sealed class ChatIdentityResolver : IChatIdentityResolver
 {
     private readonly ApiController _apiController;
     private readonly PairManager _pairManager;
+    private readonly NotesStore _notesStore;
 
-    public ChatIdentityResolver(ApiController apiController, PairManager pairManager)
+    public ChatIdentityResolver(ApiController apiController, PairManager pairManager, NotesStore notesStore)
     {
         _apiController = apiController;
         _pairManager = pairManager;
+        _notesStore = notesStore;
     }
 
     public string SelfUid => _apiController.UID;
@@ -24,7 +27,9 @@ public sealed class ChatIdentityResolver : IChatIdentityResolver
     {
         ArgumentNullException.ThrowIfNull(user);
         var current = _pairManager.GetPairByUID(user.UID)?.UserData ?? user;
-        return new SenderDisplay(current.AliasOrUID, ParseColour(current.DisplayColour), ParseColour(current.DisplayGlowColour),
+        var note = _notesStore.GetNoteForUid(user.UID);
+        var name = string.IsNullOrWhiteSpace(note) ? current.AliasOrUID : note;
+        return new SenderDisplay(name, ParseColour(current.DisplayColour), ParseColour(current.DisplayGlowColour),
             current.DisplayColour ?? string.Empty, current.DisplayGlowColour ?? string.Empty);
     }
 

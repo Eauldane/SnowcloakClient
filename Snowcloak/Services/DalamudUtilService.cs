@@ -75,6 +75,8 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     public bool IsInGpose => _gameStateTracker.IsInGpose;
     public bool IsInPvP => _clientState.IsPvP;
     public bool IsLoggedIn => _gameStateTracker.IsLoggedIn;
+    public bool CanReadCharacterObjects => _clientState.IsLoggedIn && IsLoggedIn
+        && !_gameStateTracker.IsLoggingOut && !IsZoning && !IsInCutscene;
     public bool IsZoning => _gameStateTracker.IsZoning;
     public bool IsInCombatOrPerforming => _gameStateTracker.IsInCombatOrPerforming;
     public bool HasModifiedGameFiles => _gameData.HasModifiedGameDataFiles;
@@ -197,6 +199,9 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
 
     public IntPtr GetPlayerCharacterFromCachedTableByIdent(string characterName)
         => _objectTableCache.GetPlayerCharacterFromCachedTableByIdent(characterName);
+
+    public nint GetLivePlayerCharacterFromCachedTableByIdent(string ident)
+        => _objectTableCache.GetLivePlayerCharacterFromCachedTableByIdent(ident);
 
     public bool IsFriendByIdent(string ident) => _objectTableCache.IsFriendByIdent(ident);
 

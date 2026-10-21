@@ -7,6 +7,7 @@ using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Utils;
 using System.Diagnostics;
+using ElezenTools.Services;
 using ObjectKind = Snowcloak.API.Data.Enum.ObjectKind;
 
 namespace Snowcloak.PlayerData.Handlers;
@@ -72,7 +73,7 @@ internal sealed class CharacterReverter
     public void QueueClearPlayerScopedOptionalData(Guid applicationId)
     {
         var address = GetPlayerScopedOptionalCleanupAddress();
-        if (address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
+        if (!_dalamudUtil.CanReadCharacterObjects || address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
         {
             return;
         }
@@ -93,7 +94,7 @@ internal sealed class CharacterReverter
 
     public async Task ClearPlayerScopedOptionalDataAsync(nint address, CancellationToken token)
     {
-        if (address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
+        if (!_dalamudUtil.CanReadCharacterObjects || address == nint.Zero || !HasPlayerScopedOptionalDataToClear())
         {
             return;
         }
@@ -106,27 +107,27 @@ internal sealed class CharacterReverter
             _appliedState.CustomizeIds.Remove(ObjectKind.Player);
             if (customizeId != null)
             {
-                await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
+                await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertByIdAsync(customizeId)).ConfigureAwait(false);
             }
             else
             {
-                await _ipcManager.CustomizePlus.RevertAsync(address).ConfigureAwait(false);
+                await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertAsync(address)).ConfigureAwait(false);
             }
         }
         else if (_appliedState.CachedData?.CustomizePlusData.TryGetValue(ObjectKind.Player, out var cachedCustomize) == true
             && !string.IsNullOrEmpty(cachedCustomize))
         {
-            await _ipcManager.CustomizePlus.RevertAsync(address).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertAsync(address)).ConfigureAwait(false);
         }
 
         token.ThrowIfCancellationRequested();
-        await _ipcManager.Heels.RestoreOffsetForPlayerAsync(address).ConfigureAwait(false);
+        await RunLiveCleanupAsync(address, () => _ipcManager.Heels.RestoreOffsetForPlayerAsync(address)).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        await _ipcManager.Honorific.ClearTitleAsync(address).ConfigureAwait(false);
+        await RunLiveCleanupAsync(address, () => _ipcManager.Honorific.ClearTitleAsync(address)).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        await _ipcManager.PetNames.ClearPlayerData(address).ConfigureAwait(false);
+        await RunLiveCleanupAsync(address, () => _ipcManager.PetNames.ClearPlayerData(address)).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        await _ipcManager.Moodles.RevertStatusAsync(address).ConfigureAwait(false);
+        await RunLiveCleanupAsync(address, () => _ipcManager.Moodles.RevertStatusAsync(address)).ConfigureAwait(false);
 
         _appliedState.HasPlayerScopedOptionalDataApplied = false;
         _appliedState.LastPlayerScopedOptionalAddress = nint.Zero;
@@ -166,14 +167,16 @@ internal sealed class CharacterReverter
                 _handler.PenumbraCollection = Guid.Empty;
             }
 
-            if (_dalamudUtil is { IsZoning: false, IsInCutscene: false } && !string.IsNullOrEmpty(name))
+            if (_dalamudUtil.CanReadCharacterObjects && !string.IsNullOrEmpty(name))
             {
                 Logger.LogTrace("Restoring state for {name} ({OnlineUser})", name, Pair.UserPair);
                 var address = _dalamudUtil.GetPlayerCharacterFromCachedTableByIdent(Pair.Ident);
                 if (address == nint.Zero)
                 {
                     Logger.LogDebug("Restoring Glamourer for {name} ({user})", name, Pair.UserPair);
-                    await _ipcManager.Glamourer.RevertByNameAsync(Logger, name, applicationId).ConfigureAwait(false);
+                    await Service.RunOnFrameworkAsync(() => _dalamudUtil.CanReadCharacterObjects
+                        ? _ipcManager.Glamourer.RevertByNameAsync(Logger, name, applicationId)
+                        : Task.CompletedTask).ConfigureAwait(false);
                 }
                 else
                 {
@@ -240,7 +243,7 @@ internal sealed class CharacterReverter
 
     private async Task RevertCustomizationDataAsync(ObjectKind objectKind, string name, Guid applicationId, CancellationToken cancelToken)
     {
-        nint address = _dalamudUtil.GetPlayerCharacterFromCachedTableByIdent(Pair.Ident);
+        nint address = await Service.RunOnFrameworkAsync(() => GetLiveRevertAddress(ObjectKind.Player, cancelToken)).ConfigureAwait(false);
         if (address == nint.Zero) return;
 
         Logger.LogDebug("Reverting all Customization for {alias}/{name} {objectKind}", Pair.UserData.AliasOrUID, name, objectKind);
@@ -252,7 +255,7 @@ internal sealed class CharacterReverter
 
         if (objectKind == ObjectKind.Player)
         {
-            using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Player, () => address, isWatched: false).ConfigureAwait(false);
+            using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Player, () => GetLiveRevertAddress(ObjectKind.Player, cancelToken), isWatched: false).ConfigureAwait(false);
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring Customization and Equipment for {alias}/{name}", Pair.UserData.AliasOrUID, name);
             await _ipcManager.Glamourer.RevertAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
@@ -260,52 +263,81 @@ internal sealed class CharacterReverter
             await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring Heels for {alias}/{name}", Pair.UserData.AliasOrUID, name);
-            await _ipcManager.Heels.RestoreOffsetForPlayerAsync(address).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.Heels.RestoreOffsetForPlayerAsync(address)).ConfigureAwait(false);
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring C+ for {alias}/{name}", Pair.UserData.AliasOrUID, name);
-            await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertByIdAsync(customizeId)).ConfigureAwait(false);
             tempHandler.CompareNameAndThrow(name);
             Logger.LogDebug("Restoring Honorific for {alias}/{name}", Pair.UserData.AliasOrUID, name);
-            await _ipcManager.Honorific.ClearTitleAsync(address).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.Honorific.ClearTitleAsync(address)).ConfigureAwait(false);
             Logger.LogDebug("Restoring Pet Nicknames for {alias}/{name}", Pair.UserData.AliasOrUID, name);
-            await _ipcManager.PetNames.ClearPlayerData(address).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.PetNames.ClearPlayerData(address)).ConfigureAwait(false);
             Logger.LogDebug("Restoring Moodles for {alias}/{name}", Pair.UserData.AliasOrUID, name);
-            await _ipcManager.Moodles.RevertStatusAsync(address).ConfigureAwait(false);
+            await RunLiveCleanupAsync(address, () => _ipcManager.Moodles.RevertStatusAsync(address)).ConfigureAwait(false);
             _appliedState.HasPlayerScopedOptionalDataApplied = false;
             _appliedState.LastPlayerScopedOptionalAddress = nint.Zero;
         }
         else if (objectKind == ObjectKind.MinionOrMount)
         {
-            var minionOrMount = await _dalamudUtil.GetMinionOrMountAsync(address).ConfigureAwait(false);
+            var minionOrMount = await Service.RunOnFrameworkAsync(() => GetLiveRevertAddress(objectKind, cancelToken)).ConfigureAwait(false);
             if (minionOrMount != nint.Zero)
             {
-                await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
-                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.MinionOrMount, () => minionOrMount, isWatched: false).ConfigureAwait(false);
+                await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertByIdAsync(customizeId)).ConfigureAwait(false);
+                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.MinionOrMount, () => GetLiveRevertAddress(objectKind, cancelToken), isWatched: false).ConfigureAwait(false);
                 await _ipcManager.Glamourer.RevertAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
                 await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
             }
         }
         else if (objectKind == ObjectKind.Pet)
         {
-            var pet = await _dalamudUtil.GetPetAsync(address).ConfigureAwait(false);
+            var pet = await Service.RunOnFrameworkAsync(() => GetLiveRevertAddress(objectKind, cancelToken)).ConfigureAwait(false);
             if (pet != nint.Zero)
             {
-                await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
-                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Pet, () => pet, isWatched: false).ConfigureAwait(false);
+                await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertByIdAsync(customizeId)).ConfigureAwait(false);
+                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Pet, () => GetLiveRevertAddress(objectKind, cancelToken), isWatched: false).ConfigureAwait(false);
                 await _ipcManager.Glamourer.RevertAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
                 await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
             }
         }
         else if (objectKind == ObjectKind.Companion)
         {
-            var companion = await _dalamudUtil.GetCompanionAsync(address).ConfigureAwait(false);
+            var companion = await Service.RunOnFrameworkAsync(() => GetLiveRevertAddress(objectKind, cancelToken)).ConfigureAwait(false);
             if (companion != nint.Zero)
             {
-                await _ipcManager.CustomizePlus.RevertByIdAsync(customizeId).ConfigureAwait(false);
-                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Companion, () => companion, isWatched: false).ConfigureAwait(false);
+                await RunLiveCleanupAsync(address, () => _ipcManager.CustomizePlus.RevertByIdAsync(customizeId)).ConfigureAwait(false);
+                using GameObjectHandler tempHandler = await _gameObjectHandlerFactory.Create(ObjectKind.Companion, () => GetLiveRevertAddress(objectKind, cancelToken), isWatched: false).ConfigureAwait(false);
                 await _ipcManager.Glamourer.RevertAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
                 await _ipcManager.Penumbra.RedrawAsync(Logger, tempHandler, applicationId, cancelToken).ConfigureAwait(false);
             }
         }
+    }
+
+    private async Task RunLiveCleanupAsync(nint expectedPlayerAddress, Func<Task> cleanup)
+    {
+        await Service.RunOnFrameworkAsync(() =>
+            GetLiveRevertAddress(ObjectKind.Player, CancellationToken.None) == expectedPlayerAddress
+                && expectedPlayerAddress != nint.Zero
+                ? cleanup()
+                : Task.CompletedTask).ConfigureAwait(false);
+    }
+
+    private nint GetLiveRevertAddress(ObjectKind objectKind, CancellationToken token)
+    {
+        Service.EnsureOnFramework();
+        token.ThrowIfCancellationRequested();
+        if (!_dalamudUtil.CanReadCharacterObjects) return nint.Zero;
+
+        var player = _dalamudUtil.GetLivePlayerCharacterFromCachedTableByIdent(Pair.Ident);
+        if (player == nint.Zero) return nint.Zero;
+
+        var address = objectKind switch
+        {
+            ObjectKind.Player => player,
+            ObjectKind.MinionOrMount => _dalamudUtil.GetMinionOrMount(player),
+            ObjectKind.Pet => _dalamudUtil.GetPet(player),
+            ObjectKind.Companion => _dalamudUtil.GetCompanion(player),
+            _ => nint.Zero,
+        };
+        return address != nint.Zero && _dalamudUtil.IsGameObjectPresent(address) ? address : nint.Zero;
     }
 }

@@ -293,6 +293,23 @@ public sealed class ObjectTableCache
         return PlayerCharactersSnapshot.TryGetValue(characterName, out var pchar) ? pchar.Address : IntPtr.Zero;
     }
 
+    public nint GetLivePlayerCharacterFromCachedTableByIdent(string ident)
+    {
+        Service.EnsureOnFramework();
+        if (!PlayerCharactersSnapshot.TryGetValue(ident, out var cached)) return nint.Zero;
+
+        foreach (var current in _objectTable)
+        {
+            if (current is IPlayerCharacter && current.Address == cached.Address
+                && current.GameObjectId == cached.GameObjectId)
+            {
+                return current.Address;
+            }
+        }
+
+        return nint.Zero;
+    }
+
     public bool IsFriendByIdent(string ident)
     {
         Service.EnsureOnFramework();
