@@ -20,14 +20,18 @@ public sealed class GameChatLogRenderer
         _identityResolver = identityResolver;
     }
 
-    public void Render(ConversationKey key, string title, ChatEntry entry)
+    public void Render(ConversationKey key, string title, ChatEntry entry, bool isOutgoing)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var flattened = ChatMessageCodec.Flatten(entry.Segments, _identityResolver.ResolveName);
         var builder = new SeStringBuilder()
             .AddText("[SnowChat] ")
-            .Add(ChatUtils.CreateExtraChatTagPayload(key.ToString()))
-            .AddText($"[{title}] ");
+            .Add(ChatUtils.CreateExtraChatTagPayload(key.ToString()));
+
+        if (key.Kind is ConversationKind.Room or ConversationKind.Syncshell)
+        {
+            builder.AddText($"[{title}] ");
+        }
 
         if (entry.Kind == ChatEntryKind.TurnChanged)
         {
@@ -45,13 +49,20 @@ public sealed class GameChatLogRenderer
             builder.AddText("* ");
         }
 
-        if (ElezenStrings.TryBuildColours(entry.Display.ForegroundHex, entry.Display.GlowHex, out var colours))
+        var outgoingDirect = isOutgoing && key.Kind == ConversationKind.Direct;
+        var display = outgoingDirect ? _identityResolver.Resolve(key.Id) ?? new SenderDisplay(title) : entry.Display;
+        if (outgoingDirect)
         {
-            builder.Append(ElezenStrings.BuildColouredString(entry.Display.Name, colours));
+            builder.AddText(">> ");
+        }
+
+        if (ElezenStrings.TryBuildColours(display.ForegroundHex, display.GlowHex, out var colours))
+        {
+            builder.Append(ElezenStrings.BuildColouredString(display.Name, colours));
         }
         else
         {
-            builder.AddText(entry.Display.Name);
+            builder.AddText(display.Name);
         }
 
         builder.AddText(entry.RpMode switch

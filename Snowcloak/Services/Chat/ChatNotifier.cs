@@ -65,7 +65,7 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
 
         if (config.ChatShowInGameLog)
         {
-            _gameChatLogRenderer.Render(incoming.Key, conversation.Title, incoming.Entry);
+            _gameChatLogRenderer.Render(incoming.Key, conversation.Title, incoming.Entry, isOutgoing: false);
         }
 
         if (incoming.Entry.Kind == ChatEntryKind.TurnChanged || incoming.Entry.DiceRoll != null)
@@ -122,7 +122,7 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
         var conversation = _chatService.Store.Snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == outgoing.Key);
         if (conversation != null)
         {
-            _gameChatLogRenderer.Render(outgoing.Key, conversation.Title, outgoing.Entry);
+            _gameChatLogRenderer.Render(outgoing.Key, conversation.Title, outgoing.Entry, isOutgoing: true);
         }
     }
 }

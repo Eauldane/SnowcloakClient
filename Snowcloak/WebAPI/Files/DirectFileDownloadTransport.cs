@@ -76,7 +76,7 @@ public sealed partial class DirectFileDownloadTransport : IFileDownloadTransport
         {
             response.Dispose();
             throw new FileDownloadUnavailableException(_negativeCache.Record(request.Hash,
-                FileDownloadNegativeReason.Forbidden, TimeSpan.FromMinutes(30),
+                FileDownloadNegativeReason.Forbidden, TimeSpan.FromMinutes(5),
                 "The requested file is blocked from transfer."));
         }
 

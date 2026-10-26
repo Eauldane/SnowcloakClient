@@ -76,7 +76,7 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     public bool IsInPvP => _clientState.IsPvP;
     public bool IsLoggedIn => _gameStateTracker.IsLoggedIn;
     public bool CanReadCharacterObjects => _clientState.IsLoggedIn && IsLoggedIn
-        && !_gameStateTracker.IsLoggingOut && !IsZoning && !IsInCutscene;
+        && !_gameStateTracker.IsLoggingOut && !IsZoning && (!IsInCutscene || IsInGpose);
     public bool IsZoning => _gameStateTracker.IsZoning;
     public bool IsInCombatOrPerforming => _gameStateTracker.IsInCombatOrPerforming;
     public bool HasModifiedGameFiles => _gameData.HasModifiedGameDataFiles;
