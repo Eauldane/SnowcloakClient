@@ -130,7 +130,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
     {
         var frame = unchecked(++_frame);
         var nowMs = _clock.Elapsed.TotalMilliseconds;
-        ObserveGcPauses(nowMs);
 
         _frameDue.Clear();
         lock (_gate)
@@ -165,23 +164,11 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
             var elapsedMs = _clock.Elapsed.TotalMilliseconds - startMs;
             var allocatedBytes = Math.Max(0, GC.GetAllocatedBytesForCurrentThread() - allocatedBefore);
             _profiler.RecordAllocation(registration.Name, allocatedBytes);
-            var logSlowTicker = false;
             lock (_gate)
             {
                 _budget.Record(elapsedMs);
-                if (elapsedMs >= SlowTickerWarningMs
-                    && (!_lastSlowTickerWarningMs.TryGetValue(due.Id, out var lastWarningMs)
-                        || startMs - lastWarningMs >= SlowTickerWarningIntervalMs))
-                {
-                    _lastSlowTickerWarningMs[due.Id] = startMs;
-                    logSlowTicker = true;
-                }
             }
-
-            if (logSlowTicker)
-            {
-                LogSlowTicker(_logger, registration.Name, elapsedMs, allocatedBytes);
-            }
+            
             _frameRan.Add(due.Id);
         }
 
@@ -211,15 +198,8 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
         _lastGen0Collections = gen0Collections;
         _lastGen1Collections = gen1Collections;
         _lastGen2Collections = gen2Collections;
-
-        if (pauseDelta.TotalMilliseconds < GcPauseWarningMs
-            || nowMs - _lastGcPauseWarningMs < GcPauseWarningIntervalMs)
-        {
-            return;
-        }
-
+        
         _lastGcPauseWarningMs = nowMs;
-        LogGcPause(_logger, pauseDelta.TotalMilliseconds, gen0Delta, gen1Delta, gen2Delta);
     }
 
     private void Unregister(int id)
@@ -287,14 +267,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
         foreach (var gate in runOnlyGates)
             yield return gate;
     }
-
-    [LoggerMessage(Level = LogLevel.Warning,
-        Message = "Frame ticker {Name} took {ElapsedMs:F2}ms and allocated {AllocatedBytes} bytes on the framework thread; the frame budget cannot pre-empt a running ticker")]
-    private static partial void LogSlowTicker(ILogger logger, string name, double elapsedMs, long allocatedBytes);
-
-    [LoggerMessage(Level = LogLevel.Warning,
-        Message = "Process-wide GC pause observed between Snowcloak scheduler ticks: {PauseMs:F2}ms, collections Gen0={Gen0}, Gen1={Gen1}, Gen2={Gen2}; correlation only, not Snowcloak attribution")]
-    private static partial void LogGcPause(ILogger logger, double pauseMs, int gen0, int gen1, int gen2);
 
     private sealed class Handle : IFrameTickHandle
     {
