@@ -93,12 +93,16 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool ApplyVanityColoursToGameChat { get; set; } = true;
     public bool ChatEnabled { get; set; } = true;
     public bool ChatShowInGameLog { get; set; } = true;
+    public const uint DefaultChatReceivedMessageColour = 0xCC8655u;
+    public uint? ChatReceivedMessageColour { get; set; } = DefaultChatReceivedMessageColour;
     public bool ChatEnableDtrEntry { get; set; }
     public bool ChatToastDirectMessages { get; set; } = true;
     public bool ChatToastMentions { get; set; } = true;
     public bool ChatSoundsEnabled { get; set; } = true;
     public bool AutoMuteNewSyncshellChats { get; set; }
-    public ChatSoundOption DefaultChatSound { get; set; } = ChatSoundOption.Sound1;
+    public ChatSoundOption DefaultChatSound { get; set; } = ChatSoundOption.Sound14;
+    public int ChatSoundVolume { get; set; } = 100;
+    public int ChatSoundDefaultsVersion { get; set; }
 
     public bool MareAPI { get; set; } = true;
     public bool AutofillEmptyNotesFromCharaName { get; set; } = true;

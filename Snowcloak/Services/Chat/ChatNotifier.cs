@@ -34,7 +34,7 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
         _notifications = notifications;
     }
 
-    public int TotalUnread => _chatService.Store.Snapshot.TotalUnread;
+    public int TotalUnread => _chatService.Store.TotalUnread;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -57,7 +57,7 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
             return;
         }
 
-        var conversation = _chatService.Store.Snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == incoming.Key);
+        var conversation = _chatService.Store.GetConversation(incoming.Key);
         if (conversation == null)
         {
             return;
@@ -119,7 +119,7 @@ public sealed class ChatNotifier : DisposableMediatorSubscriberBase, IHostedServ
             return;
         }
 
-        var conversation = _chatService.Store.Snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == outgoing.Key);
+        var conversation = _chatService.Store.GetConversation(outgoing.Key);
         if (conversation != null)
         {
             _gameChatLogRenderer.Render(outgoing.Key, conversation.Title, outgoing.Entry, isOutgoing: true);

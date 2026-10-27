@@ -35,8 +35,6 @@ public sealed class InboundWorkDispatcher : MediatorSubscriberBase, IHostedServi
                 SingleWriter = false,
                 AllowSynchronousContinuations = false,
             })).ToArray();
-        Mediator.Subscribe<ConnectedMessage>(this, _ => AdvanceGeneration());
-        Mediator.Subscribe<DisconnectedMessage>(this, _ => AdvanceGeneration());
     }
 
     public long Generation => Volatile.Read(ref _generation);
@@ -140,7 +138,7 @@ public sealed class InboundWorkDispatcher : MediatorSubscriberBase, IHostedServi
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
     }
 
-    private void AdvanceGeneration() => Interlocked.Increment(ref _generation);
+    public void ExpireConnection() => Interlocked.Increment(ref _generation);
 
     private static int StableShard(string identity)
     {

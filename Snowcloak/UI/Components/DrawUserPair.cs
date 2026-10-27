@@ -213,6 +213,13 @@ public class DrawUserPair : DrawPairBase
 
     private void DrawPairedClientMenu(Pair entry)
     {
+        if (_configService.Current.ChatEnabled && entry.IsMutualDirectPair
+            && ElezenImgui.ShowIconButton(FontAwesomeIcon.Comments, "Message"))
+        {
+            _mediator.Publish(new OpenChatConversationMessage(new Snowcloak.Core.Chat.ConversationKey(
+                Snowcloak.Core.Chat.ConversationKind.Direct, entry.UserData.UID)));
+            ImGui.CloseCurrentPopup();
+        }
         if (entry.IsVisible && ElezenImgui.ShowIconButton(FontAwesomeIcon.Eye, "Target player"))
         {
             _mediator.Publish(new TargetPairMessage(entry));

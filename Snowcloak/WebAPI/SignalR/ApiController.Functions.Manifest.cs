@@ -61,18 +61,20 @@ public partial class ApiController
             nameof(UserGetManifest), hash, _connectionLifecycle.ConnectionToken).ConfigureAwait(false);
     }
 
-    private async Task PushManifestInternal(CharacterData character, List<UserData> visibleCharacters)
+    private async Task<bool> PushManifestInternal(CharacterData character, List<UserData> visibleCharacters, CancellationToken cancellationToken = default)
     {
         var extensionData = character.ExtensionData.ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.Ordinal);
 
         if (!IsConnected)
         {
             Mediator.Publish(new LocalCharacterDataPushFailedMessage(extensionData, "Snowcloak is not connected."));
-            return;
+            return false;
         }
 
         try
         {
+            using var publicationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connectionLifecycle.ConnectionToken);
+            var publicationToken = publicationCts.Token;
             var visibleByUid = visibleCharacters.DistinctBy(user => user.UID, StringComparer.Ordinal).ToList();
             var durableRecipients = visibleByUid.Where(user => _pairManager.GetPairByUID(user.UID)?.HasDurableConnection == true).ToList();
             var temporaryRecipients = visibleByUid.Where(user =>
@@ -81,7 +83,7 @@ public partial class ApiController
             // Register our current appearance even when nobody is visible, so peers can
             // resolve it later without waiting for another local visibility/data change.
             await PublishManifestAudienceAsync(AppearanceManifestCodec.ToManifest(character), character,
-                durableRecipients, ManifestAudience.Default, extensionData).ConfigureAwait(false);
+                durableRecipients, ManifestAudience.Default, extensionData, publicationToken).ConfigureAwait(false);
 
             if (temporaryRecipients.Count > 0)
             {
@@ -89,18 +91,20 @@ public partial class ApiController
                 restricted.Sections = restricted.Sections
                     .Where(section => section.SectionId != ManifestSectionId.ExtensionData).ToArray();
                 await PublishManifestAudienceAsync(restricted, character, temporaryRecipients,
-                    ManifestAudience.TemporaryAppearanceV1, new Dictionary<string, string>(StringComparer.Ordinal)).ConfigureAwait(false);
+                    ManifestAudience.TemporaryAppearanceV1, new Dictionary<string, string>(StringComparer.Ordinal), publicationToken).ConfigureAwait(false);
             }
+            return true;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to push the current appearance manifest");
             Mediator.Publish(new LocalCharacterDataPushFailedMessage(extensionData, "Snowcloak could not send the current manifest."));
+            return false;
         }
     }
 
     private async Task PublishManifestAudienceAsync(AppearanceManifest manifest, CharacterData character,
-        List<UserData> recipients, string audience, IReadOnlyDictionary<string, string> extensionData)
+        List<UserData> recipients, string audience, IReadOnlyDictionary<string, string> extensionData, CancellationToken cancellationToken)
     {
         var bytes = ManifestCanonical.Serialize(manifest);
         var hash = ManifestCanonical.ComputeHash(manifest);
@@ -112,7 +116,7 @@ public partial class ApiController
             InlineManifest = bytes,
             FileHashes = character.FileReplacements.SelectMany(kv => kv.Value).Select(file => file.Hash)
                 .Where(value => !string.IsNullOrEmpty(value)).Distinct(StringComparer.Ordinal).ToList(),
-        }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
         Mediator.Publish(new LocalCharacterDataPushedMessage(recipients, hash, extensionData));
     }
 

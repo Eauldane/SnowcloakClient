@@ -33,8 +33,11 @@ public sealed class ChatConversationView
     private List<RoomDicePresetDto> _dicePresets = [];
     private string _dicePresetRoomId = string.Empty;
     private string _diceExpression = "1d20";
+    private readonly Dictionary<string, (ChatEntry Entry, RoomRole? Role, IReadOnlyList<string>? Labels, float Height)> _rowHeights = new(StringComparer.Ordinal);
+    private (ConversationKey Key, float Width, float FontSize, int Font, Vector2 Spacing, bool Wrap) _layout;
     private string _draft = string.Empty;
     private ConversationKey? _draftKey;
+    private (string Server, string Uid)? _draftOwner;
     private string _commandStatus = string.Empty;
     private Task<List<RoomSceneHistorySummaryDto>>? _sceneHistoryLoad;
     private Task<RoomSceneHistoryDto>? _sceneExportLoad;
@@ -54,18 +57,24 @@ public sealed class ChatConversationView
         _fileDialogManager = fileDialogManager;
     }
 
-    public void Draw(ConversationKey key, bool showHeader = true, bool wrapMessages = false)
+    public void Draw(ConversationKey key, bool showHeader = true, bool wrapMessages = false, ConversationSnapshot? snapshot = null)
     {
-        var conversation = _chatService.Store.Snapshot.Conversations.FirstOrDefault(candidate => candidate.Key == key);
+        if (!_chatService.IsConversationIdentityCurrent)
+        {
+            ImGui.TextDisabled("Connecting to chat...");
+            return;
+        }
+        var conversation = snapshot ?? _chatService.Store.GetConversation(key);
         if (conversation == null)
         {
             ImGui.TextDisabled("Conversation is no longer available.");
             return;
         }
 
-        if (_draftKey != key)
+        if (_draftKey != key || _draftOwner != _chatService.ConversationIdentity)
         {
             _draftKey = key;
+            _draftOwner = _chatService.ConversationIdentity;
             _draft = conversation.Draft;
         }
 
@@ -83,6 +92,13 @@ public sealed class ChatConversationView
             + (string.IsNullOrWhiteSpace(_commandStatus) ? 0f : ImGui.GetTextLineHeightWithSpacing());
         using (var log = ImRaii.Child($"chat-log-{key}", new Vector2(-1, -inputHeight), false))
         {
+            var width = ImGui.GetContentRegionAvail().X;
+            var layout = (key, width, ImGui.GetFontSize(), ImGui.GetFont().GetHashCode(), ImGui.GetStyle().ItemSpacing, wrapMessages);
+            if (_layout != layout || _rowHeights.Count > 600)
+            {
+                _rowHeights.Clear();
+                _layout = layout;
+            }
             DateTime? currentDate = null;
             var visibleModes = room == null ? null : _roomModeFilters.GetValueOrDefault(room.RoomId);
             foreach (var entry in conversation.Entries)
@@ -99,7 +115,19 @@ public sealed class ChatConversationView
                 using var id = ImRaii.PushId(entry.LocalId);
                 var role = conversation.Members.GetValueOrDefault(entry.SenderUid);
                 var labels = conversation.MemberLabels.GetValueOrDefault(entry.SenderUid);
-                _renderer.Render(entry, ImGui.GetContentRegionAvail().X,
+                var badgeRole = role is RoomRole.Owner or RoomRole.Moderator ? role : (RoomRole?)null;
+                var stableHeight = entry.Segments.All(segment => segment is not BbSegment and not MentionSegment);
+                if (stableHeight && _rowHeights.TryGetValue(entry.LocalId, out var cached)
+                    && ReferenceEquals(cached.Entry, entry) && cached.Role == badgeRole && ReferenceEquals(cached.Labels, labels)
+                    && !ImGui.IsPopupOpen($"chat-entry-{entry.LocalId}")
+                    && !ImGui.IsRectVisible(new Vector2(width, cached.Height)))
+                {
+                    ImGui.Dummy(new Vector2(width, Math.Max(1f, cached.Height - ImGui.GetStyle().ItemSpacing.Y)));
+                    continue;
+                }
+                var rowStart = ImGui.GetCursorPosY();
+                ImGui.BeginGroup();
+                _renderer.Render(entry, width,
                     role is RoomRole.Owner or RoomRole.Moderator ? role : null, labels, wrapMessages);
                 if (entry.State == DeliveryState.Failed)
                 {
@@ -109,6 +137,9 @@ public sealed class ChatConversationView
                         Queue(_chatService.Store.RetryAsync(key, entry.LocalId), nameof(ChatStore.RetryAsync));
                     }
                 }
+                ImGui.EndGroup();
+                if (stableHeight)
+                    _rowHeights[entry.LocalId] = (entry, badgeRole, labels, ImGui.GetCursorPosY() - rowStart);
             }
 
             if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 20f * ImGuiHelpers.GlobalScale)

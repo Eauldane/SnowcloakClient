@@ -14,6 +14,7 @@ using Snowcloak.API.Data.Extensions;
 using Snowcloak.API.Dto.Group;
 using Snowcloak.API.Dto.Roleplay;
 using Snowcloak.Configuration;
+using Snowcloak.Configuration.Models;
 using Snowcloak.Core.Chat;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
@@ -59,7 +60,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private bool _privateRoom;
     private string _roomStatus = string.Empty;
     private bool _creatingRoom;
-    private bool _showOfflineDirectChats;
+    private bool _showAllDirectPairs;
+    private bool _openNewChat;
+    private bool _focusNewChatSearch;
+    private string _newChatSearch = string.Empty;
+    private ConversationKey? _speedDialEditKey;
+    private int _speedDialNumber = 1;
     private string? _noteUid;
     private string _noteDraft = string.Empty;
     private bool _openNoteEditor;
@@ -120,18 +126,20 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             update();
         }
 
+        if (!_chatService.IsConversationIdentityCurrent)
+        {
+            ImGui.TextDisabled("Connecting to chat...");
+            return;
+        }
         var snapshot = _chatService.Store.Snapshot;
         var selected = snapshot.ActiveConversation;
         if (selected == null || snapshot.Conversations.All(conversation => conversation.Key != selected))
         {
-            var orderedConversations = _chatService.GetOrderedConversations(includeOfflineDirect: false);
-            if (orderedConversations.Count == 0)
-            {
-                orderedConversations = _chatService.GetOrderedConversations(includeOfflineDirect: true);
-            }
-
+            var previous = selected;
+            var orderedConversations = _chatService.GetOrderedConversations(snapshot);
             selected = orderedConversations.Count == 0 ? null : orderedConversations[0].Key;
-            Select(selected);
+            if (selected != previous) Select(selected);
+            snapshot = _chatService.Store.Snapshot;
         }
 
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetStyle().WindowPadding.Y - ImGuiHelpers.GlobalScale
@@ -154,6 +162,14 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             _showRoomCreation = false;
             ImGui.OpenPopup("Rooms browser");
         }
+        if (_openNewChat)
+        {
+            _openNewChat = false;
+            _newChatSearch = string.Empty;
+            _focusNewChatSearch = true;
+            ImGui.OpenPopup("New chat");
+        }
+        DrawNewChatPicker();
         DrawRoomBrowser();
         DrawNoteEditor();
         DrawSceneIdentityEditor();
@@ -169,33 +185,21 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         using var sidebar = ImRaii.Child("chat-conversations", new Vector2(width, -1), false);
         using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 4f * scale));
 
-        var conversations = _chatService.GetOrderedConversations(_showOfflineDirectChats);
-        var index = 1;
+        var conversations = _chatService.GetOrderedConversations(snapshot);
         foreach (var kind in new[] { ConversationKind.Room, ConversationKind.Direct, ConversationKind.Syncshell })
         {
-            var section = conversations
-                .Where(conversation => conversation.Key.Kind == kind
-                    && (kind != ConversationKind.Direct || _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true))
-                .ToArray();
-            var hasOfflineDirectChats = kind == ConversationKind.Direct && snapshot.Conversations.Any(conversation =>
-                conversation.Key.Kind == ConversationKind.Direct
-                && _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline != true);
-            if (section.Length == 0 && !hasOfflineDirectChats)
-            {
-                continue;
-            }
+            var section = conversations.Where(conversation => conversation.Key.Kind == kind).ToArray();
+            if (section.Length == 0 && kind != ConversationKind.Direct) continue;
 
             DrawConversationSectionHeader(kind);
-            foreach (var conversation in section)
-            {
-                DrawConversationRow(conversation, index, snapshot.ActiveConversation == conversation.Key);
-                index++;
-            }
-
             if (kind == ConversationKind.Direct)
             {
-                DrawOfflineDirectChats(snapshot);
+                DrawSidebarAction(FontAwesomeIcon.Plus, "New chat", () => _openNewChat = true);
+                if (section.Length == 0 && !_sidebarCollapsed)
+                    ImGui.TextWrapped("No recent direct chats. Start a new chat to message a pair.");
             }
+            DrawConversationRows(section, snapshot.ActiveConversation);
+            if (kind == ConversationKind.Direct) DrawAllDirectPairs(snapshot);
 
             if (!_sidebarCollapsed)
             {
@@ -233,34 +237,78 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         DrawChatSettingsButton();
     }
 
-    private void DrawOfflineDirectChats(ChatStoreSnapshot snapshot)
+    private void DrawAllDirectPairs(ChatStoreSnapshot snapshot)
     {
-        var offline = snapshot.Conversations
-            .Where(conversation => conversation.Key.Kind == ConversationKind.Direct
-                && _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline != true)
-            .OrderBy(conversation => conversation.Title, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (offline.Length == 0 || _sidebarCollapsed)
+        if (_sidebarCollapsed) return;
+        var pairs = _chatService.GetAllDirectConversations(snapshot);
+        if (pairs.Count == 0) return;
+        var label = string.Format(CultureInfo.InvariantCulture, "All pairs ({0})", pairs.Count);
+        if (ModernSidebar.DrawRow(_showAllDirectPairs ? FontAwesomeIcon.ChevronDown : FontAwesomeIcon.ChevronRight,
+                label, active: false)) _showAllDirectPairs = !_showAllDirectPairs;
+        if (_showAllDirectPairs)
         {
-            return;
+            using var id = ImRaii.PushId("all-direct-pairs");
+            DrawConversationRows(pairs, snapshot.ActiveConversation);
         }
+    }
 
-        var label = string.Format(CultureInfo.InvariantCulture, "Offline pairs ({0})", offline.Length);
-        if (ModernSidebar.DrawRow(_showOfflineDirectChats ? FontAwesomeIcon.ChevronDown : FontAwesomeIcon.ChevronRight,
-                label, active: false))
+    private void DrawNewChatPicker()
+    {
+        if (!ImGui.IsPopupOpen("New chat")) return;
+        ImGui.SetNextWindowSize(new Vector2(440f, 0) * ImGuiHelpers.GlobalScale, ImGuiCond.Appearing);
+        if (!ImGui.BeginPopup("New chat")) return;
+        ImGui.TextUnformatted("New chat");
+        if (_focusNewChatSearch)
         {
-            _showOfflineDirectChats = !_showOfflineDirectChats;
+            ImGui.SetKeyboardFocusHere();
+            _focusNewChatSearch = false;
         }
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextWithHint("##new-chat-search", "Search pairs by note, alias or UID...", ref _newChatSearch, 256);
+        var matches = _chatService.GetAllDirectConversations()
+            .Select(conversation => (Conversation: conversation, Pair: _pairManager.GetPairByUID(conversation.Key.Id),
+                Name: _identityResolver.Resolve(conversation.Key.Id)?.Name ?? conversation.Title))
+            .Where(item => item.Pair?.IsMutualDirectPair == true
+                && (item.Name.Contains(_newChatSearch, StringComparison.OrdinalIgnoreCase)
+                    || item.Pair.UserData.AliasOrUID.Contains(_newChatSearch, StringComparison.OrdinalIgnoreCase)
+                    || item.Conversation.Key.Id.Contains(_newChatSearch, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(item => item.Pair!.IsOnline).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        using (var list = ImRaii.Child("new-chat-pairs", new Vector2(0, 280f * ImGuiHelpers.GlobalScale), false))
+        {
+            var clipper = new ImGuiListClipper();
+            clipper.Begin(matches.Length, ImGui.GetTextLineHeightWithSpacing());
+            while (clipper.Step())
+            {
+                for (var i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                {
+                    var item = matches[i];
+                    using var id = ImRaii.PushId(item.Conversation.Key.ToString());
+                    if (ImGui.Selectable(item.Name.Replace('\r', ' ').Replace('\n', ' ') + (item.Pair!.IsOnline ? " (Online)" : " (Offline)")))
+                    {
+                        Select(item.Conversation.Key);
+                        ImGui.CloseCurrentPopup();
+                    }
+                }
+            }
+            clipper.End();
+            if (matches.Length == 0) ImGui.TextUnformatted("No matching mutual pairs.");
+        }
+        ImGui.EndPopup();
+    }
 
-        if (!_showOfflineDirectChats)
+    private void DrawConversationRows(IReadOnlyList<ConversationSnapshot> conversations, ConversationKey? active)
+    {
+        var clipper = new ImGuiListClipper();
+        clipper.Begin(conversations.Count, 38f * ImGuiHelpers.GlobalScale + ImGui.GetStyle().ItemSpacing.Y);
+        while (clipper.Step())
         {
-            return;
+            for (var i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                var conversation = conversations[i];
+                DrawConversationRow(conversation, _chatService.GetSpeedDial(conversation.Key), active == conversation.Key);
+            }
         }
-
-        foreach (var conversation in offline)
-        {
-            DrawConversationRow(conversation, 0, snapshot.ActiveConversation == conversation.Key);
-        }
+        clipper.End();
     }
 
     private void DrawSidebarResizeHandle()
@@ -324,7 +372,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         using (var centre = ImRaii.Child("chat-centre", new Vector2(centreWidth, -1), false))
         {
             DrawConversationHeader(conversation, hasMemberList);
-            _conversationView.Draw(conversation.Key, showHeader: false, wrapMessages: true);
+            _conversationView.Draw(conversation.Key, showHeader: false, wrapMessages: true, snapshot: conversation);
         }
 
         if (drawMembers)
@@ -377,6 +425,8 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
                 ? string.Format(CultureInfo.InvariantCulture, "{0}\n/snow {1} <message>{2}",
                     conversation.Title, index, conversation.Muted ? "\nMuted" : string.Empty)
                 : conversation.Muted ? conversation.Title + "\nMuted" : conversation.Title;
+            if (conversation.Key.Kind == ConversationKind.Direct)
+                tooltip += _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true ? "\nOnline" : "\nOffline";
             ImGui.SetTooltip(tooltip);
         }
 
@@ -410,8 +460,12 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         ImGui.PushFont(UiBuilder.IconFont);
         var iconSize = ImGui.CalcTextSize(iconText);
         var iconX = _sidebarCollapsed ? min.X + (width - iconSize.X) * 0.5f : min.X + 9f * scale;
+        var iconColour = conversation.Key.Kind == ConversationKind.Direct
+            && _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true
+                ? ElezenColours.SnowcloakBlue
+                : display.Colour ?? SnowcloakColours.CompactTextMuted;
         drawList.AddText(new Vector2(iconX, min.Y + (height - iconSize.Y) * 0.5f),
-            Colour.Vector4ToColour(display.Colour ?? SnowcloakColours.CompactTextMuted), iconText);
+            Colour.Vector4ToColour(iconColour), iconText);
         ImGui.PopFont();
 
         if (_sidebarCollapsed)
@@ -426,7 +480,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         var cursor = ImGui.GetCursorPos();
         var textX = min.X + 32f * scale;
-        if (index == 0)
+        if (index == 0 && conversation.Unread == 0)
         {
             ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(max.X - 7f * scale, max.Y), true);
             ImGui.SetCursorScreenPos(new Vector2(textX, min.Y + (height - ImGui.GetTextLineHeight()) * 0.5f));
@@ -436,9 +490,9 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             return;
         }
 
-        var rightLabel = conversation.Unread > 0
-            ? string.Format(CultureInfo.InvariantCulture, "{0} - {1}", index, conversation.Unread)
-            : index.ToString(CultureInfo.InvariantCulture);
+        var rightLabel = index == 0 ? string.Format(CultureInfo.InvariantCulture, "{0} unread", conversation.Unread)
+            : conversation.Unread > 0 ? string.Format(CultureInfo.InvariantCulture, "#{0} ({1})", index, conversation.Unread)
+            : string.Format(CultureInfo.InvariantCulture, "#{0}", index);
         var rightSize = ImGui.CalcTextSize(rightLabel);
         var rightX = max.X - rightSize.X - 7f * scale;
         ImGui.PushClipRect(new Vector2(textX, min.Y), new Vector2(rightX - 5f * scale, max.Y), true);
@@ -458,17 +512,67 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             return;
         }
 
-        if (ImGui.MenuItem(conversation.Muted ? "Unmute" : "Mute"))
-        {
-            _chatService.SetMuted(conversation.Key, !conversation.Muted);
-        }
-
+        DrawConversationSettings(conversation);
+        ImGui.Separator();
         if (ImGui.MenuItem("Open pop-out"))
         {
             Mediator.Publish(new OpenChatPopoutMessage(conversation.Key));
         }
 
         ImGui.EndPopup();
+    }
+
+    private void DrawConversationSettings(ConversationSnapshot conversation)
+    {
+        ImGui.TextUnformatted("Conversation settings");
+        ImGui.Separator();
+        var muted = conversation.Muted;
+        if (ImGui.Checkbox("Mute alerts", ref muted)) _chatService.SetMuted(conversation.Key, muted);
+        ElezenImgui.AttachTooltip("Suppress sounds and popups, and exclude this chat from the unread total. Messages still appear in the game log.");
+        using (ImRaii.Disabled(muted || !_configService.Current.ChatSoundsEnabled))
+        {
+            var sound = _chatService.GetSoundOverride(conversation.Key);
+            ImGui.SetNextItemWidth(160f * ImGuiHelpers.GlobalScale);
+            if (ImGui.BeginCombo("Notification sound", sound?.ToString() ?? $"Default ({_configService.Current.DefaultChatSound})"))
+            {
+                if (ImGui.Selectable("Default", !sound.HasValue)) _chatService.SetSound(conversation.Key, null);
+                foreach (var option in Enum.GetValues<ChatSoundOption>())
+                {
+                    if (ImGui.Selectable(option.ToString(), sound == option)) _chatService.SetSound(conversation.Key, option);
+                }
+                ImGui.EndCombo();
+            }
+        }
+        ImGui.Separator();
+        DrawSpeedDialEditor(conversation);
+    }
+
+    private void DrawSpeedDialEditor(ConversationSnapshot conversation)
+    {
+        if (_speedDialEditKey != conversation.Key || ImGui.IsWindowAppearing())
+        {
+            _speedDialEditKey = conversation.Key;
+            _speedDialNumber = Math.Max(1, _chatService.GetSpeedDial(conversation.Key));
+        }
+        ImGui.TextUnformatted("Speed dial");
+        ImGui.SetNextItemWidth(140f * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt("##speed-dial-number", ref _speedDialNumber);
+        var valid = _speedDialNumber is >= 1 and <= ChatSpeedDialPolicy.Maximum;
+        var assigned = _chatService.GetSpeedDialAssignment(_speedDialNumber);
+        if (!valid) ImGui.TextUnformatted($"Choose a number from 1 to {ChatSpeedDialPolicy.Maximum}.");
+        else if (assigned.HasValue)
+        {
+            var target = _chatService.Store.GetConversation(assigned.Value)?.Title ?? "Unavailable conversation (reserved)";
+            ImGui.TextWrapped($"/snow {_speedDialNumber} is assigned to: {target}");
+        }
+        else ImGui.TextUnformatted($"/snow {_speedDialNumber} is available!");
+        using (ImRaii.Disabled(!_apiController.ChatPairStateReady || !valid || assigned.HasValue && assigned.Value != conversation.Key))
+        {
+            if (ImGui.Button("Assign to this chat") && _chatService.TryAssignSpeedDial(_speedDialNumber, conversation.Key))
+                ImGui.CloseCurrentPopup();
+        }
+        if (assigned.HasValue && ImGui.Button($"Clear assignment for /snow {_speedDialNumber}"))
+            _chatService.ClearSpeedDial(_speedDialNumber);
     }
 
     private void DrawConversationHeader(ConversationSnapshot conversation, bool hasMemberList)
@@ -501,7 +605,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         var headerEnd = ImGui.GetCursorPos();
 
         var buttonSize = new Vector2(34f, 30f) * ImGuiHelpers.GlobalScale;
-        var actionCount = 2 + (conversation.Key.Kind == ConversationKind.Direct || hasMemberList ? 1 : 0);
+        var actionCount = 3 + (conversation.Key.Kind == ConversationKind.Direct || hasMemberList ? 1 : 0);
         var actionsWidth = actionCount * buttonSize.X + Math.Max(0, actionCount - 1) * ImGui.GetStyle().ItemSpacing.X;
         var actionX = ImGui.GetWindowContentRegionMax().X - actionsWidth;
         var actionY = headerStart.Y + ((headerEnd.Y - headerStart.Y) - buttonSize.Y) * 0.5f;
@@ -543,6 +647,25 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             Mediator.Publish(new OpenChatPopoutMessage(conversation.Key));
         }
         ElezenImgui.AttachTooltip("Open conversation in a separate window");
+        ImGui.SameLine();
+        using (ImRaii.PushId(conversation.Key.ToString()))
+        {
+            if (DrawCompactIconButton(FontAwesomeIcon.Cog, buttonSize, "chat-conversation-settings"))
+                ImGui.OpenPopup("conversation-settings");
+            var speedDial = _chatService.GetSpeedDial(conversation.Key);
+            ElezenImgui.AttachTooltip(speedDial > 0
+                ? $"Conversation settings\nSpeed dial: /snow {speedDial} <message>"
+                : "Conversation settings");
+            if (ImGui.IsPopupOpen("conversation-settings"))
+            {
+                ImGui.SetNextWindowSize(new Vector2(370f, 0) * ImGuiHelpers.GlobalScale, ImGuiCond.Appearing);
+                if (ImGui.BeginPopup("conversation-settings"))
+                {
+                    DrawConversationSettings(conversation);
+                    ImGui.EndPopup();
+                }
+            }
+        }
         ImGui.SetCursorPos(headerEnd);
         ImGuiHelpers.ScaledDummy(7);
         ImGui.Separator();
@@ -597,13 +720,15 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         if (conversation.Key.Kind == ConversationKind.Direct)
         {
             var display = _identityResolver.Resolve(conversation.Key.Id);
-            return (display?.Name ?? conversation.Title, display?.Colour, display?.Glow, FontAwesomeIcon.User);
+            var online = _pairManager.GetPairByUID(conversation.Key.Id)?.IsOnline == true;
+            return (display?.Name ?? conversation.Title,
+                online ? display?.Colour : SnowcloakColours.CompactTextMuted, display?.Glow,
+                online ? FontAwesomeIcon.User : FontAwesomeIcon.UserSlash);
         }
 
         if (conversation.Key.Kind == ConversationKind.Syncshell)
         {
-            var group = _pairManager.Groups.Values.FirstOrDefault(candidate =>
-                string.Equals(candidate.GID, conversation.Key.Id, StringComparison.Ordinal));
+            var group = _pairManager.GetGroupByGid(conversation.Key.Id);
             return (group?.GroupAliasOrGID ?? conversation.Title,
                 group == null ? null : Colour.HexToVector4OrNull(group.Group.DisplayColour),
                 null,
@@ -752,10 +877,9 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         ImGui.TextColored(SnowcloakColours.CompactTextMuted, label);
         var buttonWidth = 140f * ImGuiHelpers.GlobalScale;
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0f, (available.X - buttonWidth) * 0.5f));
-        if (ImGui.Button("Browse Rooms", new Vector2(buttonWidth, 0f)))
+        if (ImGui.Button("New chat", new Vector2(buttonWidth, 0f)))
         {
-            _openRoomBrowser = true;
-            Queue(_chatService.RefreshAsync(), nameof(ChatClientService.RefreshAsync));
+            _openNewChat = true;
         }
     }
 
@@ -1719,6 +1843,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
     private void Select(ConversationKey? key)
     {
+        if (key is { Kind: ConversationKind.Direct } direct && !_chatService.PrepareDirectConversation(direct.Id)) return;
         _chatService.Store.SetActive(key);
         if (key.HasValue)
         {

@@ -166,14 +166,17 @@ public sealed class CommandManagerService : IDisposable
             return;
         }
 
-        var conversations = _chatService.GetOrderedConversations(includeOfflineDirect: false);
         ConversationKey? key;
         var messageStart = 0;
-        if (int.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+        if (int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+            || args[0].All(char.IsAsciiDigit))
         {
-            key = index > 0 && index <= conversations.Count
-                ? conversations[index - 1].Key
-                : null;
+            key = _chatService.ResolveSpeedDial(index);
+            if (!key.HasValue)
+            {
+                _chatGui.PrintError("[Snowcloak] That speed dial number is unassigned, or its chat is unavailable. Assign numbers from a chat's menu.");
+                return;
+            }
             messageStart = 1;
         }
         else
@@ -183,7 +186,7 @@ public sealed class CommandManagerService : IDisposable
 
         if (!key.HasValue || messageStart >= args.Length)
         {
-            _chatGui.PrintError("[Snowcloak] Select a chat conversation, or use /snow <number> <message>.");
+            _chatGui.PrintError("[Snowcloak] Select a chat conversation, or use /snow <x> <message>.");
             return;
         }
 

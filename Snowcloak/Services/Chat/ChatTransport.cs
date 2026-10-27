@@ -81,7 +81,7 @@ public sealed class ChatTransport : IChatTransport
 
     private bool TryResolveGroup(string gid, out GroupData group)
     {
-        var resolved = _pairManager.Groups.Keys.FirstOrDefault(candidate => string.Equals(candidate.GID, gid, StringComparison.Ordinal));
+        var resolved = _pairManager.GetGroupByGid(gid)?.Group;
         group = resolved ?? new GroupData(gid);
         return resolved != null;
     }

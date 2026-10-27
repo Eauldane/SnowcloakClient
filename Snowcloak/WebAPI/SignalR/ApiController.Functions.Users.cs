@@ -18,14 +18,14 @@ public partial class ApiController
     public bool SupportsUnpairedUserReporting => IsConnected
         && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.UnpairedUserReporting) is true;
 
-    public async Task PushCharacterData(CharacterData data, List<UserData> visibleCharacters)
+    public async Task<bool> PushCharacterData(CharacterData data, List<UserData> visibleCharacters, CancellationToken cancellationToken = default)
     {
-        if (!IsConnected) return;
+        if (!IsConnected) return false;
 
         try
         {
             Logger.LogDebug("Pushing Character data {hash} to {visible}", data.DataHash, string.Join(", ", visibleCharacters.Select(v => v.AliasOrUID)));
-            await PushCharacterDataInternal(data, [.. visibleCharacters]).ConfigureAwait(false);
+            return await PushCharacterDataInternal(data, [.. visibleCharacters], cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -35,6 +35,7 @@ public partial class ApiController
         {
             Logger.LogWarning(ex, "Error during upload of files");
         }
+        return false;
     }
 
     public async Task UserAddPair(UserDto user)
@@ -121,9 +122,7 @@ public partial class ApiController
             return new UserSafetyStateDto(false, null, []);
         return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserSafetyGet)).ConfigureAwait(false);
     }
-
-    // Compatibility-only implementation of the shared safety contract. Current clients use the
-    // local ProfilesAllowNsfw preference and do not call this operation.
+    
     public async Task<UserSafetyStateDto> UserSafetySetAdultContent(AdultContentOptInDto dto)
     {
         CheckConnection();
@@ -259,7 +258,7 @@ public partial class ApiController
         await _snowHub!.InvokeAsync(nameof(UserRespondToPairRequest), dto).ConfigureAwait(false);
     }
 
-    private async Task PushCharacterDataInternal(CharacterData character, List<UserData> visibleCharacters)
+    private async Task<bool> PushCharacterDataInternal(CharacterData character, List<UserData> visibleCharacters, CancellationToken cancellationToken)
     {
         if (Logger.IsEnabled(LogLevel.Information))
         {
@@ -280,6 +279,6 @@ public partial class ApiController
             Logger.LogDebug("Chara data contained: {NewLine} {Data}", Environment.NewLine, sb.ToString());
         }
 
-        await PushManifestInternal(character, visibleCharacters).ConfigureAwait(false);
+        return await PushManifestInternal(character, visibleCharacters, cancellationToken).ConfigureAwait(false);
     }
 }

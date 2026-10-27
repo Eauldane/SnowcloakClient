@@ -36,6 +36,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private readonly HashSet<PairHandler> _newVisiblePlayers = [];
     private readonly PairManager _pairManager;
     private readonly PublicIpcProvider _publicIpcProvider;
+    private readonly CharacterDataPublicationQueue _publicationQueue;
     private readonly ConcurrentDictionary<ObjectKind, GameObjectHandler> _playerRelatedObjects = [];
     private readonly OwnCharacterData _playerData = new();
     private readonly HashSet<UserData> _pendingVisibleUsers = new(UserDataComparer.Instance);
@@ -70,6 +71,9 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
         _fileTransferManager = fileTransferManager;
         _publicIpcProvider = publicIpcProvider;
         _backgroundTasks = new BackgroundTaskTracker(logger);
+        _publicationQueue = new CharacterDataPublicationQueue(() => _apiController.IsConnected,
+            (publication, ct) => PushCharacterDataInternal(publication.Data.Clone(), publication.SourcePathsByHash, publication.Recipients, ct));
+        _ = _backgroundTasks.Run(ct => _publicationQueue.RunAsync(ct), nameof(CharacterDataPublicationQueue), _runtimeCts.Token);
 
         Mediator.Subscribe<ZoneSwitchStartMessage>(this, _ => _isZoning = true);
         Mediator.Subscribe<ZoneSwitchEndMessage>(this, _ => _isZoning = false);
@@ -569,22 +573,19 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
             return;
         }
 
-        _ = _backgroundTasks.Run(
-            ct => PushCharacterDataInternal(data.Clone(), sourcePathsByHash, visiblePlayers, ct),
-            nameof(PushCharacterData),
-            _runtimeCts.Token);
+        _publicationQueue.Queue(data, sourcePathsByHash, visiblePlayers);
     }
 
-    private async Task PushCharacterDataInternal(ApiCharacterData data, IReadOnlyDictionary<string, string> sourcePathsByHash,
+    private async Task<bool> PushCharacterDataInternal(ApiCharacterData data, IReadOnlyDictionary<string, string> sourcePathsByHash,
         List<UserData> visiblePlayers, CancellationToken cancellationToken)
     {
-        using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(cancellationToken);
-        cancellationToken = restoreAdmission.Token;
         try
         {
+            using var restoreAdmission = Snowcloak.Core.EnvironmentSnapshots.SnapshotExclusion.Enter(cancellationToken);
+            cancellationToken = restoreAdmission.Token;
             var dataToSend = await _fileTransferManager.UploadFiles(data, sourcePathsByHash, visiblePlayers, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            await _apiController.PushCharacterData(dataToSend, visiblePlayers).ConfigureAwait(false);
+            return await _apiController.PushCharacterData(dataToSend, visiblePlayers, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -604,6 +605,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
                 new Dictionary<string, string>(data.ExtensionData, StringComparer.Ordinal),
                 ex.Message));
         }
+        return false;
     }
 
     private static Dictionary<string, string> GetSourcePathsByHash(OwnCharacterData data)
@@ -679,6 +681,7 @@ public sealed class CacheCreationService : DisposableMediatorSubscriberBase, IAs
     private void DisposeOwnedResources()
     {
         _playerRelatedObjects.Values.ToList().ForEach(p => p.Dispose());
+        _publicationQueue.Dispose();
         _runtimeCts.Dispose();
         _creationFlight.Dispose();
         _debounceFlight.Dispose();

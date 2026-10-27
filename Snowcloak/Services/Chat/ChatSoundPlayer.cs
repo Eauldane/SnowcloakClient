@@ -1,111 +1,47 @@
-using NAudio;
-using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
+using ElezenTools.Services;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using FFXIVClientStructs.FFXIV.Client.Sound;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
+using Snowcloak.Configuration;
 
 namespace Snowcloak.Services.Chat;
 
-public sealed class ChatSoundPlayer : IDisposable
+public sealed class ChatSoundPlayer(ILogger<ChatSoundPlayer> logger, SnowcloakConfigService configService) : IDisposable
 {
-    private static readonly Action<ILogger, ChatSoundOption, Exception?> PlaybackFailed =
-        LoggerMessage.Define<ChatSoundOption>(LogLevel.Debug, new EventId(1, nameof(PlaybackFailed)),
-            "Unable to play chat sound {Sound}");
-    private readonly Lock _lock = new();
-    private readonly HashSet<WaveOutEvent> _active = [];
-    private readonly ILogger<ChatSoundPlayer> _logger;
-
-    public ChatSoundPlayer(ILogger<ChatSoundPlayer> logger)
-    {
-        _logger = logger;
-    }
+    private volatile bool _disposed;
 
     public void Play(ChatSoundOption sound)
     {
-        if (sound == ChatSoundOption.None)
-        {
-            return;
-        }
+        if (_disposed || sound == ChatSoundOption.None || !Enum.IsDefined(sound) || configService.Current.ChatSoundVolume <= 0) return;
+        _ = PlayOnFrameworkAsync(sound);
+    }
 
-        var index = (int)sound;
-        var source = new SignalGenerator
-        {
-            Gain = 0.07,
-            Frequency = 420 + index * 32,
-            Type = index % 3 == 0 ? SignalGeneratorType.Triangle : SignalGeneratorType.Sin,
-        }.Take(TimeSpan.FromMilliseconds(100 + index * 4));
-        WaveOutEvent? output = null;
+    private async Task PlayOnFrameworkAsync(ChatSoundOption sound)
+    {
         try
         {
-            output = new WaveOutEvent { DesiredLatency = 80 };
-            output.PlaybackStopped += OnPlaybackStopped;
-            lock (_lock)
+            await Service.RunOnFrameworkAsync(() =>
             {
-                _active.Add(output);
-            }
-
-            output.Init(source);
-            output.Play();
+                var volume = Math.Clamp(configService.Current.ChatSoundVolume, 0, 100) / 100f;
+                if (!_disposed && volume > 0) PlayGameSound(sound, volume);
+            }).ConfigureAwait(false);
         }
-        catch (MmException ex)
+        catch (Exception exception)
         {
-            HandlePlaybackFailure(output, sound, ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            HandlePlaybackFailure(output, sound, ex);
-        }
-        catch (ArgumentException ex)
-        {
-            HandlePlaybackFailure(output, sound, ex);
+            logger.LogWarning(exception, "Unable to play chat sound {Sound}", sound);
         }
     }
 
-    public void Dispose()
+    private static unsafe void PlayGameSound(ChatSoundOption sound, float volume)
     {
-        WaveOutEvent[] active;
-        lock (_lock)
-        {
-            active = _active.ToArray();
-            _active.Clear();
-        }
-
-        foreach (var output in active)
-        {
-            output.PlaybackStopped -= OnPlaybackStopped;
-            output.Dispose();
-        }
+        SoundData* padSound = null;
+        SoundData* gameSound = null;
+        // PlayChatSoundEffect maps choices 1..16 to UI effects 37..52.
+        UIGlobals.PlaySoundEffect((uint)sound + 36, &padSound, &gameSound);
+        if (gameSound != null) gameSound->SetVolume(gameSound->GetVolume() * volume);
+        if (padSound != null && padSound != gameSound) padSound->SetVolume(padSound->GetVolume() * volume);
     }
 
-    private void OnPlaybackStopped(object? sender, StoppedEventArgs args)
-    {
-        if (sender is not WaveOutEvent output)
-        {
-            return;
-        }
-
-        output.PlaybackStopped -= OnPlaybackStopped;
-        lock (_lock)
-        {
-            _active.Remove(output);
-        }
-
-        output.Dispose();
-    }
-
-    private void HandlePlaybackFailure(WaveOutEvent? output, ChatSoundOption sound, Exception exception)
-    {
-        if (output != null)
-        {
-            output.PlaybackStopped -= OnPlaybackStopped;
-            lock (_lock)
-            {
-                _active.Remove(output);
-            }
-
-            output.Dispose();
-        }
-
-        PlaybackFailed(_logger, sound, exception);
-    }
+    public void Dispose() => _disposed = true;
 }

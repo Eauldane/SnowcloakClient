@@ -15,6 +15,7 @@ public record RpAvailabilityChangedMessage(RpAvailabilityChangedDto Dto) : Messa
 public record RpRoomUpdatedMessage(RoomDto Dto) : MessageBase;
 public record RpRoomInviteReceivedMessage(RoomInviteReceivedDto Dto) : MessageBase;
 public record RpPingReceivedMessage(RpPingDto Dto) : MessageBase;
+public record ChatPairStateReadyMessage : SameThreadMessage;
 public record ChatMembershipChangedMessage : MessageBase;
 public record ChatIncomingAppendedMessage(ConversationKey Key, ChatEntry Entry) : MessageBase;
 public record OpenChatPopoutMessage(ConversationKey Key) : SameThreadMessage;

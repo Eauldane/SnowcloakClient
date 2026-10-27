@@ -39,6 +39,8 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
     private List<Pair> _directPairsCache = [];
     private Dictionary<GroupFullInfoDto, List<Pair>> _groupPairsCache = new();
     private volatile bool _projectionsDirty = true;
+    private long _projectionVersion;
+    public long ProjectionVersion => Volatile.Read(ref _projectionVersion);
     private volatile bool _panicModeEnabled;
     private int _disposed;
 
@@ -63,6 +65,8 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         get { RebuildProjectionsIfDirty(); return _groupPairsCache; }
     }
     public Dictionary<GroupData, GroupFullInfoDto> Groups => _allGroups.ToDictionary(k => k.Key, k => k.Value, GroupDataComparer.Instance);
+    public GroupFullInfoDto? GetGroupByGid(string gid)
+        => _allGroups.TryGetValue(new GroupData(gid), out var group) ? group : null;
     public Pair? LastAddedUser { get; internal set; }
     public bool PanicModeEnabled => _panicModeEnabled;
     private readonly ConcurrentDictionary<string, byte> _suppressedNotePairs =
@@ -898,7 +902,11 @@ public sealed class PairManager : DisposableMediatorSubscriberBase, IAsyncDispos
         }
     }
 
-    private void InvalidateProjections() => _projectionsDirty = true;
+    private void InvalidateProjections()
+    {
+        _projectionsDirty = true;
+        Interlocked.Increment(ref _projectionVersion);
+    }
 
     private void RebuildProjectionsIfDirty()
     {

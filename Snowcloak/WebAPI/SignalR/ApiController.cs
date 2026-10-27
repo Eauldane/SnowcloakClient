@@ -117,6 +117,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     public bool SupportsModPackageDocuments => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ModPackageDocumentsV1) == true;
     public bool SupportsEnvironmentBackups => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.EnvironmentBackupsV1) == true;
     public bool IsConnected => ServerState == ServerState.Connected;
+    private volatile bool _chatPairStateReady;
+    public bool ChatPairStateReady => IsConnected && _chatPairStateReady;
 
     public bool IsCurrentVersion => _connectionContext.IsCurrentVersion;
 
@@ -261,6 +263,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 await CheckClientHealth(token).ConfigureAwait(false);
 
+                _chatPairStateReady = false;
                 ServerState = ServerState.Connected;
                 TriggerSystemInfoRefresh();
 
@@ -541,6 +544,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
                 return;
             }
+            _chatPairStateReady = false;
             ServerState = ServerState.Connected;
             TriggerSystemInfoRefresh();
             var resumed = await TryResumeSessionAsync(connectionDto).ConfigureAwait(false);
@@ -570,6 +574,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private async Task StopConnection(ServerState state, bool teardownSession = true)
     {
+        _inboundDispatcher.ExpireConnection();
         var hadHub = _snowHub is not null;
         if (teardownSession && hadHub)
         {
@@ -584,6 +589,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         }
 
         await _connectionLifecycle.StopAsync(state, _serverManager.CurrentServer.ServerName, StopSystemInfoPolling, teardownSession).ConfigureAwait(false);
+        _inboundDispatcher.ExpireConnection();
         if (hadHub)
         {
             _connectionContext = ConnectionContext.Empty;
@@ -618,35 +624,15 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
         }
     }
 
-    private async Task ReconcileConnectionState(bool resumed)
-    {
-        var online = await UserGetOnlinePairs().ConfigureAwait(false);
-        if (resumed)
-        {
-            _pairManager.ReconcileOnlineState(online);
-        }
-        else
-        {
-            var userPairs = await UserGetPairedClients().ConfigureAwait(false);
-            var groups = await GroupsGetAll().ConfigureAwait(false);
-            var groupUsers = await Task.WhenAll(groups.Select(GroupsGetUsersInGroup)).ConfigureAwait(false);
-            _pairManager.ReconcileServerState(userPairs, groups, groupUsers.SelectMany(users => users).ToList(), online);
-            _sessionResumeState.CommitFullResync();
-        }
-
-        var visible = _pairManager.GetVisibleUsers()
-            .Select(user => new OnlineUserIdentDto(user, string.Empty))
-            .ToList();
-        await ResolveManifestsForVisiblePairs(visible).ConfigureAwait(false);
-        _sessionGraceFlight.Cancel();
-    }
-
     private void MarkConnectionLost()
     {
+        _chatPairStateReady = false;
         if (ServerState is ServerState.Degraded or ServerState.Resuming)
         {
             return;
         }
+
+        _inboundDispatcher.ExpireConnection();
 
         _sessionResumeState.BeginBuffering();
         var graceScope = _sessionGraceFlight.Begin();

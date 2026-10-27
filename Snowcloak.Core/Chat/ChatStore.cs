@@ -1,5 +1,6 @@
 namespace Snowcloak.Core.Chat;
 
+using System.Collections.ObjectModel;
 using Snowcloak.API.Data;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Dto.Chat;
@@ -26,6 +27,8 @@ public sealed class ChatStore
     private readonly Dictionary<ConversationKey, ConversationState> _conversations = [];
     private readonly Dictionary<ConversationKey, Task> _historyLoads = [];
     private ConversationKey? _activeConversation;
+    private ChatStoreSnapshot? _snapshot;
+    private int _historyEpoch;
 
     public ChatStore(IChatTransport transport, IChatIdentityResolver identityResolver)
     {
@@ -36,13 +39,16 @@ public sealed class ChatStore
     public event EventHandler? Changed;
     public event EventHandler<ChatMessageSentEventArgs>? MessageSent;
 
+    public ConversationKey? ActiveConversation { get { lock (_lock) return _activeConversation; } }
+    public int TotalUnread { get { lock (_lock) return _conversations.Values.Sum(conversation => conversation.Muted ? 0 : conversation.Unread); } }
+
     public ChatStoreSnapshot Snapshot
     {
         get
         {
             lock (_lock)
             {
-                return new ChatStoreSnapshot(
+                return _snapshot ??= new ChatStoreSnapshot(
                     _conversations.Values
                         .Select(static conversation => conversation.ToSnapshot())
                         .OrderBy(static conversation => conversation.Key.Kind)
@@ -53,12 +59,21 @@ public sealed class ChatStore
         }
     }
 
+    public ConversationSnapshot? GetConversation(ConversationKey key)
+    {
+        lock (_lock)
+        {
+            return _conversations.TryGetValue(key, out var conversation) ? conversation.ToSnapshot() : null;
+        }
+    }
+
     public ConversationSnapshot GetOrCreate(ConversationKey key, string? title = null, bool muted = false)
     {
         ConversationSnapshot snapshot;
         var changed = false;
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, title, muted, out changed);
             snapshot = conversation.ToSnapshot();
         }
@@ -76,7 +91,9 @@ public sealed class ChatStore
         var changed = false;
         lock (_lock)
         {
-            var conversation = GetOrCreateState(key, title, muted, out changed);
+            if (_conversations.TryGetValue(key, out var existing) && existing.Title == title && existing.Muted == muted) return;
+            _snapshot = null;
+            var conversation = GetOrCreateState(key, null, muted, out changed);
             if (!string.Equals(conversation.Title, title, StringComparison.Ordinal) || conversation.Muted != muted)
             {
                 conversation.Title = title;
@@ -96,6 +113,7 @@ public sealed class ChatStore
         var changed = false;
         lock (_lock)
         {
+            _snapshot = null;
             changed = _conversations.Remove(key);
             _historyLoads.Remove(key);
             if (_activeConversation == key)
@@ -115,8 +133,10 @@ public sealed class ChatStore
         var changed = false;
         lock (_lock)
         {
+            _snapshot = null;
             if (_conversations.TryGetValue(key, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 conversation.Entries.Clear();
                 conversation.Unread = 0;
                 conversation.HistoryLoaded = false;
@@ -137,6 +157,7 @@ public sealed class ChatStore
         ChatEntry? entry = null;
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             if (AppendStamped(conversation, message, countUnread: _activeConversation != key && !suppressUnread))
             {
@@ -164,6 +185,7 @@ public sealed class ChatStore
         var changed = false;
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             if (conversation.Entries.All(entry => !string.Equals(entry.MessageId, eventId, StringComparison.Ordinal)))
             {
@@ -201,6 +223,7 @@ public sealed class ChatStore
         var localId = Guid.NewGuid().ToString("N");
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             conversation.Entries.Add(new ChatEntry(
                 localId,
@@ -225,11 +248,13 @@ public sealed class ChatStore
             var stamped = await _transport.SendAsync(key, text, rpMode, cancellationToken).ConfigureAwait(false);
             lock (_lock)
             {
+                _snapshot = null;
                 if (!_conversations.TryGetValue(key, out var conversation))
                 {
                     return;
                 }
 
+                conversation.InvalidateSnapshot();
                 var pendingIndex = conversation.Entries.FindIndex(entry => string.Equals(entry.LocalId, localId, StringComparison.Ordinal));
                 if (pendingIndex < 0)
                 {
@@ -254,8 +279,10 @@ public sealed class ChatStore
         {
             lock (_lock)
             {
+                _snapshot = null;
                 if (_conversations.TryGetValue(key, out var conversation))
                 {
+                    conversation.InvalidateSnapshot();
                     var index = conversation.Entries.FindIndex(entry => string.Equals(entry.LocalId, localId, StringComparison.Ordinal));
                     if (index >= 0)
                     {
@@ -283,8 +310,10 @@ public sealed class ChatStore
         var rpMode = RpChatMode.Standard;
         lock (_lock)
         {
+            _snapshot = null;
             if (_conversations.TryGetValue(key, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 var entry = conversation.Entries.FirstOrDefault(candidate => string.Equals(candidate.LocalId, localId, StringComparison.Ordinal));
                 if (entry?.State == DeliveryState.Failed)
                 {
@@ -304,6 +333,7 @@ public sealed class ChatStore
         ChatEntry? entry = null;
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             if (AppendStamped(conversation, message, countUnread))
             {
@@ -327,6 +357,7 @@ public sealed class ChatStore
         ChatEntry? appended = null;
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             if (conversation.Entries.All(entry => !string.Equals(entry.MessageId, eventId, StringComparison.Ordinal)))
             {
@@ -359,6 +390,7 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             if (conversation.HistoryLoaded)
             {
@@ -370,10 +402,24 @@ public sealed class ChatStore
                 return existing;
             }
 
-            var load = LoadHistoryAsync(key, cancellationToken);
-            _historyLoads[key] = load;
-            return load;
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _historyLoads[key] = completion.Task;
+            _ = CompleteHistoryAsync(key, _historyEpoch, completion, cancellationToken);
+            return completion.Task;
         }
+    }
+
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _historyEpoch++;
+            _historyLoads.Clear();
+            _conversations.Clear();
+            _activeConversation = null;
+            _snapshot = null;
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     public void InvalidateHistory()
@@ -381,8 +427,12 @@ public sealed class ChatStore
         var changed = false;
         lock (_lock)
         {
+            _snapshot = null;
+            _historyEpoch++;
+            _historyLoads.Clear();
             foreach (var conversation in _conversations.Values)
             {
+                conversation.InvalidateSnapshot();
                 changed |= conversation.HistoryLoaded;
                 conversation.HistoryLoaded = false;
             }
@@ -398,9 +448,11 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             _activeConversation = key;
             if (key.HasValue && _conversations.TryGetValue(key.Value, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 conversation.Unread = 0;
             }
         }
@@ -412,8 +464,10 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             if (_conversations.TryGetValue(key, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 conversation.Unread = 0;
             }
         }
@@ -430,8 +484,10 @@ public sealed class ChatStore
 
         lock (_lock)
         {
+            _snapshot = null;
             if (_activeConversation != key && _conversations.TryGetValue(key, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 conversation.Unread += count;
             }
         }
@@ -443,6 +499,7 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, muted, out _);
             conversation.Muted = muted;
         }
@@ -454,6 +511,8 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            if (_conversations.TryGetValue(key, out var existing) && existing.Draft == draft) return;
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             conversation.Draft = draft;
         }
@@ -464,6 +523,7 @@ public sealed class ChatStore
         ArgumentNullException.ThrowIfNull(members);
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             conversation.Members.Clear();
             foreach (var member in members)
@@ -479,6 +539,7 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             GetOrCreateState(key, null, false, out _).Members[uid] = role;
         }
 
@@ -490,6 +551,7 @@ public sealed class ChatStore
         ArgumentNullException.ThrowIfNull(members);
         lock (_lock)
         {
+            _snapshot = null;
             var conversation = GetOrCreateState(key, null, false, out _);
             conversation.MemberLabels.Clear();
             foreach (var member in members)
@@ -505,8 +567,10 @@ public sealed class ChatStore
     {
         lock (_lock)
         {
+            _snapshot = null;
             if (_conversations.TryGetValue(key, out var conversation))
             {
+                conversation.InvalidateSnapshot();
                 conversation.Members.Remove(uid);
                 conversation.MemberLabels.Remove(uid);
             }
@@ -520,8 +584,10 @@ public sealed class ChatStore
         ArgumentNullException.ThrowIfNull(resolver);
         lock (_lock)
         {
+            _snapshot = null;
             foreach (var conversation in _conversations.Values)
             {
+                conversation.InvalidateSnapshot();
                 for (var index = 0; index < conversation.Entries.Count; index++)
                 {
                     var entry = conversation.Entries[index];
@@ -537,31 +603,48 @@ public sealed class ChatStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task LoadHistoryAsync(ConversationKey key, CancellationToken cancellationToken)
+    private async Task CompleteHistoryAsync(ConversationKey key, int epoch, TaskCompletionSource completion, CancellationToken cancellationToken)
     {
         try
         {
             var history = await _transport.GetHistoryAsync(key, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             lock (_lock)
             {
-                var conversation = GetOrCreateState(key, null, false, out _);
-                foreach (var message in history.OrderBy(static message => message.Timestamp))
+                if (epoch == _historyEpoch && _historyLoads.TryGetValue(key, out var load) && load == completion.Task
+                    && _conversations.TryGetValue(key, out var conversation))
                 {
-                    AppendStamped(conversation, message, countUnread: false);
+                    _snapshot = null;
+                    conversation.InvalidateSnapshot();
+                    var ids = conversation.Entries.Where(entry => !string.IsNullOrEmpty(entry.MessageId))
+                        .Select(entry => entry.MessageId).ToHashSet(StringComparer.Ordinal);
+                    foreach (var message in history)
+                    {
+                        if (string.IsNullOrEmpty(message.MessageId) || ids.Add(message.MessageId))
+                            conversation.Entries.Add(CreateEntry(conversation, message, Guid.NewGuid().ToString("N")));
+                    }
+                    conversation.Entries.Sort(CompareEntries);
+                    Trim(conversation.Entries);
+                    conversation.HistoryLoaded = true;
                 }
-
-                conversation.Entries.Sort(CompareEntries);
-                Trim(conversation.Entries);
-                conversation.HistoryLoaded = true;
             }
+            completion.TrySetResult();
+        }
+        catch (OperationCanceledException exception)
+        {
+            completion.TrySetCanceled(exception.CancellationToken);
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
         }
         finally
         {
             lock (_lock)
             {
-                _historyLoads.Remove(key);
+                if (_historyLoads.TryGetValue(key, out var current) && current == completion.Task)
+                    _historyLoads.Remove(key);
             }
-
             Changed?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -619,6 +702,7 @@ public sealed class ChatStore
     {
         if (_conversations.TryGetValue(key, out var existing))
         {
+            existing.InvalidateSnapshot();
             created = false;
             if (!string.IsNullOrWhiteSpace(title))
             {
@@ -678,12 +762,16 @@ public sealed class ChatStore
         public bool Muted { get; set; } = muted;
         public bool HistoryLoaded { get; set; }
 
-        public ConversationSnapshot ToSnapshot() => new(
+        private ConversationSnapshot? _cachedSnapshot;
+        public void InvalidateSnapshot() => _cachedSnapshot = null;
+
+        public ConversationSnapshot ToSnapshot() => _cachedSnapshot ??= new(
             Key,
             Title,
-            Entries.ToArray(),
-            new Dictionary<string, RoomRole>(Members, StringComparer.Ordinal),
-            MemberLabels.ToDictionary(member => member.Key, member => (IReadOnlyList<string>)member.Value.ToArray(), StringComparer.Ordinal),
+            Array.AsReadOnly(Entries.ToArray()),
+            new ReadOnlyDictionary<string, RoomRole>(new Dictionary<string, RoomRole>(Members, StringComparer.Ordinal)),
+            new ReadOnlyDictionary<string, IReadOnlyList<string>>(MemberLabels.ToDictionary(member => member.Key,
+                member => (IReadOnlyList<string>)Array.AsReadOnly(member.Value.ToArray()), StringComparer.Ordinal)),
             Unread,
             Draft,
             Muted,
