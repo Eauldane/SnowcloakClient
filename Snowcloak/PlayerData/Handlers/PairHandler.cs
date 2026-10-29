@@ -163,6 +163,7 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
                 _applicationFlight.Cancel();
             }
         });
+        Mediator.Subscribe<PvPSyncSuppressionChangedMessage>(this, _ => UpdatePvPSync());
         Mediator.Subscribe<RecalculatePerformanceMessage>(this, (msg) =>
         {
             if (msg.UID != null
@@ -279,6 +280,17 @@ public sealed partial class PairHandler : DisposableMediatorSubscriberBase, IAsy
     public void ApplyCharacterData(Guid applicationBase, CharacterData characterData, bool forceApplyCustomization = false, PairFilterContext? filter = null)
     {
         ArgumentNullException.ThrowIfNull(characterData);
+
+        // PvP state can clear before visible pairs are disposed during logout. Never
+        // start a fresh appearance operation against a tearing-down game session.
+        if (Volatile.Read(ref _disposed) != 0 || !_dalamudUtil.CanReadCharacterObjects) return;
+
+        if (IsSyncSuppressedForPvP)
+        {
+            NeedsPvPResume = true;
+            return;
+        }
+        NeedsPvPResume = false;
 
         using var baseLogScope = Logger.BeginScope("BASE-{ApplicationBase}", applicationBase);
         if (filter.HasValue)

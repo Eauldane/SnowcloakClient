@@ -38,9 +38,7 @@ public sealed class ProfileWebClient : IDisposable
             _pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             if (string.IsNullOrWhiteSpace(pluginDirectory)) throw new FileNotFoundException();
-            var executable = Path.Combine(pluginDirectory, "ProfileWebHost", "Snowcloak.ProfileWebHost.exe");
-            if (!File.Exists(executable)) throw new FileNotFoundException();
-            var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            var start = ProfileWebHostLaunch.CreateStartInfo(Path.Combine(pluginDirectory, "ProfileWebHost"), RuntimeEnvironment.GetRuntimeDirectory());
             start.ArgumentList.Add(name); start.ArgumentList.Add(Session); start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             _process = Process.Start(start) ?? throw new InvalidOperationException();
             _ = ConnectAsync();

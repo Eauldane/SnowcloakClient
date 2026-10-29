@@ -88,6 +88,7 @@ internal sealed partial class CharacterApplicationPipeline
 
     public void DownloadAndApplyCharacter(CharacterData charaData, CharacterDataChangeSet updatedData, int modRecoveryGeneration)
     {
+        if (_handler.IsSyncSuppressedForPvP) return;
         if (updatedData.Count == 0)
         {
             LogNothingToUpdate(_handler);
@@ -148,6 +149,8 @@ internal sealed partial class CharacterApplicationPipeline
         downloadToken = restoreAdmission.Token;
         Dictionary<(string GamePath, string? Hash), string> moddedPaths = [];
         Dictionary<string, long> moddedFileSizes = new(StringComparer.OrdinalIgnoreCase);
+
+        if (_handler.IsSyncSuppressedForPvP) return;
 
         if (updateModdedPaths)
         {
@@ -238,7 +241,7 @@ internal sealed partial class CharacterApplicationPipeline
         await _applicationGate.WaitAsync(downloadToken).ConfigureAwait(false);
         try
         {
-            if (downloadToken.IsCancellationRequested) return;
+            if (downloadToken.IsCancellationRequested || _handler.IsSyncSuppressedForPvP) return;
 
             using var appScope = _applicationFlight.Begin(_runtimeCts.Token);
             var token = appScope.Token;

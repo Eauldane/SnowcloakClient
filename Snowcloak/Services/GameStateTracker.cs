@@ -8,6 +8,7 @@ using Snowcloak.Core.PlayerData;
 using Snowcloak.Core.Scheduling;
 using Snowcloak.Game.Scheduling;
 using Snowcloak.Services.Mediator;
+using Snowcloak.Configuration;
 
 namespace Snowcloak.Services;
 
@@ -31,6 +32,8 @@ public sealed partial class GameStateTracker : IHostedService
     private bool _wasDead;
     private uint _lastTargetEntityId;
     private readonly SessionLoginState _loginState = new();
+    private readonly SnowcloakConfigService _config;
+    private bool _wasSyncSuppressedForPvP;
 
     public GameStateTracker(
         ILogger<GameStateTracker> logger,
@@ -42,7 +45,7 @@ public sealed partial class GameStateTracker : IHostedService
         IFrameScheduler frameScheduler,
         ObjectTableCache objectTableCache,
         PlayerInteractionService playerInteraction,
-        PlotPresenceTracker plotPresence)
+        PlotPresenceTracker plotPresence, SnowcloakConfigService config)
     {
         _logger = logger;
         _clientState = clientState;
@@ -54,6 +57,7 @@ public sealed partial class GameStateTracker : IHostedService
         _objectTableCache = objectTableCache;
         _playerInteraction = playerInteraction;
         _plotPresence = plotPresence;
+        _config = config;
         _tickHandle = _frameScheduler.Register("GameState", TickInterval.EveryFrame, TickPriority.Critical, FrameworkOnUpdateInternal);
         _playerSnapshotTickHandle = _frameScheduler.Register("PlayerSnapshot", TickInterval.EveryMilliseconds(100), TickPriority.High,
             RefreshPlayerSnapshot, FrameGates.Dead, FrameGates.Zoning, FrameGates.Cutscene);
@@ -70,6 +74,7 @@ public sealed partial class GameStateTracker : IHostedService
         || _condition[ConditionFlag.BoundByDuty56]
         || _condition[ConditionFlag.BoundByDuty95];
     public bool IsInCombatOrPerforming { get; private set; }
+    public bool IsSyncSuppressedForPvP => !_config.Current.AllowSyncInPvP && _clientState.IsPvP;
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -88,6 +93,13 @@ public sealed partial class GameStateTracker : IHostedService
 
     private void FrameworkOnUpdateInternal()
     {
+        var suppressSync = IsSyncSuppressedForPvP;
+        if (suppressSync != _wasSyncSuppressedForPvP)
+        {
+            _wasSyncSuppressedForPvP = suppressSync;
+            _mediator.Publish(new PvPSyncSuppressionChangedMessage(suppressSync));
+        }
+
         var isDead = _objectTable.LocalPlayer?.IsDead ?? false;
         if (isDead != _wasDead)
         {

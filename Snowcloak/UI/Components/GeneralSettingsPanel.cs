@@ -61,7 +61,7 @@ public sealed class GeneralSettingsPanel
                 _repair.SetEnabled(helpRecover);
         ElezenImgui.AttachTooltip(string.IsNullOrEmpty(_api.UID)
             ? "Connect to change this account's setting."
-            : "Upload local copies to recover missing server files. Saved per server/account.");
+            : "Help other users restore mod backups by uploading missing files to the server.");
         ImGui.Separator();
 
         _fontService.BigText("Temporary party and alliance appearance");

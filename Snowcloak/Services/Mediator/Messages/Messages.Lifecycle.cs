@@ -33,6 +33,7 @@ public record HubClosedMessage(Exception? Exception) : SameThreadMessage;
 
 public record CombatOrPerformanceStartMessage : MessageBase;
 public record CombatOrPerformanceEndMessage : MessageBase;
+public record PvPSyncSuppressionChangedMessage(bool Suppressed) : SameThreadMessage;
 public record EventMessage(Event Event) : MessageBase;
 public record CensusUpdateMessage(byte Gender, byte RaceId, byte TribeId) : MessageBase;
 public record PluginChangeMessage(string InternalName, Version Version, bool IsLoaded) : KeyedMessage(InternalName);

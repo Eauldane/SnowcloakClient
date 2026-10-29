@@ -49,6 +49,13 @@ internal sealed class PairVisibilityTracker
 
     public void RetryDeferredApplicationIfReady()
     {
+        if (_handler.IsSyncSuppressedForPvP) return;
+        if (_handler.NeedsPvPResume && Pair.LastReceivedCharacterData != null)
+        {
+            Pair.ApplyLastReceivedData(forced: true);
+            return;
+        }
+
         var applicationBase = _handler.Deferred;
         var data = _appliedState.CachedData;
         if (applicationBase == Guid.Empty || data == null) return;
@@ -126,7 +133,7 @@ internal sealed class PairVisibilityTracker
             _handler.CharaHandler?.ReactivateMonitoringAndRefresh();
             _handler.IsVisible = true;
             Mediator.Publish(new PairHandlerVisibleMessage(_handler));
-            if (_appliedState.CachedData != null)
+            if (_appliedState.CachedData != null && !_handler.NeedsPvPResume)
             {
                 Guid appData = _handler.Deferred != Guid.Empty ? _handler.Deferred : Guid.NewGuid();
                 using (Logger.BeginScope("BASE-{ApplicationBase}", appData))
@@ -176,6 +183,7 @@ internal sealed class PairVisibilityTracker
 
         Mediator.Subscribe<HonorificReadyMessage>(_handler, msg =>
         {
+            if (_handler.IsSyncSuppressedForPvP) return;
             if (string.IsNullOrEmpty(_appliedState.CachedData?.HonorificData)) return;
             Logger.LogTrace("Reapplying Honorific data for {this}", _handler);
             _ = _backgroundTasks.Run(async () => await _ipcManager.Honorific.SetTitleAsync(_handler.PlayerCharacter, _appliedState.CachedData.HonorificData).ConfigureAwait(false), nameof(HonorificReadyMessage));
@@ -183,6 +191,7 @@ internal sealed class PairVisibilityTracker
 
         Mediator.Subscribe<PetNamesReadyMessage>(_handler, msg =>
         {
+            if (_handler.IsSyncSuppressedForPvP) return;
             if (string.IsNullOrEmpty(_appliedState.CachedData?.PetNamesData)) return;
             Logger.LogTrace("Reapplying Pet Names data for {this}", _handler);
             _ = _backgroundTasks.Run(async () => await _ipcManager.PetNames.SetPlayerData(_handler.PlayerCharacter, _appliedState.CachedData.PetNamesData).ConfigureAwait(false), nameof(PetNamesReadyMessage));

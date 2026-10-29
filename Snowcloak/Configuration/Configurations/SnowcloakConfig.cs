@@ -46,6 +46,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public bool LogPerformance { get; set; } = false;
     public bool LogEvents { get; set; } = true;
     public bool HoldCombatApplication { get; set; } = false;
+    public bool AllowSyncInPvP { get; set; } = true;
     public double MaxLocalCacheInGiB { get; set; } = 100;
     public bool OpenGposeImportOnGposeStart { get; set; } = false;
     public bool OpenPopupOnAdd { get; set; } = true;

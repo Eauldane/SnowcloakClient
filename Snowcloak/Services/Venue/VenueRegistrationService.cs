@@ -185,7 +185,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
     private void SubmitOrReject(OwnershipResult evaluation, bool plotMatches)
     {
-        if (evaluation.MatchesOwner)
+        if (evaluation.MatchesOwner && plotMatches)
         {
             _chatGui.Print(new XivChatEntry
             {
@@ -193,7 +193,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 Type = XivChatType.SystemMessage
             });
         }
-        else if (evaluation.MatchesFreeCompany)
+        else if (evaluation.MatchesFreeCompany && plotMatches)
         {
             _chatGui.Print(new XivChatEntry
             {
@@ -202,7 +202,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             });
         }
 
-        if (evaluation.Authorised)
+        if (evaluation.Authorised && plotMatches)
         {
             _state = RegistrationFlowState.Submitting;
 

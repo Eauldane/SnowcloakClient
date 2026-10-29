@@ -39,6 +39,8 @@ public sealed class PerformanceSettingsPanel
     private readonly SnowMediator _mediator;
     private readonly UiFontService _fontService;
     private readonly UsageStatisticsService _usageStatisticsService;
+    private readonly SnowcloakConfigService _configService;
+    private readonly DalamudUtilService _dalamudUtil;
     private string _performanceActiveTab = PerfTabGeneral;
     private bool _perfUnapplied;
     private string _uidToAddForIgnore = string.Empty;
@@ -57,7 +59,9 @@ public sealed class PerformanceSettingsPanel
         PlayerPerformanceService playerPerformanceService,
         SnowMediator mediator,
         UiFontService fontService,
-        UsageStatisticsService usageStatisticsService)
+        UsageStatisticsService usageStatisticsService,
+        SnowcloakConfigService configService,
+        DalamudUtilService dalamudUtil)
     {
         _blockListStore = blockListStore;
         _cacheMonitor = cacheMonitor;
@@ -70,6 +74,8 @@ public sealed class PerformanceSettingsPanel
         _mediator = mediator;
         _fontService = fontService;
         _usageStatisticsService = usageStatisticsService;
+        _configService = configService;
+        _dalamudUtil = dalamudUtil;
     }
 
     public void Draw()
@@ -118,6 +124,13 @@ public sealed class PerformanceSettingsPanel
         ImGui.Separator();
 
         _fontService.BigText("Global Configuration");
+
+        var allowSyncInPvP = _configService.Current.AllowSyncInPvP;
+        if (ImGui.Checkbox("Allow syncing during PvP", ref allowSyncInPvP))
+            _configService.Update(config => config.AllowSyncInPvP = allowSyncInPvP);
+        ElezenImgui.DrawHelpText("Disable this to stop new downloads and applications during PVP. Players you already have data for (e.g. party members before queueing, friends) may still display.");
+        if (_dalamudUtil.IsSyncSuppressedForPvP)
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Appearance downloads and application are paused during PvP.");
 
         var alwaysShrinkTextures = _playerPerformanceConfigService.Current.TextureShrinkMode == TextureShrinkMode.Always;
         var deleteOriginalTextures = _playerPerformanceConfigService.Current.TextureShrinkDeleteOriginal;

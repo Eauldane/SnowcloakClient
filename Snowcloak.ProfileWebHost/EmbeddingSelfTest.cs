@@ -25,8 +25,7 @@ internal sealed class EmbeddingSelfTest : Form
         using var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         try
         {
-            var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "Snowcloak.ProfileWebHost.exe"))
-            { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            var start = ProfileWebHostLaunch.CreateStartInfo(AppContext.BaseDirectory, RuntimeEnvironment.GetRuntimeDirectory());
             start.ArgumentList.Add(name); start.ArgumentList.Add(session); start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             child = Process.Start(start) ?? throw new InvalidOperationException();
             await pipe.WaitForConnectionAsync(timeout.Token);

@@ -74,6 +74,7 @@ public sealed partial class DalamudUtilService : IHostedService, IMediatorSubscr
     public bool IsInCutscene => _gameStateTracker.IsInCutscene;
     public bool IsInGpose => _gameStateTracker.IsInGpose;
     public bool IsInPvP => _clientState.IsPvP;
+    public bool IsSyncSuppressedForPvP => _gameStateTracker.IsSyncSuppressedForPvP;
     public bool IsLoggedIn => _gameStateTracker.IsLoggedIn;
     public bool CanReadCharacterObjects => _clientState.IsLoggedIn && IsLoggedIn
         && !_gameStateTracker.IsLoggingOut && !IsZoning && (!IsInCutscene || IsInGpose);
