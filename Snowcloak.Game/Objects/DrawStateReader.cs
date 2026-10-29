@@ -83,8 +83,8 @@ public static unsafe class DrawStateReader
 
             ref var mainHand = ref character->DrawData.Weapon(WeaponSlot.MainHand);
             ref var offHand = ref character->DrawData.Weapon(WeaponSlot.OffHand);
-            var hasMainHandData = CopyWeapon((Weapon*)mainHand.DrawObject, mainHandData);
-            var hasOffHandData = CopyWeapon((Weapon*)offHand.DrawObject, offHandData);
+            var hasMainHandData = CopyWeapon((Weapon*)mainHand.DrawData.DrawObject, mainHandData);
+            var hasOffHandData = CopyWeapon((Weapon*)offHand.DrawData.Object, offHandData);
 
             human->Customize.Data.CopyTo(customizeData);
 
