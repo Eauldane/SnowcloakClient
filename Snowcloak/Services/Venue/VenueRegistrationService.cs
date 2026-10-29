@@ -161,7 +161,6 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
         var keywords = GetPlacardKeywords();
         var (ward, plot) = ExtractWardAndPlot(lines, keywords);
-        var plotMatches = plot == _pendingPlot.PlotId;
 
         var playerName = _objectTable.LocalPlayer?.Name.TextValue;
         var playerCompanyTag = _objectTable.LocalPlayer?.CompanyTag?.TextValue;
@@ -169,6 +168,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         var evaluation = EvaluateOwnership(lines, keywords, playerName, playerCompanyTag);
 
 #if DEBUG
+        var plotMatches = plot == _pendingPlot.PlotId && (!ward.HasValue || ward == _pendingPlot.WardId);
         if (ward != null || plot != null)
         {
             _chatGui.Print(new XivChatEntry
@@ -180,12 +180,24 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         }
 #endif
 
-        SubmitOrReject(evaluation, plotMatches);
+        SubmitOrReject(evaluation, ward, plot);
     }
 
-    private void SubmitOrReject(OwnershipResult evaluation, bool plotMatches)
+    private void SubmitOrReject(OwnershipResult evaluation, uint? ward, uint? plot)
     {
-        if (evaluation.MatchesOwner && plotMatches)
+        if (!plot.HasValue)
+        {
+            CancelPendingRegistration("[Snowcloak] Could not read the placard address. Please reopen the placard and try registration again.");
+            return;
+        }
+
+        if (plot != _pendingPlot.PlotId || (ward.HasValue && ward != _pendingPlot.WardId))
+        {
+            CancelPendingRegistration("[Snowcloak] Placard address does not match the tracked plot. Please open the placard for the plot you are standing on.");
+            return;
+        }
+
+        if (evaluation.MatchesOwner)
         {
             _chatGui.Print(new XivChatEntry
             {
@@ -193,7 +205,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 Type = XivChatType.SystemMessage
             });
         }
-        else if (evaluation.MatchesFreeCompany && plotMatches)
+        else if (evaluation.MatchesFreeCompany)
         {
             _chatGui.Print(new XivChatEntry
             {
@@ -202,7 +214,7 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
             });
         }
 
-        if (evaluation.Authorised && plotMatches)
+        if (evaluation.Authorised)
         {
             _state = RegistrationFlowState.Submitting;
 
@@ -222,15 +234,6 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 Message = "[Snowcloak] Authority check failed - this plot doesn't seem to belong to you.",
                 Type = XivChatType.SystemMessage
             });
-
-            if (!plotMatches)
-            {
-                _chatGui.Print(new XivChatEntry
-                {
-                    Message = "[Snowcloak] Placard does not match tracked plot; please verify you are registering the correct location.",
-                    Type = XivChatType.SystemMessage
-                });
-            }
         }
 
         // A read attempt completes the flow either way; the user can re-run /venue register to retry.
@@ -309,7 +312,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
                 new[] { "Secteur" },
                 new[] { "Parcelle", "Terrain" },
                 new[] { "Propriétaire" },
-                new[] { "Compagnie libre" }),
+                new[] { "Compagnie libre" },
+                AddressKeyword: "Adresse"),
             ClientLanguage.Japanese => new PlacardKeywords(
                 Array.Empty<string>(),
                 Array.Empty<string>(),
@@ -364,10 +368,33 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
 
     private static (uint? Ward, uint? Plot) ExtractWardAndPlot(IEnumerable<string> lines, PlacardKeywords placardKeywords)
     {
+        var placardLines = lines as IReadOnlyList<string> ?? lines.ToList();
+        if (placardKeywords.AddressKeyword != null)
+        {
+            for (var i = 0; i < placardLines.Count; i++)
+            {
+                if (!string.Equals(StripFormattingCharacters(placardLines[i]).Trim().TrimEnd(':').TrimEnd(), placardKeywords.AddressKeyword, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var addressIndex = i + 1;
+                while (addressIndex < placardLines.Count && string.IsNullOrWhiteSpace(placardLines[addressIndex]))
+                    addressIndex++;
+                if (addressIndex == placardLines.Count)
+                    break;
+
+                var address = Regex.Match(StripFormattingCharacters(placardLines[addressIndex]),
+                    @"^\s*[^\r\n0-9０-９]+?\s+([0-9０-９]+)\s*[-–—]\s*([0-9０-９]+)(?:\s*\[[^\]\r\n]+\])?\s*$",
+                    RegexOptions.CultureInvariant);
+                if (address.Success)
+                    return (TryParseLocalizedNumber(address.Groups[1].Value), TryParseLocalizedNumber(address.Groups[2].Value));
+                break;
+            }
+        }
+
         uint? ward = null;
         uint? plot = null;
 
-        foreach (var line in lines)
+        foreach (var line in placardLines)
         {
             var wardValue = TryMatchNumber(line, placardKeywords.WardKeywords, placardKeywords.WardPattern);
             if (wardValue != null)
@@ -510,7 +537,8 @@ public sealed class VenueRegistrationService : IHostedService, IDisposable
         IReadOnlyList<string> OwnerKeywords,
         IReadOnlyList<string> CompanyKeywords,
         string? WardPattern = null,
-        string? PlotPattern = null);
+        string? PlotPattern = null,
+        string? AddressKeyword = null);
 
     private enum RegistrationFlowState
     {
