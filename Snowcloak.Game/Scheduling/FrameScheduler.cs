@@ -10,10 +10,6 @@ namespace Snowcloak.Game.Scheduling;
 public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
 {
     public const double DefaultBudgetMs = 2.0;
-    private const double SlowTickerWarningMs = 8.0;
-    private const double SlowTickerWarningIntervalMs = 10000.0;
-    private const double GcPauseWarningMs = 8.0;
-    private const double GcPauseWarningIntervalMs = 10000.0;
 
     private static readonly string[] NoGates = [];
 
@@ -35,11 +31,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
     private readonly List<int> _frameRan = [];
 
     private long _frame;
-    private TimeSpan _lastGcPauseDuration = GC.GetTotalPauseDuration();
-    private int _lastGen0Collections = GC.CollectionCount(0);
-    private int _lastGen1Collections = GC.CollectionCount(1);
-    private int _lastGen2Collections = GC.CollectionCount(2);
-    private double _lastGcPauseWarningMs = double.NegativeInfinity;
 
     private sealed record Registration(string Name, Action Tick, string[] PauseGates, string[] RunOnlyGates);
 
@@ -181,26 +172,7 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
             }
         }
     }
-
-    private void ObserveGcPauses(double nowMs)
-    {
-        var pauseDuration = GC.GetTotalPauseDuration();
-        var gen0Collections = GC.CollectionCount(0);
-        var gen1Collections = GC.CollectionCount(1);
-        var gen2Collections = GC.CollectionCount(2);
-
-        var pauseDelta = pauseDuration - _lastGcPauseDuration;
-        var gen0Delta = gen0Collections - _lastGen0Collections;
-        var gen1Delta = gen1Collections - _lastGen1Collections;
-        var gen2Delta = gen2Collections - _lastGen2Collections;
-
-        _lastGcPauseDuration = pauseDuration;
-        _lastGen0Collections = gen0Collections;
-        _lastGen1Collections = gen1Collections;
-        _lastGen2Collections = gen2Collections;
-        
-        _lastGcPauseWarningMs = nowMs;
-    }
+    
 
     private void Unregister(int id)
     {
