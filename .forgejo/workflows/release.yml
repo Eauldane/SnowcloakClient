@@ -15,8 +15,8 @@ jobs:
         run: dotnet restore
       - name: Build
         run: |
-          VERSION="${forgejo:ref#refs/tags/}"
-          
+          TAG="${FORGEJO_REF#refs/tags/}"     
+          VERSION="${TAG#v}"
           # Remove prerelease metadata for numeric assembly versions
           ASSEMBLY_VERSION="${VERSION%%[-+]*}"
           
