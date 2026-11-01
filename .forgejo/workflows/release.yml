@@ -59,9 +59,9 @@ jobs:
         uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
         with:
           direction: upload
-          tag: ${{ forgejo.ref_name }}
+          url: ${{ forgejo.server_url }}
+          repo: ${{ forgejo.repository }}
+          tag: ${{ steps.version.outputs.tag }}
           token: ${{ forgejo.token }}
           release-dir: dist/release
-          override: true
-          verbose: true
-          prerelease: ${{ contains(forgejo.ref_name, '-beta') }}
+          override: false
