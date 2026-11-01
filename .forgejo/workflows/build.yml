@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      - name: Dotnet Restore
+        run: dotnet restore
       - name: Build
         run: |
           dotnet build --no-restore --configuration Release --nologo
