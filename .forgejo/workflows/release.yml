@@ -6,35 +6,40 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: dalamud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
           dotnet-version: '10.x.x'
-      - name: Restore dependencies
+      - name: Dotnet Restore
         run: dotnet restore
-      - name: Download Dalamud
-        run: |
-          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/stg/latest.zip -OutFile latest.zip
-          Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
       - name: Build
         run: |
-          $ver = '${{ github.ref }}' -replace 'refs/tags/',''
+          $ver = '${{ forgejo.ref }}' -replace 'refs/tags/',''
           invoke-expression 'dotnet build --no-restore --configuration Release --nologo -p:Version=$ver -p:FileVersion=$ver -p:AssemblyVersion=$ver'
+        
+      - name: Prepare release files
+          shell: bash
+          run: |
+            SOURCE="Snowcloak/bin/x64/Release/win-x64/Snowcloak/latest.zip"
+            mkdir -p dist/release
+            cp "$SOURCE" dist/release/latest.zip
       - name: Upload a Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: |
-            ./Snowcloak/bin/x64/Release/
-      - name: Upload Release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.RELEASE_KEY }}
-          file: ./Snowcloak/bin/x64/Release/win-x64/Snowcloak/latest.zip
-          file_glob: true
-          tag: ${{ github.ref }}
-          overwrite: true
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+          with:
+            name: Snowcloak-${{ forgejo.ref_name }}
+            path: dist/release/latest.zip
+            if-no-files-found: error
+      - name: Publish Forgejo Release
+          uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
+          with:
+            direction: upload
+            tag: ${{ forgejo.ref_name }}
+            token: ${{ forgejo.token }}
+            release-dir: dist/release
+            override: true
+            prerelease: ${{ contains(forgejo.ref_name, '-beta') }}
