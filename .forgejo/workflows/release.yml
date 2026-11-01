@@ -42,36 +42,6 @@ jobs:
           name: Snowcloak-${{ forgejo.ref_name }}
           path: dist/release/latest.zip
           if-no-files-found: error
-      - name: Test Forgejo connection
-        shell: bash
-        env:
-          INSTANCE: ${{ forgejo.server_url }}
-          REPOSITORY: ${{ forgejo.repository }}
-        run: |
-          echo "Forgejo URL: $INSTANCE"
-          echo "Repository: $REPOSITORY"
-
-          curl -v \
-            --connect-timeout 5 \
-            --max-time 20 \
-            "$INSTANCE/api/v1/version"
-      - name: Verify release inputs
-        shell: bash
-        env:
-          TAG: ${{ forgejo.ref_name }}
-          SERVER: ${{ forgejo.server_url }}
-          REPOSITORY: ${{ forgejo.repository }}
-        run: |
-          set -euo pipefail
-
-          echo "Tag: $TAG"
-          echo "Server: $SERVER"
-          echo "Repository: $REPOSITORY"
-
-          test -n "$TAG"
-          test -f dist/release/latest.zip
-
-          echo "Release inputs are valid"
       - name: Publish Forgejo Release
         uses: actions/forgejo-release@v2
         with:
