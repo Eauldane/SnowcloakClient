@@ -20,7 +20,7 @@ jobs:
       - name: Archive
         run: |
           cd /workspace/Eauldane/SnowcloakClient/bin/
-          zip -rq ../../SnowcloakClient.zip
+          zip -rq SnowcloakClient.zip
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v4
         with:
