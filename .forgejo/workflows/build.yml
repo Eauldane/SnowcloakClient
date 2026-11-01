@@ -17,14 +17,9 @@ jobs:
       - name: Build
         run: |
           dotnet build --no-restore --configuration Release --nologo
-      - name: Archive
-        run: |
-          OUTPUT="$PWD/SnowcloakClient.zip"
-          cd /workspace/Eauldane/SnowcloakClient/Snowcloak/bin/x64/Release/win-x64
-          zip -rq "$OUTPUT" .
       - name: Upload a Build Artifact
         uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: SnowcloakClient
-          path: SnowcloakClient.zip
+          path: Snowcloak/bin/x64/Release/win-x64/
           if-no-files-found: error
