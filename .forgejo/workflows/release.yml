@@ -56,7 +56,7 @@ jobs:
             --max-time 20 \
             "$INSTANCE/api/v1/version"
       - name: Publish Forgejo Release
-        uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
+        uses: actions/forgejo-release@v2
         with:
           direction: upload
           url: ${{ forgejo.server_url }}
