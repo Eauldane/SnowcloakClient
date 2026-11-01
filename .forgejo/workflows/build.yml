@@ -23,7 +23,7 @@ jobs:
           cd /workspace/Eauldane/SnowcloakClient/Snowcloak/bin/x64/Release/win-x64
           zip -rq "$OUTPUT" .
       - name: Upload a Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: SnowcloakClient
           path: SnowcloakClient.zip
