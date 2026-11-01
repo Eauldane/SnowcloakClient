@@ -42,6 +42,19 @@ jobs:
           name: Snowcloak-${{ forgejo.ref_name }}
           path: dist/release/latest.zip
           if-no-files-found: error
+      - name: Test Forgejo connection
+        shell: bash
+        env:
+          INSTANCE: ${{ forgejo.server_url }}
+          REPOSITORY: ${{ forgejo.repository }}
+        run: |
+          echo "Forgejo URL: $INSTANCE"
+          echo "Repository: $REPOSITORY"
+
+          curl -v \
+            --connect-timeout 5 \
+            --max-time 20 \
+            "$INSTANCE/api/v1/version"
       - name: Publish Forgejo Release
         uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
         with:
