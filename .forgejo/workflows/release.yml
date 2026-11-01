@@ -61,7 +61,7 @@ jobs:
           direction: upload
           url: ${{ forgejo.server_url }}
           repo: ${{ forgejo.repository }}
-          tag: ${{ steps.version.outputs.tag }}
+          tag: ${{ forgejo.ref_name }}
           token: ${{ forgejo.token }}
           release-dir: dist/release
           override: false
