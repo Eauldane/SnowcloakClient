@@ -7,7 +7,7 @@ using Snowcloak.Core.Scheduling;
 
 namespace Snowcloak.Game.Scheduling;
 
-public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
+public sealed class FrameScheduler : IFrameScheduler, IHostedService
 {
     public const double DefaultBudgetMs = 2.0;
 
@@ -25,7 +25,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
     private readonly ConcurrentDictionary<int, Registration> _registrations = new();
     private readonly Dictionary<string, HashSet<string>> _gateReasons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<int>> _gateMembers = new(StringComparer.Ordinal);
-    private readonly Dictionary<int, double> _lastSlowTickerWarningMs = [];
 
     private readonly List<DueTicker> _frameDue = [];
     private readonly List<int> _frameRan = [];
@@ -61,12 +60,12 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
     }
 
     public IFrameTickHandle Register(string name, TickInterval interval, TickPriority priority, Action tick, params string[] pauseGates)
-        => RegisterCore(name, interval, priority, tick, pauseGates ?? NoGates, NoGates);
+        => RegisterCore(name, interval, priority, tick, pauseGates, NoGates);
 
     public IFrameTickHandle RegisterGated(string name, TickInterval interval, TickPriority priority, Action tick, IReadOnlyList<string> pauseGates, IReadOnlyList<string> runOnlyGates)
-        => RegisterCore(name, interval, priority, tick, pauseGates?.ToArray() ?? NoGates, runOnlyGates?.ToArray() ?? NoGates);
+        => RegisterCore(name, interval, priority, tick, pauseGates.ToArray() ?? NoGates, runOnlyGates.ToArray() ?? NoGates);
 
-    private IFrameTickHandle RegisterCore(string name, TickInterval interval, TickPriority priority, Action tick, string[] pauseGates, string[] runOnlyGates)
+    private Handle RegisterCore(string name, TickInterval interval, TickPriority priority, Action tick, string[] pauseGates, string[] runOnlyGates)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(tick);
@@ -180,7 +179,6 @@ public sealed partial class FrameScheduler : IFrameScheduler, IHostedService
         {
             if (_registrations.TryRemove(id, out var registration))
             {
-                _lastSlowTickerWarningMs.Remove(id);
                 foreach (var gate in EnumerateGates(registration.PauseGates, registration.RunOnlyGates))
                 {
                     if (_gateMembers.TryGetValue(gate, out var members))

@@ -1,0 +1,24 @@
+name: .NET Build
+
+on:
+  push:
+    branches: '*'
+  pull_request:
+
+jobs:
+  build:
+    runs-on: dalamud
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Archive
+        run: |
+          cd Snowcloak/bin
+          zip -rq ../../SnowcloakClient.zip
+      - name: Upload a Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SnowcloakClient
+          path: SnowcloakClient.zip
+          if-no-files-found: error
