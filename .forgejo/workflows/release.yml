@@ -50,4 +50,5 @@ jobs:
           token: ${{ forgejo.token }}
           release-dir: dist/release
           override: true
+          verbose: true
           prerelease: ${{ contains(forgejo.ref_name, '-beta') }}
