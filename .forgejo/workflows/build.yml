@@ -19,8 +19,9 @@ jobs:
           dotnet build --no-restore --configuration Release --nologo
       - name: Archive
         run: |
+          OUTPUT="$PWD/SnowcloakClient.zip"
           cd /workspace/Eauldane/SnowcloakClient/Snowcloak/bin/x64/Release/win-x64
-          zip -rq SnowcloakClient.zip
+          zip -rq "$OUTPUT" .
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v4
         with:
