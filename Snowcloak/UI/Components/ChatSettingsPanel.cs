@@ -98,7 +98,7 @@ public sealed class ChatSettingsPanel(ChatClientService chatService, SnowcloakCo
         var packed = configService.Current.ChatReceivedMessageColour ?? SnowcloakConfig.DefaultChatReceivedMessageColour;
         var rgb = packed;
         var colour = ToVector(rgb);
-        if (ImGui.ColorEdit3("Received message colour", ref colour, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8))
+        if (ImGui.ColorEdit3("SnowChat chatlog message colour", ref colour, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.Uint8))
         {
             packed = (uint)byte.CreateSaturating(colour.X * 255f)
                 | ((uint)byte.CreateSaturating(colour.Y * 255f) << 8)

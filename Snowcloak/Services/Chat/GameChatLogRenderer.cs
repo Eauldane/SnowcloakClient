@@ -31,10 +31,7 @@ public sealed class GameChatLogRenderer
         var builder = new SeStringBuilder();
         var colour = _configService.Current.ChatReceivedMessageColour ?? SnowcloakConfig.DefaultChatReceivedMessageColour;
         var messageColours = new ElezenStrings.Colour(colour == 0 ? 0x010101u : colour);
-        if (!isOutgoing)
-        {
-            builder.Append(ElezenStrings.BuildColourStartString(messageColours));
-        }
+        builder.Append(ElezenStrings.BuildColourStartString(messageColours));
         builder.AddText("[SnowChat] ")
             .Add(ChatUtils.CreateExtraChatTagPayload(key.ToString()));
 
