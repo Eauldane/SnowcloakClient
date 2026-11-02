@@ -12,23 +12,26 @@ using Dalamud.Utility;
 using ElezenTools.UI;
 using Snowcloak.Core.BbCode;
 using System.Linq;
+using Microsoft.Extensions.Logging;
+using Snowcloak.Infrastructure.Files;
 
-public sealed partial class BbCodeRenderer
+public sealed partial class BbCodeRenderer : IDisposable
 {
-    private readonly IDalamudPluginInterface _pluginInterface;
+    private readonly RemoteEmoteCache _emoteCache;
+    private Task<IReadOnlyDictionary<string, string>>? _loadedDiscovery;
     private readonly TextureService _textureService;
     private readonly Dictionary<string, string> _emoteMappings;
     private readonly Dictionary<string, string> _emoteAliases;
     private readonly Dictionary<string, IReadOnlyList<BbCodeElement>> _parseCache = new(StringComparer.Ordinal);
     private readonly Queue<string> _parseCacheOrder = new();
 
-    private static readonly string[] EmoteExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
     private static readonly string[] AllowedLinkSchemes = [Uri.UriSchemeHttp, Uri.UriSchemeHttps, Uri.UriSchemeMailto];
     private const int MaxParseCacheEntries = 64;
 
-    public BbCodeRenderer(IDalamudPluginInterface pluginInterface, TextureService textureService)
+    public BbCodeRenderer(IDalamudPluginInterface pluginInterface, TextureService textureService, ILogger<BbCodeRenderer> logger)
     {
-        _pluginInterface = pluginInterface;
+        _emoteCache = new RemoteEmoteCache(Path.Combine(pluginInterface.ConfigDirectory.FullName, "cache", "emotes"),
+            ex => logger.LogWarning(ex, "Could not load remote emotes! Relying on cached data"));
         _textureService = textureService;
 
         _emoteMappings = new(StringComparer.OrdinalIgnoreCase);
@@ -38,13 +41,17 @@ public sealed partial class BbCodeRenderer
             ["at_right"] = "auto_translate_right",
         };
         
-        LoadEmoteMappings();
+        _ = _emoteCache.DiscoverEmoteFiles();
     }
 
-    public IReadOnlyDictionary<string, string> EmoteMappings => _emoteMappings;
+    public IReadOnlyDictionary<string, string> EmoteMappings
+    {
+        get { LoadEmoteMappings(); return _emoteMappings; }
+    }
 
     public IReadOnlyList<BbCodeElement> Parse(string text)
     {
+        LoadEmoteMappings();
         if (_parseCache.TryGetValue(text, out var cached))
         {
             return cached;
@@ -345,7 +352,9 @@ public sealed partial class BbCodeRenderer
 
     private IDalamudTextureWrap? GetTextureForEmote(string emoteName)
     {
-        return _emoteMappings.TryGetValue(emoteName, out var path) ? _textureService.GetFile(path) : null;
+        if (!_emoteMappings.TryGetValue(emoteName, out var source)) return null;
+        var path = _emoteCache.GetCachedFile(source);
+        return path == null ? null : _textureService.GetProfileFile("emote:" + source, path);
     }
 
     private readonly record struct LayoutSegment(bool IsNewLine, bool IsImage, Vector2 Size, BbCodeStyle Style, string? Text, IDalamudTextureWrap? Texture)
@@ -410,12 +419,14 @@ public sealed partial class BbCodeRenderer
     
     private void LoadEmoteMappings()
     {
+        var discovery = _emoteCache.DiscoverEmoteFiles();
+        if (!discovery.IsCompletedSuccessfully || ReferenceEquals(discovery, _loadedDiscovery)) return;
+        _loadedDiscovery = discovery;
+        if (discovery.Result.Count == 0) return;
         _emoteMappings.Clear();
-
-        var assetDir = Path.Combine(_pluginInterface.AssemblyLocation.Directory?.FullName ?? _pluginInterface.ConfigDirectory.FullName, "Assets", "Emotes");
-        foreach (var (name, path) in DiscoverEmoteFiles(assetDir))
+        foreach (var (name, source) in discovery.Result)
         {
-            _emoteMappings[name] = path;
+            _emoteMappings[name] = source;
         }
 
         foreach (var (alias, target) in _emoteAliases)
@@ -425,23 +436,12 @@ public sealed partial class BbCodeRenderer
                 _emoteMappings[alias] = targetPath;
             }
         }
+        // Tokens parsed before discovery must be reparsed against the new catalogue.
+        _parseCache.Clear();
+        _parseCacheOrder.Clear();
     }
 
-    private static IEnumerable<(string Name, string Path)> DiscoverEmoteFiles(string? directory)
-    {
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) yield break;
-
-        foreach (var file in Directory.EnumerateFiles(directory))
-        {
-            var extension = Path.GetExtension(file);
-            if (!EmoteExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)) continue;
-
-            var name = Path.GetFileNameWithoutExtension(file);
-            if (string.IsNullOrWhiteSpace(name)) continue;
-
-            yield return (name, file);
-        }
-    }
+    public void Dispose() => _emoteCache.Dispose();
     
     [GeneratedRegex(@"(\s+|\S+|\n)", RegexOptions.Compiled, matchTimeoutMilliseconds:2500)]
     private static partial Regex NormalizedTextRegex();

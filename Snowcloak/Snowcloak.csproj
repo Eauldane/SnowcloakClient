@@ -70,10 +70,13 @@
 
 
     <ItemGroup>
-        <Content Include="Assets\**\*.*">
+        <Content Include="Assets\**\*.*" Exclude="Assets\Emotes\**\*.*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
+  <Target Name="RemoveBundledEmotes" BeforeTargets="Build;DefaultDalamudPackagerRelease;DefaultDalamudPackagerDebug">
+    <RemoveDir Directories="$(TargetDir)Assets/Emotes/" />
+  </Target>
   <Target Name="PublishProfileWebHost" AfterTargets="Build" BeforeTargets="DefaultDalamudPackagerRelease;DefaultDalamudPackagerDebug">
     <RemoveDir Directories="$(TargetDir)ProfileWebHost/" />
     <MSBuild Projects="../Snowcloak.ProfileWebHost/Snowcloak.ProfileWebHost.csproj" Targets="Publish"
