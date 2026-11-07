@@ -92,7 +92,7 @@ public sealed class GeneralSettingsPanel
             if (ImGui.SmallButton("Stop"))
                 _ = _temporaryParty.StopPeerAsync(pair.UserData.UID);
             ImGui.SameLine();
-            using (ImRaii.Disabled(!_api.SupportsUnpairedUserReporting))
+            using (ImRaii.Disabled(!_api.IsConnected))
             {
                 if (ImGui.SmallButton("Report"))
                     _mediator.Publish(new OpenReportPopupMessage(pair.UserData, pair.Ident,

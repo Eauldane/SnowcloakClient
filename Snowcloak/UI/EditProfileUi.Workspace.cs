@@ -39,8 +39,6 @@ public sealed partial class EditProfileUi
         ImGui.SameLine();
         if (ImGui.Button("Character data and publishing")) _showProfileSettings = true;
         if (_showProfileSettings) { _webBuilder?.Hide(); DrawProfileSettingsWorkspace(); return; }
-        if (!_apiController.SupportsProfileBuilder)
-        { ImGui.TextWrapped("Connect to a server with profile builder support."); return; }
         _session.Builder ??= ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
         if (_useNativeEditor && ImGui.Button("Use web builder")) { _useNativeEditor = false; return; }
         if (_session.Builder.LayoutMode == Snowcloak.API.Dto.User.ProfileLayoutMode.Canvas)
@@ -222,11 +220,7 @@ public sealed partial class EditProfileUi
 
     private void DrawStudioBuilder(ProfileBuilderEditorPage page)
     {
-        if (!_apiController.SupportsProfileBuilder)
-        { ImGui.TextWrapped("Connect to a server with profile builder support."); return; }
         _session.Builder ??= ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
-        if (!_apiController.SupportsProfileCanvas)
-            ImGui.TextWrapped("Server update required to publish custom layouts.");
         _builderEditor.Draw(_session, MarkDirty, OpenBuilderImageDialog, page);
     }
 }

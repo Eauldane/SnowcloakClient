@@ -980,7 +980,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             ImGui.TextWrapped(room.Topic);
         }
 
-        if (room.Scene?.IsScene == true && _apiController.SupportsRoleplaySceneIdentity)
+        if (room.Scene?.IsScene == true)
         {
             var self = _chatService.GetRoomMembers(room.RoomId)
                 .FirstOrDefault(member => string.Equals(member.User.UID, _identityResolver.SelfUid, StringComparison.Ordinal));
@@ -1372,8 +1372,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
 
         var scale = ImGuiHelpers.GlobalScale;
         var ownProfile = _profileManager.GetOwnProfile(ProfileVisibility.Public);
-        var hasCurrentProfile = _apiController.SupportsRoleplayEnhancements
-                                && ownProfile.Revision > 0 && !string.IsNullOrWhiteSpace(ownProfile.Ident);
+        var hasCurrentProfile = ownProfile.Revision > 0 && !string.IsNullOrWhiteSpace(ownProfile.Ident);
         using (ImRaii.Disabled(!hasCurrentProfile))
             ImGui.Checkbox(hasCurrentProfile
                 ? $"Play as {(!string.IsNullOrWhiteSpace(ownProfile.Document.CharacterName) ? ownProfile.Document.CharacterName : ownProfile.Ident)}"

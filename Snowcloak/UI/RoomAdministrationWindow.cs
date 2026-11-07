@@ -151,22 +151,13 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
 
         SynchroniseTopic(room);
         DrawTopicSection(room);
+
+        SynchroniseRoleplay(room);
+        DrawDiscoverySection(room);
         ModernSection.SoftSeparator();
-        if (_apiController.SupportsRpFeatures)
-        {
-            SynchroniseRoleplay(room);
-            DrawDiscoverySection(room);
-            ModernSection.SoftSeparator();
-            DrawSceneSection(room, members);
-            ModernSection.SoftSeparator();
-        }
-        else
-        {
-            ModernSection.Header(FontAwesomeIcon.TheaterMasks, "Roleplay scenes");
-            ImGui.TextColored(SnowcloakColours.CompactTextMuted,
-                "Scene and public-discovery controls are unavailable on this server.");
-            ModernSection.SoftSeparator();
-        }
+        DrawSceneSection(room, members);
+        ModernSection.SoftSeparator();
+
         DrawInvitationSection(room, members);
         ModernSection.SoftSeparator();
         DrawBanSection(room);
@@ -392,8 +383,7 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
                 "Finishing preserves this scene for its participants and clears the live room transcript.");
             using (ImRaii.Disabled(_finishSceneOperation.IsRunning))
             {
-                if (_apiController.SupportsRoleplaySceneToolkit)
-                    ImGui.Checkbox("Include OOC and standard chat in the default archive view", ref _includeOutOfCharacter);
+                ImGui.Checkbox("Include OOC and standard chat in the default archive view", ref _includeOutOfCharacter);
                 if (ImGui.Button("Finish and archive scene"))
                 {
                     _sceneStatus = string.Empty;
@@ -405,16 +395,14 @@ public sealed class RoomAdministrationWindow : WindowMediatorSubscriberBase
         }
         ImGuiHelpers.ScaledDummy(6f);
         DrawTurnOrder(room, members);
-        if (_apiController.SupportsRoleplayEnhancements)
-        {
-            ImGuiHelpers.ScaledDummy(6f);
-            DrawNarrators(room, members);
-        }
-        if (_apiController.SupportsRoleplaySceneToolkit)
-        {
-            ImGuiHelpers.ScaledDummy(8f);
-            DrawSceneToolkit(room);
-        }
+
+        ImGuiHelpers.ScaledDummy(6f);
+        DrawNarrators(room, members);
+
+
+        ImGuiHelpers.ScaledDummy(8f);
+        DrawSceneToolkit(room);
+
     }
 
     private void DrawSceneToolkit(RoomData room)

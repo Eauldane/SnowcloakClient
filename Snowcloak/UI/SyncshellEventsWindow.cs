@@ -150,7 +150,7 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
         }
 
         var owner = string.Equals(GroupFullInfo.Owner.UID, _apiController.UID, StringComparison.Ordinal);
-        var canAuthor = owner && _apiController.SupportsRpFeatures;
+        var canAuthor = owner;
         if (canAuthor)
         {
             DrawEventAuthoring();
@@ -285,8 +285,7 @@ public sealed class SyncshellEventsWindow : WindowMediatorSubscriberBase
         _status = string.Empty;
         _communityLoadOperation.Reset();
         _ = _communityLoadOperation.Run(() => _apiController.GroupGetCommunity(new GroupDto(GroupFullInfo.Group)));
-        if (_apiController.SupportsRpFeatures
-            && string.Equals(GroupFullInfo.Owner.UID, _apiController.UID, StringComparison.Ordinal))
+        if (string.Equals(GroupFullInfo.Owner.UID, _apiController.UID, StringComparison.Ordinal))
             _ = _digestOperation.Run(() => _apiController.RpEventDigestGet(new GroupDto(GroupFullInfo.Group)));
     }
 

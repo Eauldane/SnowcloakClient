@@ -9,10 +9,6 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
-    public bool SupportsChatHistoryDigest
-        => IsConnected
-           && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ChatHistoryDigest) is true;
-
     public Task<ChatHistoryDigestDto> ChatGetHistoryDigest()
     {
         CheckConnection();

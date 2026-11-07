@@ -316,7 +316,7 @@ public sealed partial class EditProfileUi : WindowMediatorSubscriberBase, IStati
         _pendingProfilePresentation = null;
         _webFlushRequest = null;
         _webPublishRequested = false;
-        if (_session.Builder == null && _apiController.SupportsProfileBuilder)
+        if (_session.Builder == null)
             _session.Builder = Snowcloak.Core.Profiles.ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
     }
 
@@ -335,7 +335,7 @@ public sealed partial class EditProfileUi : WindowMediatorSubscriberBase, IStati
         _webEditEpoch++;
         InvalidatePendingImageSelections();
         _session.ReplaceDocument(document, markDirty);
-        if (_session.Builder == null && _apiController.SupportsProfileBuilder)
+        if (_session.Builder == null)
             _session.Builder = Snowcloak.Core.Profiles.ProfilePresentationPolicy.Change(_session.ToDocument(), Snowcloak.API.Dto.User.ProfilePresentation.Traditional);
     }
 
@@ -371,9 +371,6 @@ public sealed partial class EditProfileUi : WindowMediatorSubscriberBase, IStati
         var document = update.Document;
         try
         {
-            if (document.Builder != null && !_apiController.SupportsProfileBuilder) throw new InvalidOperationException("This server does not support the profile builder.");
-            if (document.Builder?.LayoutMode == Snowcloak.API.Dto.User.ProfileLayoutMode.Canvas && !_apiController.SupportsProfileCanvas)
-                throw new InvalidOperationException("This server does not support freeform profiles. Update the server before publishing this draft.");
             await RecoverBuilderImages(document).ConfigureAwait(false);
             var saved = await _apiController.CharacterProfileSet(update).ConfigureAwait(false);
             var label = string.IsNullOrWhiteSpace(document.CharacterName)

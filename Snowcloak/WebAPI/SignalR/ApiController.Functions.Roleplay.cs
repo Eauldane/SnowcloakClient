@@ -8,18 +8,6 @@ namespace Snowcloak.WebAPI;
 
 public sealed partial class ApiController
 {
-    public bool SupportsRpFeatures => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.Phase6Roleplay) is true;
-
-    public bool SupportsRoleplaySceneIdentity => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplaySceneIdentity) is true;
-
-    public bool SupportsRoleplayEnhancements => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplayEnhancements) is true;
-
-    public bool SupportsRoleplaySceneToolkit => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.RoleplaySceneToolkit) is true;
-
     public Task<RpProfileDirectoryConsentDto> RpProfileDirectoryGetConsent() => Invoke<RpProfileDirectoryConsentDto>(nameof(RpProfileDirectoryGetConsent));
     public Task<RpProfileDirectoryConsentDto> RpProfileDirectorySetConsent(RpProfileDirectoryConsentDto dto) => Invoke<RpProfileDirectoryConsentDto>(nameof(RpProfileDirectorySetConsent), dto);
     public Task<RpProfileDirectoryListResponseDto> RpProfileDirectoryList(RpProfileDirectoryQueryDto query) => Invoke<RpProfileDirectoryListResponseDto>(nameof(RpProfileDirectoryList), query);

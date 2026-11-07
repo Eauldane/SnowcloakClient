@@ -24,10 +24,6 @@ public partial class SyncshellAdminUI
             _selectedTab = SyncshellAdminTab.Settings;
         }
 
-        if (_selectedTab == SyncshellAdminTab.Events && !_apiController.SupportsRpFeatures)
-        {
-            _selectedTab = SyncshellAdminTab.Community;
-        }
     }
 
     private void DrawAdminSidebar()
@@ -52,10 +48,7 @@ public partial class SyncshellAdminUI
 
         DrawSidebarTab(SyncshellAdminTab.Settings, FontAwesomeIcon.Cog, "Settings");
         DrawSidebarTab(SyncshellAdminTab.Community, FontAwesomeIcon.Bullhorn, "Community");
-        if (_apiController.SupportsRpFeatures)
-        {
-            DrawSidebarTab(SyncshellAdminTab.Events, FontAwesomeIcon.CalendarDay, "Events");
-        }
+        DrawSidebarTab(SyncshellAdminTab.Events, FontAwesomeIcon.CalendarDay, "Events");
         ModernSidebar.DrawSeparator();
         DrawSidebarTab(SyncshellAdminTab.Members, FontAwesomeIcon.Users, "Members");
         ModernSidebar.DrawSeparator();

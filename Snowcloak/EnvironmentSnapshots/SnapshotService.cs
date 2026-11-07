@@ -47,7 +47,7 @@ public sealed class SnapshotService : BackgroundService
     public long ContentBytes => Progress.Read().ContentBytes;
     public long ReusedBytes => Progress.Read().ReusedBytes;
     public long UploadedBytes => Progress.Read().SentBytes;
-    public string? UnavailableReason => !_api.IsConnected ? "Offline" : !_api.SupportsEnvironmentBackups ? "Server update required" : !_penumbra.APIAvailable ? "Penumbra unavailable" : null;
+    public string? UnavailableReason => !_api.IsConnected ? "Offline" : !_penumbra.APIAvailable ? "Penumbra unavailable" : null;
     public string? ModRoot => _penumbra.ModDirectory;
     public List<BackupSummaryDto> Snapshots { get; private set; } = [];
     private string Key => _servers.CurrentApiUrl + "/" + _api.UID;
@@ -130,7 +130,6 @@ public sealed class SnapshotService : BackgroundService
             using var restoreAdmission = SnapshotExclusion.Enter(ct);
             ct = restoreAdmission.Token;
             if (!_api.IsConnected) throw new InvalidOperationException("Connect to Snowcloak before backing up.");
-            if (!_api.SupportsEnvironmentBackups) throw new InvalidOperationException("This server does not advertise environment backup support. The server must be updated before backups can run.");
             if (!_penumbra.APIAvailable || !_pi.InstalledPlugins.Any(p => p.InternalName == "Penumbra" && p.IsLoaded)) throw new InvalidOperationException("Load Penumbra before backing up.");
             var root = ModRoot ?? throw new DirectoryNotFoundException("Penumbra mod root is unavailable.");
             Status = "Capturing stable contents...";
@@ -264,7 +263,6 @@ public sealed class SnapshotService : BackgroundService
     public Task<List<BackupObjectDto>> CheckObjectsAsync(Guid id, string[] hashes, CancellationToken ct) => RequestAsync<List<BackupObjectDto>>(HttpMethod.Post, $"files/backups/{id}/objects", hashes, true, ct);
     public async Task<HttpResponseMessage> DownloadObjectAsync(Guid id, string hash, string fallbackUrl, CancellationToken ct)
     {
-        if (!_api.SupportsFileRepair) return await _transfers.SendFileDownloadRequestAsync(new Uri(fallbackUrl), ct).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
         {
             using var request = await MakeRequestAsync(HttpMethod.Get, $"files/backups/{id}/download/{hash}", true, ct).ConfigureAwait(false);

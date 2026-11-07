@@ -45,8 +45,7 @@ public partial class ApiController
 
     private async Task<bool> TryResumeSessionAsync(ConnectionDto connection)
     {
-        if (!connection.ServerCapabilities.HasFlag(HubCapability.ResumableSessions)
-            || string.IsNullOrEmpty(connection.SessionId)
+        if (string.IsNullOrEmpty(connection.SessionId)
             || !string.Equals(_sessionResumeState.SessionId, connection.SessionId, StringComparison.Ordinal))
         {
             _sessionResumeState.AbandonBuffer();

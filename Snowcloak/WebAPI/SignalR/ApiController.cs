@@ -114,8 +114,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
     public bool HasPersistentKey => _connectionContext.HasPersistentKey;
     public bool HexAllowed => _connectionContext.HexAllowed;
     public string? VanityId => _connectionContext.VanityId;
-    public bool SupportsModPackageDocuments => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ModPackageDocumentsV1) == true;
-    public bool SupportsEnvironmentBackups => _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.EnvironmentBackupsV1) == true;
     public bool IsConnected => ServerState == ServerState.Connected;
     private volatile bool _chatPairStateReady;
     public bool ChatPairStateReady => IsConnected && _chatPairStateReady;
@@ -636,8 +634,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
         _sessionResumeState.BeginBuffering();
         var graceScope = _sessionGraceFlight.Begin();
-        var supportsResume = _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ResumableSessions) == true;
-        var graceSeconds = supportsResume ? Math.Max(0, _connectionContext.ServerInfo.SessionGraceSeconds) : 120;
+        var graceSeconds = Math.Max(0, _connectionContext.ServerInfo.SessionGraceSeconds);
         _ = _backgroundTasks.Run(async () =>
         {
             using (graceScope)

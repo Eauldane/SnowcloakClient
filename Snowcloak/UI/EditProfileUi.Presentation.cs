@@ -33,7 +33,7 @@ public sealed partial class EditProfileUi
             CancelWebFlush("The designer did not finish its edits. Your presentation and draft are retained. Retry the change or reopen the designer.", true);
         }
         var traditional = ProfilePresentationPolicy.UsesTraditional(_session.Builder);
-        using (var disabled = ImRaii.Disabled(IsBusy || _webPublishRequested || _pendingProfilePresentation != null || !_apiController.SupportsProfileBuilder))
+        using (var disabled = ImRaii.Disabled(IsBusy || _webPublishRequested || _pendingProfilePresentation != null))
         {
         if (ImGui.RadioButton("Traditional profile", traditional) && !traditional)
             RequestProfilePresentation(ProfilePresentation.Traditional);

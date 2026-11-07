@@ -11,7 +11,6 @@ public partial class ApiController
         => _connectionContext.Dto?.TemporaryAppearance;
 
     public bool SupportsTemporaryAppearance => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.TemporaryAppearanceV1) is true
         && TemporaryAppearanceDescriptor is not null;
 
     public async Task<TemporaryAppearanceCommandResult> TemporaryAppearanceUpdate(TemporaryAppearanceSourceCommand command)

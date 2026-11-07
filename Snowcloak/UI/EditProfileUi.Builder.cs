@@ -89,7 +89,6 @@ public sealed partial class EditProfileUi
 
     private void DrawServerHistory()
     {
-        if (!_apiController.SupportsProfileBuilder) return;
         if (_historyIdent != _session.LoadedIdent) { _historyVersions = []; _historyIdent = _session.LoadedIdent; }
         ImGui.TextUnformatted("Published history - latest 20 versions");
         if (ImGui.Button("Refresh published history") && _historyList == null) { _historyRequestIdent = _session.LoadedIdent; _historyList = _apiController.CharacterProfileHistoryList(); }

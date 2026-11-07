@@ -112,7 +112,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         }
 
         var repairHashes = _preflightUnavailable.Values.Where(e => e.Reason == FileDownloadNegativeReason.Missing).Select(e => e.Hash).ToArray();
-        if (repairContext != null && Repair.Available && repairHashes.Length > 0)
+        if (repairContext != null && repairHashes.Length > 0)
         {
             repairContext.OperationId = Guid.NewGuid(); repairContext.Hashes = repairHashes;
             bool held = false;
@@ -161,7 +161,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             await DownloadFilesInternal(gameObject, fileReplacementDto, uid, ct).ConfigureAwait(false);
             var lateMissing = _currentDownloads.Where(t => _negativeCache.TryGet(t.Hash, out var entry) && entry.Reason == FileDownloadNegativeReason.Missing).Select(t => t.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (context != null && Repair.Available && lateMissing.Count > 0)
+            if (context != null &&  lateMissing.Count > 0)
             {
                 ct.ThrowIfCancellationRequested();
                 var retry = new Snowcloak.API.Dto.FileRepair.FileRepairRequest { Context = context.Context, ContextId = context.ContextId, Audience = context.Audience };

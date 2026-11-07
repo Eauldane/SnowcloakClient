@@ -4,7 +4,6 @@ using Snowcloak.API.Protocol;
 namespace Snowcloak.WebAPI;
 public partial class ApiController
 {
-    public bool SupportsFileRepair => IsConnected && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.FileRepairV1) == true;
     public event Func<FileRepairProbe[], Task>? FileRepairProbeReceived;
     public event Func<FileRepairAssignment, Task>? FileRepairAssignmentReceived;
     public event Action<FileRepairStatus>? FileRepairStatusReceived;

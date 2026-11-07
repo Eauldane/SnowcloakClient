@@ -227,8 +227,6 @@ public sealed class ChatConversationView
             }
         }
 
-        if (_chatService.SupportsRoleplaySceneToolkit)
-        {
             CompleteDicePresetLoad(room);
             ImGui.SetNextItemWidth(180f * ImGuiHelpers.GlobalScale);
             ImGui.InputTextWithHint("##dice-expression", "4d6kh3+2", ref _diceExpression, 64);
@@ -248,7 +246,7 @@ public sealed class ChatConversationView
                 if (ImGui.SmallButton(preset.Name + "##preset-" + preset.Id))
                     Queue(_chatService.RollDiceExpressionAsync(room, null, preset.Id, preset.Name), nameof(ChatClientService.RollDiceExpressionAsync));
             }
-        }
+
     }
 
     private async Task SubmitWithFeedbackAsync(ConversationKey key, Snowcloak.API.Data.RoomData? room, string input)
@@ -286,20 +284,11 @@ public sealed class ChatConversationView
                     _commandStatus = "Use /snowroll NdS, optionally with khK/klK, a modifier, and a label.";
                     return;
                 }
-                if (_chatService.SupportsRoleplaySceneToolkit)
-                {
+
                     await _chatService.RollDiceExpressionAsync(room, expression[0], null,
                         expression.Length > 1 ? expression[1] : null).ConfigureAwait(false);
-                }
-                else if (TryParseLegacyDiceExpression(expression[0], out var count, out var sides, out var modifier))
-                {
-                    await _chatService.RollDiceAsync(room, count, sides, modifier,
-                        expression.Length > 1 ? expression[1] : null).ConfigureAwait(false);
-                }
-                else
-                {
-                    _commandStatus = "This server supports only NdS with an optional modifier; kh/kl requires the scene toolkit.";
-                }
+
+
                 return;
             }
 

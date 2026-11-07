@@ -41,7 +41,6 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     public RepairSourceIndex Sources { get; }
     public string Account => _servers.CurrentApiUrl + "/" + _api.UID;
     public bool Enabled { get { lock (_settings) return _settings.GetValueOrDefault(Account, true); } }
-    public bool Available => _api.SupportsFileRepair;
     public FileRepairService(IDalamudPluginInterface pi, ApiController api, ServerRegistry servers, FileCacheManager cache, FileUploadManager uploads, FileTransferOrchestrator transfers, FileDownloadNegativeCache negative, ILogger<FileRepairService> logger, SnowMediator mediator)
     {
         Mediator = mediator;
@@ -54,7 +53,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
         _api.FileRepairStatusReceived += OnStatus;
         mediator.Subscribe<DisconnectedMessage>(this, _ => _donor.Cancel());
         mediator.Subscribe<ConnectionLostMessage>(this, _ => _donor.Cancel());
-        mediator.Subscribe<ConnectedMessage>(this, message => { _donor.Cancel(); if (Enabled && Available) ResetDonor(); _ = RegisterQuietlyAsync(); });
+        mediator.Subscribe<ConnectedMessage>(this, message => { _donor.Cancel(); if (Enabled) ResetDonor(); _ = RegisterQuietlyAsync(); });
     }
     private void ResetDonor()
     {
@@ -70,7 +69,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     {
         lock (_settings) { _settings[Account] = enabled; File.WriteAllText(_settingsPath + ".tmp", JsonSerializer.Serialize(_settings)); File.Move(_settingsPath + ".tmp", _settingsPath, true); }
         if (!enabled) _donor.Cancel();
-        else if (Available) ResetDonor();
+        else ResetDonor();
         _ = RegisterQuietlyAsync();
     }
     private void OnStatus(FileRepairStatus status)
@@ -81,7 +80,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     }
     private async Task RegisterQuietlyAsync()
     {
-        try { if (Available) await _api.FileRepairRegister(Enabled, CancellationToken.None).ConfigureAwait(false); }
+        try { await _api.FileRepairRegister(Enabled, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception ex) { _logger.LogDebug(ex, "Repair participation registration deferred"); }
     }
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -89,17 +88,17 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
         _lifetime = ct;
         while (!ct.IsCancellationRequested)
         {
-            if (_registeredAccount != Account || !Enabled || !Available)
+            if (_registeredAccount != Account || !Enabled)
             {
                 _donor.Cancel();
-                if (Enabled && Available) ResetDonor();
+                if (Enabled) ResetDonor();
                 _registeredAccount = Account;
             }
             else if (_donor.IsCancellationRequested) ResetDonor();
             await RegisterQuietlyAsync().ConfigureAwait(false);
             foreach (var (id, op) in _operations)
             {
-                if (op.Account != Account || !Available) { _operations.TryRemove(id, out _); continue; }
+                if (op.Account != Account) { _operations.TryRemove(id, out _); continue; }
                 try { await _api.FileRepairHeartbeat(id, ct).ConfigureAwait(false); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Repair lease heartbeat deferred"); }
             }
@@ -159,7 +158,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     }
     private async Task ProbeInBackgroundAsync(FileRepairProbe[] probes)
     {
-        if (!Enabled || !Available || probes.Length > 32) return;
+        if (!Enabled || probes.Length > 32) return;
         var account = Account;
         var offers = new List<FileRepairOffer>();
         using var ct = CancellationTokenSource.CreateLinkedTokenSource(_donor.Token); ct.CancelAfter(TimeSpan.FromSeconds(5));
@@ -187,7 +186,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
         catch (OperationCanceledException)
         {
             ReleaseProbeFiles(probes);
-            if (Enabled && Available && account == Account)
+            if (Enabled && account == Account)
             {
                 try { await _api.FileRepairReply(probes.Select(p => new FileRepairOffer { Hash = p.Hash, Generation = p.Generation, Availability = FileRepairAvailability.Busy }).ToList(), CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Busy donor reply deferred"); }
@@ -222,7 +221,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
             await _upload.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (!Enabled || !Available || source.Account != Account) return;
+                if (!Enabled || source.Account != Account) return;
                 while (_transfers.HasForegroundTransferWork || _uploads.IsUploading) await Task.Delay(250, token).ConfigureAwait(false);
                 using var admission = SnapshotExclusion.Enter(token);
                 await _prepare.WaitAsync(admission.Token).ConfigureAwait(false);
@@ -235,7 +234,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
                     lastReported = p.Uploaded; lastUpdate = DateTime.UtcNow;
                     _ = ReportProgressAsync(assignment, p.Uploaded, false);
                 });
-                if (!Enabled || !Available || source.Account != Account) throw new OperationCanceledException();
+                if (!Enabled || source.Account != Account) throw new OperationCanceledException();
                 await _uploads.UploadRepairAsync(assignment, File.OpenRead(scf), progress, admission.Token).ConfigureAwait(false);
                 await ReportProgressAsync(assignment, new FileInfo(scf).Length, false).ConfigureAwait(false);
             }
@@ -246,19 +245,17 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     }
     private async Task ReportProgressAsync(FileRepairAssignment a, long bytes, bool failed)
     {
-        try { if (Available) await _api.FileRepairProgress(a, bytes, failed, CancellationToken.None).ConfigureAwait(false); }
+        try { await _api.FileRepairProgress(a, bytes, failed, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception ex) { _logger.LogDebug(ex, "Repair progress notification deferred"); }
     }
     public async Task ProtectAsync(FileRepairRequest request, CancellationToken ct)
     {
-        if (!Available) return;
         _operations[request.OperationId] = (request, Account);
         foreach (var batch in request.Hashes.Chunk(256))
             await _api.FileRepairStart(new() { OperationId = request.OperationId, Context = request.Context, ContextId = request.ContextId, Audience = request.Audience, Hashes = batch, ProtectOnly = true }, ct).ConfigureAwait(false);
     }
     public async Task<List<FileRepairStatus>> WaitAsync(FileRepairRequest request, Action<string>? progress, CancellationToken ct)
     {
-        if (!Available) return [];
         _operations.TryAdd(request.OperationId, (request, Account));
         var result = new List<FileRepairStatus>();
         foreach (var batch in request.Hashes.Chunk(256))
@@ -282,7 +279,7 @@ public sealed class FileRepairService : BackgroundService, IMediatorSubscriber
     {
         _operations.TryRemove(operation, out _);
         foreach (var key in _generations.Keys.Where(k => k.Item1 == operation)) _generations.TryRemove(key, out _);
-        try { if (Available) await _api.FileRepairCancel(operation, CancellationToken.None).ConfigureAwait(false); }
+        try { await _api.FileRepairCancel(operation, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception ex) { _logger.LogDebug(ex, "Repair operation release deferred; protection will expire"); }
     }
     public override void Dispose()

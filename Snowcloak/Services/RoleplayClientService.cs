@@ -129,10 +129,10 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
 
     public async Task RefreshAsync()
     {
-        if (!_apiController.SupportsRpFeatures)
+        if (!_apiController.IsConnected)
         {
             Clear();
-            Status = "The connected server does not support roleplay features.";
+            Status = "The server is not currently connected.";
             Changed?.Invoke();
             return;
         }
@@ -161,9 +161,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
                 IncludeAds = true,
                 IncludeUnlisted = false,
             });
-            var plansTask = _apiController.SupportsRoleplaySceneToolkit
-                ? _apiController.RpRoomScenePlanList(new RoomScenePlanQueryDto { ForMe = true, Take = 100 })
-                : Task.FromResult(new List<RoomScenePlanDto>());
+            var plansTask = _apiController.RpRoomScenePlanList(new RoomScenePlanQueryDto { ForMe = true, Take = 100 });
             await Task.WhenAll(consentTask, availabilityTask, hooksTask, peopleTask, roomsTask, publicEventsTask, joinedEventsTask, venuesTask, plansTask).ConfigureAwait(false);
             var consent = await consentTask.ConfigureAwait(false);
             var availability = await availabilityTask.ConfigureAwait(false);
@@ -327,7 +325,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
 
     public async Task RefreshPlansAsync()
     {
-        if (!_apiController.SupportsRoleplaySceneToolkit) return;
+        if (!_apiController.IsConnected) return;
         ScenePlans = await _apiController.RpRoomScenePlanList(new RoomScenePlanQueryDto { ForMe = true, Take = 100 }).ConfigureAwait(false);
         Changed?.Invoke();
     }
@@ -355,7 +353,7 @@ public sealed class RoleplayClientService : DisposableMediatorSubscriberBase
 
     private async Task RefreshCurrentHooksAfterProfileChangeAsync(string? ident)
     {
-        if (!_apiController.SupportsRpFeatures || string.IsNullOrWhiteSpace(ident))
+        if (string.IsNullOrWhiteSpace(ident))
             return;
         try
         {

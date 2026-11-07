@@ -42,9 +42,7 @@ internal class ReportPopupHandler : IPopupHandler
         ImGui.InputTextMultiline("##reportReason", ref _reportReason, 500, new Vector2(500 - ImGui.GetStyle().ItemSpacing.X * 2, 200));
         ElezenImgui.ColouredWrappedText("Report spam and wrong reports will not be tolerated and can lead to permanent account suspension.", ImGuiColors.DalamudRed);
         ElezenImgui.ColouredWrappedText("Describe the behaviour or content you are reporting and include enough context for a moderator to review it.", ImGuiColors.DalamudYellow);
-        var reportSupported = _apiController.SupportsOpenRpSafety
-            && (_surface != ProfileReportSurface.User || _apiController.SupportsUnpairedUserReporting);
-        using (ImRaii.Disabled(string.IsNullOrEmpty(_reportReason) || !reportSupported))
+        using (ImRaii.Disabled(!_apiController.IsConnected || string.IsNullOrEmpty(_reportReason)))
         {
             if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Send Report"))
             {

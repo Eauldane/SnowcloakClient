@@ -22,7 +22,7 @@ public sealed class UserSafetyStore : DisposableMediatorSubscriberBase
     }
 
     public UserSafetyStateDto State { get; private set; } = new(false, null, []);
-    public bool IsAvailable => _apiController.SupportsOpenRpSafety;
+    public bool IsAvailable => _apiController.IsConnected;
     public string Status { get; private set; } = string.Empty;
     public bool IsBusy { get; private set; }
 

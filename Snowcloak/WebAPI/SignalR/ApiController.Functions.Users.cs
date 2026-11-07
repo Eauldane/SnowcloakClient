@@ -12,11 +12,6 @@ namespace Snowcloak.WebAPI;
 
 public partial class ApiController
 {
-    public bool SupportsOpenRpSafety => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.OpenRpSafety) is true;
-
-    public bool SupportsUnpairedUserReporting => IsConnected
-        && _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.UnpairedUserReporting) is true;
 
     public async Task<bool> PushCharacterData(CharacterData data, List<UserData> visibleCharacters, CancellationToken cancellationToken = default)
     {
@@ -118,8 +113,6 @@ public partial class ApiController
 
     public async Task<UserSafetyStateDto> UserSafetyGet()
     {
-        if (!SupportsOpenRpSafety)
-            return new UserSafetyStateDto(false, null, []);
         return await _snowHub!.InvokeAsync<UserSafetyStateDto>(nameof(UserSafetyGet)).ConfigureAwait(false);
     }
     

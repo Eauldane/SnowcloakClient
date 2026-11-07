@@ -248,8 +248,7 @@ public class DrawUserPair : DrawPairBase
             }
             ElezenImgui.AttachTooltip("Opens the profile for this user in a new window");
         }
-        if (ApiController.SupportsUnpairedUserReporting
-            && ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report"))
+        if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report"))
         {
             _mediator.Publish(new OpenReportPopupMessage(entry.UserData, entry.Ident,
                 Snowcloak.API.Data.Enum.ProfileVisibility.Public, 0,

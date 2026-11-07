@@ -27,7 +27,6 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
 {
     private readonly SnapshotService _backups;
     private readonly Snowcloak.FileRepair.FileRepairService _repair;
-    public bool CanRepair => _repair.Available;
     public bool RepairUnavailable { get; private set; }
     private readonly PluginLifecycleAdapter _lifecycle;
     private readonly IDalamudPluginInterface _pi;
@@ -229,7 +228,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
             foreach (var driveRoot in selected.Select(c => Path.GetPathRoot(c.Destination)!).Append(Path.GetPathRoot(stage)!).Distinct(StringComparer.OrdinalIgnoreCase))
                 if (new DriveInfo(driveRoot).AvailableFreeSpace < checked(requiredBytes + rollbackBytes + 64 * 1024 * 1024)) throw new IOException("Insufficient free space for staging, restore and rollback.");
             var hashes = selected.Where(c => c.File != null).Select(c => c.File!.Hash).Distinct().ToArray();
-            if (_repair.Available && hashes.Length > 0)
+            if (hashes.Length > 0)
             {
                 _journal.RepairOperationId ??= Guid.NewGuid(); _journal.RepairHashes = hashes; _journal.Save(JournalPath);
                 await _repair.ProtectAsync(new() { OperationId = _journal.RepairOperationId.Value, Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.Backup, ContextId = Snapshot.ToString(), Hashes = hashes }, ct).ConfigureAwait(false);
@@ -246,7 +245,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
                 foreach (var obj in await _backups.CheckObjectsAsync(Snapshot, batch, ct).ConfigureAwait(false)) available[obj.Hash] = obj;
             var publicHashes = selected.Where(c => c.File != null && !c.File.Mod.StartsWith('@')).Select(c => c.File!.Hash).ToHashSet(StringComparer.Ordinal);
             var missing = available.Values.Where(o => publicHashes.Contains(o.Hash) && !o.Available && !o.Forbidden && !local.ContainsKey(o.Hash)).Select(o => o.Hash).ToArray();
-            if (missing.Length > 0 && _repair.Available)
+            if (missing.Length > 0)
             {
                 Progress.Phase(SnapshotPhase.Downloading, path: "Recovering missing files...");
                 await _repair.WaitAsync(new() { OperationId = _journal.RepairOperationId!.Value, Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.Backup, ContextId = Snapshot.ToString(), Hashes = missing }, message => { Status = message; Progress.Phase(SnapshotPhase.Downloading, path: message); }, ct).ConfigureAwait(false);
@@ -387,7 +386,7 @@ public sealed class SnapshotRestoreService : IAsyncDisposable
         _operationFinished = new(TaskCreationOptions.RunContinuationsAsynchronously); _operation = new();
         try
         {
-            if (_repair.Available && _journal.RepairOperationId is { } repair && _journal.RepairHashes.Length > 0)
+            if (_journal.RepairOperationId is { } repair && _journal.RepairHashes.Length > 0)
                 await _repair.ProtectAsync(new() { OperationId = repair, Context = Snowcloak.API.Dto.FileRepair.FileRepairContext.Backup, ContextId = Snapshot.ToString(), Hashes = _journal.RepairHashes }, _operation.Token).ConfigureAwait(false);
             Progress.Phase(SnapshotPhase.Unload);
             await _lifecycle.ChangeAsync(_journal.LoadedPlugins, false, _operation.Token).ConfigureAwait(false);

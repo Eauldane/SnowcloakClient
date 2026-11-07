@@ -267,7 +267,7 @@ public sealed class EnvironmentBackupUi : WindowMediatorSubscriberBase, IStaticW
                 if (ImGui.Checkbox("Restore available files only", ref partial)) _restore.AllowPartial = partial;
             }
             bool destinationChanged = !string.Equals(_reviewedRoot, _restore.ModRoot, StringComparison.Ordinal);
-            using (ImRaii.Disabled(destinationChanged || missing && !_restore.AllowPartial && !_restore.CanRepair || _restore.HasRecoveryData || _restore.Error != null && !_restore.RepairUnavailable))
+            using (ImRaii.Disabled(destinationChanged || _restore.HasRecoveryData || _restore.Error != null && !_restore.RepairUnavailable))
                 if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Download, _restore.RepairUnavailable ? "Retry restore" : "Restore everything")) Run(_restore.StageAsync);
         }
     }

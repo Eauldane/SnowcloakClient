@@ -158,7 +158,6 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     public override void OnOpen()
     {
         _directoryNeedsRefresh = true;
-        if (!_api.SupportsRpFeatures) _activeTab = JournalTab;
     }
 
     public override void OnClose()
@@ -193,9 +192,8 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
             ImGui.SetWindowFocus();
             _focusJournal = false;
         }
-        var tabs = _api.SupportsRoleplaySceneToolkit
-            ? new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, PlansTab, JournalTab }
-            : new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, JournalTab };
+
+        var tabs = new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, PlansTab, JournalTab };
         var previousTab = _activeTab;
         _activeTab = ModernTabBar.Draw("roleplay-tabs", tabs, _activeTab);
         ImGuiHelpers.ScaledDummy(6f);

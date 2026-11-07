@@ -49,7 +49,7 @@ public partial class ApiController
         List<string> keys,
         Dictionary<string, string> knownManifestHashes)
     {
-        if (!IsConnected || _connectionContext.Dto?.ServerCapabilities.HasFlag(HubCapability.ExtensionDataSnapshots) is not true) return [];
+        if (!IsConnected) return [];
         return await _snowHub!.InvokeAsync<List<ExtensionDataSnapshotDto>>(
             nameof(UserGetCurrentExtensionData), uids, keys, knownManifestHashes).ConfigureAwait(false);
     }

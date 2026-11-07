@@ -83,7 +83,6 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
 
     public ChatStore Store { get; }
     public bool CanSend => _configService.Current.ChatEnabled && _apiController.ChatPairStateReady && IsConversationIdentityCurrent;
-    public bool SupportsRoleplaySceneToolkit => _apiController.SupportsRoleplaySceneToolkit;
     public IReadOnlyList<RoomData> ListRooms() => _rooms.ListRooms();
     public IReadOnlyDictionary<string, int> SnapshotRoomCounts() => _rooms.SnapshotCounts();
 
@@ -346,13 +345,10 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
     public async Task<RoomSceneHistoryDto> FinishSceneAsync(RoomData room, bool includeOutOfCharacter = false)
     {
         ArgumentNullException.ThrowIfNull(room);
-        var history = _apiController.SupportsRoleplaySceneToolkit
-            ? await _apiController.RpRoomFinishSceneOptions(new RoomSceneFinishOptionsDto
-            {
-                Room = room,
-                IncludeOutOfCharacter = includeOutOfCharacter,
-            }).ConfigureAwait(false)
-            : await _apiController.RpRoomFinishScene(new RoomDto(room)).ConfigureAwait(false);
+        var history = await _apiController.RpRoomFinishSceneOptions(new RoomSceneFinishOptionsDto
+        {
+            Room = room, IncludeOutOfCharacter = includeOutOfCharacter,
+        }).ConfigureAwait(false);
         Store.ResetConversation(new ConversationKey(ConversationKind.Room, room.RoomId));
         return history;
     }
@@ -365,7 +361,7 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         {
             Room = room,
             HistoryId = historyId,
-            ShowAllModes = _apiController.SupportsRoleplaySceneToolkit ? showAllModes : null,
+            ShowAllModes = showAllModes,
         });
 
     public async Task RollDiceAsync(RoomData room, int count, int sides, int modifier, string? label)
@@ -764,12 +760,6 @@ public sealed class ChatClientService : DisposableMediatorSubscriberBase, IHoste
         {
             if (!_configService.Current.ChatEnabled || !_apiController.ChatPairStateReady)
             {
-                return;
-            }
-
-            if (!_apiController.SupportsChatHistoryDigest)
-            {
-                await RestoreLegacyHistoriesAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
