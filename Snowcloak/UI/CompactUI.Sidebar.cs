@@ -124,10 +124,9 @@ public partial class CompactUi
             if (_apiController.ServerState is ServerState.Connected)
             {
                 DrawSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
-                if (_apiController.SupportsRpFeatures)
-                    DrawSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
-                        () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
             }
+            DrawSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
+                () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
             DrawSidebarSeparator();
             //buttons without state change
             DrawSidebarAction(FontAwesomeIcon.ChartBar, "Character Analysis",
@@ -186,10 +185,9 @@ public partial class CompactUi
         if (_apiController.ServerState is ServerState.Connected)
         {
             DrawCollapsedSidebarButton(Menu.Frostbrand, FontAwesomeIcon.Snowflake, GetFrostbrandSidebarLabel());
-            if (_apiController.SupportsRpFeatures)
-                DrawCollapsedSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
-                    () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
         }
+        DrawCollapsedSidebarAction(FontAwesomeIcon.CommentDots, GetRoleplaySidebarLabel(),
+            () => Mediator.Publish(new UiToggleMessage(typeof(RoleplayWindow))));
         DrawCollapsedSidebarSeparator();
         DrawCollapsedSidebarAction(FontAwesomeIcon.ChartBar, "Character Analysis",
             () => Mediator.Publish(new UiToggleMessage(typeof(DataAnalysisUi))));

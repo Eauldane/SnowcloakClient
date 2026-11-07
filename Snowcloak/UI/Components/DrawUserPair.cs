@@ -26,11 +26,14 @@ public class DrawUserPair : DrawPairBase
     private readonly CharaDataManager _charaDataManager;
     private readonly SnowcloakConfigService _configService;
     private readonly UserSafetyStore _userSafetyStore;
+    private readonly RpNotesService _rpNotesService;
+    private readonly DalamudUtilService _dalamud;
     public long VramUsage { get; set; }
 
     public DrawUserPair(string id, Pair entry, UidDisplayHandler displayHandler, ApiController apiController,
         SnowMediator snowMediator, SelectGroupForPairUi selectGroupForPairUi,
-        CharaDataManager charaDataManager, SnowcloakConfigService configService, UserSafetyStore userSafetyStore)
+        CharaDataManager charaDataManager, SnowcloakConfigService configService, UserSafetyStore userSafetyStore,
+        RpNotesService rpNotesService, DalamudUtilService dalamud)
         : base(id, entry, apiController, displayHandler)
     {
         if (PairEntry.UserPair == null) throw new ArgumentException("Pair must be UserPair", nameof(entry));
@@ -40,6 +43,8 @@ public class DrawUserPair : DrawPairBase
         _charaDataManager = charaDataManager;
         _configService = configService;
         _userSafetyStore = userSafetyStore;
+        _rpNotesService = rpNotesService;
+        _dalamud = dalamud;
     }
 
     public bool IsOnline => PairEntry.IsOnline;
@@ -213,6 +218,15 @@ public class DrawUserPair : DrawPairBase
 
     private void DrawPairedClientMenu(Pair entry)
     {
+        if (entry.IsMutualDirectPair && ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote,
+            "RP Notes"))
+        {
+            var ident = entry.IsOnline ? entry.Ident : null;
+            var player = !entry.IsVisible || string.IsNullOrEmpty(ident) ? default : _dalamud.FindPlayerByNameHash(ident);
+            _mediator.Publish(new OpenRpNotesMessage(entry.UserData.UID, entry.UserData.AliasOrUID,
+                ident, player.Name, _dalamud.GetWorldName(player.HomeWorldId)));
+            ImGui.CloseCurrentPopup();
+        }
         if (_configService.Current.ChatEnabled && entry.IsMutualDirectPair
             && ElezenImgui.ShowIconButton(FontAwesomeIcon.Comments, "Message"))
         {

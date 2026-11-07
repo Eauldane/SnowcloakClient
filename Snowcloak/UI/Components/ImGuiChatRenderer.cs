@@ -11,6 +11,8 @@ using Snowcloak.Services.Mediator;
 using System.Numerics;
 using System.Globalization;
 
+using Snowcloak.PlayerData.Pairs;
+
 namespace Snowcloak.UI.Components;
 
 public sealed class ImGuiChatRenderer
@@ -18,13 +20,15 @@ public sealed class ImGuiChatRenderer
     private readonly BbCodeRenderService _bbCodeRenderer;
     private readonly ChatIdentityResolver _identityResolver;
     private readonly SnowMediator _mediator;
+    private readonly PairManager _pairs;
 
     public ImGuiChatRenderer(BbCodeRenderService bbCodeRenderer, ChatIdentityResolver identityResolver,
-        SnowMediator mediator)
+        SnowMediator mediator, PairManager pairs)
     {
         _bbCodeRenderer = bbCodeRenderer;
         _identityResolver = identityResolver;
         _mediator = mediator;
+        _pairs = pairs;
     }
 
     public void Render(ChatEntry entry, float width, RoomRole? role = null,
@@ -165,10 +169,15 @@ public sealed class ImGuiChatRenderer
         ImGui.TextColored(SnowcloakColours.CompactTextMuted, entry.RawText);
     }
 
-    private static void DrawEntryContextMenu(ChatEntry entry)
+    private void DrawEntryContextMenu(ChatEntry entry)
     {
         if (ImGui.BeginPopupContextItem($"chat-entry-{entry.LocalId}"))
         {
+            if (!string.IsNullOrWhiteSpace(entry.SenderUid)
+                && _pairs.GetPairByUID(entry.SenderUid) is { IsMutualDirectPair: true } pair
+                && ImGui.MenuItem("Detailed notes about sender..."))
+                _mediator.Publish(new OpenRpNotesMessage(entry.SenderUid, pair.UserData.AliasOrUID,
+                    pair.IsOnline ? pair.Ident : null));
             if (ImGui.MenuItem("Copy message"))
             {
                 ImGui.SetClipboardText(entry.Kind == ChatEntryKind.Message

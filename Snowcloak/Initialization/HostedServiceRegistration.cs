@@ -47,6 +47,7 @@ internal static class HostedServiceRegistration
         collection.AddHostedService(p => p.GetRequiredService<ChatNotifier>());
         collection.AddHostedService(p => p.GetRequiredService<ChatDtrEntry>());
         collection.AddHostedService(p => p.GetRequiredService<RoleplayReminderService>());
+        collection.AddHostedService(p => p.GetRequiredService<RpNotesService>());
         collection.AddHostedService(p => p.GetRequiredService<TemporaryPartyAppearanceService>());
 
         return collection;

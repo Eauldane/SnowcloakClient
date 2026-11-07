@@ -87,14 +87,9 @@ public sealed class PairingAvailabilityView : IView<AvailabilityViewState>
                 ImGui.TableSetupScrollFreeze(0, 1);
                 ImGui.TableHeadersRow();
 
-                var clipper = new ImGuiListClipper();
-                clipper.Begin(state.VisibleRows.Count);
-                while (clipper.Step())
-                {
-                    for (var i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
-                        DrawPlayer(state.VisibleRows[i], dispatch);
-                }
-                clipper.End();
+                // Wrapped cells can give each row a different height, so submit every row to the table.
+                foreach (var row in state.VisibleRows)
+                    DrawPlayer(row, dispatch);
             }
         }
 

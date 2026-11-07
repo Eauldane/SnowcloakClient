@@ -32,6 +32,7 @@ internal static class UiServiceRegistration
         collection.AddScoped<CommandManagerService>();
         collection.AddScoped<BbCodeRenderService>();
         collection.AddScoped<ImGuiChatRenderer>();
+        collection.AddScoped<RpNotesUi>();
         collection.AddScoped<ChatSettingsPanel>();
         collection.AddScoped<AdvancedSettingsPanel>();
         collection.AddScoped<GeneralSettingsPanel>();

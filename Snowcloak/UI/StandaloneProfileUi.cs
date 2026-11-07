@@ -142,6 +142,12 @@ public sealed class StandaloneProfileUi : WindowMediatorSubscriberBase
     {
         var reportedUser = profile.User ?? (!string.IsNullOrWhiteSpace(UserData.UID) ? UserData : null);
         var canAct = reportedUser != null && !profile.IsOwnProfile;
+        if (canAct && Pair?.IsMutualDirectPair == true && Pair.UserData.UID == reportedUser!.UID
+            && profile.Revision > 0 && !profile.Disabled && ElezenImgui.ShowIconButton(FontAwesomeIcon.StickyNote, "Open IC journal"))
+        {
+            Mediator.Publish(new OpenRpNotesMessage(reportedUser!.UID, reportedUser.AliasOrUID,
+                profile.Ident, profile.Document.CharacterName));
+        }
         ImGui.BeginDisabled(!canAct);
         if (ElezenImgui.ShowIconButton(FontAwesomeIcon.ExclamationTriangle, "Report this user") && reportedUser != null)
             Mediator.Publish(new OpenReportPopupMessage(reportedUser, profile.Ident, profile.Visibility, profile.Revision,

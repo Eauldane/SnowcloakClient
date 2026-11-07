@@ -36,6 +36,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private const string RoomsTab = "Rooms";
     private const string EventsTab = "Events";
     private const string PlansTab = "Scene plans";
+    private const string JournalTab = "Journal";
     private readonly RoleplayClientService _roleplay;
     private readonly PairRequestService _pairRequests;
     private readonly ChatClientService _chat;
@@ -47,9 +48,12 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly UserSafetyStore _safety;
     private readonly TextureService _textureService;
     private readonly ImageTransferService _imageTransferService;
+    private readonly RpNotesUi _journal;
     private readonly Dictionary<string, IDalamudTextureWrap> _bannerTextures = new(StringComparer.Ordinal);
     private readonly HashSet<string> _failedDirectoryImages = new(StringComparer.Ordinal);
     private string _activeTab = PeopleTab;
+    private bool _directoryNeedsRefresh = true;
+    private bool _focusJournal;
     private string _peopleSearch = string.Empty;
     private string _preferenceFilterSearch = string.Empty;
     private readonly HashSet<string> _peoplePreferences = new(StringComparer.Ordinal);
@@ -105,7 +109,7 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         RoleplayClientService roleplay, PairRequestService pairRequests, ChatClientService chat,
         PairManager pairs, SnowcloakConfigService config, SnowProfileManager profiles, ApiController api,
         VenueReminderService venueReminders, UserSafetyStore safety, TextureService textureService,
-        ImageTransferService imageTransferService,
+        ImageTransferService imageTransferService, RpNotesUi journal,
         PerformanceCollectorService performanceCollectorService)
         : base(logger, mediator, "Snowcloak Roleplay###SnowcloakRoleplay", performanceCollectorService)
     {
@@ -120,6 +124,14 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
         _safety = safety;
         _textureService = textureService;
         _imageTransferService = imageTransferService;
+        _journal = journal;
+        Mediator.Subscribe<OpenRpNotesMessage>(this, message =>
+        {
+            if (!_journal.OpenFor(message)) return;
+            _activeTab = JournalTab;
+            _focusJournal = true;
+            IsOpen = true;
+        });
         Mediator.Subscribe<OpenRoleplayPlansMessage>(this, message =>
         {
             _activeTab = PlansTab;
@@ -145,6 +157,24 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
 
     public override void OnOpen()
     {
+        _directoryNeedsRefresh = true;
+        if (!_api.SupportsRpFeatures) _activeTab = JournalTab;
+    }
+
+    public override void OnClose()
+    {
+        if (!_journal.TryClose())
+        {
+            _activeTab = JournalTab;
+            IsOpen = true;
+        }
+    }
+
+    public override Task StopAsync(CancellationToken cancellationToken) => _journal.StopAsync(cancellationToken);
+
+    private void RefreshDirectoryOnOpen()
+    {
+        _directoryNeedsRefresh = false;
         _hooksInitialised = false;
         _selectedCurrentHooks.Clear();
         _initialCurrentHooks.Clear();
@@ -157,12 +187,26 @@ public sealed class RoleplayWindow : WindowMediatorSubscriberBase, IStaticWindow
     protected override void DrawInternal()
     {
         SnowcloakUi.AccentColor = SnowcloakColours.OnlineBlue;
-        if (!DrawEligibility()) return;
+        _journal.UpdateSaves();
+        if (_focusJournal)
+        {
+            ImGui.SetWindowFocus();
+            _focusJournal = false;
+        }
         var tabs = _api.SupportsRoleplaySceneToolkit
-            ? new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, PlansTab }
-            : new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab };
+            ? new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, PlansTab, JournalTab }
+            : new[] { AvailabilityTab, PeopleTab, RoomsTab, EventsTab, JournalTab };
+        var previousTab = _activeTab;
         _activeTab = ModernTabBar.Draw("roleplay-tabs", tabs, _activeTab);
         ImGuiHelpers.ScaledDummy(6f);
+        if (_activeTab == JournalTab)
+        {
+            _journal.Draw();
+            return;
+        }
+        if (previousTab == JournalTab) _journal.FlushChanges();
+        if (_directoryNeedsRefresh) RefreshDirectoryOnOpen();
+        if (!DrawEligibility()) return;
         if (!string.IsNullOrWhiteSpace(_roleplay.Status))
             ImGui.TextColored(ImGuiColors.DalamudYellow, _roleplay.Status);
         if (!string.IsNullOrWhiteSpace(_status))

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 
   <PropertyGroup>
@@ -11,8 +11,8 @@
     <InternalsVisibleTo Include="Snowcloak.Tests" />
     <PackageReference Include="ElezenTools.Core" Version="15.56.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
-    <PackageReference Include="Snowcloak.API" Version="5.0.0" />
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.317">
+    <PackageReference Include="Snowcloak.API" Version="5.2.0-dev.4" />
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.321">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

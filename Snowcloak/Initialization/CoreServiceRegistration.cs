@@ -64,6 +64,7 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<SnowProfileManager>();
         collection.AddSingleton<UserSafetyStore>();
         collection.AddSingleton<RoleplayClientService>();
+        collection.AddSingleton<RpNotesService>();
         collection.AddSingleton<ITemporaryRosterReader, TemporaryRosterReader>();
         collection.AddSingleton<TemporaryPartyAppearanceService>();
         collection.AddSingleton<RoleplayReminderService>();

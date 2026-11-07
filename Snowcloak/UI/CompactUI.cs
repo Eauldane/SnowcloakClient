@@ -74,6 +74,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
     private readonly SelectGroupForPairUi _selectGroupForPairUi;
     private readonly SelectPairForGroupUi _selectPairsForGroupUi;
     private readonly NotesStore _notesStore;
+    private readonly RpNotesService _rpNotesService;
     private readonly ServerRegistry _serverManager;
     private readonly Stopwatch _timeout = new();
     private readonly CharaDataManager _charaDataManager;
@@ -119,7 +120,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         GpuMemoryBudgetService gpuMemoryBudgetService, PlayerPerformanceService playerPerformanceService,
         PlayerPerformanceConfigService playerPerformanceConfigService, PairingFilterConfigService pairingFilterConfigService,
         DalamudUtilService dalamudUtilService, ChatNotifier chatNotifier, SnowProfileManager snowProfileManager,
-        RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore, Snowcloak.EnvironmentSnapshots.SnapshotService snapshotService)
+        RoleplayClientService roleplayClientService, UserSafetyStore userSafetyStore, Snowcloak.EnvironmentSnapshots.SnapshotService snapshotService,
+        RpNotesService rpNotesService)
         : base(logger, mediator, "SnowcloakSync###SnowcloakSyncMainUI", performanceCollectorService)
     {
         _fontService = fontService;
@@ -129,6 +131,7 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
         _pairRequestService = pairRequestService;
         _serverManager = serverManager;
         _notesStore = notesStore;
+        _rpNotesService = rpNotesService;
         _guiHookService = guiHookService;
         _registerService = registerService;
         _fileTransferManager = fileTransferManager;

@@ -40,6 +40,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly ChatIdentityResolver _identityResolver;
     private readonly ApiController _apiController;
     private readonly NotesStore _notesStore;
+    private readonly RpNotesService _rpNotesService;
     private readonly TextureService _textureService;
     private readonly SnowProfileManager _profileManager;
     private readonly ImageTransferService _imageTransferService;
@@ -80,7 +81,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         ImGuiChatRenderer renderer, UiFontService fontService, PairManager pairManager, ChatIdentityResolver identityResolver,
         ApiController apiController, NotesStore notesStore, TextureService textureService, SnowProfileManager profileManager,
         ImageTransferService imageTransferService, FileDialogManager fileDialogManager,
-        PerformanceCollectorService performanceCollectorService, SnowcloakConfigService configService)
+        PerformanceCollectorService performanceCollectorService, SnowcloakConfigService configService, RpNotesService rpNotesService)
         : base(logger, mediator, "Snowcloak Chat###SnowcloakChat", performanceCollectorService)
     {
         _backgroundTasks = new BackgroundTaskTracker(logger);
@@ -91,6 +92,7 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         _identityResolver = identityResolver;
         _apiController = apiController;
         _notesStore = notesStore;
+        _rpNotesService = rpNotesService;
         _textureService = textureService;
         _profileManager = profileManager;
         _imageTransferService = imageTransferService;
@@ -513,6 +515,13 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         }
 
         DrawConversationSettings(conversation);
+        if (conversation.Key.Kind == ConversationKind.Direct
+            && _pairManager.GetPairByUID(conversation.Key.Id) is { IsMutualDirectPair: true } directPair
+            && ImGui.MenuItem("Detailed notes..."))
+        {
+            Mediator.Publish(new OpenRpNotesMessage(conversation.Key.Id, directPair.UserData.AliasOrUID,
+                directPair.IsOnline ? directPair.Ident : null));
+        }
         ImGui.Separator();
         if (ImGui.MenuItem("Open pop-out"))
         {
@@ -1199,6 +1208,14 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
             _noteUid = user.UID;
             _noteDraft = _notesStore.GetNoteForUid(user.UID) ?? string.Empty;
             _openNoteEditor = true;
+        }
+
+        if (pair?.IsMutualDirectPair == true
+            && ImGui.MenuItem("RP Notes"))
+        {
+            var ident = roomMember?.SceneCharacterIdent ?? (pair?.IsOnline == true ? pair.Ident : null);
+            var sceneCharacter = ResolveSceneCharacter(ident);
+            Mediator.Publish(new OpenRpNotesMessage(user.UID, user.AliasOrUID, ident, sceneCharacter?.CharacterName));
         }
 
         if (pair?.UserPair != null)

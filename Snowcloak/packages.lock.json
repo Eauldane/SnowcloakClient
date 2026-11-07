@@ -110,9 +110,9 @@
       },
       "Meziantou.Analyzer": {
         "type": "Direct",
-        "requested": "[3.0.317, )",
-        "resolved": "3.0.317",
-        "contentHash": "IC9fCjxniZol2dcdj+hiXjK01a8gBWQproGL/qWjBI7CgB5GeEOD5oGV0PwpQaSr7Aa/RPaM8Ddho3Y1OAZe1Q=="
+        "requested": "[3.0.321, )",
+        "resolved": "3.0.321",
+        "contentHash": "aFP7GiBBIb2x9rBTuUpw/jSs0JVbTofADlt6WxmYVYQ24KPAjFYyxcnNNVVf4F/eqKyzjik170nOpURmmyJDKg=="
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
@@ -206,13 +206,13 @@
       },
       "Snowcloak.API": {
         "type": "Direct",
-        "requested": "[5.0.0, )",
-        "resolved": "5.0.0",
-        "contentHash": "qPfrtXccN3NbEwH3PWdsojb8uw9aJdxK3ue2oz53KBIaJHGwqSSY90QXYKe/XNVmqJnx5U85mKOpbz6sOVogYw==",
+        "requested": "[5.2.0-dev.4, )",
+        "resolved": "5.2.0-dev.4",
+        "contentHash": "XyLajIW+Eeqsj+jEfdEQ95umVZOesyNwijPo4uDCeSoMmKJvf7kOB2b5QOyvIhqdxu5HqqUEMT7Oqd14KM3Jpg==",
         "dependencies": {
           "Blake3": "2.2.1",
-          "MessagePack": "3.1.11",
-          "MessagePack.Annotations": "3.1.11"
+          "MessagePack": "3.1.12",
+          "MessagePack.Annotations": "3.1.12"
         }
       },
       "Snowcloak.CacheFile": {
@@ -726,7 +726,7 @@
         "dependencies": {
           "ElezenTools.Core": "[15.56.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.14, )",
-          "Snowcloak.API": "[5.0.0, )"
+          "Snowcloak.API": "[5.2.0-dev.4, )"
         }
       },
       "snowcloak.game": {
