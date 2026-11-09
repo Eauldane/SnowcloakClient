@@ -165,7 +165,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             Logger.LogInformation("Not recreating Connection, paused");
             _connectionContext = ConnectionContext.Empty;
             await StopConnection(ServerState.Disconnected).ConfigureAwait(false);
-            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
@@ -177,7 +176,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             Mediator.Publish(new NotificationMessage("Multiple Identical Characters detected", "Your Service configuration has multiple characters with the same name and world set up. Delete the duplicates in the character management to be able to connect.",
                 NotificationType.Error));
             await StopConnection(ServerState.MultiChara).ConfigureAwait(false);
-            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
@@ -186,25 +184,27 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             Logger.LogWarning("No secret key set for current character");
             _connectionContext = ConnectionContext.Empty;
             await StopConnection(ServerState.NoSecretKey).ConfigureAwait(false);
-            _connectionLifecycle.CancelConnectionToken();
             return;
         }
 
+        var token = _connectionLifecycle.RenewConnectionToken();
         await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
 
         Logger.LogInformation("Recreating Connection");
         Mediator.Publish(new EventMessage(new Services.Events.Event(nameof(ApiController), Services.Events.EventSeverity.Informational,
             $"Starting Connection to {_serverManager.CurrentServer.ServerName}")));
 
-        var token = _connectionLifecycle.RenewConnectionToken();
         while (ServerState is not ServerState.Connected && !token.IsCancellationRequested)
         {
             AuthFailureMessage = string.Empty;
 
             await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
+            if (token.IsCancellationRequested) return;
+
             ServerState = ServerState.Connecting;
             _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.Authenticating);
 
+            HubConnection? startedHub = null;
             try
             {
                 Logger.LogDebug("Building connection");
@@ -243,9 +243,11 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 {
                     await hub.StartAsync(startCts.Token).ConfigureAwait(false);
                 }
+                startedHub = hub;
 
                 _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
                 var connectionDto = await GetConnectionDto(publishConnected: false, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
                 _connectionContext = ConnectionContext.From(connectionDto);
 
                 if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
@@ -260,6 +262,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
 
                 await CheckClientHealth(token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
 
                 _chatPairStateReady = false;
                 ServerState = ServerState.Connected;
@@ -290,17 +293,17 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 var resumed = await TryResumeSessionAsync(connectionDto).ConfigureAwait(false);
                 await ReconcileConnectionState(resumed).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
                 Mediator.Publish(new SessionResumedMessage(!resumed));
                 Mediator.Publish(new ConnectedMessage(connectionDto));
             }
+            catch (Exception) when (token.IsCancellationRequested)
+            {
+                Logger.LogDebug("Connection attempt cancelled");
+                return;
+            }
             catch (OperationCanceledException ex)
             {
-                if (token.IsCancellationRequested)
-                {
-                    Logger.LogWarning("Connection attempt cancelled");
-                    return;
-                }
-
                 Logger.LogWarning(ex, "Connection attempt timed out, retrying");
                 ServerState = ServerState.Reconnecting;
                 await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
@@ -326,7 +329,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 Logger.LogInformation("Failed to establish connection, retrying");
                 await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
             }
-            catch (InvalidOperationException ex)
+            catch (InvalidOperationException ex) when (startedHub == null || startedHub.State == HubConnectionState.Connected)
             {
                 Logger.LogWarning(ex, "InvalidOperationException on connection");
                 await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
@@ -336,6 +339,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             {
                 Logger.LogWarning(ex, "Exception on Connection");
 
+                ServerState = ServerState.Reconnecting;
                 Logger.LogInformation("Failed to establish connection, retrying");
                 await DelayBeforeConnectionRetry(token).ConfigureAwait(false);
             }
@@ -490,6 +494,7 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void DalamudUtilOnLogOut()
     {
+        _connectionLifecycle.CancelConnectionToken();
         _ = _backgroundTasks.Run(() => StopConnection(ServerState.Disconnected), nameof(StopConnection));
         ServerState = ServerState.Offline;
     }
@@ -513,6 +518,8 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private void SnowHubOnClosed(Exception? arg)
     {
+        if (!CanRestartConnection()) return;
+
         _connectionLifecycle.StopHealthLoop();
         StopSystemInfoPolling();
         MarkConnectionLost();
@@ -529,12 +536,24 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private async Task SnowHubOnReconnected()
     {
+        var hub = _snowHub;
+        var token = _connectionLifecycle.ConnectionToken;
+        if (hub?.State != HubConnectionState.Connected || token.IsCancellationRequested) return;
+
+        var connectionId = hub.ConnectionId;
+        bool IsCurrentTransport() =>
+            !token.IsCancellationRequested && ReferenceEquals(hub, _snowHub)
+            && hub.State == HubConnectionState.Connected
+            && string.Equals(connectionId, hub.ConnectionId, StringComparison.Ordinal);
+
         ServerState = ServerState.Reconnecting;
         try
         {
             InitializeApiHooks();
             _connectionLifecycle.MovePhase(ConnectionLifecyclePhase.SyncingState);
-            var connectionDto = await GetConnectionDto(publishConnected: false, _connectionLifecycle.ConnectionToken).ConfigureAwait(false);
+            var connectionDto = await GetConnectionDto(publishConnected: false, token).ConfigureAwait(false);
+            if (!IsCurrentTransport()) return;
+
             _connectionContext = ConnectionContext.From(connectionDto);
             Mediator.Publish(new FileServerInfoReceivedMessage(connectionDto));
             if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
@@ -547,16 +566,28 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
             TriggerSystemInfoRefresh();
             var resumed = await TryResumeSessionAsync(connectionDto).ConfigureAwait(false);
             await ReconcileConnectionState(resumed).ConfigureAwait(false);
+            if (!IsCurrentTransport()) return;
+
             Mediator.Publish(new SessionResumedMessage(!resumed));
             Mediator.Publish(new ConnectedMessage(connectionDto));
         }
         catch (Exception ex)
         {
-            Logger.LogCritical(ex, "Failure to obtain data after reconnection");
+            if (!IsCurrentTransport() || !CanRestartConnection())
+            {
+                return;
+            }
+
+            Logger.LogWarning(ex, "Failure to obtain data after reconnection, starting a fresh connection");
             MarkConnectionLost();
-            await StopConnection(ServerState.Disconnected, teardownSession: false).ConfigureAwait(false);
+            await CreateConnections().ConfigureAwait(false);
         }
     }
+
+    private bool CanRestartConnection() =>
+        Volatile.Read(ref _disposed) == 0 && !_connectionLifecycle.ConnectionToken.IsCancellationRequested
+        && _dalamudUtil.IsLoggedIn && !_serverManager.CurrentServer.FullPause
+        && ServerState != ServerState.Disconnecting;
 
     private void SnowHubOnReconnecting(Exception? arg)
     {
@@ -572,6 +603,11 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private async Task StopConnection(ServerState state, bool teardownSession = true)
     {
+        if (teardownSession)
+        {
+            _connectionLifecycle.CancelConnectionToken();
+        }
+
         _inboundDispatcher.ExpireConnection();
         var hadHub = _snowHub is not null;
         if (teardownSession && hadHub)

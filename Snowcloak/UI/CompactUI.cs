@@ -191,8 +191,8 @@ public partial class CompactUi : WindowMediatorSubscriberBase, IStaticWindow
             new()
             {
                 Icon = FontAwesomeIcon.Heart,
-                ShowTooltip = () => ImGui.SetTooltip("Patreon"),
-                Click = (btn) => Util.OpenLink("https://patreon.com/elznmods")
+                ShowTooltip = () => ImGui.SetTooltip("Support Snowcloak!"),
+                Click = (btn) => Mediator.Publish(new UiToggleMessage(typeof(SupportSnowcloakWindow)))
             }
         ];
 
