@@ -5,7 +5,7 @@ namespace Snowcloak.Infrastructure.Files;
 
 public sealed partial class RemoteEmoteCache(string directory, Action<Exception> onFailure, HttpMessageHandler? handler = null) : IDisposable
 {
-    public static readonly Uri IndexUri = new("https://eauldane.dev/emotes/");
+    public static readonly Uri IndexUri = new("https://eauldane.com/emotes/");
     private const int MaxIndexBytes = 4 * 1024 * 1024;
     private const int MaxPngBytes = 2 * 1024 * 1024;
     private readonly HttpClient _http = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false })
