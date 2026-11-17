@@ -111,7 +111,7 @@ public partial class FileTransferOrchestrator : DisposableMediatorSubscriberBase
 
     public string PreferredDownloadTypeQueryValue()
     {
-        return _snowcloakConfig.Current.PreferredDownloadType.ToString();
+        return "ZSTD";
     }
 
     public void AddForbiddenTransfer(ForbiddenTransfer transfer)

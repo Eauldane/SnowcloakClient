@@ -46,6 +46,7 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
     private readonly PairManager _pairManager;
     private readonly SnowProfileManager _snowProfileManager;
     private readonly ConcurrentDictionary<string, PairRequesterCharacterSnapshot> _requesterCharacterSnapshots = new(StringComparer.Ordinal);
+    private readonly Lock _pendingRequestRowsLock = new();
     private readonly IContextMenu _contextMenu;
     private readonly NotesStore _notesStore;
     private readonly PairingAvailabilityStore _availabilityStore;
@@ -221,13 +222,16 @@ public class PairRequestService : DisposableMediatorSubscriberBase, IAsyncDispos
 
     private void RefreshPendingRequestRows()
     {
-        var pending = _requestInbox.GetPendingRequests()
-            .Where(request => !IsMalformed(request))
-            .OrderBy(request => request.RequestedAt)
-            .Select(BuildPendingRequestRow)
-            .ToList();
+        lock (_pendingRequestRowsLock)
+        {
+            var pending = _requestInbox.GetPendingRequests()
+                .Where(request => !IsMalformed(request))
+                .OrderBy(request => request.RequestedAt)
+                .Select(BuildPendingRequestRow)
+                .ToList();
 
-        _availabilityStore.SetPendingRequests(pending);
+            _availabilityStore.SetPendingRequests(pending);
+        }
     }
 
     public PairRequesterCharacterSnapshot? GetRequesterCharacterSnapshot(PairingRequestDto dto)

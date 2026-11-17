@@ -83,6 +83,9 @@ internal sealed class GroupPanel : IMediatorSubscriber
 
     public float DrawSyncshells(float contentWidth)
     {
+        if (!SyncshellFirstUseWarning.Draw(_snowcloakConfig))
+            return ImGui.GetCursorPosY();
+
         using (ImRaii.PushId("addsyncshell")) DrawAddSyncshell();
         using (ImRaii.PushId("communitybrowse")) DrawCommunityBrowseButton();
 

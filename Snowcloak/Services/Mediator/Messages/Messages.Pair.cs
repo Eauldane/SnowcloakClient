@@ -36,7 +36,7 @@ public record RequestPairDataMessage(UserData UserData) : MessageBase;
 public record PairDataAnalyzedMessage(string UID) : KeyedMessage(UID);
 public record PairingAvailabilityChangedMessage : MessageBase;
 public record PairingRequestReceivedMessage(PairingRequestDto Request) : MessageBase;
-public record PairingRequestListChangedMessage : MessageBase;
+public record PairingRequestListChangedMessage : SameThreadMessage;
 public record TemporaryAppearanceInvalidatedMessage(TemporaryAppearanceInvalidated Invalidation) : MessageBase;
 #pragma warning restore S2094
 #pragma warning restore MA0048 // File name must match type name

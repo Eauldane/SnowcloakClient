@@ -226,8 +226,7 @@ public sealed class FileCacheManager : IHostedService
         return (triangleCount, vramUsage);
     }
 
-    private static CompressionType ChooseCompressionType(FileExtension fileExtension) =>
-        fileExtension is FileExtension.SCD or FileExtension.SHPK ? CompressionType.LZ4 : CompressionType.ZSTD;
+    private static CompressionType ChooseCompressionType(FileExtension fileExtension) => CompressionType.ZSTD;
     
     private long CalculateTriangleCount(string filePath)
     {

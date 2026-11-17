@@ -19,6 +19,7 @@ public class SnowcloakConfig : ISnowcloakConfiguration
     public int ExpectedTOSVersion = 2;
     public int AcceptedTOSVersion { get; set; } = 0;
     public bool AcceptedAgreement { get; set; } = false;
+    public bool SyncshellWarningAcknowledged { get; set; } = false;
     public string CacheFolder { get; set; } = string.Empty;
     public bool DisableOptionalPluginWarnings { get; set; } = false;
     public Dictionary<string, int> IpcPluginPermissions { get; set; } = new(StringComparer.Ordinal);

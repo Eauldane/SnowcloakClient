@@ -50,6 +50,8 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
     private readonly HashSet<string> _requestedSceneProfiles = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<Action> _uiUpdates = new();
     private bool _sidebarCollapsed;
+    private IReadOnlyList<ConversationSnapshot>? _sidebarConversations;
+    private (ConversationKind Kind, ConversationSnapshot[] Conversations)[] _sidebarSections = [];
     private float _sidebarWidth = ModernSidebar.ExpandedWidth - 15f;
     private bool _showMembers = true;
     private bool _openRoomBrowser;
@@ -188,9 +190,15 @@ public sealed class ChatWindow : WindowMediatorSubscriberBase, IStaticWindow
         using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, 4f * scale));
 
         var conversations = _chatService.GetOrderedConversations(snapshot);
-        foreach (var kind in new[] { ConversationKind.Room, ConversationKind.Direct, ConversationKind.Syncshell })
+        if (!ReferenceEquals(conversations, _sidebarConversations))
         {
-            var section = conversations.Where(conversation => conversation.Key.Kind == kind).ToArray();
+            _sidebarSections = new[] { ConversationKind.Room, ConversationKind.Direct, ConversationKind.Syncshell }
+                .Select(kind => (kind, conversations.Where(conversation => conversation.Key.Kind == kind).ToArray()))
+                .ToArray();
+            _sidebarConversations = conversations;
+        }
+        foreach (var (kind, section) in _sidebarSections)
+        {
             if (section.Length == 0 && kind != ConversationKind.Direct) continue;
 
             DrawConversationSectionHeader(kind);

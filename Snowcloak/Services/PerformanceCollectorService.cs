@@ -18,6 +18,8 @@ public sealed partial class PerformanceCollectorService : IHostedService, IDispo
     private readonly CancellationTokenSource _periodicLogPruneTaskCts = new();
     private Task? _periodicLogPruneTask;
 
+    internal bool IsEnabled => _snowcloakConfigService.Current.LogPerformance;
+
     public PerformanceCollectorService(ILogger<PerformanceCollectorService> logger, SnowcloakConfigService snowcloakConfigService)
     {
         _logger = logger;

@@ -6,6 +6,7 @@ using Dalamud.Interface.Utility.Raii;
 using System.Numerics;
 using System.Threading.Tasks;
 using Snowcloak.Services;
+using Snowcloak.Configuration;
 using Snowcloak.Services.Venue;
 using Snowcloak.API.Data.Enum;
 using Snowcloak.API.Data.Extensions;
@@ -24,6 +25,7 @@ internal sealed class VenueSyncshellPopupHandler : IPopupHandler
     private readonly DalamudUtilService _dalamudUtilService;
     private readonly UiFontService _fontService;
     private readonly VenueSyncshellService _venueSyncshellService;
+    private readonly SnowcloakConfigService _configService;
     private bool _closeOnSuccess;
     private bool _disableAnimationsOnJoin;
     private bool _disableSoundsOnJoin;
@@ -33,12 +35,13 @@ internal sealed class VenueSyncshellPopupHandler : IPopupHandler
     private VenueSyncshellPrompt? _prompt;
 
     public VenueSyncshellPopupHandler(UiFontService fontService, BbCodeRenderService bbCodeRenderService,
-        DalamudUtilService dalamudUtilService, VenueSyncshellService venueSyncshellService)
+        DalamudUtilService dalamudUtilService, VenueSyncshellService venueSyncshellService, SnowcloakConfigService configService)
     {
         _fontService = fontService;
         _bbCodeRenderService = bbCodeRenderService;
         _dalamudUtilService = dalamudUtilService;
         _venueSyncshellService = venueSyncshellService;
+        _configService = configService;
     }
 
     public Vector2 PopupSize => new(550, 450);
@@ -47,6 +50,7 @@ internal sealed class VenueSyncshellPopupHandler : IPopupHandler
     public void DrawContent()
     {
         if (_prompt == null) return;
+        if (!SyncshellFirstUseWarning.Draw(_configService)) return;
 
         if (_closeOnSuccess)
         {

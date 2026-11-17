@@ -89,7 +89,10 @@ public sealed partial class GameObjectHandlerMonitor : IDisposable
 
             try
             {
-                _performanceCollector.LogPerformance(handler, $"{handler.PerformanceCounterName}", handler.RefreshFromFramework);
+                if (_performanceCollector.IsEnabled)
+                    _performanceCollector.LogPerformance(handler, $"{handler.PerformanceCounterName}", handler.RefreshFromFramework);
+                else
+                    handler.RefreshFromFramework();
             }
             catch (Exception ex)
             {

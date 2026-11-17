@@ -13,6 +13,7 @@ using Snowcloak.Configuration;
 using Snowcloak.PlayerData.Pairs;
 using Snowcloak.Services;
 using Snowcloak.Services.Mediator;
+using Snowcloak.UI.Components;
 using Snowcloak.WebAPI;
 using System.Globalization;
 using System.Numerics;
@@ -64,6 +65,9 @@ public sealed class CommunitySyncshellWindow : WindowMediatorSubscriberBase, ISt
 
     protected override void DrawInternal()
     {
+        if (!SyncshellFirstUseWarning.Draw(_configService))
+            return;
+
         var contentWidth = ImGui.GetContentRegionAvail().X;
         var buttonSize = ElezenImgui.GetIconButtonSize(FontAwesomeIcon.Search);
         ImGui.SetNextItemWidth(contentWidth - buttonSize.X - ImGui.GetStyle().ItemSpacing.X);

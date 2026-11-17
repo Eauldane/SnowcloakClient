@@ -77,7 +77,10 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         {
             foreach (var hash in requestedHashes)
             {
-                _negativeCache.ClearMissing(hash);
+                if (_negativeCache.TryGet(hash, out var entry) && entry.Reason == FileDownloadNegativeReason.TemporarilyUnavailable)
+                    _negativeCache.Clear(hash);
+                else
+                    _negativeCache.ClearMissing(hash);
             }
         }
         _preflightUnavailable = requestedHashes
@@ -160,7 +163,8 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
         try
         {
             await DownloadFilesInternal(gameObject, fileReplacementDto, uid, ct).ConfigureAwait(false);
-            var lateMissing = _currentDownloads.Where(t => _negativeCache.TryGet(t.Hash, out var entry) && entry.Reason == FileDownloadNegativeReason.Missing).Select(t => t.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var lateMissing = _currentDownloads.Where(t => _negativeCache.TryGet(t.Hash, out var entry)
+                && entry.Reason is FileDownloadNegativeReason.Missing or FileDownloadNegativeReason.TemporarilyUnavailable).Select(t => t.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (context != null &&  lateMissing.Count > 0)
             {
                 ct.ThrowIfCancellationRequested();

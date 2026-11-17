@@ -390,19 +390,6 @@ public sealed partial class StorageSettingsPanel : IDisposable
         }
         ElezenImgui.DrawHelpText("Allow larger files to use multithreaded compression.");
 
-        SettingsUiControls.DrawCombo("Preferred download type",
-            new[] { CompressionType.ZSTD, CompressionType.LZ4 },
-            compressionType => compressionType switch
-            {
-                CompressionType.ZSTD => "ZSTD",
-                CompressionType.LZ4 => "LZ4",
-                _ => compressionType.ToString()
-            },
-            _selectedComboItems,
-            compressionType => _configService.Update(c => c.PreferredDownloadType = compressionType),
-            _configService.Current.PreferredDownloadType);
-        ElezenImgui.DrawHelpText("Choose which SCF compression variant Snowcloak prefers when downloading files from the server. "
-                                 + "ZSTD is the default, favouring smaller downloads for metered or slow connections. LZ4 is the old style compression, for slower systems. If you still struggle, compression can be disabled at the expense of bandwidth. Disabling compression is STRONGLY discouraged.");
     }
 
     private void DrawValidation()

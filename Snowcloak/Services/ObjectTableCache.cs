@@ -30,7 +30,7 @@ public sealed class ObjectTableCache
     private readonly IPlayerState _playerState;
     private readonly BlockedCharacterHandler _blockedCharacterHandler;
     private readonly Dictionary<ulong, PlayerInfo> _playerCharas = [];
-    private readonly List<ulong> _notUpdatedCharas = [];
+    private readonly HashSet<ulong> _notUpdatedCharas = [];
     private readonly HashSet<ulong> _capturedContentIds = [];
     private PlayerSnapshot _snapshot = new(new Dictionary<string, PlayerCharacterData>(StringComparer.Ordinal),
         new Dictionary<ulong, PlayerCharacterData>());
@@ -98,7 +98,7 @@ public sealed class ObjectTableCache
         }
 
         var changed = false;
-        _notUpdatedCharas.AddRange(_playerCharas.Keys);
+        _notUpdatedCharas.UnionWith(_playerCharas.Keys);
         _capturedContentIds.Clear();
 
         for (var i = 0; i < _objectTable.Length; i++)
