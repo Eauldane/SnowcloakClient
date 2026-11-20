@@ -57,7 +57,7 @@ public static partial class McdfIo
             using var writer = new BinaryWriter(fs);
 
             var buffer = reader.ReadBytes(fileData.Length);
-            if (buffer.Length == 0)
+            if (buffer.Length != fileData.Length)
             {
                 throw new EndOfStreamException("Unexpected EOF");
             }

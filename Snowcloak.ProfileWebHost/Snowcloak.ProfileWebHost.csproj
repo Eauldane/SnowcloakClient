@@ -15,11 +15,11 @@
     <Compile Include="../Snowcloak.Core/Profiles/ProfileWebHostLaunch.cs" Link="ProfileWebHostLaunch.cs" />
     <Content Include="Web/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(PkgMicrosoft_Web_WebView2)/LICENSE.txt" Link="ThirdParty/WebView2/LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.35.0.4138">
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.36.0.15337">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Update="Meziantou.Analyzer" Version="3.0.321">
+    <PackageReference Update="Meziantou.Analyzer" Version="3.0.341">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

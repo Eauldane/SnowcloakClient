@@ -23,8 +23,8 @@ public sealed class ProfilePublishEditorSection
         }
 
         ImGui.TextColored(
-            complete >= checks.Length - 1 ? ImGuiColors.HealerGreen : ImGuiColors.DalamudYellow,
-            complete >= checks.Length - 1
+            complete == checks.Length ? ImGuiColors.HealerGreen : ImGuiColors.DalamudYellow,
+            complete == checks.Length
                 ? "Checklist complete."
                 : "Optional fields.");
 

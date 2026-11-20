@@ -15,7 +15,7 @@ public sealed class ProfileDetailsEditorSection
         CharacterProfileUiShared.DrawSectionTitle("RP Hooks");
         DrawHooksEditor(session, markDirty);
 
-        CharacterProfileUiShared.DrawSectionTitle("Pair-only Details");
+        CharacterProfileUiShared.DrawSectionTitle("Story details");
         ProfileEditorFieldControls.DrawMultiline(
             "Overview",
             session.Overview,
