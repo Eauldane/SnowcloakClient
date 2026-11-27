@@ -10,7 +10,7 @@ public static class Crypto
     public static async Task<string> GetFileHashAsync(this string filePath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var hasher = Hasher.New();
+        using var hasher = Hasher.New();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(81920);
         FileStream? fileStream = null;
 

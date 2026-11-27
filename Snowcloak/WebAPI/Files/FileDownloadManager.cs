@@ -281,6 +281,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     {
         for (var attempt = 0; attempt < 2; attempt++)
         {
+            long attemptBytes = 0;
             try
             {
                 groupHandle.SetStatus(DownloadStatus.WaitingForSlot);
@@ -288,7 +289,11 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 long downloadedBytes;
                 try
                 {
-                    downloadedBytes = await DownloadToFileAsync(transfer, groupHandle, tempPath, ct).ConfigureAwait(false);
+                    downloadedBytes = await DownloadToFileAsync(transfer, groupHandle, tempPath, bytes =>
+                    {
+                        attemptBytes += bytes;
+                        groupHandle.AddBytes(bytes);
+                    }, ct).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -323,6 +328,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                                        && ex is IOException or HttpRequestException
                                        && ex is not FileDownloadUnavailableException)
             {
+                groupHandle.AddBytes(-attemptBytes);
                 TryDeleteFile(tempPath);
                 LogDownloadError(Logger, ex, transfer.Hash, "whole-file retry");
             }
@@ -330,7 +336,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     }
 
     private async Task<long> DownloadToFileAsync(DownloadFileTransfer transfer, DownloadStatusStore.DownloadGroupHandle groupHandle,
-        string tempPath, CancellationToken ct)
+        string tempPath, Action<int> reportBytes, CancellationToken ct)
     {
         var response = await _transport.OpenAsync(new DownloadFileRequest(transfer.DownloadUri, transfer.Hash, transfer.Total),
             groupHandle.SetStatus, ct).ConfigureAwait(false);
@@ -348,7 +354,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
                 _activeDownloadStreams.TryAdd(throttled, 0);
                 try
                 {
-                    await CopyToFileAsync(throttled, output, groupHandle, ct).ConfigureAwait(false);
+                    await CopyToFileAsync(throttled, output, reportBytes, ct).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -367,7 +373,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
     }
 
     private static async Task<long> CopyToFileAsync(Stream source, Stream destination,
-        DownloadStatusStore.DownloadGroupHandle groupHandle, CancellationToken ct)
+        Action<int> reportBytes, CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(DownloadBufferSize);
         long total = 0;
@@ -377,7 +383,7 @@ public sealed partial class FileDownloadManager : DisposableMediatorSubscriberBa
             while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, DownloadBufferSize), ct).ConfigureAwait(false)) > 0)
             {
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
-                groupHandle.AddBytes(bytesRead);
+                reportBytes(bytesRead);
                 total += bytesRead;
             }
 

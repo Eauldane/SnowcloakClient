@@ -49,6 +49,7 @@ internal static class CoreServiceRegistration
         collection.AddSingleton<NotificationService>();
         collection.AddSingleton<ServerNewsChatService>();
         collection.AddSingleton<PluginWatcherService>();
+        collection.AddSingleton<Snowcloak.Services.RepositoryMigration.RepositoryMigrationService>();
         collection.AddSingleton<SyncTroubleshootingService>();
         collection.AddSingleton<PluginWarningNotificationService>();
         collection.AddSingleton<VfxSpawnManager>();

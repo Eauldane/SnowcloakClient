@@ -79,23 +79,26 @@
         /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count)
         {
-            Throttle(count).Wait();
-            return _baseStream.Read(buffer, offset, count);
+            var bytesRead = _baseStream.Read(buffer, offset, count);
+            Throttle(bytesRead).GetAwaiter().GetResult();
+            return bytesRead;
         }
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count,
             CancellationToken cancellationToken)
         {
-            await Throttle(count, cancellationToken).ConfigureAwait(false);
 #pragma warning disable CA1835
-            return await _baseStream.ReadAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            var bytesRead = await _baseStream.ReadAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
 #pragma warning restore CA1835
+            await Throttle(bytesRead, cancellationToken).ConfigureAwait(false);
+            return bytesRead;
         }
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await Throttle(buffer.Length, cancellationToken).ConfigureAwait(false);
-            return await _baseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var bytesRead = await _baseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            await Throttle(bytesRead, cancellationToken).ConfigureAwait(false);
+            return bytesRead;
         }
 
         /// <inheritdoc />
@@ -145,13 +148,13 @@
                 if (time > 0)
                 {
                     var bandWidthtoken = _bandwidthChangeTokenSource.Token;
-                    var linked = CancellationTokenSource.CreateLinkedTokenSource(token, bandWidthtoken).Token;
-                    await Task.Delay(time, linked).ConfigureAwait(false);
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, bandWidthtoken);
+                    await Task.Delay(time, linked.Token).ConfigureAwait(false);
                 }
             }
-            catch (TaskCanceledException)
+            catch (TaskCanceledException) when (!token.IsCancellationRequested)
             {
-                // ignore
+                // A changed bandwidth limit interrupts the current wait.
             }
         }
 

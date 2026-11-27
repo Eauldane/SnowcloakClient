@@ -36,7 +36,6 @@ public partial class ApiController
             try
             {
                 await PollSystemInfoOnce(ct).ConfigureAwait(false);
-                await Task.Delay(SystemInfoPollInterval, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -45,6 +44,15 @@ public partial class ApiController
             catch (Exception ex)
             {
                 Logger.LogDebug(ex, "System info poll failed");
+            }
+
+            try
+            {
+                await Task.Delay(SystemInfoPollInterval, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
             }
         }
     }

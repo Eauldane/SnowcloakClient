@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using ElezenTools.UI;
 using Snowcloak.Configuration;
 using Snowcloak.Configuration.Models;
@@ -104,19 +105,25 @@ public sealed class ServiceSelectionPanel
             ImGui.InputText("Custom Service URI", ref _customServerUri, 255);
             ImGui.SetNextItemWidth(250 * ImGuiHelpers.GlobalScale);
             ImGui.InputText("Custom Service Name", ref _customServerName, 255);
-            if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add Custom Service")
-                && !string.IsNullOrEmpty(_customServerUri)
-                && !string.IsNullOrEmpty(_customServerName))
+            var duplicateService = _serverRegistry.HasServerUri(_customServerUri);
+            using (ImRaii.Disabled(duplicateService))
             {
-                _serverRegistry.AddServer(new ServerStorage
+                if (ElezenImgui.ShowIconButton(FontAwesomeIcon.Plus, "Add Custom Service")
+                    && !string.IsNullOrEmpty(_customServerUri)
+                    && !string.IsNullOrEmpty(_customServerName))
                 {
-                    ServerName = _customServerName,
-                    ServerUri = _customServerUri,
-                });
-                _customServerName = string.Empty;
-                _customServerUri = string.Empty;
-                _configService.Update(_ => { });
+                    _serverRegistry.AddServer(new ServerStorage
+                    {
+                        ServerName = _customServerName,
+                        ServerUri = _customServerUri,
+                    });
+                    _customServerName = string.Empty;
+                    _customServerUri = string.Empty;
+                    _configService.Update(_ => { });
+                }
             }
+            if (duplicateService)
+                ElezenImgui.DrawHelpText("This service URI is already in the service list.");
             ImGui.TreePop();
         }
 

@@ -22,12 +22,16 @@ public sealed class FileDownloadNegativeCache
     public bool TryGet(string hash, out FileDownloadNegativeEntry entry)
     {
         var normalised = hash.ToUpperInvariant();
-        if (_entries.TryGetValue(normalised, out entry!) && entry.ExpiresAt > DateTimeOffset.UtcNow)
+        if (_entries.TryGetValue(normalised, out entry!))
         {
-            return true;
+            if (entry.ExpiresAt > DateTimeOffset.UtcNow)
+            {
+                return true;
+            }
+
+            ((ICollection<KeyValuePair<string, FileDownloadNegativeEntry>>)_entries).Remove(new(normalised, entry));
         }
 
-        _entries.TryRemove(normalised, out _);
         entry = null!;
         return false;
     }
@@ -39,8 +43,7 @@ public sealed class FileDownloadNegativeCache
         var boundedLifetime = lifetime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : lifetime;
         var entry = new FileDownloadNegativeEntry(normalised, reason, DateTimeOffset.UtcNow.Add(boundedLifetime),
             message, queuePosition);
-        _entries.AddOrUpdate(normalised, entry, (_, current) => current.ExpiresAt >= entry.ExpiresAt ? current : entry);
-        return _entries[normalised];
+        return _entries.AddOrUpdate(normalised, entry, (_, current) => current.ExpiresAt >= entry.ExpiresAt ? current : entry);
     }
 
     public void Clear(string hash) => _entries.TryRemove(hash, out _);

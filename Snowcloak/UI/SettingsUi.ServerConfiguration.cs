@@ -429,7 +429,11 @@ public partial class SettingsUi
 
         if (ImGui.InputText("Service URI", ref serverUri, 255, flags))
         {
-            selectedServer.ServerUri = serverUri;
+            if (_serverConfigurationManager.HasServerUri(serverUri, selectedServer))
+                Mediator.Publish(new NotificationMessage("Service already exists",
+                    "Another service already uses this URI. Select it from the service list.", NotificationType.Warning));
+            else
+                selectedServer.ServerUri = serverUri;
         }
         if (isMain)
         {

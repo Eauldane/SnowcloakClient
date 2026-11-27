@@ -2,6 +2,7 @@
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Plugin.Services;
+using Dalamud.Plugin;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration;
@@ -30,28 +31,82 @@ public partial class NotificationService : DisposableMediatorSubscriberBase, IHo
     private readonly INotificationManager _notificationManager;
     private readonly IChatGui _chatGui;
     private readonly SnowcloakConfigService _configurationService;
+    private readonly IFramework _framework;
+    private bool _updateRequiredShown;
+    private IActiveNotification? _updateRequiredNotification;
+    private readonly IDalamudPluginInterface _pluginInterface;
+    private readonly CancellationTokenSource _lifetime = new();
+    private Task? _updateCheckTask;
 
     public NotificationService(ILogger<NotificationService> logger, SnowMediator mediator,
         DalamudUtilService dalamudUtilService,
         INotificationManager notificationManager,
-        IChatGui chatGui, SnowcloakConfigService configurationService) : base(logger, mediator)
+        IChatGui chatGui, SnowcloakConfigService configurationService, IFramework framework,
+        IDalamudPluginInterface pluginInterface) : base(logger, mediator)
     {
         _dalamudUtilService = dalamudUtilService;
         _notificationManager = notificationManager;
         _chatGui = chatGui;
         _configurationService = configurationService;
+        _framework = framework;
+        _pluginInterface = pluginInterface;
     }
     
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Mediator.Subscribe<NotificationMessage>(this, ShowNotification);
+        Mediator.Subscribe<ClientUpdateRequiredMessage>(this, ShowClientUpdateRequired);
+        Mediator.Subscribe<ConnectedMessage>(this, _ => DismissClientUpdateRequired());
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    private Task ShowClientUpdateRequired(ClientUpdateRequiredMessage message) => _framework.RunOnFrameworkThread(() =>
+    {
+        if (_updateRequiredShown) return;
+        _updateRequiredShown = true;
+
+        const string text = "Snowcloak has a pending update! Please install the update to reconnect.";
+        _chatGui.Print(text);
+        _updateRequiredNotification = _notificationManager.AddNotification(new Notification
+        {
+            Title = "Snowcloak has been updated!",
+            Content = text + " Click to install the update.",
+            MinimizedText = "Click to update Snowcloak",
+            Type = DalamudNotificationType.Warning,
+            InitialDuration = TimeSpan.FromHours(10),
+            HardExpiry = DateTime.MaxValue,
+            Minimized = false,
+            UserDismissable = true,
+        });
+        _updateRequiredNotification.Click += click =>
+        {
+            _ = _framework.RunOnFrameworkThread(() =>
+            {
+                if (_lifetime.IsCancellationRequested || _updateCheckTask is { IsCompleted: false }) return;
+                _updateCheckTask = DalamudPluginUpdate.RunAsync(_pluginInterface, _framework, _chatGui, Logger, _lifetime.Token);
+            });
+        };
+    });
+
+    private Task DismissClientUpdateRequired() => _framework.RunOnFrameworkThread(() =>
+    {
+        _updateRequiredNotification?.DismissNow();
+        _updateRequiredNotification = null;
+        _updateRequiredShown = false;
+    });
+
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         UnsubscribeAll();
-        return Task.CompletedTask;
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        await DismissClientUpdateRequired().ConfigureAwait(false);
+        if (_updateCheckTask != null) await _updateCheckTask.ConfigureAwait(false);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _lifetime.Dispose();
+        base.Dispose(disposing);
     }
 
     private void PrintErrorChat(string? message)

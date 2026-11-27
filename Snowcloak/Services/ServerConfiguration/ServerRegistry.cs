@@ -94,9 +94,16 @@ public sealed class ServerRegistry
 
     public void AddServer(ServerStorage serverStorage)
     {
+        if (HasServerUri(serverStorage.ServerUri))
+            return;
+
         _configService.Current.ServerStorage.Add(serverStorage);
         Save();
     }
+
+    public bool HasServerUri(string serverUri, ServerStorage? excluding = null)
+        => _configService.Current.ServerStorage.Any(s => !ReferenceEquals(s, excluding)
+            && string.Equals(s.ServerUri, serverUri, StringComparison.OrdinalIgnoreCase));
 
     public void DeleteServer(ServerStorage selectedServer)
     {

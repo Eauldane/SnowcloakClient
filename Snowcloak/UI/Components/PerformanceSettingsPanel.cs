@@ -156,11 +156,14 @@ public sealed class PerformanceSettingsPanel
             if (ImGui.Checkbox("Delete original textures from disk", ref deleteOriginalTextures))
             {
                 _playerPerformanceConfigService.Update(c => c.TextureShrinkDeleteOriginal = deleteOriginalTextures);
-                _ = Task.Run(() =>
+                if (deleteOriginalTextures)
                 {
-                    _cacheMonitor.DeleteSubstOriginals();
-                    _cacheMonitor.RecalculateFileCacheSize(CancellationToken.None);
-                });
+                    _ = Task.Run(() =>
+                    {
+                        _cacheMonitor.DeleteSubstOriginals();
+                        _cacheMonitor.RecalculateFileCacheSize(CancellationToken.None);
+                    });
+                }
             }
             ElezenImgui.DrawHelpText("Deletes original, full-sized, textures from disk after downloading and shrinking." + ElezenImgui.TooltipSeparator
                 + "Caution!!! This will cause a re-download of all textures when the shrink option is disabled.");

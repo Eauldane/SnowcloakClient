@@ -4,6 +4,7 @@ using Snowcloak.API.Dto;
 using Snowcloak.API.Dto.User;
 using Snowcloak.API.SignalR;
 using Snowcloak.API.Protocol;
+using Snowcloak.Core.Authentication;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Snowcloak.Configuration.Models;
@@ -213,6 +214,12 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
                 {
                     await _tokenProvider.GetOrUpdateToken(token).ConfigureAwait(false);
                 }
+                catch (SnowAuthFailureException ex) when (ex.Kind == AuthenticationFailureKind.ClientOutdated)
+                {
+                    AuthFailureMessage = ex.Reason;
+                    await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
+                    return;
+                }
                 catch (SnowAuthFailureException ex) when (ex.IsTransient)
                 {
                     AuthFailureMessage = TransientAuthenticationMessage;
@@ -252,9 +259,6 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
                 if (connectionDto.ServerVersion != ISnowHub.ApiVersion)
                 {
-                    Mediator.Publish(new NotificationMessage("Client incompatible",
-                        "This client version is incompatible and will not be able to connect. Please update your Snowcloak client.",
-                        NotificationType.Error));
                     await StopConnection(ServerState.VersionMisMatch).ConfigureAwait(false);
                     return;
                 }
@@ -603,6 +607,9 @@ public sealed partial class ApiController : DisposableMediatorSubscriberBase, IS
 
     private async Task StopConnection(ServerState state, bool teardownSession = true)
     {
+        if (state == ServerState.VersionMisMatch)
+            Mediator.Publish(new ClientUpdateRequiredMessage());
+
         if (teardownSession)
         {
             _connectionLifecycle.CancelConnectionToken();
